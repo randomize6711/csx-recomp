@@ -1,0 +1,62 @@
+diff --git i/runtime/xdk/hle.h w/runtime/xdk/hle.h
+index bd00965..78c1ad4 100644
+--- i/runtime/xdk/hle.h
++++ w/runtime/xdk/hle.h
+@@ -15,11 +15,12 @@
+ // Argument maps. A library built with link time code generation may take a function's arguments in registers. The
+ // config's [abi] says where each API argument of such a function is, image_symbols.h lists the maps as IMAGE_ABI,
+ // and the macros below read arguments and pop the stack by them. A name without a map keeps the declared convention.
++// "none" is an argument the library compiled away (a constant at every call): it reads as 0 and takes no slot.
+ #ifndef IMAGE_ABI
+ #define IMAGE_ABI(X)
+ #endif
+ namespace hle {
+-enum Loc : uint8_t { stack, eax, ecx, edx, ebx, esi, edi, ebp };
++enum Loc : uint8_t { stack, eax, ecx, edx, ebx, esi, edi, ebp, none };
+ constexpr int kMaxArgs = 16;
+ struct Map {
+     bool mapped = false;
+@@ -62,7 +63,7 @@ inline constexpr uint32_t X86Context::* kReg[] = {nullptr, &X86Context::eax, &X8
+                                                  &X86Context::ebx, &X86Context::esi, &X86Context::edi, &X86Context::ebp};
+ // API argument i at the function's entry, 0 past the map
+ inline uint32_t Read(const X86Context& ctx, const Map& m, int i) {
+-    if (i >= m.n) return 0;
++    if (i >= m.n || m.loc[i] == none) return 0;
+     return m.loc[i] == stack ? ::kernel::R32(ctx.esp + 4 + 4 * uint32_t(m.slot[i])) : ctx.*kReg[m.loc[i]];
+ }
+ // S::map is the function's map
+@@ -78,7 +79,7 @@ inline uint32_t Call(X86Context& ctx, uint32_t fn, const Map& m, std::initialize
+     uint32_t pushed[kMaxArgs] = {}, n = 0, i = 0;
+     for (uint32_t v : args) {
+         if (m.loc[i] == stack) pushed[n++] = v;
+-        else ctx.*kReg[m.loc[i]] = v;
++        else if (m.loc[i] != none) ctx.*kReg[m.loc[i]] = v;
+         i++;
+     }
+     uint32_t r = ::kernel::CallGuest(ctx, fn, pushed, n);
+diff --git i/tools/recomp/main.cpp w/tools/recomp/main.cpp
+index 30d506b..0190081 100644
+--- i/tools/recomp/main.cpp
++++ w/tools/recomp/main.cpp
+@@ -48,7 +48,7 @@ static bool ParseExit(const toml::node* n, Hook::Exit& e) {
+ //   [[function]] at, end  an entry decoded no further than end (exclusive); it also stops other walks
+ //   [[switch]] at, targets  the targets of an indirect jmp, replacing table detection
+ //   [xbe] xdk = build  includes <--xdk folder>/<build>/layout.toml
+-//   [abi] name = ["esi", "stack", ...]  where a [symbols] function takes each API argument when the image does not
++//   [abi] name = ["esi", "stack", "none", ...]  where a [symbols] function takes each API argument when the image does not
+ //     use the convention the host declares: a register, or "stack" for the next stack slot, which the callee pops
+ static bool LoadConfig(const fs::path& path, Config& cfg, const fs::path& xdk_dir) {
+     toml::table t;
+@@ -118,9 +118,9 @@ static bool LoadConfig(const fs::path& path, Config& cfg, const fs::path& xdk_di
+             std::vector<std::string> locs;
+             for (auto& x : *a) {
+                 std::string s = x.value<std::string>().value_or("");
+-                static const std::set<std::string> known{"stack", "eax", "ebx", "ecx", "edx", "esi", "edi", "ebp"};
+-                if (!known.count(s)) return fail("\"" + s + "\" is not stack, eax, ebx, ecx, edx, esi, edi or ebp");
+-                if (s != "stack" && std::count(locs.begin(), locs.end(), s)) return fail(s + " holds two arguments");
++                static const std::set<std::string> known{"stack", "eax", "ebx", "ecx", "edx", "esi", "edi", "ebp", "none"};
++                if (!known.count(s)) return fail("\"" + s + "\" is not stack, eax, ebx, ecx, edx, esi, edi, ebp or none");
++                if (s != "stack" && s != "none" && std::count(locs.begin(), locs.end(), s)) return fail(s + " holds two arguments");
+                 locs.push_back(s);
+             }
+             cfg.abi[name] = locs;

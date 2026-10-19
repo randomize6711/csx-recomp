@@ -1,4 +1,29 @@
-/third_party/
+# build
+/out/
 /build/
-/assets/
+*.zip
+*.pdb
+*.exe
+*.obj
+*.o
+
+# upstream clones used during analysis
+/third_party/
+
+# recompiled code, derived from the game
 /generated/
+
+# user's own game files
+/assets/
+
+# runtime files
+settings.toml
+/logs/
+/hdd/
+/CrashDumps/
+
+# editors
+.vs/
+.vscode/
+.idea/
+.local

@@ -20,3 +20,20 @@ Blockers:
 - XDK 5659 has no signature/layout data in the framework (main blocker for Phase 3).
 - Ghidra not installed (needed to verify symbols).
 - The framework's game executable is Windows/D3D12-only; Linux needs new backends (planned, not blocking yet).
+
+## 2026-10-19 — Toolchain complete, first headless boot
+
+Done:
+- User installed cmake, JDK 21, Ghidra 12.1.2, mingw-w64, DXC.
+- Workspace restructured into the framework's game layout: `sdk/` submodule pinned at 99078b1, `config/`, `src/`,
+  `xdk/5659/`, `assets/default.xbe` (read-only copy). `CSX_TOOLS_ONLY` + `linux-tools` preset build the tools via CMake.
+- Ghidra project `build/ghidra/proj` from `xbe2pe.py` (flat PE with candidate symbols), auto-analysis 165 s.
+- Recompilation survey: codegen 2 s, all 65 generated files compile, no reachable unimplemented instruction.
+- Headless harness links and boots (`tools/iterate.sh`, ~40 s rebuild from scratch): through CRT, file system,
+  XACT/DSOUND init to `Direct3D_CreateDevice`.
+- Fixed/added: DSKERDAT dropped from code sections; APU sample counter (`src/common/apu_clock.cpp`);
+  5659 layout for the effects image and XPP; `Direct3D_CreateDevice` [abi]; SDK patch for compiled-away arguments.
+- Safety: the harness runs in a network namespace (`unshare -rn`) on a reflink copy of the game data.
+
+Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (parallel analysis running), then the
+~100 host-replaced functions the 5849 signatures missed.

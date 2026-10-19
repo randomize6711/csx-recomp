@@ -1,0 +1,13 @@
+# XDK 5659 library data layouts the runtime reads or writes, for Counter-Strike default.xbe.
+# Same keys as sdk/xdk/5849/layout.toml. Every value cites the CS instruction that proves it.
+[layout]
+# DSOUND effects image (dspimage.bin); the image is copied with offsets kept: header dwords 0x24895A..0x24897D,
+# the rest from +0x818 by 0x24899E (CDirectSound DownloadEffectsImage 0x244D20 -> 0x244B53 -> 0x248934)
+EffectsImage_Skip0 = 0x804   # 0x2486E0 adds this dword count
+EffectsImage_Skip1 = 0x80C   # 0x2486DA loads this dword count
+EffectsImage_Desc  = 0x818   # 0x2486E9: descriptor at image + 0x818 + (Skip0 + Skip1) * 4
+# XAPI XPP device type record (XPP_GamepadType 0x31823C by .XTLID 0x1007C); XGetDevices = 0x3193A7 (passed
+# 0x31823C at 0xBD7F8), XGetDeviceChanges = 0x3193C9 (passed 0x31823C at 0xBD941)
+XPP_Current  = 0x0   # XGetDevices 0x3193B2 loads it as the return value
+XPP_Changed  = 0x4   # XGetDevices 0x3193B4 clears it, XGetDeviceChanges 0x3193D2 tests it
+XPP_Previous = 0x8   # XGetDevices 0x3193BA copies Current into it

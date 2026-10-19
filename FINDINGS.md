@@ -64,6 +64,43 @@ Output `analysis/game_5849sigs_experiment.toml`, log `analysis/xbe_symbols_exper
   light/material, palette, gamma, `DirectSoundCreateBuffer`, `IDirectSoundBuffer_Lock/Unlock` and 3D-position setters.
 - **None of these addresses are verified yet.** They are candidates for Ghidra confirmation.
 
+## Recompilation survey (2026-10-19, xbe_recomp @ 99078b1)
+
+- `xbe_recomp` finishes in ~2 s: 15,360 functions (1,036 by direct calls, 4,011 pointer seeds, 3,758 gap fill),
+  873,593 instructions, 376 jump tables, 93 C++ catch blocks; 2.84 MB of 3.21 MB code-section bytes decoded.
+- All 65 generated files compile with clang 23 (-O1) with no errors.
+- **DSKERDAT is not x86 code**: 113 "functions" decoded there and none is called from outside the section
+  (48,645 call sites checked). Removed from `code_sections`.
+- Trap inventory: every function containing an unimplemented instruction (aaa, arpl, bound, iretd, insb, les...)
+  has **no direct caller** except `int3` sites; they are data decoded by pointer seeding / gap fill in WMADEC, XMV,
+  DSOUND. Directly called functions with traps contain only `int3` (e.g. `sub_00239001`, 1,713 callers — to inspect).
+  1,427 "divide error" traps are the generator's divide-by-zero checks, not problems.
+
+## Headless boot on Linux (harness, network namespace, reflink copy of the game data)
+
+- Boots: CRT init, kernel imports resolved (0 missing), the title mounts D:/T:/U:/Z:, opens `D:\FrontEnd.sxwad`, probes
+  `d:\shared\`, `d:\cstrike\`, `d:\valve\` (GoldSrc mod folders, absent on the disc) and opens `d:\default.xbe`.
+- **XACT reads the APU sample counter directly**: `mov eax, [0xFE80200C]` at 0x3026FD (sub_003026E9, called from
+  game code 0x1066A0 through XACT 0x2F91BF). NV_PAPU_XGSCNT = global sample counter (xemu `apu_regs.h`,
+  `mcpx_apu_read`: frames × 32 samples at 48 kHz). The runtime models no APU registers. Fixed in
+  `src/common/apu_clock.cpp` (commits the page, host thread keeps the counter running). The XPP section also reads it
+  (sub_0031D572).
+- Other hardware MMIO in code: APU 0xFE80xxxx/0xFE82xxxx and NV2A 0xFD00xxxx inside DSOUND/D3D internals, NVNet
+  0xFEF00000 inside XNET. Reached only if those internals run instead of the runtime's HLE.
+- After the fix: effects image `dspimage.bin` loads (6 effects), XACT initialises, the title calls
+  `Direct3D_CreateDevice`, which stops on missing 5659 D3D data/layout (expected next step).
+
+## XDK 5659 values proven from CS code (in `xdk/5659/layout.toml` / `config/game.toml`)
+
+| Value | Proof |
+|---|---|
+| EffectsImage_Skip0/Skip1/Desc = 0x804/0x80C/0x818 | 0x2486DA, 0x2486E0, 0x2486E9 (same as 5849) |
+| XPP_Current/Changed/Previous = 0/4/8 | XGetDevices 0x3193A7 (0x3193B2..BA), XGetDeviceChanges 0x3193C9 (0x3193D2) |
+| XPP_GamepadType = 0x31823C | .XTLID id 0x1007C |
+| D3D_Device = 0x314B40, D3D_pDevice = 0x316FE8 | Direct3D_CreateDevice 0x30A551 stores 0x314B40 into 0x316FE8 |
+| CDevice_Flags = 0x8, CDevice_Size = 0x24A0 | 0x30A545/0x30A565 (device+8 gets BehaviorFlags & 0x10); 0x30A58C clears 0x928 dwords |
+| Direct3D_CreateDevice ABI = none, none, none, eax, stack, ecx | 0x30A542, 0x30A5AD, ret 4 + caller 0x1084E1 |
+
 ## Assumptions / to verify
 
 - Third-party licenses (from prior knowledge, confirm before reusing any code): Half-Life SDK — Valve's restrictive
@@ -71,4 +108,6 @@ Output `analysis/game_5849sigs_experiment.toml`, log `analysis/xbe_symbols_exper
   project; no code to be copied.
 - Missing D3D functions may be inlined into callers by LTCG rather than absent; must be checked per function.
 - 5849 CDevice/DSOUND struct offsets in `layout.toml` are expected to differ in 5659 and must be re-derived.
-- `.data1`/`DOLBY`/`DSKERDAT` sections: purpose not yet confirmed (DSKERDAT is listed as a code section by xbe_symbols).
+- `.data1`/`DOLBY` sections: purpose not yet confirmed. DSKERDAT is presumably the DSP (DSP56300) program image
+  DirectSound downloads; verified only that it is not x86 called from code.
+- XGSCNT granularity of 32 samples follows xemu's model, not a hardware measurement.

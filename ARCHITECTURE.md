@@ -42,6 +42,13 @@ authoritative source of game behaviour; it is supplied by the user at build/run 
 6. **Simulation timing is untouched.** High refresh rate work must decouple presentation from the game's own tick,
    never change the game's timestep. To be designed once the main loop is identified.
 
+7. **SDK changes are patch files** (`patches/sdk/*.patch`, applied by `tools/apply_sdk_patches.sh`) so the submodule
+   stays at an upstream commit. Current: `0001-abi-none-location` (`"none"` [abi] location for arguments LTCG compiled
+   away). Workarounds that need no SDK edit are preferred (`-include unistd.h` for the harness build).
+8. **Hardware registers the title reads directly** are modelled in `src/common` and started from `GameInfo::loaded`
+   (first: APU XGSCNT, `apu_clock.cpp`).
+9. **Unproven LTCG functions are left un-replaced** (symbol 0 + "pending" comment) rather than given guessed maps.
+
 ## Workspace
 
 ```
@@ -51,7 +58,14 @@ csx-recomp/
   analysis/            reports derived from the XBE (no game bytes)
   third_party/         upstream clones (gitignored): XboxXBERecomp, zydis, tomlplusplus
   build/               build outputs (gitignored)
-  (planned) sdk/ config/ src/ assets/ generated/ — per the framework's game template
+  sdk/                 XboxXBERecomp submodule (pinned), patched in the working tree only
+  patches/sdk/         our SDK patches
+  config/game.toml     recompiler config (symbols, data, abi); includes xdk/5659/layout.toml
+  xdk/5659/            5659 layout data we derive (later: signatures)
+  src/common, src/game host code: game info, hardware models, hooks
+  assets/default.xbe   read-only copy of the XBE (build input)
+  out/build/linux-tools  tools built via CMake
+  build/gamedata       reflink copy of the game folder for runs; build/gen, build/harness, build/run
 ```
 
 `assets/` (game files) and `generated/` (recompiled code) are gitignored: no game code or data in the repository.
