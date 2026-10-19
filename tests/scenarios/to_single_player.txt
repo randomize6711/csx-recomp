@@ -1,0 +1,15 @@
+# boot -> title -> notice -> profile keyboard -> Done -> main menu -> Single Player
+wait draws==1
+pressuntil START draws>=3
+pressuntil A draws>=50
+sleep 3
+press A
+sleep 6
+snap main_menu
+press DOWN
+sleep 2
+snap main_menu_sp
+press A
+sleep 5
+snap single_player
+expect nolog fatal error screen

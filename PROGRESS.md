@@ -54,3 +54,14 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   movies -> title screen ("Please press START to begin") -> attract movie after idle. No crash in 120 s runs.
 - First frame captured with the reference renderer.
 - Not yet: input, overlay compositing (movies invisible), any windowed/GPU presentation on Linux.
+
+## 2026-10-19 — Main menu and an offline match (headless, Linux)
+
+- Black REF=N captures explained (harness only applied clears on drawn frames; CS clears depth once) and fixed.
+- Rendering fixes, each with evidence in FINDINGS.md: multisample 640x960 back buffer (0009), pretransformed super
+  sample scale (0010), reference renderer near-w clip (0011), pretransformed z in depth units (0012).
+- tools/drive.py scenario driver; tests/run_regression.sh with regress_boot_to_spawn (37 steps, ~90 s), shown to fail
+  when patch 0007 is removed.
+- Reached: notice, profile creation, main menu, Training, Single Player, Map Selection, title relaunch into
+  de_airstrip, team selection, spawn with HUD/radar/buy menu; round timer runs and bots fight.
+- Not yet: verified player control, overlay compositing, comparison against xemu, any windowed presentation.

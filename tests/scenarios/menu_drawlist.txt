@@ -1,0 +1,6 @@
+wait draws==1
+pressuntil START draws>=3
+pressuntil A draws>=50
+sleep 3
+press A
+sleep 8

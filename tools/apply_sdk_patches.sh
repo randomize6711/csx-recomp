@@ -16,6 +16,6 @@ if git -C "$sdk" diff --quiet; then
     exit 0
 fi
 unset GIT_INDEX_FILE
-files=$(for p in "${patches[@]}"; do git -C "$sdk" apply --numstat "$p" | cut -f3; done | sort -u)
-git -C "$sdk" checkout -- $files
+# every file changed in the working tree, so a patch taken out of patches/sdk is undone too
+git -C "$sdk" checkout -- .
 for p in "${patches[@]}"; do git -C "$sdk" apply "$p" && echo "applying $(basename "$p")"; done

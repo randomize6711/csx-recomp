@@ -157,6 +157,44 @@ Output `analysis/game_5849sigs_experiment.toml`, log `analysis/xbe_symbols_exper
   to begin", one 1024x512 DXT quad, 640x480 orthographic), and after ~50 s idle the attract movie starts, as on the
   console. First frame captured with the reference renderer (REF=1). Colours not yet compared against the console.
 
+## Front end to an offline match (2026-10-19)
+
+- **Black REF=200 captures (harness artifact, not a game bug)**: CS clears target and depth exactly twice, at start-up
+  (Reset and the first frame, flags 0xF3, z 1.0), and never again. The harness only passed clears to the reference
+  renderer on drawn frames, so with REF=N the depth buffer stayed 0 and every later quad (z 0.5, LESSEQUAL) failed.
+  Evidence: on a captured frame the only draw targets the presented surface (rt 0x03B8C000) yet writes no pixel;
+  with every clear applied the same frames show the title screen. Harness patch 0008.
+- **Multisample back buffer**: CreateDevice gets MultiSampleType 0x2012. CS's frame buffer init stores it at
+  device+0x196C (0 means 0x11) and derives the back buffer scale X = (t>>4)&15, Y = t&15 into +0x96C/+0x970
+  (0x30C6B3..0x30C6FF): a 640x960 back buffer for the 640x480 display. While the back buffer is the target the super
+  sample scale (+0x95C/+0x960, set by 0x304B10 from the back buffer scale; MultiSampleMode RS 154 halves X, mode 2 Y)
+  multiplies the viewport (0x304650: X*ssX + screen space offset, W*ssX*0.5, H*ssY*-0.5). SDK patch 0009.
+- **Text and other screen-space programs write target pixels**: the UI text vertex program (handle 0xB0064B51, 3
+  instructions: oPos.xy = v0.xy, oT0.xy = v0.zw, oD0 = v3) is fed y in 960-line units (rows at 369.84, 449.84...,
+  shadow offset +2,+4), so programmable output is not scaled by the super sample factor.
+- **Pretransformed (XYZRHW) positions are in display pixels**: the full-screen background quads (FVF 0x144) span
+  0,0..640,480, so the console scales them by the super sample factor. SDK patch 0010 (state, D3D12 shader, reference
+  renderer).
+- **Pretransformed z is in depth buffer units**: every frame CS draws its backgrounds pretransformed at z 0.5 with
+  ZWRITE on and LESSEQUAL (0x203), then text at depth 0 (the text program leaves oPos.z at 0, as xemu's oPos
+  initialisation (0,0,0,1) also gives), and never clears depth. It only renders if 0.5 compares <= 0, i.e. z is in
+  24-bit depth units (0.5 quantises to 0), not 0..1 scaled by 2^24-1. Experiment: with unscaled z the menus render
+  cleanly with depth testing on. SDK patch 0012. Not re-tested on the upstream titles.
+- **Reference renderer near-w clip**: it clipped against w > 1e-6, while a program that writes only oPos.xy ends with
+  w clamped to 2^-64 (MagClamp, as the D3D12 path does), so every glyph was discarded. Harness patch 0011.
+- **Title relaunch**: choosing a map makes CS quick-reboot into itself (HalReturnToFirmware(2) after a missing
+  d:\-xbox_cs-f.xbe probe) with launch data; the runtime writes hdd/launch.bin and execs the image's executable name
+  from GameInfo::images ("CounterStrike"), so the harness binary must carry that name. The new instance loads
+  InGame.uix, D:\de_airstrip.sxwad and media\sound\DVDde_airstrip.xwb.
+- **Reached**: notice screen (A ACCEPT), Create a Profile keyboard (profile saved to U:\<id>\, T:\CurrentProfile.dat),
+  main menu (Training, Single Player, Xbox Live, System Link, Options, Change Profile; "Sign In failed" shown), Training
+  (Hostage-Rescue, Demolition), Single Player (Beginner..Custom), Map Selection, in-game team selection (Auto-Select,
+  CT, T, $6000), spawned as a Terrorist with the bomb: HUD, radar, buy menu, 3D level rendered. 30 s later the round
+  timer has advanced (4:47 -> 4:26) and the kill feed shows a bot kill ("Matt" -> "Troy"): simulation and bot AI run.
+  Player movement is not verified yet (the buy menu may still have had focus).
+- Input: the harness reads a press from build/run/cmd; written non-atomically it could be read empty and dropped,
+  so tools/drive.py writes it to a temporary file and renames it.
+
 ## Assumptions / to verify
 
 - Third-party licenses (from prior knowledge, confirm before reusing any code): Half-Life SDK — Valve's restrictive
@@ -170,4 +208,8 @@ Output `analysis/game_5849sigs_experiment.toml`, log `analysis/xbe_symbols_exper
 - Azimuth sign (positive = right) for the 3D pan: moderate confidence, needs a listening check.
 - Synchronous-error I/O semantics (status block and event untouched) are inferred from CS's own XAPI and reader code,
   consistent with NT; not checked against the console kernel binary.
-- The REF=200 captures came out black while REF=1 captures show the title screen; the cause is not yet understood.
+- "Sign In failed" on the main menu is the offline Live sign-in; not compared with a console without network.
+- MultiSampleMode / MultiSampleAntiAlias adjustments of the super sample scale are logged, not modelled (CS has not
+  set MultiSampleMode on the back buffer in the runs so far).
+- Overlay (movies) still not composited; the console resolves the 640x960 back buffer into a 640x480 front buffer,
+  the runtime presents the 640x960 surface directly (presentation scales it).

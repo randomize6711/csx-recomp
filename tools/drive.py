@@ -14,6 +14,8 @@ per line, executed in order:
     snap NAME               draw the next two frames and keep them as build/run/snaps/NAME_1.tga / NAME_2.tga
     expect log REGEX        fail unless a log line matches
     expect nolog REGEX      fail if a log line matches
+    expect image NAME MIN   fail unless snaps/NAME_2.tga has a luminance standard deviation of at least MIN
+                            (a blank or flat frame fails; game pixels are never stored in the repository)
 Exit status 0 when every step passed, 1 otherwise. Prints one line per step.
 """
 import os
@@ -26,7 +28,8 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RUN = os.path.join(ROOT, 'build', 'run')
-EXE = os.path.join(ROOT, 'build', 'harness', 'csx_headless')
+# named as GameInfo::images names the image: a title relaunch (quick reboot) execs this name
+EXE = os.path.join(ROOT, 'build', 'harness', 'CounterStrike')
 GAME = os.path.join(ROOT, 'build', 'gamedata')
 FRAME_RE = re.compile(r'renderer: frame (\d+), (\d+) draws')
 
@@ -40,10 +43,15 @@ class Log:
 
     def poll(self):
         logs = os.path.join(RUN, 'logs')
-        if self.path is None and os.path.isdir(logs):
+        # a relaunched instance (same process, exec) starts a new log file: follow the newest
+        if os.path.isdir(logs):
             names = sorted(os.listdir(logs))
-            if names:
-                self.path = os.path.join(logs, names[0])
+            if names and (self.path is None or os.path.join(logs, names[-1]) != self.path):
+                if self.path is not None:
+                    self.lines.extend(self.f.readlines())
+                    self.lines.append('--- relaunch: ' + names[-1] + '\n')
+                    self.prev = None
+                self.path = os.path.join(logs, names[-1])
                 self.f = open(self.path, 'r', errors='replace')
         if self.path is None:
             return
@@ -147,6 +155,10 @@ def main():
                     src = os.path.join(RUN, f'snap_{k}.tga')
                     if os.path.exists(src):
                         shutil.move(src, os.path.join(RUN, 'snaps', f'{st[1]}_{k}.tga'))
+            elif kind == 'expect' and st[1] == 'image':
+                from PIL import Image, ImageStat
+                path = os.path.join(RUN, 'snaps', st[2] + '_2.tga')
+                good = os.path.exists(path) and ImageStat.Stat(Image.open(path).convert('L')).stddev[0] >= float(st[3])
             elif kind == 'expect':
                 time.sleep(1.2)  # the log flushes every second
                 log.poll()

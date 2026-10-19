@@ -7,7 +7,7 @@
 | 2b | XDK 5659 enablement (in progress) | `config/game.toml` with every host-replaced symbol either verified in Ghidra or deliberately left 0; `xdk/5659/layout.toml` offsets proven |
 | 3 | Minimal recompilation | `xbe_recomp` completes; generated C++ compiles; count/list of trapping instructions — **done** |
 | 4 | Initialization (headless harness, Linux) | Boots to the game's main loop without traps; files open from `D:\`; threads/TLS correct — **done** |
-| 5 | Graphics + menus | Reference renderer frames show the front end; then Windows D3D12 build shows menus; Linux Vulkan backend started |
+| 5 | Graphics + menus (menus done headless) | Reference renderer frames show the front end; then Windows D3D12 build shows menus; Linux Vulkan backend started |
 | 6 | Gameplay | Offline match with bots on several maps; audio (XACT), movies (XMV), system link between two instances |
 | 7 | PC enhancements | Resolution/aspect, FOV, mouse+keyboard (raw), bindings, frame limiter, decoupled high-refresh presentation |
 | 8 | Platform parity | Linux (Vulkan/SDL3) and Windows (D3D12) builds feature-equal; CI |
@@ -19,7 +19,7 @@
 - M2 — 5659 config complete and reviewed
 - M3 — Generated code compiles and links in the harness ✅ 2026-10-19 (boots to Direct3D_CreateDevice)
 - M4 — First frame from the reference renderer ✅ 2026-10-19 (title screen "Please press START")
-- M5 — Main menu on Windows
-- M6 — Playable offline match
+- M5 — Main menu reached and rendered (headless reference renderer) ✅ 2026-10-19; on Windows: pending
+- M6 — Offline match initialises: de_airstrip, spawn, HUD, bots active ✅ 2026-10-19 (headless); player control not yet verified
 - M7 — Linux Vulkan renders the main menu
 - M8 — PC feature set complete

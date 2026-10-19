@@ -1,6 +1,6 @@
 # boot -> title screen -> START -> notice (A ACCEPT) -> A -> on-screen keyboard
 wait draws==1
-pressuntil START draws==3
+pressuntil START draws>=3
 wait draws==3
 sleep 2
 snap notice

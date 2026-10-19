@@ -1,0 +1,39 @@
+# Regression: boot to a spawned player in an offline Beginner match on de_airstrip (about 2 minutes headless).
+# Each step depends on runtime behaviour found during bring-up; FINDINGS.md has the evidence for each.
+wait draws==1
+expect log multisample type 2012, back buffer 640x960
+expect nolog fatal error screen
+snap title
+expect image title 20
+pressuntil START draws>=3
+pressuntil A draws>=50
+sleep 3
+snap keyboard
+expect image keyboard 20
+press A
+sleep 6
+snap main_menu
+expect image main_menu 20
+press DOWN
+sleep 2
+press A
+sleep 5
+snap single_player
+expect image single_player 20
+press A
+sleep 5
+snap map_selection
+expect image map_selection 20
+press A
+wait log relaunching into
+wait log open D:\\de_airstrip.sxwad
+wait draws>=150
+sleep 10
+press A
+sleep 4
+press A
+sleep 8
+snap spawned
+expect image spawned 20
+expect nolog fatal error screen
+expect nolog guest trap

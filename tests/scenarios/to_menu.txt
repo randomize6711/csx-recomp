@@ -1,0 +1,13 @@
+# boot -> title -> START -> notice -> A -> profile keyboard -> A on Done -> next screen
+wait draws==1
+pressuntil START draws>=3
+pressuntil A draws>=50
+sleep 3
+snap keyboard
+press A
+sleep 5
+snap after_done
+expect nolog fatal error screen
+sleep 10
+snap menu_settled
+expect nolog fatal error screen

@@ -1,7 +1,7 @@
 #!/bin/bash
 # One bring-up iteration on Linux: apply SDK patches, rebuild the tools, regenerate from config/game.toml,
 # rebuild the headless harness and boot it for $1 seconds (default 40) without network access.
-#   generated code: build/gen/game     harness: build/harness/csx_headless     run folder: build/run
+#   generated code: build/gen/game     harness: build/harness/CounterStrike     run folder: build/run
 #   game data:      build/gamedata, a copy-on-write (reflink) copy of the original folder, so nothing the
 #                   runtime writes to D: can reach the original files
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -13,8 +13,8 @@ mkdir -p build/gen
 out/build/linux-tools/xbe_recomp config/game.toml assets/default.xbe build/gen/game > build/recomp.log 2>&1 ||
     { echo recomp failed; tail build/recomp.log; exit 1; }
 # memory.cpp uses ftruncate without <unistd.h>: force it in rather than edit the SDK
-CXX="clang++ -include unistd.h" bash sdk/harness/build.sh -r . -g build/gen/game -o build/harness -n csx_headless \
+CXX="clang++ -include unistd.h" bash sdk/harness/build.sh -r . -g build/gen/game -o build/harness -n CounterStrike \
     > build/harness_build.log 2>&1 || { echo harness build failed; grep error build/harness_build.log | head; exit 1; }
 mkdir -p build/run && cd build/run && rm -rf logs hdd cap
-timeout -s INT "${1:-40}" unshare -rn ../harness/csx_headless ../gamedata > run.out 2>&1
+timeout -s INT "${1:-40}" unshare -rn ../harness/CounterStrike ../gamedata > run.out 2>&1
 echo "exit $?  log: build/run/logs"
