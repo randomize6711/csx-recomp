@@ -662,8 +662,15 @@ The integration (src/game/pc_menu.cpp, src/common/pc_settings.cpp; no game file 
   tiling resizes were ignored). Present now compares the window's pixel size and recreates it (2400x1350 in
   fullscreen, 1181x643 after a tile change).
 
+- **The pause menu too**: InGameUI.txt (165 KB, loaded through the same loader at a match's start) gets a row in its
+  Options screen (after Online Options, centred between blank cells as its rows are) and InGame_PCOptions, written
+  as InGame_ControllerOptions: the csxbackground overlay (Modal 50), gold title, buy_enter / buy_submenu sounds,
+  Arrows_Selected, no help lines. pc_options_load / pc_options_save take the screen's name. Changes apply at once in
+  the match: 100 mouse counts turned 7.7 degrees after setting 3.5 there (6.6 before). CSX_UI_DUMP=1 writes the menu
+  files as loaded to uidump/ in the run folder (diagnostic).
+
 Open:
-- InGameUI.txt (the pause menu's options) does not have the screen yet; the mouse in menus (the original UI has no
+- The mouse in menus (the original UI has no
   pointer: arrows, Space / Left Ctrl or a pad navigate); key bindings, field of view, frame rate limit and audio
   device are not offered yet (the frame pacing is read once by the SDK harness; FOV changes the game's look and
   needs care with the view model).

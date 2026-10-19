@@ -1,16 +1,21 @@
-// PC options inside the game's own menus (FINDINGS.md "Original menus"). The front end's screens are text: the engine
-// loads FrontEndUI*.txt whole (0xCD9A0: size at 0xCDA2C, read, then 0xCDB1A) and parses screens of tables, rows and
-// cells (CellFixed labels, CellList choices) drawn and navigated by the game's own UI code with its fonts, images and
-// sounds. The hooks here add, in memory, one row to SuperLauncher_Options ("PC Options") and one screen
-// (SuperLauncher_PCOptions) written in that same format, laid out as the game's Control Options screen. The screen's
-// commands are console commands ("!name" in the text, as the game's own screens call theirs): pc_options_load on
-// entry fills the lists from pc_settings.ini, A runs pc_options_save, B leaves without saving. A hook in
-// Cmd_ExecuteString serves them before the engine's own command lookup.
+// PC options inside the game's own menus (FINDINGS.md "Original menus and PC Options"). The game's screens are text:
+// the engine loads FrontEndUI*.txt (front end) and InGameUI*.txt (pause menu) whole (0xCD9A0: size at 0xCDA2C, read,
+// then 0xCDB1A) and parses screens of tables, rows and cells (CellFixed labels, CellList choices) drawn and navigated
+// by the game's own UI code with its fonts, images and sounds. The hooks here add, in memory, a "PC Options" row to
+// each Options screen and a screen per menu written in that same format, laid out as that menu's Control Options
+// screen (SuperLauncher_PCOptions, InGame_PCOptions). The screens' commands are console commands ("!name" in the
+// text, as the game's own screens call theirs): pc_options_load <screen> on entry fills the lists from
+// pc_settings.ini, A runs pc_options_save <screen>, B leaves without saving. A hook in Cmd_ExecuteString serves them
+// before the engine's own command lookup.
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "app/app.h"
 #include "common/pc_settings.h"
 #include "core/log.h"
 #include "cpu/x86_context.h"
@@ -61,7 +66,8 @@ const std::vector<Setting>& Settings() {
     return s;
 }
 
-constexpr const char* kScreen = "SuperLauncher_PCOptions";
+constexpr const char* kScreen = "SuperLauncher_PCOptions";  // the front end's (FrontEndUI.txt)
+constexpr const char* kInGameScreen = "InGame_PCOptions";    // the pause menu's (InGameUI.txt)
 
 std::string Quote(const std::string& s) { return "\"" + s + "\""; }
 
@@ -97,9 +103,9 @@ std::string Screen() {
          "\tCachedImage \"whitebox\t\t\t\t255 255 255 255\"\r\n"
          "\tBackgroundImage \"Back_2ndary.1Pane\t\t200 200 200 255\t\t0   0 640 480\"\r\n"
          "\tBackgroundImage \"Cancel_Accept 200 200 200 255 0 411 640 69\"\r\n"
-         "\tOnEntry \"!pc_options_load\"\r\n"
+         "\tOnEntry \"!pc_options_load " + std::string(kScreen) + "\"\r\n"
          "\tOnButtonDownB \"back\"\r\n"
-         "\tOnButtonDownA \"!pc_options_save; xbui back\"\r\n"
+         "\tOnButtonDownA \"!pc_options_save " + kScreen + "; xbui back\"\r\n"
          "\tBackgroundText \"54 83 107 255 65 45 400 30\"\t\"PC Options\"\r\n"
          "\tGeneric_4_1\r\n\t{\r\n\t\tCommandHighlight\t\"tableIncreaseValue\"\r\n\t}\r\n"
          "\tGeneric_4_2\r\n\t{\r\n\t\tCommandHighlight\t\"tableMoveUp\"\r\n\t}\r\n"
@@ -123,6 +129,56 @@ std::string Screen() {
         t += "\t\t\t}\r\n\t\t}\r\n";
     }
     return t + "\t}\r\n}\r\n";
+}
+
+// InGame_PCOptions: the pause menu's Control Options screen (its overlay, colours, sounds, arrows) with these rows;
+// the in-game option screens carry no help lines
+std::string InGameScreen() {
+    std::string t = std::string("\r\n") + kInGameScreen + "\r\n{\r\n";
+    t += "\tMenuType \"superlauncher\"\r\n"
+         "\tEnterSound \"menu/buy_enter.wav\"\r\n"
+         "\tSelectSound \"menu/buy_submenu.wav\"\r\n"
+         "\tHighlightSound \"menu/buy_hover.wav\"\r\n"
+         "\tPieceOffsetDegrees \"0\"\r\n"
+         "\tCachedImage \"angleSelect\t\t\t\t255 255 255 255\"\r\n"
+         "\tBackgroundImage \"csxbackground\t\t100 100 80 235\t\t0 0 640 480\"\r\n"
+         "\tModal \"50\"\r\n"
+         "\tBackgroundText \"177 169 54 255 65 45 400 30\"\t\"PC Options\"\r\n"
+         "\tOnButtonDownB \"back\"\r\n"
+         "\tOnButtonDownA \"!pc_options_save " + std::string(kInGameScreen) + "; xbui back\"\r\n"
+         "\tOnEntry \"!pc_options_load " + kInGameScreen + "\"\r\n"
+         "\tGeneric_4_1\r\n\t{\r\n\t\tCommandHighlight\t\"tableIncreaseValue\"\r\n\t}\r\n"
+         "\tGeneric_4_2\r\n\t{\r\n\t\tCommandHighlight\t\"tableMoveUp\"\r\n\t}\r\n"
+         "\tGeneric_4_3\r\n\t{\r\n\t\tCommandHighlight\t\"tableDecreaseValue\"\r\n\t}\r\n"
+         "\tGeneric_4_4\r\n\t{\r\n\t\tCommandHighlight\t\"tableMoveDown\"\r\n\t}\r\n"
+         "\tTable\r\n\t{\r\n\t\tLayout\r\n\t\t{\r\n"
+         "\t\t\tColumnWidthPercentage \"60\"\r\n\t\t\tColumnJustify \"truncated\"\r\n"
+         "\t\t\tColumnWidthPercentage \"40\"\r\n\t\t\tColumnJustify \"center\"\r\n"
+         "\t\t\tTableVerticalWrap\r\n\t\t\tTableTextScale \"0.875\"\r\n\t\t\tTableLocation \"75 100\"\r\n"
+         "\t\t\tTableRowSpacing \"5\"\r\n\t\t\tTableSize \"475 400\"\r\n"
+         "\t\t\tHighlightImage \"Arrows_Selected 1.0 1.0 1.0 1.0 257.0 2.0 218.0 22.0\"\r\n"
+         "\t\t}\r\n";
+    for (const Setting& s : Settings()) {
+        t += "\t\tRow\r\n\t\t{\r\n\t\t\tCellFixed " + Quote(s.label) + "\r\n\t\t\tCellList\r\n\t\t\t{\r\n";
+        for (size_t i = 0; i < s.choices.size(); i++)
+            t += std::string("\t\t\t\t") + (int(i) == s.def ? "ListDefault " : "ListOption ") +
+                 Quote(s.choices[i].label) + "\t\t" + Quote(s.choices[i].value) + "\r\n";
+        t += "\t\t\t}\r\n\t\t}\r\n";
+    }
+    return t + "\t}\r\n}\r\n";
+}
+
+// the pause menu's text: a row in its Options screen after Online Options (written as its rows are: centred, a blank
+// cell either side) and the screen; empty when its layout is not the one expected
+std::string ExtendInGame(const std::string& text) {
+    size_t screen = text.find("\nOptions\r\n{");
+    size_t online = screen == std::string::npos ? screen : text.find("\"open InGame_OnlineOptions\"", screen);
+    size_t end = online == std::string::npos ? online : text.find("\n\t\t}\r\n", online);
+    if (end == std::string::npos) return {};
+    end += std::strlen("\n\t\t}\r\n");
+    std::string row = std::string("\t\tRow\r\n\t\t{\r\n\t\t\tCommandSelect   \"open ") + kInGameScreen +
+                      "\"\r\n\t\t\tCellFixed \" \"\r\n\t\t\tCellFixed \"PC Options\"\r\n\t\t\tCellFixed \" \"\r\n\t\t}\r\n";
+    return text.substr(0, end) + row + text.substr(end) + InGameScreen();
 }
 
 // the front end text with the row and the screen added; empty when its layout is not the one expected
@@ -166,9 +222,9 @@ uint32_t ListCell(uint32_t table, size_t row) {
 }
 uint32_t Choices(uint32_t cell) { return (R32(cell + 0x10) - R32(cell + 0xC)) / 0x1C; }
 
-void LoadOptions() {
-    uint32_t table = FindTable(kScreen);
-    if (!table) return LOGW("pc menu: no %s screen", kScreen);
+void LoadOptions(const std::string& screen) {
+    uint32_t table = FindTable(screen.c_str());
+    if (!table) return LOGW("pc menu: no %s screen", screen.c_str());
     for (size_t i = 0; i < Settings().size(); i++) {
         const Setting& s = Settings()[i];
         uint32_t cell = ListCell(table, i);
@@ -184,9 +240,9 @@ void LoadOptions() {
     }
 }
 
-void SaveOptions() {
-    uint32_t table = FindTable(kScreen);
-    if (!table) return LOGW("pc menu: no %s screen", kScreen);
+void SaveOptions(const std::string& screen) {
+    uint32_t table = FindTable(screen.c_str());
+    if (!table) return LOGW("pc menu: no %s screen", screen.c_str());
     for (size_t i = 0; i < Settings().size(); i++) {
         const Setting& s = Settings()[i];
         uint32_t cell = ListCell(table, i), pick = cell ? R32(cell) : 0;
@@ -197,11 +253,12 @@ void SaveOptions() {
 
 }  // namespace
 
-// [[hook]] at 0xCDA2E (config/game.toml): the file's size was just taken into ebp, the name is at [esp+0x10]; a front
-// end UI file gets room for the additions (the buffer is size + 1, the read stops at the file's end)
+// [[hook]] at 0xCDA2E (config/game.toml): the file's size was just taken into ebp, the name is at [esp+0x10]; a menu
+// file (FrontEndUI*.txt, InGameUI*.txt) gets room for the additions (the buffer is size + 1, the read stops at the file's end)
 void PcUiLoadSize(X86Context& ctx, uint8_t*) {
     g_pending_size = 0;
-    if (GuestString(R32(ctx.esp + 0x10)).rfind("FrontEndUI", 0) != 0) return;
+    std::string name = GuestString(R32(ctx.esp + 0x10));
+    if (name.rfind("FrontEndUI", 0) != 0 && name.rfind("InGameUI", 0) != 0) return;
     g_pending_size = ctx.ebp;
     ctx.ebp += kExtra;
 }
@@ -212,13 +269,17 @@ void PcUiLoadText(X86Context& ctx, uint8_t*) {
     if (!g_pending_size) return;
     uint32_t size = std::exchange(g_pending_size, 0u), room = ctx.ebp;
     std::string text(static_cast<const char*>(kernel::HostPtr(ctx.esi)), size);
-    std::string out = Extend(text);
+    std::string name = GuestString(R32(ctx.esp + 0x10));
+    if (const char* d = std::getenv("CSX_UI_DUMP"); d && *d == '1') {  // the game's menu text as loaded, for reading
+        std::filesystem::create_directories(app::ExeDir() / "uidump");
+        std::ofstream(app::ExeDir() / "uidump" / name, std::ios::binary) << text;
+    }
+    std::string out = name.rfind("FrontEndUI", 0) == 0 ? Extend(text) : ExtendInGame(text);
     if (out.empty() || out.size() > room) {
-        LOGW("pc menu: %s left as it is (%s)", GuestString(R32(ctx.esp + 0x10)).c_str(),
-             out.empty() ? "layout not recognised" : "no room");
+        LOGW("pc menu: %s left as it is (%s)", name.c_str(), out.empty() ? "layout not recognised" : "no room");
         out = text;
     } else {
-        LOGI("pc menu: PC Options added to %s", GuestString(R32(ctx.esp + 0x10)).c_str());
+        LOGI("pc menu: PC Options added to %s", name.c_str());
     }
     std::memcpy(kernel::HostPtr(ctx.esi), out.data(), out.size());
     static_cast<char*>(kernel::HostPtr(ctx.esi))[out.size()] = 0;
@@ -230,8 +291,9 @@ void PcUiLoadText(X86Context& ctx, uint8_t*) {
 bool PcConsoleCommand(X86Context&, uint8_t*) {
     if (!R32(0x4253E8)) return false;
     std::string cmd = GuestString(R32(0x4251A8));
-    if (cmd == "pc_options_load") LoadOptions();
-    else if (cmd == "pc_options_save") SaveOptions();
+    std::string screen = R32(0x4253E8) > 1 ? GuestString(R32(0x4251AC)) : std::string(kScreen);  // argument 1
+    if (cmd == "pc_options_load") LoadOptions(screen);
+    else if (cmd == "pc_options_save") SaveOptions(screen);
     else return false;
     return true;
 }

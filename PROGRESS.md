@@ -228,3 +228,8 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
 - The Vulkan swapchain now follows the window's size on Wayland (fullscreen, resizes).
 - Regression 384/384 (regress_pc_options also switches Invert Mouse on and checks every row's save).
 
+## 2026-10-19 — PC Options in the pause menu
+
+- InGameUI.txt gets the same row and an InGame_PCOptions screen in the pause menu's own style; settings change during
+  a match (mouse sensitivity checked in the Vulkan window). Test: regress_pc_options_ingame.txt. Regression 426/426.
+
