@@ -764,6 +764,18 @@ Field of view (src/game/pc_view.cpp, Options > PC Options):
 - The first-person weapon looks smaller at a wide FOV (same projection as the world, as on a PC); a separate
   viewmodel FOV would need its draws found and given their own projection, cosmetic, not done.
 
+Widescreen experiments (not kept):
+- A wider back buffer alone (present parameters 854x480 before Direct3D_CreateDevice, 0x553620): the runtime makes
+  an 854x960 buffer, the engine keeps its 640x480 window rectangle (0x6CE210..0x6CE21C, from the game interface
+  [0x379FAC] +0x24 at 0xAF192, not from the present parameters) and draws into the left 640 columns.
+- With the rectangle widened too (right edge 854 at 0xAF1DF): the 3D view fills 854x480 (r_refdef's rectangle
+  854x480), Vert- (CalcFovY keeps the horizontal 90, the vertical shrinks to 58.7), the video size used by
+  R_SetFrustum stays 640x480, and the HUD is mixed: the crosshair and most elements stay in 640-wide coordinates
+  (the crosshair at x 320, left of the centre), the right-aligned ammo runs past the right edge. Menus, the scope
+  overlay, fades and the glow pass's 320x240 / 160x120 targets are all laid out for 640x480.
+- So the 3D renderer accepts a wide view (with a Hor+ FOV and a matching frustum), but each 2D layer needs its own
+  treatment; see PROGRESS.md for the options.
+
 ## Assumptions / to verify
 
 - Third-party licenses (from prior knowledge, confirm before reusing any code): Half-Life SDK — Valve's restrictive
