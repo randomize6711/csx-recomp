@@ -1,0 +1,98 @@
+default.xbe: title 4D530036
+  libraries: XAPILIB 1.0.5659 D3DX8 1.0.5659 DSOUND 1.0.5659 XBOXKRNL 1.0.5659 XONLINES 1.0.5659 UIX 1.0.5659 XVOICE 1.0.5659 XMV 1.0.5659 LIBCPMT 1.0.5659 LIBCMT 1.0.5659 D3D8LTCG 1.0.5659 XGRAPHCL 1.0.5659 XACTENLT 1.0.5659
+  using build/xdk_experiment/5659
+  found 130 of 238 functions, 6 of 12 data
+  ambiguous IDirectSoundBuffer_SetFilter: 0x2462C8 0x2462E4 0x246300 0x24640C
+  ambiguous IDirectSoundStream_SetEG: 0x24646A 0x24646F 0x246474 0x2464A0
+  D3DResource_IsBusy found by .XTLID 0x8006F
+  Direct3D_CreateDevice found by .XTLID 0x800C5
+  IDirectSoundBuffer_SetFilter found by .XTLID 0xB0068
+  IDirectSoundBuffer_SetFormat found by .XTLID 0xB0069
+  IDirectSoundBuffer_SetOutputBuffer found by .XTLID 0xB0075
+  IDirectSoundBuffer_SetPlayRegion found by .XTLID 0xB0077
+  IDirectSoundBuffer_StopEx found by .XTLID 0xB007E
+  IDirectSoundStream_SetEG found by .XTLID 0xB008C
+  IDirectSound_DownloadEffectsImage found by .XTLID 0xB003C
+  IDirectSound_SynchPlayback found by .XTLID 0xB0051
+  WSACancelOverlappedIO found by .XTLID 0x4003B
+  WSAGetOverlappedResult found by .XTLID 0x4001E
+  WSARecv found by .XTLID 0x4001F
+  WSASend found by .XTLID 0x40022
+  WSASendTo found by .XTLID 0x40023
+  WSAStartup found by .XTLID 0x40018
+  XInputOpen found by .XTLID 0x10036
+  XNetRegisterKey found by .XTLID 0x4002A
+  XNetStartup found by .XTLID 0x40026
+  XNetXnAddrToInAddr found by .XTLID 0x4002C
+  XOnlineCleanup found by .XTLID 0x30002
+  XOnlineStartup found by .XTLID 0x30001
+  accept found by .XTLID 0x40001
+  bind found by .XTLID 0x40002
+  closesocket found by .XTLID 0x40003
+  connect found by .XTLID 0x40004
+  getsockname found by .XTLID 0x40006
+  ioctlsocket found by .XTLID 0x4000B
+  listen found by .XTLID 0x4000C
+  recv found by .XTLID 0x4000F
+  select found by .XTLID 0x40011
+  send found by .XTLID 0x40012
+  setsockopt found by .XTLID 0x40014
+  shutdown found by .XTLID 0x40015
+  socket found by .XTLID 0x40016
+  CDevice_KickOff found by constants (0.65) at 0x30A2C0
+  D3DDevice_Clear found by constants (1.00) at 0x309810
+  D3DDevice_CopyRects found by constants (1.00) at 0x305D90
+  D3DDevice_CreateVertexShader found by constants (1.00) at 0x307860
+  D3DDevice_DrawIndexedVertices found by constants (0.60) at 0x308480
+  D3DDevice_DrawVertices found by constants (0.80) at 0x3083B0
+  D3DDevice_DrawVerticesUP found by constants (0.87) at 0x308200
+  D3DDevice_PersistDisplay found by constants (0.80) at 0x306B20
+  D3DDevice_SelectVertexShader found by constants (1.00) at 0x3073D0
+  D3DDevice_SetIndices found by constants (0.67) at 0x306610
+  D3DDevice_SetPixelShader found by constants (0.98) at 0x304F70
+  D3DDevice_SetPixelShaderConstant found by constants (1.00) at 0x305180
+  D3DDevice_SetRenderState_CullMode found by constants (1.00) at 0x3039E0
+  D3DDevice_SetRenderState_Dxt1NoiseEnable found by constants (1.00) at 0x303D90
+  D3DDevice_SetRenderState_FogColor found by constants (1.00) at 0x303980
+  D3DDevice_SetRenderState_LineWidth found by constants (1.00) at 0x303D20
+  D3DDevice_SetRenderState_StencilEnable found by constants (0.80) at 0x303BA0
+  D3DDevice_SetRenderState_StencilFail found by constants (1.00) at 0x303C30
+  D3DDevice_SetRenderState_ZEnable found by constants (1.00) at 0x303B00
+  D3DDevice_SetRenderTarget found by constants (0.65) at 0x305A30
+  D3DDevice_SetScissors found by constants (1.00) at 0x3067B0
+  D3DDevice_SetShaderConstantMode found by constants (0.96) at 0x307490
+  D3DDevice_SetStreamSource found by constants (1.00) at 0x3070C0
+  D3DDevice_SetTexture found by constants (1.00) at 0x306460
+  D3DDevice_SetTextureState_TexCoordIndex found by constants (0.93) at 0x304310
+  D3DDevice_SetTransform found by constants (1.00) at 0x3060E0
+  D3DDevice_SetVertexShader found by constants (1.00) at 0x307AD0
+  D3DDevice_SetVertexShaderConstantNotInlineFast found by constants (0.86) at 0x307D50
+  D3DDevice_SetViewport found by constants (1.00) at 0x306240
+  D3DDevice_Swap found by constants (1.00) at 0x309660
+  D3D_BlockOnTime found by constants (1.00) at 0x30A000
+  D3D_InternalRelease found by constants (1.00) at 0x307F30
+  D3D_MakeRequestedSpace found by constants (1.00) at 0x30A170
+  D3D_SetFence found by constants (1.00) at 0x309D10
+  convention differs from the reference, prove each argument order by hand and write it in [abi]:
+    CDevice_KickOff at 0x30A2C0 reads edx, pops 0; reference reads ecx, pops 0
+    D3DDevice_DrawVertices at 0x3083B0 reads eax ecx, pops 4; reference reads no register, pops 12
+    D3DDevice_SelectVertexShader at 0x3073D0 reads eax ebx, pops 0; reference reads no register, pops 8
+    D3DDevice_SetIndices at 0x306610 reads ebx, pops 4; reference reads no register, pops 8
+    D3DDevice_SetPixelShader at 0x304F70 reads eax, pops 0; reference reads no register, pops 4
+    D3DDevice_SetPixelShaderConstant at 0x305180 reads eax ecx, pops 4; reference reads no register, pops 12
+    D3DDevice_SetShaderConstantMode at 0x307490 reads eax, pops 0; reference reads no register, pops 4
+    D3DDevice_SetStreamSource at 0x3070C0 reads eax ebx, pops 4; reference reads no register, pops 12
+    D3DDevice_SetTexture at 0x306460 reads eax, pops 4; reference reads no register, pops 8
+    D3DDevice_SetTextureState_TexCoordIndex at 0x304310 reads esi, pops 4; reference reads no register, pops 8
+    D3DDevice_SetTransform at 0x3060E0 reads eax edx, pops 0; reference reads no register, pops 8
+    D3DDevice_Swap at 0x309660 reads eax, pops 0; reference reads no register, pops 4
+    D3DResource_IsBusy at 0x3080B0 reads ecx, pops 0; reference reads no register, pops 4
+    D3D_InternalRelease at 0x307F30 reads esi, pops 0; reference reads no register, pops 4
+    D3D_MakeRequestedSpace at 0x30A170 reads eax, pops 4; reference reads no register, pops 8
+    Direct3D_CreateDevice at 0x30A510 reads eax ecx, pops 4; reference reads no register, pops 24
+  D3D_DirtyFlags not read from D3DDevice_SelectVertexShader, which the bytes did not find
+  D3D_IndexData not read from D3DDevice_SetIndices, which the bytes did not find
+  D3D_RenderState not read from D3DDevice_SetPixelShader, which the bytes did not find
+  D3D_Streams not read from D3DDevice_SetStreamSource, which the bytes did not find
+  missing (0, the host traps if the game calls one): BinkDoFrame BinkGetSummary BinkNextFrame BinkWait CDirectSoundStream_SetFrequency CDirectSoundStream_SetI3DL2Source CDirectSoundStream_SetMaxDistance CDirectSoundStream_SetMinDistance CDirectSoundStream_SetPosition CDirectSoundStream_SetVelocity D3DDevice_Begin D3DDevice_BeginPush D3DDevice_BlockOnFence D3DDevice_CreatePixelShader D3DDevice_DeletePixelShader D3DDevice_DeleteVertexShader D3DDevice_End D3DDevice_EndPush D3DDevice_FlushVertexCache D3DDevice_GetBackBuffer2 D3DDevice_GetDepthStencilSurface2 D3DDevice_GetRenderTarget2 D3DDevice_GetVertexShaderFunction D3DDevice_InsertFence D3DDevice_IsFencePending D3DDevice_LightEnable D3DDevice_LoadVertexShader D3DDevice_MakeSpace D3DDevice_Release D3DDevice_SetFlickerFilter D3DDevice_SetGammaRamp D3DDevice_SetLight D3DDevice_SetMaterial D3DDevice_SetPalette D3DDevice_SetRenderStateNotInline D3DDevice_SetRenderState_BackFillMode D3DDevice_SetRenderState_DoNotCullUncompressed D3DDevice_SetRenderState_EdgeAntiAlias D3DDevice_SetRenderState_FillMode D3DDevice_SetRenderState_FrontFace D3DDevice_SetRenderState_LogicOp D3DDevice_SetRenderState_MultiSampleAntiAlias D3DDevice_SetRenderState_MultiSampleMask D3DDevice_SetRenderState_MultiSampleMode D3DDevice_SetRenderState_MultiSampleRenderTargetMode D3DDevice_SetRenderState_NormalizeNormals D3DDevice_SetRenderState_OcclusionCullEnable D3DDevice_SetRenderState_RopZCmpAlwaysRead D3DDevice_SetRenderState_RopZRead D3DDevice_SetRenderState_SampleAlpha D3DDevice_SetRenderState_ShadowFunc D3DDevice_SetRenderState_Simple D3DDevice_SetRenderState_StencilCullEnable D3DDevice_SetRenderState_TextureFactor D3DDevice_SetRenderState_TwoSidedLighting D3DDevice_SetRenderState_VertexBlend D3DDevice_SetRenderState_YuvEnable D3DDevice_SetScreenSpaceOffset D3DDevice_SetSoftDisplayFilter D3DDevice_SetTextureStageStateNotInline D3DDevice_SetTextureState_BorderColor D3DDevice_SetTextureState_BumpEnv D3DDevice_SetTextureState_ColorKeyColor D3DDevice_SetTile D3DDevice_SetVertexShaderConstant1 D3DDevice_SetVertexShaderConstant1Fast D3DDevice_SetVertexShaderConstant4 D3DDevice_SwitchTexture D3DResource_BlockUntilNotBusy D3D_BlockOnResource D3D_InitDefaultState D3D_InternalAddRef D3D_KickOffAndWaitForIdle DirectSoundCreateBuffer DirectSoundUseLightHRTF IDirectSoundBuffer_GetCurrentPosition IDirectSoundBuffer_Lock IDirectSoundBuffer_SetAllParameters IDirectSoundBuffer_SetFrequency IDirectSoundBuffer_SetI3DL2Source IDirectSoundBuffer_SetMaxDistance IDirectSoundBuffer_SetMinDistance IDirectSoundBuffer_SetPosition IDirectSoundBuffer_SetRolloffCurve IDirectSoundBuffer_SetVelocity IDirectSoundBuffer_Unlock IDirectSound_CommitEffectData IDirectSound_EnableHeadphones IDirectSound_GetEffectData IDirectSound_GetOutputLevels IDirectSound_GetSpeakerConfig IDirectSound_SetDistanceFactor IDirectSound_SetDopplerFactor IDirectSound_SetOrientation IDirectSound_SetPosition IDirectSound_SetRolloffFactor IDirectSound_SetVelocity Lock2DSurface WSARecvFrom XAudioDownloadEffectsImage crt_atan crt_cos crt_log crt_log10 crt_sin crt_sqrt crt_tan getsockopt D3D_DeferredTextureState D3D_DirtyFlags D3D_IndexData D3D_RenderState D3D_SimpleRenderStateEncode D3D_Streams
+  D3D8LTCG is link time code generated: check the functions found by constants and the missing ones by hand

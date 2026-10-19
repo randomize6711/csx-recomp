@@ -1,0 +1,58 @@
+file          : ~/Documents/Decomp/xboxcs/Counter-Strike/downloader.xbe (1138688 bytes)
+base          : 0x00010000
+image size    : 0x111c60  headers 0x2000
+timestamp     : 2003-08-05 13:33:17+00:00
+init flags    : 0x4
+PE base/size  : 0x11b80 / 0xbf7c0  stack commit 0x10000
+debug path    : d:\xboxfre-aug03\private\ui\dl\dl\obj\i386\Downloader.exe
+non-kernel import dir: 0x0
+keys          : retail  entry 0x0001bf0c  kernel thunk 0x00012000
+title         : 'Downloader'  id 0x4d530036 (MS-054)
+regions 0x0 media 0x4 disc 0 version 0x2
+
+TLS dir       : 0x13420
+  raw 0x0-0x0 index@0xba140 callbacks@0x0 zerofill 0x90
+
+sections (24):
+  name            vaddr     vsize     raddr     rsize flags
+  .text      0x00012000   0x2e22c    0x2000   0x2e22c PRELOAD,X,HEAD_RO
+  D3D        0x00040240   0x11cd0   0x31000    0xe41c W,PRELOAD,X
+  XONLINE    0x00051f20   0x1b484   0x40000   0x1b484 PRELOAD,X,TAIL_RO
+  XNET       0x0006d3c0   0x11490   0x5c000   0x11490 PRELOAD,X,HEAD_RO
+  XACTENG    0x0007e860    0xa080   0x6e000    0xa02c W,PRELOAD,X
+  DSOUND     0x000888e0    0xaf0c   0x79000    0xacac W,PRELOAD,X
+  WMADEC     0x00093800   0x1907c   0x84000   0x1907c W,PRELOAD,X
+  D3DX       0x000ac880    0x2140   0x9e000    0x2138 W,PRELOAD,X
+  XGRPH      0x000ae9c0      0x48   0xa1000      0x44 W,PRELOAD,X
+  XPP        0x000aea20    0x7a08   0xa2000    0x7a08 W,PRELOAD,X
+  .data      0x000b6440    0xbb64   0xaa000    0x3a84 W,PRELOAD,X
+  XON_RD     0x000c1fc0    0x1ac8   0xae000    0x1ac8 PRELOAD,X,TAIL_RO
+  DOLBY      0x000c3aa0    0x7180   0xb0000    0x716c PRELOAD,X,HEAD_RO,TAIL_RO
+  resource   0x000cac20   0x44800   0xb8000   0x44800 INSERTED,HEAD_RO,TAIL_RO
+  english    0x0010f420    0x222c   0xfd000    0x222c INSERTED,HEAD_RO,TAIL_RO
+  french     0x00111660    0x263e  0x100000    0x263e INSERTED,HEAD_RO,TAIL_RO
+  german     0x00113ca0    0x26b2  0x103000    0x26b2 INSERTED,HEAD_RO,TAIL_RO
+  japanese   0x00116360    0x18f2  0x106000    0x18f2 INSERTED,HEAD_RO,TAIL_RO
+  korean     0x00117c60    0x18c8  0x108000    0x18c8 INSERTED,HEAD_RO,TAIL_RO
+  spanish    0x00119540    0x23e8  0x10a000    0x23e8 INSERTED,HEAD_RO,TAIL_RO
+  tchinese   0x0011b940    0x14a4  0x10d000    0x14a4 INSERTED,HEAD_RO,TAIL_RO
+  italian    0x0011ce00    0x238e  0x10f000    0x238e INSERTED,HEAD_RO,TAIL_RO
+  portuguese 0x0011f1a0    0x230e  0x112000    0x230e INSERTED,HEAD_RO,TAIL_RO
+  .XTLID     0x001214c0     0x790  0x115000     0x790 INSERTED,HEAD_RO,TAIL_RO
+
+library versions (11):
+  XAPILIB  1.0.5659.1  approved=2 debug=0
+  XSNDTRK  1.0.5659.1  approved=1 debug=0
+  DOWNLDR  1.0.5659.4097  approved=2 debug=0
+  LIBCMT   1.0.5659.1  approved=2 debug=0
+  XBOXKRNL 1.0.5659.1  approved=2 debug=0
+  D3D8     1.0.5659.1  approved=2 debug=0
+  XONLINES 1.0.5659.1  approved=1 debug=0
+  XACTENG  1.0.5659.1  approved=2 debug=0
+  DSOUND   1.0.5659.1  approved=2 debug=0
+  D3DX8    1.0.5659.1  approved=2 debug=0
+  XGRAPHC  1.0.5659.1  approved=2 debug=0
+
+kernel imports:
+  count 141
+  322 187 226 202 289 210 37 207 340 323 219 337 336 335 215 203 236 172 167 270 178 165 164 171 301 49 149 128 97 161 129 113 107 24 294 277 250 246 302 258 255 305 156 304 233 211 218 198 200 196 71 190 279 327 328 67 69 326 15 17 145 159 44 160 47 98 109 151 344 355 182 179 324 189 16 225 234 99 166 180 173 175 119 176 40 199 184 269 291 217 360 357 312 95 1 2 3 4 46 100 8 168 252 253 349 347 346 339 338 345 343 195 353 86 62 247 150 137 158 126 127 42 41 181 228 139 142 85 84 65 74 260 308 356 83 87 81 359 358 23 153
