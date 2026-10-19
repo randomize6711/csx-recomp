@@ -218,6 +218,19 @@ Output `analysis/game_5849sigs_experiment.toml`, log `analysis/xbe_symbols_exper
   lasted 20-80 ms and could carry into the next screen (an A on "Done" also selected Training). With FPS=30 (CS creates
   its device with presentation interval 0x80000002, read as every second vertical blank) a 3-frame press is 100 ms.
 
+## Linux window (2026-10-19)
+
+- src/linux + tools/build_window.sh: the harness host with an SDL3 window (system SDL 3.4.18, OpenGL renderer under
+  Hyprland/Wayland); every frame drawn by the reference renderer, the presented 640x960 surface decoded with
+  gpu::DescribeSurface/DecodeLevel and shown 4:3 (letterboxed). Input: SDL keyboard/mouse/gamepad into input::Poll.
+- Verified with SDL key events pushed through the window's queue (tests/scenarios/window_to_menu.txt): title, notice,
+  main menu, map selection, a match loading screen (Terrorist Briefing, Aztec), and live gameplay frames in cs_training;
+  the window survives the title's quick-reboot relaunch (exec reopens it); SIGINT closes it cleanly.
+- Speed: the single-threaded reference renderer draws 3.1 frames per second in-game at -O3 (about 1.5 at the
+  harness's default -O1) on a Ryzen 7 5700X3D; menus run at the paced 30. Not playable in-game yet.
+- Keyboard menu navigation by fixed delays is as timing sensitive as the pad scenarios (presses carried over to
+  Training in two runs).
+
 ## Assumptions / to verify
 
 - Third-party licenses (from prior knowledge, confirm before reusing any code): Half-Life SDK — Valve's restrictive

@@ -72,3 +72,10 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
 - regress_player_control: idle, run, turn, run along the new heading, fire three shots, all checked in game state.
 - Harness: optional FPS pacing (0014), right stick / black / white / stick clicks in pad scripts (0013).
 - Scenario driver: single presses with waits (re-press loops raced the 2 s draw measurements), 3-frame presses.
+
+## 2026-10-19 — Linux window
+
+- SDL3 window front end (src/linux, tools/build_window.sh), harness patch 0015 (HOST_OPT).
+- Shows menus at 30 frames/s and gameplay at about 3 frames/s (reference renderer); keyboard, mouse (stick
+  emulation), gamepads; fullscreen toggle; screenshots of the window output on request for tests.
+- Not yet: audio output (null mixer), overlay (movies), usable in-game frame rate, raw mouse aim.

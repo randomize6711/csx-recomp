@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Drives the headless harness through a scenario by watching its log.
 
-Usage: python3 -I tools/drive.py SCENARIO [--timeout S] [--env K=V ...]
+Usage: python3 -I tools/drive.py SCENARIO [--timeout S] [--env K=V ...] [--exe PATH] [--run DIR]
 
 The harness runs in build/run (network namespace, reflink game copy in build/gamedata). The scenario file has one step
 per line, executed in order:
@@ -10,6 +10,8 @@ per line, executed in order:
     wait log REGEX          until a log line matches
     sleep S                 wait S seconds
     press BUTTONS [FRAMES]  press through the harness cmd file (buttons as in the pad script, joined by +)
+    key NAME [SECONDS]      window build: press an SDL key (SDL key name) through the window's keys file
+    windowshot NAME         window build: save the window's output as RUN/shots/NAME.bmp
     pressuntil BUTTONS COND press, wait for two fresh draw measurements, repeat until COND holds (at most 15)
     dump NAME               guest memory dump to build/run/dumps/NAME.bin (src/common/memory_dump.cpp)
     state NAME              log the local player's state (src/game/state_probe.cpp) and keep it as NAME
@@ -102,13 +104,19 @@ def main():
     while i < len(args):
         if args[i] == '--timeout':
             timeout = float(args[i + 1]); i += 2
+        elif args[i] == '--exe':  # another front end, e.g. build/window/CounterStrike
+            global EXE
+            EXE = os.path.abspath(args[i + 1]); i += 2
+        elif args[i] == '--run':
+            global RUN
+            RUN = os.path.abspath(args[i + 1]); i += 2
         elif args[i] == '--env':
             k, v = args[i + 1].split('=', 1); env[k] = v; i += 2
         else:
             sys.exit('unknown argument ' + args[i])
     steps = [l.split() for l in open(scenario) if l.strip() and not l.startswith('#')]
 
-    for d in ('logs', 'hdd', 'cap', 'snaps', 'dumps'):
+    for d in ('logs', 'hdd', 'cap', 'snaps', 'dumps', 'shots'):
         shutil.rmtree(os.path.join(RUN, d), ignore_errors=True)
     os.makedirs(os.path.join(RUN, 'snaps'))
     out = open(os.path.join(RUN, 'run.out'), 'w')
@@ -146,6 +154,12 @@ def main():
                 frames = st[2] if len(st) > 2 else '3'
                 send(f'{st[1]} {frames}\n')
                 good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'cmd')))
+            elif kind == 'key':
+                send_file('keys', st[1] + ' ' + (st[2] if len(st) > 2 else '0.12'))
+                good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'keys')))
+            elif kind == 'windowshot':
+                send_file('shot', st[1])
+                good = wait_until(lambda: log.match('window: shot .*' + re.escape(st[1]) + r'\.bmp'))
             elif kind == 'pressuntil':
                 m = re.match(r'draws(>=|==)(\d+)', st[2])
                 n = int(m.group(2))

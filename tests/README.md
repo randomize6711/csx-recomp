@@ -39,3 +39,9 @@ Both scenarios run at FPS=30 (tests/run_regression.sh).
 
 `to_keyboard`, `to_menu`, `to_single_player`, `to_match`, `to_airstrip`, `to_spawn` stop at intermediate screens and
 are useful while investigating; `keyboard_drawlist` and `menu_drawlist` are meant to be run with `--env CAP=60`.
+
+## Window build scenarios (manual, open a window on the desktop)
+
+`window_to_menu.txt` and `window_to_match.txt` drive `build/window/CounterStrike` (tools/build_window.sh) with SDL key
+events and save the window's output: `python3 -I tools/drive.py tests/scenarios/window_to_menu.txt --exe
+build/window/CounterStrike --run build/wrun`. Not part of run_regression.sh (they need a display).

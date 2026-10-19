@@ -1,0 +1,37 @@
+# Window build: keyboard through SDL events into an offline Beginner match on de_airstrip as a Terrorist.
+# python3 -I tools/drive.py tests/scenarios/window_to_match.txt --exe build/window/CounterStrike --run build/wrun
+wait log renderer: window
+wait log open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+windowshot main_menu
+key Down
+sleep 2
+key Space
+sleep 5
+key Space
+sleep 5
+windowshot map_selection
+key Space
+wait log open D:\\de_airstrip.sxwad
+sleep 25
+windowshot team_menu
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 20
+windowshot spawned
+key LCtrl
+sleep 20
+key W 3
+sleep 6
+windowshot moved
+expect nolog fatal error screen
+expect nolog guest trap

@@ -1,0 +1,21 @@
+# Window build (tools/build_window.sh): keyboard through SDL events to the main menu.
+# python3 -I tools/drive.py tests/scenarios/window_to_menu.txt --exe build/window/CounterStrike --run build/wrun
+wait log renderer: window
+wait log open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+windowshot title
+key Return
+sleep 5
+windowshot notice
+key Space
+sleep 6
+windowshot keyboard
+key Space
+sleep 8
+windowshot main_menu
+key Down
+sleep 2
+key Space
+sleep 6
+windowshot single_player
+expect nolog fatal error screen

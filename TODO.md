@@ -1,6 +1,9 @@
 # TODO (priority order)
 
 ## Now
+0. DECISION NEEDED: in-game speed of the Linux window (3 fps with the reference renderer). Options: multithreaded
+   reference rasterisation; a Vulkan gpu::Backend; the upstream D3D12 backend through vkd3d (Windows build under
+   Wine/Proton) for comparison. See PROGRESS.md 2026-10-19 "Linux window".
 1. Verify player control in the match: close the buy menu, move/turn/fire, check the view changes (REF=1 snapshots).
 2. Compare in-game rendering with xemu (dark sky/wall area on de_airstrip, lightmaps, fog, rain, colours).
 3. Overlay compositing so movies are visible (reference renderer first, then backends); front buffer resolve of the
