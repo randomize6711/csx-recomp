@@ -550,6 +550,31 @@ Open:
   the slot's current value; no such draw was identified in CS.
 - No console capture to compare the HUD's exact brightness with.
 
+## Lamp glows and bright areas (2026-10-19)
+
+Played-in report: lamp lights much larger than intended, obscuring the scene.
+
+Measured:
+- **Glow sprites are the game's own geometry**: additive (ONE / ONE) quads of CS's GL layer, inline arrays of
+  positions and texture coordinates, with world-space vertices from the engine and fixed-function transforms with the
+  game's matrices; depth tested (LEQUAL), so walls hide them in both renderers (A/B window shots on de_dust). The
+  quad sizes are the engine's: e.g. a de_dust glow (64x64 sprite) 552 units across at 2940 units away (GoldSrc's glow
+  mode keeps a constant screen size), a nearer lamp sprite 39 units across. No large additive quads (60 units or more)
+  are drawn around the de_airstrip and cs_italy spawns.
+- **Their brightness and colour came through the lost current colour** (fixed by SDK patch 0025, "Shadows and HUD
+  colours"): the engine's distance / visibility fade and the lamp's colour are set as the diffuse slot's current value,
+  e.g. 0.02 for the far de_dust glow, (0.58, 0.51, 0.25) for a warm lamp, 0.39 for de_dust's additive light polygons.
+  Before the patch every one of them was drawn at full white, so a glow's soft edges were as bright as its core: a
+  bigger, white, opaque-looking light. This is the likely cause of the report; it is not confirmed visually because no
+  lamp could be brought into an unobstructed view from the positions the tests reach (spawn views, a short walk).
+- **Bright areas wash out in both renderers alike** (de_dust sky looking up: the reference renderer's frame and the
+  Vulkan window's agree), from the game's own gamma ramp (x1.67 in the midtones from team join, 128 -> 213, anything
+  above about 60 % saturates) and its additive glow pass. Not a Vulkan problem; whether the console looks the same
+  needs a console capture.
+
+Open:
+- Visual confirmation at a lamp; the gamma ramp's strength and the glow pass against the console.
+
 ## Assumptions / to verify
 
 - Third-party licenses (from prior knowledge, confirm before reusing any code): Half-Life SDK — Valve's restrictive

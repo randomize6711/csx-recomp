@@ -197,3 +197,10 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   white (FINDINGS.md "Shadows and HUD colours").
 - Tests: regress_hud_colour.txt (resting HUD digits' luminance); drive.py step expect region. Regression 286/286.
 
+## 2026-10-19 — Lamp glows (investigation)
+
+- Glow and lamp sprites are the engine's additive quads; their fade and colour came through the current colour that
+  patch 0025 restored (they were full white). Sizes are the game's; depth testing works. Not confirmed visually at a
+  lamp. Bright-area wash-out (sky) is identical in both renderers: the game's gamma ramp and glow pass
+  (FINDINGS.md "Lamp glows and bright areas").
+

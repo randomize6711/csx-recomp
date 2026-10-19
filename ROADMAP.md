@@ -25,4 +25,6 @@
 - M7b — Complete in-game scene (world, models, view model) in both renderers ✅ 2026-10-19 (de_airstrip spawn)
 - M7c — Windows x86-64 executable cross-built (Clang + MinGW-w64), runs under Wine: menus, match, audio, mouse ✅
   2026-10-19; on Windows itself: pending
+- M7d — Linux play-test fixes: 3D sound distance attenuation, character shadows and HUD colours ✅ 2026-10-19; lamp
+  glows likely fixed by the same change, to be confirmed
 - M8 — PC feature set complete
