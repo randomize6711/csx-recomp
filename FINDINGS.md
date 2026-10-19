@@ -73,7 +73,13 @@ Output `analysis/game_5849sigs_experiment.toml`, log `analysis/xbe_symbols_exper
   (48,645 call sites checked). Removed from `code_sections`.
 - Trap inventory: every function containing an unimplemented instruction (aaa, arpl, bound, iretd, insb, les...)
   has **no direct caller** except `int3` sites; they are data decoded by pointer seeding / gap fill in WMADEC, XMV,
-  DSOUND. Directly called functions with traps contain only `int3` (e.g. `sub_00239001`, 1,713 callers — to inspect).
+  DSOUND. Directly called functions with traps contain only `int3`. `sub_00239001` (1,713 callers) is MSVC
+  `__security_check_cookie` (cmp ecx, [0x3707A4]; jne -> report at 0x238FD1); its int3 at 0x23900F is padding after an
+  unconditional jmp, unreachable. `0x239032` is `__security_init_cookie` (default cookie 0xBB40E64E).
+  All 152 int3 sites checked: they follow int3/ret/jmp (padding), sit in phantom data regions, or follow calls that
+  never return — 0x23048F (32 sites, builds an exception record from template 0x327294, consistent with
+  _CxxThrowException), 0x22DF01 (5, calls 0x22DE31(1,0), exit path), kernel PsTerminateSystemThread (258),
+  KeBugCheck (95), HalReturnToFirmware (49). None is reachable in normal execution.
   1,427 "divide error" traps are the generator's divide-by-zero checks, not problems.
 
 ## Headless boot on Linux (harness, network namespace, reflink copy of the game data)
