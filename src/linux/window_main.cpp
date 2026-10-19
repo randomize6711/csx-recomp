@@ -5,6 +5,15 @@
 // FPS (default 30, the console's rate for CS) paces presented frames; F11 or Alt+Enter toggles fullscreen; a click
 // captures the mouse, F1 or leaving the window releases it.
 #include <SDL3/SDL.h>
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 #include <chrono>
 #include <cstdio>
@@ -20,6 +29,7 @@
 
 #include "app/app.h"
 #include "core/log.h"
+#include "harness.h"
 #include "image_symbols.h"
 #include "kernel/kernel.h"
 #include "linux/window.h"
@@ -30,6 +40,36 @@ SDL_Window* g_window = nullptr;
 bool g_vulkan = false;
 std::mutex g_shot_lock;
 std::string g_shot;
+
+// setenv where Windows has _putenv_s (which also sets the process environment a relaunch's CreateProcess inherits)
+void SetEnv(const char* name, const char* value, bool overwrite = true) {
+    if (!overwrite && std::getenv(name)) return;
+#ifdef _WIN32
+    _putenv_s(name, value);
+#else
+    setenv(name, value, 1);
+#endif
+}
+
+#ifdef _WIN32
+// A title relaunch on Windows starts a new process (kernel::Relaunch, CreateProcess with " --relaunched") and keeps the
+// old one, window up, until the new one has shown its first frames and signals this event (the SDK's app layer does
+// it in app/handover.cpp, which this front end does not use)
+HANDLE g_handover = nullptr;
+void OpenHandover() {
+    g_handover = OpenEventW(EVENT_MODIFY_STATE, FALSE, kernel::HandoverEvent(GetCurrentProcessId()).c_str());
+    if (g_handover) LOGI("window: relaunched, the previous instance waits for the first frames");
+}
+void FinishHandover() {
+    if (!g_handover || harness::g_frames < 2) return;
+    SetEvent(g_handover);
+    CloseHandle(g_handover);
+    g_handover = nullptr;
+}
+#else
+void OpenHandover() {}
+void FinishHandover() {}
+#endif
 
 }  // namespace
 
@@ -83,20 +123,22 @@ SDL_FRect Letterbox(int ww, int wh) {
 int main(int argc, char** argv) {
     std::string game;
     for (int i = 1; i < argc; i++) {
-        if (!std::strcmp(argv[i], "--instance") && i + 1 < argc) setenv("INSTANCE", argv[++i], 1);
-        else if (!std::strcmp(argv[i], "--renderer") && i + 1 < argc) setenv("CSX_RENDERER", argv[++i], 1);
+        if (!std::strcmp(argv[i], "--instance") && i + 1 < argc) SetEnv("INSTANCE", argv[++i]);
+        else if (!std::strcmp(argv[i], "--renderer") && i + 1 < argc) SetEnv("CSX_RENDERER", argv[++i]);
+        else if (!std::strcmp(argv[i], "--relaunched")) continue;  // Windows relaunch marker (kernel::Relaunch)
         else game = argv[i];
     }
     // the renderer survives a title relaunch (exec without arguments) through the environment
     g_vulkan = std::getenv("CSX_RENDERER") && !std::strcmp(std::getenv("CSX_RENDERER"), "vulkan");
     if (game.empty() && std::getenv("GAME_DIR")) game = std::getenv("GAME_DIR");
-    setenv("GAME_DIR", game.c_str(), 1);
-    setenv("FPS", "30", 0);
+    SetEnv("GAME_DIR", game.c_str());
+    SetEnv("FPS", "30", false);
     if (game.empty()) {
         std::fprintf(stderr, "usage: %s <game folder> [--instance N]\n", argv[0]);
         return 2;
     }
     logx::Init((app::ExeDir() / "logs").string(), app::kGame.log);
+    OpenHandover();
 
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD | SDL_INIT_EVENTS)) {
         LOGE("window: SDL_Init failed: %s", SDL_GetError());
@@ -222,6 +264,7 @@ int main(int argc, char** argv) {
             window::HandleEvent(&e);
         }
         window::EndFrameInput();
+        FinishHandover();
         if (g_vulkan) {
             // the backend presents; shot requests go to it, the loop only handles events
             const std::string shot_file = (app::ExeDir() / "shot").string();

@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Drives the headless harness through a scenario by watching its log.
 
-Usage: python3 -I tools/drive.py SCENARIO [--timeout S] [--env K=V ...] [--exe PATH] [--run DIR] [--launch DIR]
+Usage: python3 -I tools/drive.py SCENARIO [--timeout S] [--env K=V ...] [--exe PATH] [--run DIR] [--launch DIR] [--wine]
+
+--wine runs the Windows build (build/windows/dist/CounterStrike.exe unless --exe names another) under Wine, prefix
+build/wineprefix, in a network namespace like the Linux runs. A title relaunch there starts a new Windows process, so
+the run is alive while any process of the exe is.
 
 The harness runs in build/run (network namespace, reflink game copy in build/gamedata). The scenario file has one step
 per line, executed in order:
@@ -107,6 +111,7 @@ def main():
         sys.exit(__doc__)
     scenario, timeout, env = args[0], 600.0, dict(os.environ)
     launch = None
+    wine = False
     i = 1
     while i < len(args):
         if args[i] == '--timeout':
@@ -123,6 +128,14 @@ def main():
             k, v = args[i + 1].split('=', 1); env[k] = v; i += 2
         elif args[i] == '--launch':
             launch = os.path.abspath(args[i + 1]); i += 2
+        elif args[i] == '--wine':
+            wine = True; i += 1
+            if EXE.endswith(os.path.join('harness', 'CounterStrike')):
+                EXE = os.path.join(ROOT, 'build', 'windows', 'dist', 'CounterStrike.exe')
+            env.setdefault('CSX_TEST_INPUT_ONLY', '1')
+            env.setdefault('CSX_AUDIO', 'null')
+            env.setdefault('WINEPREFIX', os.path.join(ROOT, 'build', 'wineprefix'))
+            env.setdefault('WINEDEBUG', '-all')
         else:
             sys.exit('unknown argument ' + args[i])
     steps = [l.split() for l in open(scenario) if l.strip() and not l.startswith('#')]
@@ -145,12 +158,31 @@ def main():
         shutil.copyfile(os.path.join(launch, 'launch.bin'), os.path.join(RUN, 'hdd', 'launch.bin'))
         shutil.copyfile(os.path.join(launch, 'releasemap.txt'), os.path.join(RUN, 'hdd', 'Z', 'releasemap.txt'))
     out = open(os.path.join(RUN, 'run.out'), 'w')
-    proc = subprocess.Popen(['unshare', '-rn', EXE, GAME], cwd=RUN, env=env, stdout=out, stderr=subprocess.STDOUT)
+    if wine:
+        game = subprocess.run(['winepath', '-w', GAME], env=env, capture_output=True, text=True).stdout.strip()
+        cmd = ['unshare', '-n', '--map-current-user', 'wine', EXE, game]
+    else:
+        cmd = ['unshare', '-rn', EXE, GAME]
+    proc = subprocess.Popen(cmd, cwd=RUN, env=env, stdout=out, stderr=subprocess.STDOUT)
     log, start, ok = Log(), time.time(), True
     states = {}
+    exe_name = os.path.basename(EXE)
+
+    def wine_alive():
+        # Wine processes carry the Windows path of their exe as argv[0]
+        for pid in os.listdir('/proc'):
+            if pid.isdigit():
+                try:
+                    with open(f'/proc/{pid}/cmdline', 'rb') as f:
+                        argv0 = f.read().split(b'\0')[0].decode(errors='replace')
+                except OSError:
+                    continue
+                if argv0.replace('\\', '/').endswith('/' + exe_name):
+                    return True
+        return False
 
     def alive():
-        return proc.poll() is None
+        return proc.poll() is None or (wine and wine_alive())
 
     def wait_until(cond):
         while time.time() - start < timeout:
@@ -297,13 +329,17 @@ def main():
                 ok = False
                 break
     finally:
-        if alive():
+        if wine:
+            if alive():
+                subprocess.run(['wineserver', '-k'], env=env)
+            proc.wait(10)
+        elif alive():
             proc.send_signal(signal.SIGINT)
             try:
                 proc.wait(10)
             except subprocess.TimeoutExpired:
                 proc.kill()
-    if proc.returncode not in (None, 0, -2, 130) and ok:
+    if not wine and proc.returncode not in (None, 0, -2, 130) and ok:
         print(f'FAIL harness exited with {proc.returncode}')
         ok = False
     return 0 if ok else 1

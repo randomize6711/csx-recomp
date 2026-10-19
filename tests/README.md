@@ -104,3 +104,13 @@ To hear the game in a window run, pass `--env CSX_AUDIO=sdl` (drive.py defaults 
 `window_to_menu.txt` and `window_to_match.txt` drive `build/window/CounterStrike` (tools/build_window.sh) with SDL key
 events and save the window's output: `python3 -I tools/drive.py tests/scenarios/window_to_menu.txt --exe
 build/window/CounterStrike --run build/wrun`. Not part of run_regression.sh (they need a display).
+
+## Windows build
+
+`tests/windows_check.sh` cross-builds (tools/build_windows.sh), checks the executable (64-bit PE; imports only Windows'
+own DLLs, the packaged SDL3.dll / dxcompiler.dll and the driver's vulkan-1.dll; no MinGW runtime DLL; the functions it
+overrides are the Linux window build's plus the XDK select) and, with Wine and a display, runs vk_intro,
+vk_match_direct and vk_match on the Windows executable (`drive.py --wine`, prefix build/wineprefix, run folder
+build/winrun, network namespace as for Linux runs). `--no-wine` skips the runs. Wine is not Windows: a pass shows the
+executable and its Windows code paths work under Wine.
+

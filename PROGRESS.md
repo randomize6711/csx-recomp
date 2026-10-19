@@ -162,3 +162,16 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   difference was gamma and the capture artifact. Point sprites and CopyRects never reached by CS.
 - Soak: Vulkan window, de_airstrip, 39.5 minutes, nine rounds, no errors (FINDINGS.md "Rounds").
 - Tests: compare_direct.txt (headless twin of vk_compare_direct.txt, adds in_match_late).
+
+## 2026-10-19 — Windows build (cross-compiled)
+
+- Audit: the SDK runtime is Windows first; the GNU ABI (Clang + MinGW-w64) has no blocker: weak overrides, C++
+  exceptions, threads checked; no MSVC-only construct in the built sources (FINDINGS.md "Windows build").
+- cmake/toolchains/x86_64-w64-mingw32-clang.cmake, cmake/windows/CMakeLists.txt (the Linux window build's sources),
+  tools/fetch_windows_deps.sh (SDL3 3.4.18, DXC 1.10.2605.37, digests checked), tools/build_windows.sh ->
+  build/windows/dist (CounterStrike.exe, SDL3.dll, dxcompiler.dll, run_game.bat, README.txt, licenses).
+- Source changes: DXC header / CComPtr on Windows, setenv, a strchr type, the Windows relaunch handover.
+- Under Wine 11: intro, front end, relaunch into the match, direct match with movement and exact mouse look, audio
+  through WASAPI. Not run on Windows itself.
+- Tests: tests/windows_check.sh (build, PE and import checks, override parity with Linux, Wine scenarios);
+  drive.py --wine. Linux: window build vk_match_direct 32/32.

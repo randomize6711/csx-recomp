@@ -10,7 +10,7 @@
 | 5 | Graphics + menus (menus done headless) | Reference renderer frames show the front end; then Windows D3D12 build shows menus; Linux Vulkan backend started |
 | 6 | Gameplay | Offline match with bots on several maps; audio (XACT), movies (XMV), system link between two instances |
 | 7 | PC enhancements | Resolution/aspect, FOV, mouse+keyboard (raw), bindings, frame limiter, decoupled high-refresh presentation |
-| 8 | Platform parity | Linux (Vulkan/SDL3) and Windows (D3D12) builds feature-equal; CI |
+| 8 | Platform parity | Linux and Windows builds feature-equal (same SDL3 / Vulkan front end); CI |
 | 9 | Testing + optimization | Side-by-side comparison against xemu; regression captures; performance profiling |
 
 ## Milestones
@@ -23,4 +23,6 @@
 - M6 — Offline match initialises: de_airstrip, spawn, HUD, bots active ✅ 2026-10-19 (headless); player control verified 2026-10-19
 - M7 — Linux Vulkan renders the main menu ✅ 2026-10-19
 - M7b — Complete in-game scene (world, models, view model) in both renderers ✅ 2026-10-19 (de_airstrip spawn)
+- M7c — Windows x86-64 executable cross-built (Clang + MinGW-w64), runs under Wine: menus, match, audio, mouse ✅
+  2026-10-19; on Windows itself: pending
 - M8 — PC feature set complete

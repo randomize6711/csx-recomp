@@ -1,8 +1,9 @@
 # TODO (priority order)
 
 ## Now
-0. Next milestone (recommended): Windows build of the full game (the same SDL3 window, audio and Vulkan backend; the
-   D3D12 side of patches 0010/0012 untested), then image comparisons on de_dust and cs_italy.
+0. Windows: run build/windows/dist on a real Windows 10/11 PC (startup, Vulkan driver, WASAPI, mouse capture,
+   relaunch handover, a full round); then a GUI-subsystem exe (no console) if wanted. Then image comparisons on de_dust
+   and cs_italy.
 0b. Audio remainder: HRTF-like positioning (elevation, front/back) instead of the linear pan, envelopes (SetEG),
    filters and the I3DL2 reverb; listening test on headphones by a person.
 1. Vulkan remainder: point sprites and CopyRects (unused by CS so far, logged on first use), feedback copies;
@@ -18,7 +19,6 @@
 8. Re-test patches 0009-0012 against the upstream titles' expectations before offering them upstream.
 
 ## Next
-- Windows toolchain choice (mingw-w64 cross or clang-cl); the upstream D3D12 backend stays a reference/fallback.
 - `xbe_symbols --sign` to produce xdk/5659/signatures.toml once the config is complete.
 
 ## Later

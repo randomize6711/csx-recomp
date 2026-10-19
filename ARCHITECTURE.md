@@ -19,8 +19,8 @@ authoritative source of game behaviour; it is supplied by the user at build/run 
  │ sdk/runtime  kernel, D3D8 / DSOUND / XAPI / XNet HLE         │  XboxXBERecomp (upstream, unmodified
  │              gpu::Backend, audio, input, app shell            │  where possible)
  ├──────────────────────────────────────────────────────────────┤
- │ platform     Windows: D3D12 + XAudio2 (upstream)             │
- │              Linux:   Vulkan backend + SDL3 audio/window     │  new, ours
+ │ platform     Linux and Windows: Vulkan backend + SDL3        │  new, ours (Windows cross-built
+ │              audio/window/input (src/linux, src/vulkan)      │  with Clang + MinGW-w64)
  └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -48,6 +48,9 @@ authoritative source of game behaviour; it is supplied by the user at build/run 
 8. **Hardware registers the title reads directly** are modelled in `src/common` and started from `GameInfo::loaded`
    (first: APU XGSCNT, `apu_clock.cpp`).
 9. **Unproven LTCG functions are left un-replaced** (symbol 0 + "pending" comment) rather than given guessed maps.
+10. **One front end on both platforms.** Windows builds the Linux window build's sources (SDL3 + Vulkan + SDL audio)
+   with Clang targeting MinGW-w64 from Linux (cmake/windows, tools/build_windows.sh); the generated code comes from
+   the Linux recompiler run. The upstream D3D12 / XAudio2 app layer is not built (FINDINGS.md "Windows build").
 
 ## Workspace
 
@@ -65,6 +68,8 @@ csx-recomp/
   src/common, src/game host code: game info, hardware models, hooks
   assets/default.xbe   read-only copy of the XBE (build input)
   out/build/linux-tools  tools built via CMake
+  cmake/               Windows cross-build (toolchain file, CMakeLists, vulkan-1.def, launcher)
+  build/windows        Windows build and its package (dist/); build/deps the downloaded SDL3 / DXC releases
   build/gamedata       reflink copy of the game folder for runs; build/gen, build/harness, build/run
 ```
 

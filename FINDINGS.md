@@ -421,6 +421,83 @@ Open:
   hitch on a PC would show it). de_dust and cs_italy were not compared image by image; point sprites and CopyRects
   remain unimplemented in Vulkan (logged on first use).
 
+## Windows build (2026-10-19)
+
+Toolchain: Clang 23 targeting x86_64-w64-mingw32 (GNU ABI, UCRT) with LLD, the distribution's MinGW-w64 14 headers and
+CRT and GCC 16's libstdc++ / winpthreads, cross-compiling from Linux (cmake/toolchains/x86_64-w64-mingw32-clang.cmake,
+cmake/windows/CMakeLists.txt, tools/build_windows.sh). Third-party binaries from their official releases, pinned by
+digest (tools/fetch_windows_deps.sh): SDL3 3.4.18 MinGW package, DXC v1.10.2605.37 (both the Linux build's versions).
+
+Audit (compiler and ABI):
+- **The SDK runtime is Windows first.** Upstream builds it with clang++ and LLD for the MSVC target, with a Win32 /
+  D3D12 / XAudio2 / ImGui app layer (runtime/app, gpu/d3d12.cpp, audio/xaudio2.cpp, core/input.cpp); the kernel's
+  memory, threads, disc and relaunch code has _WIN32 branches (VirtualAlloc / MapViewOfFileEx, CreateThread,
+  overlapped ReadFile, CreateProcessW). The Linux harness reaches the same sources through small Win32 / Winsock
+  shims (sdk/harness/compat). The Windows build compiles the Linux window build's source list (runtime without its
+  app layer, the harness's app side and reference renderer, src/*: SDL3 window/input/audio, Vulkan backend) with the
+  real Windows headers, so the runtime's _WIN32 branches are upstream's.
+- **No MSVC-only construct in that source set**: no SEH (__try), no ATL in the runtime, no #pragma comment the build
+  relies on (system_info.cpp's is in the app layer, not built). The recompiled code is plain C++ with GCC attributes.
+- **Overridable functions** are __attribute__((weak)) definitions; on COFF they become weak externals, and LLD in
+  MinGW mode resolves them to the host's strong definitions: 254 functions, the same set as the Linux window build
+  (253) plus the XDK select (0x2630C8, below). Checked from the linked symbol table (tests/windows_check.sh).
+- **C++ exceptions** across objects (the dispatcher throws X86Resume through recompiled frames) use SEH-based
+  unwinding on x86-64 MinGW; a throw through a weak-overridden call chain was checked in a cross-compiled test
+  under Wine. x87 state is kept in double, so long double's size (64 bit MSVC, 80 bit GNU) does not matter.
+- **long is 32 bit on Windows** (LLP64, both ABIs); the runtime is written for it; nothing in src/ casts pointers to
+  long.
+- MinGW-w64 x86-64 is not a reason to switch to clang-cl: nothing needed MSVC's ABI. DXC's interfaces are COM
+  (HRESULT returns, a fixed vtable ABI), so the MSVC-built dxcompiler.dll is called from GNU-ABI code safely.
+
+Changes needed (all in our code, none in the SDK):
+- src/vulkan/vk_shader.cpp: on Windows MinGW-w64's dxcapi.h (GUIDs without MS extensions; DXC's own header needs
+  __declspec(uuid)) and a minimal CComPtr (ATL is not in MinGW-w64); a missing <cstring>.
+- src/vulkan/vk_backend.cpp: a std::string(first, last) where MinGW's strchr returns char* (length form now).
+- src/linux/window_main.cpp: setenv through _putenv_s on Windows (which also sets the process environment a relaunch
+  inherits); the Windows relaunch's "--relaunched" argument skipped; the relaunch handover (below).
+- The Vulkan backend counts presented frames in harness::g_frames like the software window (for the handover).
+- Built without NDEBUG, as on Linux: a CMake Release build defines it, which drops the runtime's info log (only
+  errors are written, logx kVerbose) and asserts.
+
+Packaging: the C/C++ runtimes are linked statically; CounterStrike.exe imports UCRT (api-ms-win-crt-*, part of Windows
+10+), KERNEL32, USER32, WS2_32, SDL3.dll and dxcompiler.dll (both packaged, with their licenses) and vulkan-1.dll (the
+GPU driver's loader; its import library is made from cmake/windows/vulkan-1.def, the core 1.0-1.3 and KHR surface /
+swapchain functions the backend calls directly). build/windows/dist: the exe, the two DLLs, run_game.bat, README.txt,
+licenses/.
+
+Platform differences:
+- **Relaunch** (front end to match): Linux execs in place; Windows starts a new process (kernel::Relaunch,
+  CreateProcessW with the arguments plus "--relaunched") and the old one keeps its window until the new one has
+  presented two frames and signals a named event (the SDK's app/handover.cpp does this for its own app layer;
+  window_main.cpp does it here). Log files continue cs_001.log -> cs_002.log as on Linux.
+- **XDK select (0x2630C8)**: the runtime's host select (xnet.cpp, HLE_STDCALL(select, 5)) binds on Windows; on Linux
+  the harness's compat/winsock2.h "#define select ws_select" renames it, so the recompiled XDK select runs there. Only
+  used by networking (system link); not exercised offline.
+- **Guest memory**: the first reservation hint (0x100000000) is taken under Wine, the runtime uses 0x200000000 (its
+  own fallback list). The guest sees the same addresses either way.
+- **Paths**: the game folder and hard disk are host paths through std::filesystem; the kernel's case-insensitive
+  lookup (files.cpp MatchCase) tries the exact path first, which Windows' case-insensitive file systems satisfy.
+- **Audio**: SDL's WASAPI output; a 6 channel device gets the mixer's stereo through SDL's conversion (stereo to the
+  front pair). The mixer is the same code.
+- **No network namespace** on Windows: the Linux test runs keep the title offline with unshare; on a Windows PC the
+  title's sockets are real (Xbox Live sign-in fails offline, system link would broadcast on the LAN).
+- wchar_t is 16 bit on Windows, 32 bit on Linux; DXC's arguments are wide strings for each platform's own DXC build.
+
+Verified under Wine 11.20 (Linux, RADV through winevulkan; not Windows):
+- Boot, intro movies through the overlay (vk_intro), the front end, single player to a de_airstrip match through the
+  Windows relaunch and handover (vk_match), and the direct match: team menu, buy menu, 753 units walked, mouse look
+  exactly -6.6 / -3.3 degrees (vk_match_direct, 32 of 32 steps). Window shots match the Linux window's.
+- Audio through SDL WASAPI with the real device: the capture passes tools/check_audio.py (not silent, sounds placed to
+  a side, 281 samples at full scale in one second at a gunshot, like the 293 in the Linux run); no late device callback logged.
+- No error-level log line, fatal error screen, guest trap or Vulkan failure in these runs.
+
+Open:
+- **Not run on Windows itself** (no Windows machine or VM here). Wine shows the imports resolve and the Windows code
+  paths run under Wine's implementation of them; driver, WASAPI, focus / relative mouse and file-system behaviour on
+  Windows remain to be checked there.
+- Console subsystem (a console window shows the log); a GUI subsystem build would need SDL_main or a WinMain.
+- The upstream D3D12 path is not built; the Windows build uses the same Vulkan backend as Linux.
+
 ## Assumptions / to verify
 
 - Third-party licenses (from prior knowledge, confirm before reusing any code): Half-Life SDK — Valve's restrictive

@@ -24,6 +24,7 @@
 #include "gpu/shaders.h"
 #include "gpu/texture.h"
 #include "gpu/vertex.h"
+#include "harness.h"
 #include "kernel/kernel.h"
 #include "kernel/memory.h"
 #include "linux/window.h"
@@ -1117,7 +1118,7 @@ void VulkanBackend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t
     // that paints a region)
     static const char* step_env = std::getenv("CSX_VK_STEPSHOTS");
     static const std::string step_shot = step_env && std::strchr(step_env, ':')
-                                             ? std::string(step_env, std::strchr(step_env, ':')) : "";
+                                             ? std::string(step_env, size_t(std::strchr(step_env, ':') - step_env)) : "";
     static const long step = step_shot.empty() ? 0 : std::atol(std::strchr(step_env, ':') + 1);
     if (step && step_name_ == step_shot && frame_draws_ % step == 0 && s.rt.header) {
         if (Target* t = EnsureTarget(s.rt, false)) {
@@ -1614,6 +1615,7 @@ void VulkanBackend::Present(const Surface& front) {
     if (remake) CreateSwapchain();
     frame_++;
     presents_++;
+    harness::g_frames++;  // frames shown, as the software window counts them (the window's relaunch handover)
     if (presents_ % 30 == 0) {
         auto now = std::chrono::steady_clock::now();
         double secs = std::chrono::duration<double>(now - fps_t_).count();

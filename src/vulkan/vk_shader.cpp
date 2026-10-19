@@ -2,8 +2,29 @@
 // -HV 2018; the register shifts put every resource in set 0 as the backend's single push descriptor set expects.
 #include "vulkan/vk_shader.h"
 
+#ifdef _WIN32
+// MinGW-w64's dxcapi.h (GUIDs without MS extensions; the COM interfaces are those of the DXC release's dxcompiler.dll,
+// tools/fetch_windows_deps.sh); ATL's CComPtr is not there, a minimal one stands in
+#include <windows.h>
+#include <dxcapi.h>
+template <class T>
+struct CComPtr {
+    T* p = nullptr;
+    CComPtr() = default;
+    CComPtr(const CComPtr&) = delete;
+    CComPtr& operator=(const CComPtr&) = delete;
+    ~CComPtr() {
+        if (p) p->Release();
+    }
+    T** operator&() { return &p; }
+    T* operator->() const { return p; }
+    explicit operator bool() const { return p != nullptr; }
+};
+#else
 #include <dxc/dxcapi.h>
+#endif
 
+#include <cstring>
 #include <mutex>
 #include <unordered_map>
 
