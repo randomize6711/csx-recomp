@@ -4,8 +4,8 @@
 0. Windows: run build/windows/dist on a real Windows 10/11 PC (startup, Vulkan driver, WASAPI, mouse capture,
    relaunch handover, a full round); then a GUI-subsystem exe (no console) if wanted. Then image comparisons on de_dust
    and cs_italy.
-0a. Linux play-test follow-up: re-test lamp glows with patch 0025 (likely fixed, not confirmed at a lamp); compare the
-   gamma ramp (x1.67) and glow pass with a console capture; current vertex data for vertex-buffer draws.
+0a. Linux play-test follow-up: compare the gamma ramp (x1.67) and glow pass with a console capture; current vertex
+   data for vertex-buffer draws; point / line polygon offsets.
 0b. Audio remainder: HRTF-like positioning (elevation, front/back) instead of the linear pan, envelopes (SetEG),
    filters and the I3DL2 reverb; listening test on headphones by a person.
 1. Vulkan remainder: point sprites and CopyRects (unused by CS so far, logged on first use), feedback copies;

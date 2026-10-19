@@ -188,7 +188,8 @@ struct PipelineKey {
     uint32_t zen, zwrite, zfunc;
     uint32_t sten, sfunc, smask, swmask, sfail, szfail, spass;
     uint32_t cull, ccw, fill;
-    int32_t zbias;
+    // polygon offset (decals): the console's bias in normalised depth (bias / zscale) and its slope factor
+    float zbias;
     float zslope;
 };
 
@@ -295,6 +296,8 @@ private:
     VkQueue queue_ = VK_NULL_HANDLE;
     VkPhysicalDeviceMemoryProperties memprops_{};
     PFN_vkCmdPushDescriptorSetKHR push_descriptors_ = nullptr;
+    // VK_EXT_depth_bias_control with a float representation: a depth bias added as it is, in normalised depth
+    bool bias_float_ = false;
 
     VkSwapchainKHR swapchain_ = VK_NULL_HANDLE;
     std::vector<VkImage> swap_images_;
@@ -419,7 +422,28 @@ bool VulkanBackend::CreateDevice() {
     f13.dynamicRendering = VK_TRUE;
     f13.synchronization2 = VK_TRUE;
     f2.pNext = &f13;
-    const char* ext[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME};
+    // the console offsets depth by whole units of its integer buffer; the targets here are D32F, whose constant bias
+    // scales with each primitive's depth exponent, so the bias is given as a float in normalised depth instead
+    VkPhysicalDeviceDepthBiasControlFeaturesEXT bias_have{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_BIAS_CONTROL_FEATURES_EXT};
+    {
+        uint32_t n = 0;
+        vkEnumerateDeviceExtensionProperties(gpu_, nullptr, &n, nullptr);
+        std::vector<VkExtensionProperties> props(n);
+        vkEnumerateDeviceExtensionProperties(gpu_, nullptr, &n, props.data());
+        for (const auto& e : props)
+            if (!std::strcmp(e.extensionName, VK_EXT_DEPTH_BIAS_CONTROL_EXTENSION_NAME)) {
+                VkPhysicalDeviceFeatures2 q{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &bias_have};
+                vkGetPhysicalDeviceFeatures2(gpu_, &q);
+                bias_float_ = bias_have.depthBiasControl && bias_have.floatRepresentation && bias_have.depthBiasExact;
+            }
+    }
+    VkPhysicalDeviceDepthBiasControlFeaturesEXT bias_on{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_BIAS_CONTROL_FEATURES_EXT};
+    bias_on.depthBiasControl = bias_on.floatRepresentation = bias_on.depthBiasExact = VK_TRUE;
+    if (bias_float_) f13.pNext = &bias_on;
+    LOGI("vulkan: polygon offset %s", bias_float_ ? "as a float depth bias (VK_EXT_depth_bias_control)"
+                                                   : "approximated in 24 bit units (no VK_EXT_depth_bias_control)");
+    std::vector<const char*> ext = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME};
+    if (bias_float_) ext.push_back(VK_EXT_DEPTH_BIAS_CONTROL_EXTENSION_NAME);
     float prio = 1.0f;
     VkDeviceQueueCreateInfo qci{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
     qci.queueFamilyIndex = qfamily_;
@@ -429,8 +453,8 @@ bool VulkanBackend::CreateDevice() {
     ci.pNext = &f2;
     ci.queueCreateInfoCount = 1;
     ci.pQueueCreateInfos = &qci;
-    ci.enabledExtensionCount = uint32_t(std::size(ext));
-    ci.ppEnabledExtensionNames = ext;
+    ci.enabledExtensionCount = uint32_t(ext.size());
+    ci.ppEnabledExtensionNames = ext.data();
     if (vkCreateDevice(gpu_, &ci, nullptr, &dev_) != VK_SUCCESS) {
         LOGE("vulkan: device creation failed (dynamic rendering, synchronization2, push descriptors needed)");
         return false;
@@ -1053,10 +1077,18 @@ VkPipeline VulkanBackend::EnsurePipeline(const PipelineKey& k, const std::vector
     // the viewport is flipped (negative height), which keeps D3D's winding: front is clockwise unless culling CW
     rs.frontFace = k.ccw ? VK_FRONT_FACE_COUNTER_CLOCKWISE : VK_FRONT_FACE_CLOCKWISE;
     rs.lineWidth = 1.0f;
-    if (k.zbias || k.zslope != 0) {
+    VkDepthBiasRepresentationInfoEXT bias_rep{VK_STRUCTURE_TYPE_DEPTH_BIAS_REPRESENTATION_INFO_EXT};
+    if (k.zbias != 0 || k.zslope != 0) {
         rs.depthBiasEnable = VK_TRUE;
-        rs.depthBiasConstantFactor = float(k.zbias);
         rs.depthBiasSlopeFactor = k.zslope;
+        if (bias_float_) {
+            bias_rep.depthBiasRepresentation = VK_DEPTH_BIAS_REPRESENTATION_FLOAT_EXT;
+            bias_rep.depthBiasExact = VK_TRUE;
+            rs.pNext = &bias_rep;
+            rs.depthBiasConstantFactor = k.zbias;
+        } else {
+            rs.depthBiasConstantFactor = k.zbias * 16777216.0f;  // exact for depths in [0.5, 1)
+        }
     }
     VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
     ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
@@ -1216,6 +1248,11 @@ void VulkanBackend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t
     k.cull = cull != 0 && a.topology == Topology::Triangles;
     k.ccw = cull == 0x900;  // D3DCULL_CW (GL_CW): culling clockwise leaves counter clockwise as the front
     k.fill = s.rs[kRsFillMode];
+    // polygon offset of filled triangles (NV097_SET_POLY_OFFSET_FILL_ENABLE, its factor and its bias in depth units)
+    if (ds && a.topology == Topology::Triangles && SimpleState(s, kMSolidOffsetEnable)) {
+        k.zbias = Bits(SimpleState(s, kMDepthOffset)) / s.zscale;
+        k.zslope = Bits(SimpleState(s, kMSlopeScale));
+    }
     VkPipeline pipe = EnsurePipeline(k, *vs.code, *ps.code);
     if (!pipe) {
         dropped_[3]++;

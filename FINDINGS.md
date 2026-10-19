@@ -573,7 +573,37 @@ Measured:
   needs a console capture.
 
 Open:
-- Visual confirmation at a lamp; the gamma ramp's strength and the glow pass against the console.
+- The gamma ramp's strength and the glow pass against the console. (A lamp at the end of de_airstrip's Terrorist
+  tunnel was later seen drawn large and white before patch 0025 and not after it: "Decals".)
+
+## Decals (2026-10-19)
+
+Played-in report: de_airstrip's A and B direction signs near the Terrorist spawn flicker, disappear and reappear with
+the view and position.
+
+Confirmed:
+- **The signs are decals** (infodecal entities, read from the map's entity text in guest memory): {siteA}, {siteB},
+  {arrow2a/c/d}, {target2}; the ones seen from the Terrorist tunnel are at the far end, 1630 units south of the spawn
+  ({arrow2d} -1742 654 62, {siteB} -1693 658 72, {siteA} -1553 656 65, {arrow2c} -1498 662 85).
+- **They are submitted every frame**: polygons (prim 10) of CS's GL layer with the alpha-tested decal texture, alpha
+  test and blend on, depth LEQUAL, no depth writes, and polygon offset: NV097_SET_POLY_OFFSET_FILL_ENABLE (0x338) 1,
+  slope factor 0, bias 0xC59C4000 = -5000.0 depth units (draw lists of the reference renderer).
+- **Neither renderer applied the offset**, so a decal lay at the depth of its wall and the LEQUAL test let wall or
+  decal win per pixel with the smallest change of position or angle (z-fighting): in the reference renderer the "B"
+  and its arrow mostly drawn at one spot and gone 0.7 units further; in the Vulkan window "A" and "B" missing, partial
+  or whole across eight shots 0.33 degrees apart. The upstream D3D12 backend applies it (d3d12.cpp); the Vulkan
+  backend had the pipeline fields but never set them, the reference renderer had none.
+- **Fix**: the reference renderer adds bias + slope x the triangle's larger depth gradient (depth units) before the
+  depth test (SDK patch 0026). The Vulkan backend keys the offset per pipeline; its targets are D32F (RADV has no
+  D24S8), whose constant bias would scale with each primitive's depth exponent, so it uses VK_EXT_depth_bias_control
+  with the float representation (exact, in normalised depth: bias / zscale), falling back to 24 bit equivalent units
+  without the extension (logged). After the fix the signs are solid in both renderers at every tested angle.
+- Checked: regress_decals.txt (the "B" sign's ink share 0.57-0.59 at three angles; 0.00-0.46, varying, without the
+  offset). The same Vulkan A/B also showed a lamp glow at the tunnel's end drawn large and white before patch 0025
+  and absent after it (FINDINGS.md "Lamp glows and bright areas").
+
+Open:
+- Point and line offsets (0x330 / 0x334) are not applied; CS's decals use the fill offset.
 
 ## Assumptions / to verify
 

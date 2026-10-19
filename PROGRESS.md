@@ -204,3 +204,10 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   lamp. Bright-area wash-out (sky) is identical in both renderers: the game's gamma ramp and glow pass
   (FINDINGS.md "Lamp glows and bright areas").
 
+## 2026-10-19 — Decals (de_airstrip A / B signs)
+
+- The flickering signs are infodecal decals drawn with polygon offset (bias -5000 depth units) that neither renderer
+  applied: z-fighting with their walls. SDK patch 0026 (reference renderer) and the Vulkan backend (float depth bias,
+  VK_EXT_depth_bias_control) apply it (FINDINGS.md "Decals").
+- Tests: regress_decals.txt; drive.py step expect darkfrac. Regression 321/321; Vulkan vk_match_direct 32/32.
+

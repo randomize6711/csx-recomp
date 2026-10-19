@@ -32,6 +32,7 @@ per line, executed in order:
     poke VA FLOAT           write FLOAT to guest address VA (hex) once, src/common/memory_dump.cpp (diagnostics)
     snap NAME               draw the next two frames and keep them as build/run/snaps/NAME_1.tga / NAME_2.tga
     expect region NAME X0 Y0 X1 Y1 MIN MAX  mean luminance of that box of snaps/NAME_2.tga (or shots/NAME.bmp) in [MIN, MAX]
+    expect darkfrac NAME X0 Y0 X1 Y1 LUM MIN MAX  share of that box's pixels darker than LUM in [MIN, MAX]
     expect log REGEX        fail unless a log line matches
     expect nolog REGEX      fail if a log line matches
     expect image NAME MIN   fail unless snaps/NAME_2.tga (or the window shot shots/NAME.bmp) has a luminance standard deviation of at least MIN
@@ -317,6 +318,19 @@ def main():
                 good = os.path.exists(path) and ImageStat.Stat(Image.open(path).convert('L')).stddev[0] >= float(st[3])
                 if good:
                     print(f'     {st[2]}: luminance spread {ImageStat.Stat(Image.open(path).convert("L")).stddev[0]:.1f}')
+            elif kind == 'expect' and st[1] == 'darkfrac':
+                # expect darkfrac NAME X0 Y0 X1 Y1 LUM MIN MAX: share of that box's pixels darker than LUM
+                from PIL import Image
+                path = os.path.join(RUN, 'snaps', st[2] + '_2.tga')
+                if not os.path.exists(path):
+                    path = os.path.join(RUN, 'shots', st[2] + '.bmp')
+                good = os.path.exists(path)
+                if good:
+                    box = tuple(int(v) for v in st[3:7])
+                    px = list(Image.open(path).convert('L').crop(box).getdata())
+                    frac = sum(1 for v in px if v < int(st[7])) / max(1, len(px))
+                    print(f'     {st[2]} {box}: {frac:.3f} of pixels below {st[7]} (want {st[8]}..{st[9]})')
+                    good = float(st[8]) <= frac <= float(st[9])
             elif kind == 'expect' and st[1] == 'region':
                 # expect region NAME X0 Y0 X1 Y1 MIN MAX: mean luminance of that box of the snap (or window shot)
                 from PIL import Image, ImageStat

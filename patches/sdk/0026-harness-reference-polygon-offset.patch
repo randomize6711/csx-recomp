@@ -1,0 +1,36 @@
+diff --git a/harness/reference_renderer.cpp b/harness/reference_renderer.cpp
+index 4cfcd87..c112c55 100644
+--- a/harness/reference_renderer.cpp
++++ b/harness/reference_renderer.cpp
+@@ -1171,6 +1171,10 @@ void Draw(const State& s, uint32_t prim, uint32_t start, uint32_t count, const u
+     uint32_t op_fail = s.rs[kRsStencilFail], op_zfail = simple(kMStencilZFail), op_pass = simple(kMStencilPass);
+     bool atest = simple(kMAlphaTestEnable) != 0;
+     uint32_t afunc = simple(kMAlphaFunc), aref = simple(kMAlphaRef) & 0xFF;
++    // polygon offset for filled triangles (decals over walls): bias in depth units plus the slope factor times the
++    // triangle's larger depth gradient per pixel, added before the depth test
++    bool offset = simple(kMSolidOffsetEnable) != 0;
++    float offset_bias = Bits(simple(kMDepthOffset)), offset_slope = Bits(simple(kMSlopeScale));
+     uint32_t cull = s.rs[kRsCullMode];
+     bool flat = simple(kMShadeMode) == 0x1D00, two_sided = s.rs[kRsTwoSidedLighting] != 0;  // 0x1D00 GL_FLAT
+     Vec blend_color = Unpack(simple(kMBlendColor));
+@@ -1246,6 +1250,12 @@ void Draw(const State& s, uint32_t prim, uint32_t start, uint32_t count, const u
+             int y0 = std::max(top, int(std::floor(std::min({p0.y, p1.y, p2.y})))), y1 = std::min(bottom - 1, int(std::ceil(std::max({p0.y, p1.y, p2.y}))));
+             if (x0 > x1 || y0 > y1) continue;
+             float inv_area = 1 / area;
++            float dz = 0;
++            if (offset) {
++                float dzdx = ((p1.z - p0.z) * (p2.y - p0.y) - (p2.z - p0.z) * (p1.y - p0.y)) * inv_area;
++                float dzdy = ((p2.z - p0.z) * (p1.x - p0.x) - (p1.z - p0.z) * (p2.x - p0.x)) * inv_area;
++                dz = offset_bias + offset_slope * std::max(std::fabs(dzdx), std::fabs(dzdy));
++            }
+             for (int y = y0; y <= y1; y++)
+                 for (int x = x0; x <= x1; x++) {
+                     // barycentrics at the pixel centre
+@@ -1273,6 +1283,7 @@ void Draw(const State& s, uint32_t prim, uint32_t start, uint32_t count, const u
+                     bool keep = mat.key.programmable ? Combiners{mat, frag}.Shade(col) : ShadeStages(mat, frag, col);
+                     if (!keep) continue;
+                     if (atest && !Passes(afunc, uint32_t(int(std::lround(Sat(col[3]) * 255))), aref)) continue;
++                    if (offset) z = std::clamp(z + dz, 0.0f, s.zscale);
+                     uint32_t oz = 0, os = 0, zi = uint32_t(std::floor(z));
+                     if (zs.ok) zs.LoadDepth(uint32_t(x), uint32_t(y), oz, os);
+                     auto stencil_op = [&](uint32_t op) { return (os & ~swmask) | (StencilResult(op, os, sref) & swmask); };

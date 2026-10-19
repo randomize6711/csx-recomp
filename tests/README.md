@@ -97,6 +97,12 @@ level falling with distance per sound class, the level reaching the mixer, far v
 (`expect region NAME X0 Y0 X1 Y1 MIN MAX`): about 84 with the game's MIN_ALPHA colour, about 120 when the colour set as
 current vertex data is lost (SDK patch 0025).
 
+## Decals
+
+`regress_decals.txt` walks into de_airstrip's Terrorist tunnel and checks the far "B" sign at three view angles
+0.3 degrees apart (`expect darkfrac NAME X0 Y0 X1 Y1 LUM MIN MAX`: share of the box's pixels darker than LUM): the
+sign's ink fills about 0.57 of the box with the polygon offset, 0.00-0.46 and varying without it (SDK patch 0026).
+
 ## Mouse look
 
 `regress_mouse_look.txt` (part of run_regression.sh, starts in the match through its `--launch` header line) turns
