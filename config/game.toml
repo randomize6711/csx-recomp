@@ -27,7 +27,7 @@ BinkDoFrame                                          = 0
 BinkGetSummary                                       = 0
 BinkNextFrame                                        = 0
 BinkWait                                             = 0
-CDevice_KickOff                                      = 0  # pending [abi] proof, candidate 0x30A2C0 (reads edx, pops 0)
+CDevice_KickOff                                      = 0x30A2C0
 CDirectSoundStream_AddRef                            = 0x245573
 CDirectSoundStream_Discontinuity                     = 0x24566F
 CDirectSoundStream_Flush                             = 0x2456BC
@@ -65,9 +65,9 @@ D3D_BlockOnResource                                  = 0
 D3D_BlockOnTime                                      = 0x30A000
 D3D_InitDefaultState                                 = 0
 D3D_InternalAddRef                                   = 0
-D3D_InternalRelease                                  = 0  # pending [abi] proof, candidate 0x307F30 (reads esi, pops 0)
+D3D_InternalRelease                                  = 0x307F30
 D3D_KickOffAndWaitForIdle                            = 0
-D3D_MakeRequestedSpace                               = 0  # pending [abi] proof, candidate 0x30A170 (reads eax, pops 4)
+D3D_MakeRequestedSpace                               = 0x30A170
 D3D_SetFence                                         = 0x309D10
 D3DDevice_Begin                                      = 0
 D3DDevice_BeginPush                                  = 0
@@ -80,7 +80,7 @@ D3DDevice_CreateVertexShader                         = 0x307860
 D3DDevice_DeletePixelShader                          = 0
 D3DDevice_DeleteVertexShader                         = 0
 D3DDevice_DrawIndexedVertices                        = 0x308480
-D3DDevice_DrawVertices                               = 0  # pending [abi] proof, candidate 0x3083B0 (reads eax ecx, pops 4)
+D3DDevice_DrawVertices                               = 0x3083B0
 D3DDevice_DrawVerticesUP                             = 0x308200
 D3DDevice_EnableOverlay                              = 0x30A8D0
 D3DDevice_End                                        = 0
@@ -97,15 +97,15 @@ D3DDevice_LoadVertexShader                           = 0
 D3DDevice_MakeSpace                                  = 0
 D3DDevice_PersistDisplay                             = 0x306B20
 D3DDevice_Release                                    = 0
-D3DDevice_SelectVertexShader                         = 0  # pending [abi] proof, candidate 0x3073D0 (reads eax ebx, pops 0)
+D3DDevice_SelectVertexShader                         = 0x3073D0
 D3DDevice_SetFlickerFilter                           = 0
 D3DDevice_SetGammaRamp                               = 0
-D3DDevice_SetIndices                                 = 0  # pending [abi] proof, candidate 0x306610 (reads ebx, pops 4)
+D3DDevice_SetIndices                                 = 0x306610
 D3DDevice_SetLight                                   = 0
 D3DDevice_SetMaterial                                = 0
 D3DDevice_SetPalette                                 = 0
-D3DDevice_SetPixelShader                             = 0  # pending [abi] proof, candidate 0x304F70 (reads eax, pops 0)
-D3DDevice_SetPixelShaderConstant                     = 0  # pending [abi] proof, candidate 0x305180 (reads eax ecx, pops 4)
+D3DDevice_SetPixelShader                             = 0x304F70
+D3DDevice_SetPixelShaderConstant                     = 0x305180
 D3DDevice_SetRenderState_BackFillMode                = 0
 D3DDevice_SetRenderState_CullMode                    = 0x3039E0
 D3DDevice_SetRenderState_DoNotCullUncompressed       = 0
@@ -140,27 +140,27 @@ D3DDevice_SetRenderStateNotInline                    = 0
 D3DDevice_SetRenderTarget                            = 0x305A30
 D3DDevice_SetScissors                                = 0x3067B0
 D3DDevice_SetScreenSpaceOffset                       = 0
-D3DDevice_SetShaderConstantMode                      = 0  # pending [abi] proof, candidate 0x307490 (reads eax, pops 0)
+D3DDevice_SetShaderConstantMode                      = 0x307490
 D3DDevice_SetSoftDisplayFilter                       = 0
-D3DDevice_SetStreamSource                            = 0  # pending [abi] proof, candidate 0x3070C0 (reads eax ebx, pops 4)
-D3DDevice_SetTexture                                 = 0  # pending [abi] proof, candidate 0x306460 (reads eax, pops 4)
+D3DDevice_SetStreamSource                            = 0x3070C0
+D3DDevice_SetTexture                                 = 0x306460
 D3DDevice_SetTextureStageStateNotInline              = 0
 D3DDevice_SetTextureState_BorderColor                = 0
 D3DDevice_SetTextureState_BumpEnv                    = 0
 D3DDevice_SetTextureState_ColorKeyColor              = 0
-D3DDevice_SetTextureState_TexCoordIndex              = 0  # pending [abi] proof, candidate 0x304310 (reads esi, pops 4)
+D3DDevice_SetTextureState_TexCoordIndex              = 0x304310
 D3DDevice_SetTile                                    = 0
-D3DDevice_SetTransform                               = 0  # pending [abi] proof, candidate 0x3060E0 (reads eax edx, pops 0)
+D3DDevice_SetTransform                               = 0x3060E0
 D3DDevice_SetVertexShader                            = 0x307AD0
 D3DDevice_SetVertexShaderConstant1                   = 0
 D3DDevice_SetVertexShaderConstant1Fast               = 0
 D3DDevice_SetVertexShaderConstant4                   = 0
 D3DDevice_SetVertexShaderConstantNotInlineFast       = 0x307D50
 D3DDevice_SetViewport                                = 0x306240
-D3DDevice_Swap                                       = 0  # pending [abi] proof, candidate 0x309660 (reads eax, pops 0)
+D3DDevice_Swap                                       = 0x309660
 D3DDevice_SwitchTexture                              = 0
 D3DResource_BlockUntilNotBusy                        = 0
-D3DResource_IsBusy                                   = 0  # pending [abi] proof, candidate 0x3080B0 (reads ecx, pops 0)
+D3DResource_IsBusy                                   = 0x3080B0
 Direct3D_CreateDevice                                = 0x30A510
 DirectSoundCreate                                    = 0x247A2D
 DirectSoundCreateBuffer                              = 0
@@ -280,3 +280,52 @@ XPP_MemoryUnitType          = 0x3183E8
 # device 0x314B40 through it (ppDevice); the one stack slot (ret 4) goes to the device init 0x30B5D0 with the
 # device (pPresentationParameters, built by the caller at 0x1084AB); the first three are never read
 Direct3D_CreateDevice = ["none", "none", "none", "eax", "stack", "ecx"]
+# proven in analysis/abi_5659.md (2026-10-19)
+# CDevice_KickOff(this): 0x30A2C0 reads the device's flags [edx+8] and push pointer [edx]; callers 0x197481 and
+# 0x1979C9 load edx from D3D_pDevice; plain ret
+CDevice_KickOff = ["edx"]
+# D3DDevice_DrawVertices(PrimitiveType, StartVertex, VertexCount): eax kept in edi is the count (batching 0x3083D1,
+# (count-1)<<24 at 0x308451), ecx kept in ebx the start (0x308434), the one stack slot (ret 4) the primitive written
+# after BEGIN_END at 0x308422; caller 0xAF547 pushes 8, eax = 4, ecx = 0
+D3DDevice_DrawVertices = ["stack", "ecx", "eax"]
+# D3DDevice_SelectVertexShader(Handle, Address): eax - 1 stored to device+0x794 (0x3073F7), ebx sent with method
+# 0x1EA0 and stored to device+0x79C (0x307474, 0x30747C); plain ret; caller 0x307B07 eax = handle, ebx = 0
+D3DDevice_SelectVertexShader = ["eax", "ebx"]
+# D3DDevice_SetIndices(pIndexData, BaseVertexIndex): ebx AddRef'd (0x306621) and stored to device+0x7A0 (0x306661),
+# the one stack slot (ret 4) stored to device+0x1C (0x30665E); caller 0x196648 ebx = buffer, push 0
+D3DDevice_SetIndices = ["ebx", "stack"]
+# D3DDevice_SetPixelShader(Handle): eax stored to device+0x784 at 0x304F84; plain ret; caller 0x15B9F loads eax only
+D3DDevice_SetPixelShader = ["eax"]
+# D3DDevice_SetPixelShaderConstant(Register, pConstantData, ConstantCount): ecx kept in edi is the register index
+# (incremented 0x30542E), the stack slot (ret 4) the data read by movups 0x3051B4 and advanced by 16, eax the count
+# (decremented 0x30542F); caller 0x15E2D pushes the data, eax = 1, ecx = 1
+D3DDevice_SetPixelShaderConstant = ["ecx", "stack", "eax"]
+# D3DDevice_SetShaderConstantMode(Mode): eax & 0x10 sets device flag 0x200, stored to device+0x1928 (0x307490..
+# 0x3074B2); plain ret; caller 0x194F90 eax = 1
+D3DDevice_SetShaderConstantMode = ["eax"]
+# D3DDevice_SetStreamSource(StreamNumber, pStreamData, Stride): eax * 12 indexes the stream table (0x3070D6), ebx
+# AddRef'd and stored at +8 (0x30711D), the stack slot (ret 4) stored at +0 (0x307117); caller 0xAF510 push 0x18,
+# eax = 0, ebx = buffer
+D3DDevice_SetStreamSource = ["eax", "ebx", "stack"]
+# D3DDevice_SetTexture(Stage, pTexture): eax indexes device+0xF88 (0x306473, 0x3064A6), the stack slot (ret 4) is
+# the texture, AddRef'd at 0x3064FF; caller 0x12A56 pushes the texture, eax = stage
+D3DDevice_SetTexture = ["eax", "stack"]
+# D3DDevice_SetTextureState_TexCoordIndex(Stage, Value): esi << 7 indexes the texture state table (0x30431D), the
+# stack slot (ret 4) is the value stored at 0x304322; caller 0x3045AA pushes the value, esi = stage
+D3DDevice_SetTextureState_TexCoordIndex = ["esi", "stack"]
+# D3DDevice_SetTransform(State, pMatrix): eax << 6 + device+0xC60 receives 16 dwords copied from edx (0x3060E8..
+# 0x3060FC); plain ret; caller 0x71290 edx = matrix, eax = state
+D3DDevice_SetTransform = ["eax", "edx"]
+# D3DDevice_Swap(Flags): eax kept in ebx, 0 becomes 5 (0x309688); increments and returns device+0x2478; plain ret;
+# callers 0xAF299, 0xAF555 xor eax, eax
+D3DDevice_Swap = ["eax"]
+# D3DResource_IsBusy(pResource): ecx is the resource ([ecx] common, [ecx+0x14] parent at 0x3080B0..0x3080C9); plain
+# ret; caller 0xBE03E ecx = [ebp+0x410]
+D3DResource_IsBusy = ["ecx"]
+# D3D_InternalRelease(pResource): esi is the resource, 0x80000 taken off [esi] (0x307F80); plain ret; callers
+# 0x305A94 and 0x305ABE load esi with the render target and depth surface
+D3D_InternalRelease = ["esi"]
+# D3D_MakeRequestedSpace(MinimumSpace, RequestedSpace): eax kept in ebx is the requested size (push + ebx checked at
+# 0x30A1B5), the stack slot (ret 4) the minimum (0x30A1D4); callers push the smaller value (0x12996 push half,
+# eax = full)
+D3D_MakeRequestedSpace = ["stack", "eax"]
