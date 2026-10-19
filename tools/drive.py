@@ -107,6 +107,7 @@ def main():
         elif args[i] == '--exe':  # another front end, e.g. build/window/CounterStrike
             global EXE
             EXE = os.path.abspath(args[i + 1]); i += 2
+            env.setdefault('CSX_TEST_INPUT_ONLY', '1')  # a window front end: only the scenario's keys reach the title
         elif args[i] == '--run':
             global RUN
             RUN = os.path.abspath(args[i + 1]); i += 2

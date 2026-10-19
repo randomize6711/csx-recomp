@@ -10,6 +10,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
+#include <utility>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -23,6 +25,48 @@
 #include "linux/window.h"
 
 namespace {
+
+SDL_Window* g_window = nullptr;
+bool g_vulkan = false;
+std::mutex g_shot_lock;
+std::string g_shot;
+
+}  // namespace
+
+namespace window {
+void* SdlWindow() { return g_window; }
+bool UseVulkan() { return g_vulkan; }
+std::string TakeShotRequest() {
+    std::lock_guard<std::mutex> lock(g_shot_lock);
+    return std::exchange(g_shot, {});
+}
+void RequestShot(const std::string& name) {
+    std::lock_guard<std::mutex> lock(g_shot_lock);
+    g_shot = name;
+}
+}  // namespace window
+
+namespace {
+
+// keyboard id the keys file's events carry; with CSX_TEST_INPUT_ONLY=1 every other input event is dropped, so a test
+// run is not steered by whatever the desktop types into the window when it takes focus
+constexpr SDL_KeyboardID kInjectedKeyboard = 0x7E57;
+
+bool HostInputEvent(const SDL_Event& e) {
+    switch (e.type) {
+        case SDL_EVENT_KEY_DOWN:
+        case SDL_EVENT_KEY_UP: return e.key.which != kInjectedKeyboard;
+        case SDL_EVENT_MOUSE_MOTION:
+        case SDL_EVENT_MOUSE_BUTTON_DOWN:
+        case SDL_EVENT_MOUSE_BUTTON_UP:
+        case SDL_EVENT_MOUSE_WHEEL:
+        case SDL_EVENT_GAMEPAD_ADDED:
+        case SDL_EVENT_GAMEPAD_AXIS_MOTION:
+        case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+        case SDL_EVENT_GAMEPAD_BUTTON_UP: return true;
+        default: return false;
+    }
+}
 
 // the frame scaled to the window at the display's 4:3, whatever the surface's own size (640x960 for CS)
 SDL_FRect Letterbox(int ww, int wh) {
@@ -40,8 +84,11 @@ int main(int argc, char** argv) {
     std::string game;
     for (int i = 1; i < argc; i++) {
         if (!std::strcmp(argv[i], "--instance") && i + 1 < argc) setenv("INSTANCE", argv[++i], 1);
+        else if (!std::strcmp(argv[i], "--renderer") && i + 1 < argc) setenv("CSX_RENDERER", argv[++i], 1);
         else game = argv[i];
     }
+    // the renderer survives a title relaunch (exec without arguments) through the environment
+    g_vulkan = std::getenv("CSX_RENDERER") && !std::strcmp(std::getenv("CSX_RENDERER"), "vulkan");
     if (game.empty() && std::getenv("GAME_DIR")) game = std::getenv("GAME_DIR");
     setenv("GAME_DIR", game.c_str(), 1);
     setenv("FPS", "30", 0);
@@ -56,16 +103,19 @@ int main(int argc, char** argv) {
         logx::Flush();
         return 1;
     }
-    SDL_Window* win = SDL_CreateWindow("Counter-Strike", 1280, 960, SDL_WINDOW_RESIZABLE);
-    SDL_Renderer* ren = win ? SDL_CreateRenderer(win, nullptr) : nullptr;
-    if (!ren) {
+    SDL_Window* win = SDL_CreateWindow("Counter-Strike", 1280, 960,
+                                       SDL_WINDOW_RESIZABLE | (g_vulkan ? SDL_WINDOW_VULKAN : SDL_WindowFlags(0)));
+    g_window = win;
+    // the Vulkan backend presents by itself; the software path shows frames through an SDL renderer
+    SDL_Renderer* ren = win && !g_vulkan ? SDL_CreateRenderer(win, nullptr) : nullptr;
+    if (!win || (!g_vulkan && !ren)) {
         LOGE("window: cannot create the window: %s", SDL_GetError());
         logx::Flush();
         return 1;
     }
-    SDL_SetRenderVSync(ren, 1);
-    LOGI("window: SDL %d.%d.%d, renderer %s", SDL_MAJOR_VERSION, SDL_MINOR_VERSION, SDL_MICRO_VERSION,
-         SDL_GetRendererName(ren));
+    if (ren) SDL_SetRenderVSync(ren, 1);
+    LOGI("window: SDL %d.%d.%d, %s", SDL_MAJOR_VERSION, SDL_MINOR_VERSION, SDL_MICRO_VERSION,
+         g_vulkan ? "Vulkan renderer" : SDL_GetRendererName(ren));
 
     app::Load();
     if (app::kGame.init) app::kGame.init();
@@ -98,9 +148,12 @@ int main(int argc, char** argv) {
         ev.key.key = k;
         ev.key.down = down;
         ev.key.windowID = SDL_GetWindowID(win);
+        ev.key.which = kInjectedKeyboard;
         SDL_PushEvent(&ev);
     };
     const std::string keys_file = (app::ExeDir() / "keys").string();
+    const bool test_input_only = std::getenv("CSX_TEST_INPUT_ONLY") && *std::getenv("CSX_TEST_INPUT_ONLY") == '1';
+    if (test_input_only) LOGI("window: test input only, host keyboard, mouse and gamepads ignored");
     for (bool quit = false; !quit;) {
         auto tnow = std::chrono::steady_clock::now();
         if (FILE* kf = std::fopen(keys_file.c_str(), "r")) {
@@ -129,6 +182,7 @@ int main(int argc, char** argv) {
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_EVENT_QUIT) quit = true;
+            if (test_input_only && HostInputEvent(e)) continue;
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat) {
                 bool alt_enter = e.key.key == SDLK_RETURN && (e.key.mod & SDL_KMOD_ALT);
                 if (e.key.key == SDLK_F11 || alt_enter) {
@@ -147,6 +201,23 @@ int main(int argc, char** argv) {
             window::HandleEvent(&e);
         }
         window::EndFrameInput();
+        if (g_vulkan) {
+            // the backend presents; shot requests go to it, the loop only handles events
+            const std::string shot_file = (app::ExeDir() / "shot").string();
+            if (FILE* sf = std::fopen(shot_file.c_str(), "r")) {
+                char name[64] = {};
+                if (std::fscanf(sf, "%63s", name) == 1) window::RequestShot(name);
+                std::fclose(sf);
+                std::remove(shot_file.c_str());
+            }
+            SDL_Delay(5);
+            auto now = std::chrono::steady_clock::now();
+            if (now - last_flush > std::chrono::seconds(1)) {
+                logx::Flush();
+                last_flush = now;
+            }
+            continue;
+        }
         uint32_t w = 0, h = 0;
         {
             auto& fr = window::Latest();

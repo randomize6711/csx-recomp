@@ -79,3 +79,9 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
 - Shows menus at 30 frames/s and gameplay at about 3 frames/s (reference renderer); keyboard, mouse (stick
   emulation), gamepads; fullscreen toggle; screenshots of the window output on request for tests.
 - Not yet: audio output (null mixer), overlay (movies), usable in-game frame rate, raw mouse aim.
+
+## 2026-10-19 — Vulkan milestone 1: title screen
+
+- Plan (docs/vulkan_plan.md), shared draw helpers (SDK patch 0016), DXC SPIR-V verified, Vulkan backend renders the
+  original title screen on the RX 9070 XT (RADV); 40.5 dB PSNR against the reference renderer.
+- Regression 112/112 with the refactor; Windows-only sources syntax-checked (tools/check_windows.sh).

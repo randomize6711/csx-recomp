@@ -79,3 +79,24 @@ recorded in PROGRESS.md, committed.
 
 `src/vulkan/` in this repository (built into the Linux window front end, kept out of the Windows build), so the SDK
 stays a set of small patches. It includes only runtime headers (state, vertex, texture, shaders, backend).
+
+## Status
+
+### Milestone 1: title screen (done 2026-10-19)
+
+- src/vulkan/vk_backend.cpp, vk_shader.cpp; the window front end takes `--renderer vulkan` (or CSX_RENDERER=vulkan,
+  kept across title relaunches). Built by tools/build_window.sh with third_party/Vulkan-Headers (v1.4.363, pinned;
+  or the vulkan-headers package), -lvulkan, -ldxcompiler.
+- RX 9070 XT, RADV (Mesa 26.2.5), API 1.4.354: instance/device/swapchain through SDL3, 640x960 colour and D32S8 depth
+  targets, DXC SPIR-V at draw time, push descriptors, dynamic rendering, flipped viewport, 4:3 letterboxed blit.
+- tests/scenarios/vk_title.txt: the presented back buffer saved after boot. Against the reference renderer's capture
+  of the title (tools/compare_images.py): PSNR 40.5 dB, mean difference under 1 level, 0.9% of pixels over 8 levels,
+  all on sharp edges in a column pattern (texture sampling phase, CPU float vs GPU sub-texel precision; which one the
+  console matches is open, to settle against xemu).
+- Depth quantisation (risk 1) was needed at once: without it the D32F depth brought back the menu artifact (shown in a
+  run that had reached the menus). The Vulkan backend floors z to whole depth units in both vertex epilogues.
+- Not yet: point sprites, cube/volume/depth textures, CopyRects, guest readback (Sync), gamma, visibility queries,
+  overlay, border colours, the render thread.
+- Test isolation: the window, when it took focus on the desktop, received host keystrokes that navigated the menus and
+  made the title relaunch. CSX_TEST_INPUT_ONLY=1 (set by tools/drive.py for window runs) drops host keyboard, mouse and
+  gamepad events; scenario keys carry a marker keyboard id.

@@ -13,7 +13,7 @@ mkdir -p build/gen
 out/build/linux-tools/xbe_recomp config/game.toml assets/default.xbe build/gen/game > build/recomp.log 2>&1 ||
     { echo recomp failed; tail build/recomp.log; exit 1; }
 # memory.cpp uses ftruncate without <unistd.h>: force it in rather than edit the SDK
-CXX="clang++ -include unistd.h" bash sdk/harness/build.sh -r . -g build/gen/game -o build/harness -n CounterStrike -x /src/linux/ \
+CXX="clang++ -include unistd.h" bash sdk/harness/build.sh -r . -g build/gen/game -o build/harness -n CounterStrike -x /src/linux/ -x /src/vulkan/ \
     > build/harness_build.log 2>&1 || { echo harness build failed; grep error build/harness_build.log | head; exit 1; }
 mkdir -p build/run && cd build/run && rm -rf logs hdd cap
 timeout -s INT "${1:-40}" unshare -rn ../harness/CounterStrike ../gamedata > run.out 2>&1

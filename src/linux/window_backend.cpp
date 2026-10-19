@@ -73,6 +73,11 @@ public:
 
 }  // namespace
 
-std::unique_ptr<Backend> CreateBackend() { return std::make_unique<WindowBackend>(); }
+std::unique_ptr<Backend> CreateVulkanBackend();  // src/vulkan/vk_backend.cpp
+
+std::unique_ptr<Backend> CreateBackend() {
+    if (window::UseVulkan()) return CreateVulkanBackend();
+    return std::make_unique<WindowBackend>();
+}
 
 }  // namespace gpu

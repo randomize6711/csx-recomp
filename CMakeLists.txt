@@ -28,6 +28,7 @@ file(GLOB XBE_HOST_SOURCES CONFIGURE_DEPENDS src/*/*.cpp)
 list(FILTER XBE_HOST_SOURCES EXCLUDE REGEX "/src/game/")
 # the Linux window front end (src/linux) is built by tools/build_window.sh, not with the Windows game
 list(FILTER XBE_HOST_SOURCES EXCLUDE REGEX "/src/linux/")
+list(FILTER XBE_HOST_SOURCES EXCLUDE REGEX "/src/vulkan/")
 
 # partitions as xbe_symbols wrote them into config/game.toml
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS config/game.toml)

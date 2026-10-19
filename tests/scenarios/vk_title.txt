@@ -1,0 +1,8 @@
+# Vulkan renderer: boot to the title screen and save the presented back buffer (shots/title.bmp)
+# python3 -I tools/drive.py tests/scenarios/vk_title.txt --exe build/window/CounterStrike --run build/wrun --env CSX_RENDERER=vulkan
+wait log renderer: vulkan
+wait log open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+windowshot title
+expect nolog fatal error screen
+expect nolog vulkan: .* failed

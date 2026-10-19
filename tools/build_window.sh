@@ -8,6 +8,6 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
 tools/apply_sdk_patches.sh > /dev/null
 [ -f build/gen/game/x86_func_mapping.cpp ] || { echo "run tools/iterate.sh first"; exit 1; }
-HOST_OPT=-O3 CXX="clang++ -include unistd.h -Wno-unused-command-line-argument $(pkg-config --cflags sdl3) $(pkg-config --libs sdl3)" \
+HOST_OPT=-O3 CXX="clang++ -include unistd.h -Wno-unused-command-line-argument $(pkg-config --cflags sdl3) $(pkg-config --libs sdl3) -I$root/third_party/Vulkan-Headers/include -lvulkan -ldxcompiler" \
     bash sdk/harness/build.sh -r . -g build/gen/game -o build/window -n CounterStrike -G build/harness/gen \
     -x /harness/main_test.cpp -x /harness/null_backend.cpp -x /harness/pad_script.cpp

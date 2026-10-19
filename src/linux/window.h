@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cstdint>
 #include <mutex>
+#include <string>
 #include <vector>
 
 namespace window {
@@ -20,5 +21,12 @@ Frame& Latest();
 // input the window thread gathers for input::Poll
 void HandleEvent(const void* sdl_event);  // an SDL_Event
 void EndFrameInput();                     // after a batch of events: mouse motion turns into this frame's look input
+
+// the SDL window (an SDL_Window*), and which renderer draws into it
+void* SdlWindow();
+bool UseVulkan();
+// a window shot request ("shot" file) handed to a renderer that presents by itself (Vulkan); empty when none
+std::string TakeShotRequest();
+void RequestShot(const std::string& name);
 
 }  // namespace window
