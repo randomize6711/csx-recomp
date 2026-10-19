@@ -1,0 +1,75 @@
+# Field of view (FINDINGS.md "FOV and widescreen", src/game/pc_view.cpp): seeded with 110, the unzoomed view uses it;
+# an AWP bought through the buy menu zooms to its own 40 and 10 and back to 110; the pause menu's PC Options sets 115,
+# which applies at once.
+#   --launch tests/launch/de_airstrip_beginner --pc fov=110
+wait log open D:\\.*\.sxwad
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+count game:.World.triggered."Round_Start" 2
+sleep 3
+expect log pc view: fov 110
+pckey cmd +buymenu
+sleep 0.2
+pckey cmd -buymenu
+sleep 1.5
+press LSR 20
+press LSR+A 4
+sleep 1.5
+press LS+LSL 20
+press LS+LSL+A 4
+sleep 2
+press B
+sleep 2
+pckey cmd +attack2
+sleep 0.1
+pckey cmd -attack2
+sleep 1.5
+expect log pc view: fov 40 \(the game's zoom\)
+pckey cmd +attack2
+sleep 0.1
+pckey cmd -attack2
+sleep 1.5
+expect log pc view: fov 10 \(the game's zoom\)
+pckey cmd +attack2
+sleep 0.1
+pckey cmd -attack2
+sleep 1.5
+count pc.view:.fov.110$ 2
+press START
+sleep 2
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 2
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 2
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press RIGHT
+sleep 1
+press A
+sleep 2
+expect log pc: fov = 115
+expect log pc view: fov 115
+expect nolog guest trap

@@ -731,6 +731,39 @@ Open:
 - Whether the game stores the PC keys' bindings in the Xbox profile was not seen (they are set again from
   pc_settings.ini anyway).
 
+## FOV and widescreen (2026-10-19)
+
+How the Xbox version builds its view (CS 5659, from the code and draw lists):
+- **FOV**: GoldSrc's. scr_fov_value (0x377668, horizontal degrees for a 4:3 view, default 90) is written every frame
+  from the client's HUD_UpdateClientData result (0x1CD12: the server's per-player FOV, i.e. 90, or a weapon's zoom:
+  the AWP gives 40 and 10). R_SetupGL (0x4E030) passes it to CalcFovY (0x4DFD0: the vertical FOV for the view
+  rectangle's width and height, 0x6E7A28 / 0x6E7A2C, 640x480; values under 1 or over 179 become 90) and the result to
+  MYgluPerspective (0x4DF80, near 1, far 4096, through the GL layer's glFrustum). R_SetFrustum (0x4DAB0) builds the
+  culling planes from the same scr_fov_value and CalcFovY on the video size (0x6CE274 / 0x6CE3C8). The 3D projection
+  is x 1, y 1.333 (90 x 73.74 degrees); the 2D layers use an orthographic 640x480 one (2/640, -2/480).
+- **Console variables**: default_fov and fov exist (GoldSrc's) but do not change the view: the server's per-player
+  FOV (SetFOV / m_iFOV) is what reaches scr_fov_value. zoom_sensitivity_ratio scales the stick's zoomed turning.
+- **The viewmodel** is drawn with the same projection as the world (only the perspective and the 2D orthographic
+  projections appear in a frame's draws), as in PC GoldSrc; there is no viewmodel FOV.
+- **Zoom**: the server sets the player's FOV (40 / 10 for the AWP); it reaches scr_fov_value like the default.
+- **Widescreen in the original**: r_anamorphic (cvar 0x3773E8, default 0) makes R_SetupGL use a 16:9 aspect
+  (1.7778) with CalcFovY's vertical FOV from the 4:3 rectangle, i.e. Hor+ into the same 640x480 buffer, for a 16:9 TV
+  to stretch. It is read nowhere else: R_SetFrustum stays 4:3 (objects at the wide edges would be culled) and the HUD
+  and menus are not compensated (they would be stretched). The console's widescreen flag (XC_VIDEO_FLAGS, reported
+  by the runtime) is not used by CS to set it.
+- **Renderers**: the projection is the game's (a guest matrix through SetTransform and vertex shader constants), so
+  the Vulkan backend and the reference renderer show the same view; at FOV 110 they match to 25.9 dB PSNR, as at 90.
+
+Field of view (src/game/pc_view.cpp, Options > PC Options):
+- A hook after the per-frame update (0x1CD17) replaces scr_fov_value's 90 with the chosen FOV, so the projection and
+  the culling planes move together; a zoomed weapon's FOV is left as the game sets it. Choices 90 (Original, the
+  default), 95 ... 120, saved as fov in pc_settings.ini, applied the next frame (also from the pause menu).
+- Checked: the projection's x scale 0.7002 at 110 (1 / tan 55), the AWP's zoom 2.747 (40) and 11.43 (10) unchanged,
+  back to 0.7002 after; no geometry missing at the edges; the same in Vulkan; regress_pc_fov.txt (seeded 110, an AWP
+  bought through the buy menu zooms 40 / 10 and back, the pause menu sets 115).
+- The first-person weapon looks smaller at a wide FOV (same projection as the world, as on a PC); a separate
+  viewmodel FOV would need its draws found and given their own projection, cosmetic, not done.
+
 ## Assumptions / to verify
 
 - Third-party licenses (from prior knowledge, confirm before reusing any code): Half-Life SDK — Valve's restrictive

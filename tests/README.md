@@ -120,6 +120,12 @@ ones.
 the pause menu's PC Controls restores the defaults (X) and saves (A) and Space jumps. In the window build `click
 BUTTON [SECONDS]` and `wheel N` send mouse buttons and wheel notches through SDL like `key`.
 
+## Field of view
+
+`regress_pc_fov.txt` starts a match with FOV 110 (`--pc fov=110`), buys an AWP through the buy menu (+buymenu, the
+pie's directions), zooms to its 40 and 10 and back (the game's own FOVs, logged by src/game/pc_view.cpp as "pc view:
+fov N"), then sets 115 in the pause menu's PC Options and sees it applied.
+
 ## Mouse look
 
 `regress_mouse_look.txt` (part of run_regression.sh, starts in the match through its `--launch` header line) turns

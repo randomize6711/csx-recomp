@@ -242,3 +242,9 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
 - pc_menu.cpp is now a registration of PC screens (PC Options, PC Controls) from which both menus' text is made.
 - Tests: regress_pc_bindings.txt; drive.py steps pckey, click, wheel, expect rose.
 
+## 2026-10-19 — Field of view
+
+- The view's FOV path traced (scr_fov_value, CalcFovY, MYgluPerspective, R_SetFrustum; r_anamorphic found, see
+  FINDINGS.md "FOV and widescreen"). Options > PC Options > Field of View (90 original ... 120) replaces the unzoomed
+  FOV; zoom unchanged; projection and culling together; both renderers. Test: regress_pc_fov.txt.
+
