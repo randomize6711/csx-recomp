@@ -1,0 +1,11 @@
+# boot -> title screen -> START -> notice (A ACCEPT) -> A -> on-screen keyboard
+wait draws==1
+pressuntil START draws==3
+wait draws==3
+sleep 2
+snap notice
+press A
+wait draws>=50
+sleep 3
+snap keyboard
+expect nolog fatal error screen

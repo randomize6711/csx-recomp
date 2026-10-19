@@ -1,0 +1,3 @@
+# title screen (first drawn near frame 2600 in the headless harness): START, then A on the notice screen
+3000 START 8
+3400 A 8

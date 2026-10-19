@@ -1,0 +1,22 @@
+diff -ru a/harness/null_backend.cpp b/harness/null_backend.cpp
+--- a/harness/null_backend.cpp
++++ b/harness/null_backend.cpp
+@@ -1,5 +1,6 @@
+ // headless renderer: counts frames and draws, logs draw lists, draws chosen frames with the reference renderer
+-// REF=N: every Nth frame drawn on the CPU into guest memory and saved as cap/ref_<frame>.tga
++// REF=N: every Nth frame drawn on the CPU into guest memory and saved as cap/ref_<frame>.tga; clears always run, so
++// only draws on skipped frames are missing (a target drawn once and reused later shows empty)
+ // CAP=N: every Nth frame's draws listed in cap/draws_<frame>.txt
+ // snap in the run folder: the next two frames drawn and saved as snap_1.tga and snap_2.tga, then snap is removed
+ #include <cstdio>
+@@ -28,7 +29,9 @@
+         return true;
+     }
+     void Clear(const State& s, uint32_t n, const uint8_t* rects, uint32_t flags, uint32_t color, float z, uint32_t stencil) override {
+-        if (drawing_) reference::Clear(s, n, rects, flags, color, z, stencil);
++        // every clear reaches guest memory, drawn frame or not: a title may clear depth once (CS at its Reset) and draw
++        // on it for many frames, so a frame drawn later would test against a depth buffer never cleared
++        reference::Clear(s, n, rects, flags, color, z, stencil);
+     }
+     void Draw(const State& s, uint32_t prim, uint32_t start, uint32_t count, const uint8_t* indices) override {
+         draws_++;

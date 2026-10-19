@@ -1,0 +1,14 @@
+diff -ru a/harness/reference_renderer.cpp b/harness/reference_renderer.cpp
+--- a/harness/reference_renderer.cpp
++++ b/harness/reference_renderer.cpp
+@@ -1185,7 +1185,9 @@
+     const Probes& probes = Watch();
+     bool watched = probes.Watched(rt);
+ 
+-    const float near_w = 1e-6f;
++    // below the smallest w a vertex program leaves (MagClamp, 2^-64): screen space programs that write only oPos.xy
++    // (w 0, clamped to 2^-64) are drawn as the D3D12 path and the console draw them, not clipped away
++    const float near_w = 1e-30f;
+     for (size_t ti = 0; ti + 2 < as.indices.size(); ti += 3) {
+         Clip tri[3];
+         for (int i = 0; i < 3; i++) {

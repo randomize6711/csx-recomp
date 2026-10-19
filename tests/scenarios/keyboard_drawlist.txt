@@ -1,0 +1,6 @@
+wait draws==1
+pressuntil START draws==3
+wait draws==3
+pressuntil A draws>=50
+wait draws>=50
+sleep 4

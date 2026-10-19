@@ -1,0 +1,89 @@
+diff -ru a/harness/reference_renderer.cpp b/harness/reference_renderer.cpp
+--- a/harness/reference_renderer.cpp
++++ b/harness/reference_renderer.cpp
+@@ -1126,7 +1126,7 @@
+         } else {
+             const Vec& q = vp.in[0];
+             if (as.pretransformed) {
+-                o.pos = V(q[0], q[1], q[2] * s.zscale, q[3] == 0 ? 1 : 1 / q[3]);
++                o.pos = V(q[0] * s.ss[0], q[1] * s.ss[1], q[2] * s.zscale, q[3] == 0 ? 1 : 1 / q[3]);
+             } else {
+                 // world, view, projection, then the viewport, as the D3D12 path builds it
+                 auto mul = [](const float* x, const float* y, float* r) {
+diff -ru a/runtime/gpu/d3d12.cpp b/runtime/gpu/d3d12.cpp
+--- a/runtime/gpu/d3d12.cpp
++++ b/runtime/gpu/d3d12.cpp
+@@ -2025,6 +2025,8 @@
+     c.misc[1] = SimpleState(s, kMAlphaTestEnable) ? float(Cmp(SimpleState(s, kMAlphaFunc)) - 1) : kAlphaTestAlways;
+     c.misc[2] = float(Cmp(s.rs[kRsShadowFunc]) - 1);
+     c.misc[3] = s.rs[kRsSpecularEnable] ? 1.0f : 0.0f;
++    c.ss[0] = s.ss[0];
++    c.ss[1] = s.ss[1];
+ }
+ 
+ void FillCombinerConstants(const State& s, DrawConstants& c) {
+diff -ru a/runtime/gpu/shaders.cpp b/runtime/gpu/shaders.cpp
+--- a/runtime/gpu/shaders.cpp
++++ b/runtime/gpu/shaders.cpp
+@@ -54,6 +54,7 @@
+     float4 amb;
+     float4 lt[56];
+     float4 rtshift;
++    float4 ss;
+ };
+ )";
+ 
+@@ -726,7 +727,7 @@
+     if (pretransformed) {
+         s += "    float4 rhw = " + v(0, "float4(0,0,0,1)") + ";\n";
+         s += "    float w = rhw.w == 0 ? 1 : 1 / rhw.w;\n";
+-        s += "    oPos = float4(rhw.xy, rhw.z / surf.z, w);\n";
++        s += "    oPos = float4(rhw.xy * ss.xy, rhw.z / surf.z, w);\n";
+     } else {
+         s += "    float4 ip = float4(" + v(0, "float4(0,0,0,1)") + ".xyz, 1);\n";
+         s += "    float4 cp = mul(ip, wvp);\n";
+diff -ru a/runtime/gpu/shaders.h b/runtime/gpu/shaders.h
+--- a/runtime/gpu/shaders.h
++++ b/runtime/gpu/shaders.h
+@@ -100,6 +100,7 @@
+     float amb[4];        // D3DRS_AMBIENT
+     float lt[8][7][4];   // per light: diffuse, specular, ambient, position range, direction falloff, attenuation, cos theta/2 phi/2
+     float rtshift[4];    // per kTexTarget stage: host pixels its reads move along x and y, negative up and left
++    float ss[4];         // super sample scale x, y of the target (State::ss)
+ };
+ 
+ }  // namespace gpu
+diff -ru a/runtime/gpu/state.h b/runtime/gpu/state.h
+--- a/runtime/gpu/state.h
++++ b/runtime/gpu/state.h
+@@ -184,6 +184,9 @@
+     std::array<std::array<uint32_t, 26>, 8> lights{};  // D3DLIGHT8
+     uint32_t light_enable = 0;                         // bit per light
+     float ss_offset_x = 0, ss_offset_y = 0;
++    // super sample scale of the render target: pretransformed (XYZRHW) positions are in display pixels and drawn at
++    // this many target pixels each, while vertex programs write target pixels themselves
++    float ss[2] = {1, 1};
+     float zscale = 16777215.0f;  // depth buffer units per 1.0
+ };
+ 
+diff -ru a/runtime/xdk/d3d8.cpp b/runtime/xdk/d3d8.cpp
+--- a/runtime/xdk/d3d8.cpp
++++ b/runtime/xdk/d3d8.cpp
+@@ -320,6 +320,8 @@
+ 
+ // the device fields that point at the frame buffers, and the scales the library's frame buffer init sets
+ void SetFrameBufferFields() {
++    g_state.ss[0] = g_ss[0];
++    g_state.ss[1] = g_ss[1];
+     SetDev(kDevRenderTarget, g_buffers[1]);
+     SetDev(kDevDepth, g_depth);
+     SetDev(kDevBackBuffer, g_buffers[1]);
+@@ -568,6 +570,8 @@
+     g_ss[1] = back ? g_bb_scale[1] : 1.0f;
+     std::memcpy(HostPtr(kDevice + kDevSuperX), &g_ss[0], 4);
+     std::memcpy(HostPtr(kDevice + kDevSuperY), &g_ss[1], 4);
++    g_state.ss[0] = g_ss[0];
++    g_state.ss[1] = g_ss[1];
+     if (back && g_state.rs[gpu::kRsMultiSampleMode])
+         LOG_FIRST(1, "d3d: MultiSampleMode %u on the back buffer, its super sample adjustment is not modelled",
+                   g_state.rs[gpu::kRsMultiSampleMode]);
