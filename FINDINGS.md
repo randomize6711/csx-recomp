@@ -521,6 +521,35 @@ Open:
 - Console subsystem (a console window shows the log); a GUI subsystem build would need SDL_main or a WinMain.
 - The upstream D3D12 path is not built; the Windows build uses the same Vulkan backend as Linux.
 
+## Shadows and HUD colours (2026-10-19)
+
+Confirmed:
+- **Character shadows were drawn white** (played-in report: white circles under players, in both renderers). The
+  shadow is a quad per character (prim 8, 4 vertices) of CS's GL layer: an inline array (NV097_INLINE_ARRAY) of
+  positions and texture coordinates only (slots 0 and 9) with a 32x32 DXT3 blob texture, stage 0 MODULATE(texture,
+  diffuse) for colour and alpha, blend SRCALPHA / INVSRCALPHA. Its colour is set before the array as the slot's
+  current value (NV097_SET_VERTEX_DATA, slot 3 = diffuse): (0, 0, 0, 1), black, in all 375 shadow quads of a test
+  run. The runtime kept current values but fed a primitive only the slots it sent per vertex, so the draw took the
+  default white diffuse: the reference renderer's probe under a bot showed source 0.581 (the texture's grey) at alpha
+  0.40, lifting the ground from 0.097 to 0.289; after the fix source 0 at alpha 0.38, darkening it to 0.060.
+- **The hardware model**: each attribute slot keeps its last SET_VERTEX_DATA value and a draw reads it for every slot
+  its arrays do not supply (xemu's pgraph, reference only: attributes with no array are uniforms of their inline
+  value; SET_VERTEX_DATA4UB is x = byte 0 .. w = byte 3, as the runtime decodes it). SDK patch 0025: the push buffer
+  walker remembers which slots have a value, inline-array vertices start from those values, and immediate / inline
+  primitives feed them.
+- **The same values colour CS's GL-layer HUD and texts**, which had been white: HUD numbers now show GoldSrc's fade
+  (colour stepping from 200/255 down to 100/255, GoldSrc's MIN_ALPHA, after a value changes, so resting numbers are
+  dim), the crosshair and the buy-zone / C4 icons are green, the freeze-time clock red, "You have spotted a friend"
+  green and the friend's name and health red, alpha fades through the 4UB colour's top byte. Evidence: per draw logs
+  of the slot 3 value and method (0x1A3C float, 0x194C bytes) with the HUD atlas (256x256 DXT3) draws.
+- Checked: shadows dark under the bots in both renderers and in successive window shots as they run; resting health
+  digits' mean luminance 82-84 (was 119.5) in regress_hud_colour.txt.
+
+Open:
+- Draws from vertex buffers (not the push buffer walker) that leave a slot out still get the backend's defaults, not
+  the slot's current value; no such draw was identified in CS.
+- No console capture to compare the HUD's exact brightness with.
+
 ## Assumptions / to verify
 
 - Third-party licenses (from prior knowledge, confirm before reusing any code): Half-Life SDK — Valve's restrictive

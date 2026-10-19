@@ -91,6 +91,12 @@ minute of each map's direct-start match (`audio3d_direct.txt`) with `CSX_AUDIO_L
 and XACT's level per 3D update) and `XBE_LOG_3D=1` (mixer gain per routed 3D voice) and runs `tools/check_audio3d.py`:
 level falling with distance per sound class, the level reaching the mixer, far voices at least 6 dB below near ones.
 
+## Shadows and HUD colours
+
+`regress_hud_colour.txt` checks the mean luminance of the resting health digits in the reference renderer's frame
+(`expect region NAME X0 Y0 X1 Y1 MIN MAX`): about 84 with the game's MIN_ALPHA colour, about 120 when the colour set as
+current vertex data is lost (SDK patch 0025).
+
 ## Mouse look
 
 `regress_mouse_look.txt` (part of run_regression.sh, starts in the match through its `--launch` header line) turns

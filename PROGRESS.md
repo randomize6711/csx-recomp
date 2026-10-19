@@ -188,3 +188,12 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   dB below near ones. regress_audio3d.txt in run_regression.sh (which now passes --env from scenario headers).
 - Regression 272/272 (257 plus the new scenario's 15 checks).
 
+## 2026-10-19 — Character shadows and HUD colours
+
+- Played-in report: white circles under players. CS's GL layer sets the shadow's colour (black) as the diffuse slot's
+  current value before an inline array of positions and texture coordinates; the runtime fed inline / immediate
+  primitives only the slots they sent per vertex. SDK patch 0025 feeds the slots' current values (as the hardware
+  does). Shadows are dark; the HUD numbers, crosshair, icons and texts take the game's colours and fades instead of
+  white (FINDINGS.md "Shadows and HUD colours").
+- Tests: regress_hud_colour.txt (resting HUD digits' luminance); drive.py step expect region. Regression 286/286.
+

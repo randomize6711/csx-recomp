@@ -1,0 +1,18 @@
+# Colours set as current vertex data reach inline-array draws (FINDINGS.md "Shadows and HUD colours", SDK patch 0025):
+# the HUD numbers at rest are drawn at GoldSrc's MIN_ALPHA brightness (colour 100/255), not white, and the player
+# shadows black. Checked on the resting health digits of the reference renderer's frame.
+#   --launch tests/launch/de_airstrip_beginner
+wait log open D:\\.*\.sxwad
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 6
+press B
+sleep 8
+snap hud
+expect image hud 20
+expect region hud 60 820 200 880 0 105

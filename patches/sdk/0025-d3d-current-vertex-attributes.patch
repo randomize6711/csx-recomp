@@ -1,0 +1,49 @@
+diff --git a/runtime/xdk/d3d8.cpp b/runtime/xdk/d3d8.cpp
+index 041af41..eb92346 100644
+--- a/runtime/xdk/d3d8.cpp
++++ b/runtime/xdk/d3d8.cpp
+@@ -1396,6 +1396,10 @@ namespace d3d {
+ namespace {
+ uint32_t g_im_prim = 0, g_im_mask = 0;  // open primitive, slots it wrote
+ float g_im_attr[64];                    // 16 slots of x y z w
++// slots the title has given a value (NV097_SET_VERTEX_DATA*), inside a primitive or outside: the hardware keeps each
++// slot's last value and a primitive that does not send a slot per vertex reads that value (CS's GL layer sets the
++// colour, e.g. black for the player shadows, before an inline array of positions and texture coordinates)
++uint32_t g_im_current = 0;
+ std::vector<float> g_im_vertices;       // every slot per vertex
+ // inline arrays (NV097_INLINE_ARRAY): titles that push draws themselves (CS's GL layer and its model renderer) send
+ // vertices packed slot by slot in the vertex data array formats (type in bits 0-3, components in 4-7, the D3DVSDT
+@@ -1430,6 +1434,8 @@ void InlineVertices() {
+     for (size_t vtx = 0; vtx < count; vtx++) {
+         float a[64];
+         for (int s = 0; s < 16; s++) a[s * 4] = a[s * 4 + 1] = a[s * 4 + 2] = 0, a[s * 4 + 3] = 1;
++        for (int s = 0; s < 16; s++)
++            if (g_im_current >> s & 1) std::memcpy(a + s * 4, g_im_attr + s * 4, 16);  // the slot's current value
+         for (uint32_t s = 0; s < 16; s++) {
+             if (!words[s]) continue;
+             uint32_t type = format[s] & 0xF, size = (format[s] >> 4) & 0xF;
+@@ -1453,7 +1459,7 @@ void InlineVertices() {
+         }
+         g_im_vertices.insert(g_im_vertices.end(), a, a + 64);
+     }
+-    g_im_mask = mask;
++    g_im_mask = mask | g_im_current;
+     g_im_inline.clear();
+ }
+ 
+@@ -1478,6 +1484,7 @@ void EndPrimitive() {
+     uint32_t prim = g_im_prim, count = uint32_t(g_im_vertices.size() / 64), handle = g_state.vs_handle;
+     g_im_prim = 0;
+     if (!prim || !count) return;
++    g_im_mask |= g_im_current;  // a vertex holds every slot's value at its position write, current ones included
+     if (!(handle & 1) && (handle & 0xE) == 4) LOG_FIRST(1, "d3d: pretransformed immediate mode vertices are not supported");
+     auto bound = g_state.vs, from = handle & 1 ? bound : nullptr;
+     Made& m = made[{from.get(), g_im_mask}];
+@@ -1562,6 +1569,7 @@ void Walk(uint32_t end) {
+             } else {
+                 continue;
+             }
++            g_im_current |= 1u << (a - g_im_attr) / 4;
+             if (!g_im_prim) continue;
+             g_im_mask |= 1u << (a - g_im_attr) / 4;
+             if (a == g_im_attr && last) g_im_vertices.insert(g_im_vertices.end(), g_im_attr, g_im_attr + 64);

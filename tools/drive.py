@@ -31,6 +31,7 @@ per line, executed in order:
     pokefile FILE           every "VA FLOAT" line of FILE (relative to the repository) written at once
     poke VA FLOAT           write FLOAT to guest address VA (hex) once, src/common/memory_dump.cpp (diagnostics)
     snap NAME               draw the next two frames and keep them as build/run/snaps/NAME_1.tga / NAME_2.tga
+    expect region NAME X0 Y0 X1 Y1 MIN MAX  mean luminance of that box of snaps/NAME_2.tga (or shots/NAME.bmp) in [MIN, MAX]
     expect log REGEX        fail unless a log line matches
     expect nolog REGEX      fail if a log line matches
     expect image NAME MIN   fail unless snaps/NAME_2.tga (or the window shot shots/NAME.bmp) has a luminance standard deviation of at least MIN
@@ -316,6 +317,18 @@ def main():
                 good = os.path.exists(path) and ImageStat.Stat(Image.open(path).convert('L')).stddev[0] >= float(st[3])
                 if good:
                     print(f'     {st[2]}: luminance spread {ImageStat.Stat(Image.open(path).convert("L")).stddev[0]:.1f}')
+            elif kind == 'expect' and st[1] == 'region':
+                # expect region NAME X0 Y0 X1 Y1 MIN MAX: mean luminance of that box of the snap (or window shot)
+                from PIL import Image, ImageStat
+                path = os.path.join(RUN, 'snaps', st[2] + '_2.tga')
+                if not os.path.exists(path):
+                    path = os.path.join(RUN, 'shots', st[2] + '.bmp')
+                good = os.path.exists(path)
+                if good:
+                    box = tuple(int(v) for v in st[3:7])
+                    mean = ImageStat.Stat(Image.open(path).convert('L').crop(box)).mean[0]
+                    print(f'     {st[2]} {box}: mean luminance {mean:.1f} (want {st[7]}..{st[8]})')
+                    good = float(st[7]) <= mean <= float(st[8])
             elif kind == 'expect':
                 time.sleep(1.2)  # the log flushes every second
                 log.poll()
