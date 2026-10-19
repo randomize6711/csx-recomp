@@ -40,6 +40,17 @@ Both scenarios run at FPS=30 (tests/run_regression.sh).
 `to_keyboard`, `to_menu`, `to_single_player`, `to_match`, `to_airstrip`, `to_spawn` stop at intermediate screens and
 are useful while investigating; `keyboard_drawlist` and `menu_drawlist` are meant to be run with `--env CAP=60`.
 
+## Straight into the match
+
+`match_direct.txt` (headless) and `vk_match_direct.txt` (Vulkan window) start at the map load with `--launch
+tests/launch/de_airstrip_beginner` (tests/launch/README.md):
+
+    python3 -I tools/drive.py tests/scenarios/match_direct.txt --env FPS=30 --launch tests/launch/de_airstrip_beginner
+    python3 -I tools/drive.py tests/scenarios/vk_match_direct.txt --exe build/window/CounterStrike --run build/wrun \
+        --env CSX_RENDERER=vulkan --env FPS=0 --launch tests/launch/de_airstrip_beginner
+
+The regression keeps booting through the front end (it covers the menus and the relaunch).
+
 ## Window build scenarios (manual, open a window on the desktop)
 
 `window_to_menu.txt` and `window_to_match.txt` drive `build/window/CounterStrike` (tools/build_window.sh) with SDL key

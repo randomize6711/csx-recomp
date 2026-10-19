@@ -16,6 +16,10 @@ if git -C "$sdk" diff --quiet; then
     exit 0
 fi
 unset GIT_INDEX_FILE
-# every file changed in the working tree, so a patch taken out of patches/sdk is undone too
+# every file changed in the working tree, so a patch taken out of patches/sdk is undone too; files the patches create
+# are removed first (checkout leaves untracked files, and a patch creating a file that exists does not apply)
 git -C "$sdk" checkout -- .
+for p in "${patches[@]}"; do
+    git -C "$sdk" apply --summary "$p" | sed -nE 's/^ create (mode [0-7]+ )?//p' | while read -r f; do rm -f "$sdk/$f"; done
+done
 for p in "${patches[@]}"; do git -C "$sdk" apply "$p" && echo "applying $(basename "$p")"; done

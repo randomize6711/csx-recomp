@@ -1,0 +1,43 @@
+# Window build into an offline match on de_airstrip as a Terrorist, saving presented frames along the way.
+# python3 -I tools/drive.py tests/scenarios/vk_menus.txt --exe build/window/CounterStrike --run build/wrun [--env CSX_RENDERER=vulkan]
+wait log renderer:
+wait log open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+windowshot title
+key Return
+sleep 5
+windowshot notice
+key Space
+sleep 6
+windowshot keyboard
+key Space
+sleep 8
+windowshot main_menu
+key Down
+sleep 2
+key Space
+sleep 6
+windowshot single_player
+key Space
+sleep 6
+windowshot map_selection
+key Space
+wait log open D:\\de_airstrip.sxwad
+sleep 15
+windowshot team_menu
+key Down
+sleep 2
+key Down
+sleep 2
+key Space
+sleep 6
+windowshot spawned
+key LCtrl
+sleep 12
+windowshot in_game
+key W 3
+sleep 5
+windowshot moved
+sleep 10
+expect nolog fatal error screen
+expect nolog guest trap

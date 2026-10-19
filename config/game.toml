@@ -273,6 +273,13 @@ D3DDevice_Reset                                      = 0x305980
 # XMV player 0x2902BA, which waits on GetOverlayUpdateStatus 0x30A940 (0x290298)
 D3DDevice_UpdateOverlay                              = 0x30A760
 
+# D3DDevice_LoadVertexShaderProgram(pFunction, Address): identified by shape at 0x3072E0 — the instruction count is
+# the program header's high word (movzwl 2(edx) 0x3072E5), count * 4 dwords from pFunction + 4 copied to the device's
+# program copy at Address * 16 (0x307305..0x30730F), method 0x41E9C (NV097_SET_TRANSFORM_PROGRAM_LOAD) with Address
+# (0x307351), the program written by 0x3071F0, ret 8 (0x30736D); called by the studio model renderer 0x1954DB before
+# SelectVertexShaderDirect (0x307370 -> SelectVertexShader 0x3073D0 with the static object 0x318088 | 1)
+D3DDevice_LoadVertexShaderProgram                    = 0x3072E0
+
 # XDK 5659 DSOUND methods XACT uses (analysis/dsound_xact_5659.md); the 3D voice data names are labels, the
 # methods have no .XTLID entry
 IDirectSoundBuffer_Set3DVoiceData                    = 0x246428  # -> 0x245E3B -> 0x245075, XACT 0x2FCB91

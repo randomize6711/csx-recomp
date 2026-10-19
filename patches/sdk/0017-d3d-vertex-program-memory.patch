@@ -1,0 +1,102 @@
+diff --git a/runtime/xdk/d3d8.cpp b/runtime/xdk/d3d8.cpp
+index 21430b0..70eac01 100644
+--- a/runtime/xdk/d3d8.cpp
++++ b/runtime/xdk/d3d8.cpp
+@@ -11,6 +11,7 @@
+ #include "app/app.h"
+ #include "core/diag.h"
+ #include "gpu/backend.h"
++#include "gpu/shaders.h"
+ #include "gpu/texture.h"
+ #include "gpu/vertex.h"
+ #include "xdk/d3d8.h"
+@@ -973,12 +974,86 @@ HLE_FASTCALL(D3DDevice_SetVertexShaderConstantNotInlineFast, 1) {
+     return 0;
+ }
+ 
+-HLE_STDCALL(D3DDevice_LoadVertexShader, 2) {
+-    LOG_FIRST(4, "d3d: LoadVertexShader %08X at %u is not supported", a[0], a[1]);
++// Program memory: titles that manage vertex shaders themselves load microcode at an address in the 136 instruction
++// slots (LoadVertexShaderProgram, LoadVertexShader) and run it from an address with SelectVertexShader, the inputs
++// coming from the selected shader object (for SelectVertexShaderDirect, a static object holding the title's attribute
++// format). The selected program and inputs become g_state.vs as a shader record of their own.
++namespace {
++constexpr uint32_t kProgramSlots = 136;
++std::array<uint32_t, kProgramSlots * 4> g_program_memory{};
++std::unordered_map<uint64_t, std::shared_ptr<gpu::VertexShader>> g_selected;  // by inputs and program
++uint32_t g_select_handle = 0;
++
++// the program loaded at addr, up to its final instruction (bit 0 of the last dword) or the end of the memory
++std::vector<uint32_t> ProgramAt(uint32_t addr) {
++    std::vector<uint32_t> out;
++    for (uint32_t i = addr; i < kProgramSlots; i++) {
++        out.insert(out.end(), &g_program_memory[i * 4], &g_program_memory[i * 4 + 4]);
++        if (g_program_memory[i * 4 + 3] & 1) break;
++    }
++    return out;
++}
++
++void SelectProgram(uint32_t handle, uint32_t addr) {
++    auto vs = std::make_shared<gpu::VertexShader>();
++    auto known = g_vs.find(handle);
++    if (known != g_vs.end()) {
++        vs->inputs = known->second->inputs;
++        vs->stream_stride = known->second->stream_stride;
++    } else {
++        // a shader object of the title's: D3DVERTEXATTRIBUTEFORMAT at +0x14, 16 inputs of stream, offset, format
++        // (D3DVSDT, 0x02 unused); the library's stream setup reads them so, hardware slot n from input n (its slot
++        // map is the identity)
++        uint32_t vaf = (handle & ~1u) + 0x14;
++        for (uint32_t r = 0; r < 16; r++) {
++            uint32_t stream = R32(vaf + r * 16), offset = R32(vaf + r * 16 + 4), type = R32(vaf + r * 16 + 8);
++            if (type != 0x02 && stream < 16) vs->inputs[r] = {int(stream), offset, type & 0xFF};
++        }
++    }
++    vs->program = ProgramAt(addr);
++    vs->program_type = 0x2078;
++    if (vs->program.empty() && known != g_vs.end()) vs->program = known->second->program;
++    uint64_t key = gpu::Hash(vs->inputs.data(), sizeof(vs->inputs), gpu::Hash(vs->program.data(), vs->program.size() * 4));
++    auto& cached = g_selected[key];
++    if (!cached) {
++        vs->handle = handle;
++        cached = vs;
++        LOG_FIRST(16, "d3d: vertex program selected, object %08X at %u, %zu instructions", handle, addr, vs->program.size() / 4);
++    }
++    g_state.vs_handle = handle | 1;
++    g_state.vs = cached;
++}
++}  // namespace
++
++// (pFunction, Address): the program header's high word counts instructions, four dwords each after the header
++HLE_STDCALL(D3DDevice_LoadVertexShaderProgram, 2) {
++    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    uint32_t func = a[0], addr = a[1], n = R32(func) >> 16;
++    for (uint32_t i = 0; i < n * 4 && addr * 4 + i < g_program_memory.size(); i++) g_program_memory[addr * 4 + i] = R32(func + 4 + i * 4);
+     return 0;
+ }
++
++// (Handle, Address): a shader made by CreateVertexShader, its program loaded at the address
++HLE_STDCALL(D3DDevice_LoadVertexShader, 2) {
++    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    auto it = g_vs.find(a[0]);
++    if (it == g_vs.end()) {
++        LOG_FIRST(4, "d3d: LoadVertexShader with unknown handle %08X", a[0]);
++        return 0;
++    }
++    const auto& prog = it->second->program;
++    for (size_t i = 0; i < prog.size() && a[1] * 4 + i < g_program_memory.size(); i++) g_program_memory[a[1] * 4 + i] = prog[i];
++    return 0;
++}
++
++// (Handle, Address): runs the loaded program from the address with the handle's inputs; a zero handle moves the
++// start of the shader selected last
+ HLE_STDCALL(D3DDevice_SelectVertexShader, 2) {
+-    LOG_FIRST(4, "d3d: SelectVertexShader %08X at %u is not supported", a[0], a[1]);
++    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    uint32_t handle = a[0] ? a[0] : g_select_handle;
++    if (!handle) return 0;
++    g_select_handle = handle;
++    SelectProgram(handle, a[1]);
+     return 0;
+ }
+ HLE_STDCALL(D3DDevice_SetShaderConstantMode, 1) {

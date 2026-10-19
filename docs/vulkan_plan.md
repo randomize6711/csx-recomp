@@ -109,3 +109,19 @@ stays a set of small patches. It includes only runtime headers (state, vertex, t
 - Against the reference renderer's captures of the same screens (regress_boot_to_spawn snapshots), PSNR / pixels over
   8 levels: title 40.5 dB / 0.90%, keyboard 47.2 / 0.42%, main menu 45.0 / 0.11%, Single Player 46.6 / 0.11%,
   Map Selection 47.9 / 0.11%. No unimplemented Vulkan path was reached in the front end.
+
+### Milestone 3: live match (in progress 2026-10-19)
+
+- The match runs through the Vulkan backend at 72 frames/s, the title's own frame cap (FIFO and immediate present
+  alike). Measured per frame on the RX 9070 XT / RADV in game (medians over 134 spans of 30 frames): GPU 0.23 ms
+  (timestamps), CPU recording 0.68 ms, present 0.08 ms. Shader caches by VertexKey / PixelKey took recording from
+  6.7 ms (HLSL generated and hashed per draw).
+- Render targets sampled as textures (CS's glow chain): the texture's virtual address is matched to the surface's
+  physical one; the draw's own target is refused (feedback copy not done).
+- In-game models were garbage in both renderers until SDK patch 0017 (vertex program memory); see FINDINGS.md.
+- Not done: matched-frame comparison with the reference renderer (blocked on the missing world band, which is not a
+  Vulkan problem), point sprites, CopyRects, feedback copies, Sync, gamma, overlay.
+- Diagnostics (environment): CSX_VK_PRESENT=immediate|mailbox, CSX_VK_SHOT_TARGETS=1 (every colour target with a
+  shot), CSX_VK_STEPSHOTS=NAME:N (the target before every Nth draw of the frame after shot NAME), CSX_VK_MAGENTA=1
+  (undrawn areas magenta), CSX_VK_LOGFRAME=N (every draw of frame N logged); stats every 30 frames in the log.
+- Faster runs: tests/scenarios/vk_match_direct.txt with --launch tests/launch/de_airstrip_beginner (50 s).

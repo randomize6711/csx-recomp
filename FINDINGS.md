@@ -231,6 +231,35 @@ Output `analysis/game_5849sigs_experiment.toml`, log `analysis/xbe_symbols_exper
 - Keyboard menu navigation by fixed delays is as timing sensitive as the pad scenarios (presses carried over to
   Training in two runs).
 
+## In-game rendering (2026-10-19)
+
+Confirmed:
+- **Studio models use program memory vertex shaders.** The model renderer (0x1953xx..0x195720) loads raw microcode
+  with an unbound D3D function at 0x3072E0, D3DDevice_LoadVertexShaderProgram by shape (proof in config/game.toml),
+  and selects it through SelectVertexShaderDirect (0x307370, guest code) -> SelectVertexShader(0x318088 | 1, 0). The
+  runtime's SelectVertexShader was a stub, so every model draw used the stale FVF 0x242 and whatever stream 0 last
+  held: garbage positions, screen-sized quadrants in both renderers. Evidence: a write watch (src/common/
+  write_watch.cpp) on the "vertex buffer" page showed only the model loader's copy, the contiguous allocator log showed
+  the only block there was the model loader's 16 KB, and the draws came from return address 0x195720.
+  SDK patch 0017 adds program memory (136 slots), LoadVertexShaderProgram, LoadVertexShader and SelectVertexShader
+  (inputs from the object's D3DVERTEXATTRIBUTEFORMAT at +0x14: stream, offset, format per register; the library's
+  slot map at 0x37B9F8 is the identity in the XBE). Trees, grass, the view model and player models now render.
+- **Model vertices are SHORT positions and packed normals** decoded by the vertex programs (logged after the fix).
+- **The glow pass** renders the back buffer into 320x240, then 320x120 and 160x120 (bright pass, near black at the
+  spawn in both renderers), 40x60 (average), and adds 160x120 back with ONE/ONE. Textures carry virtual addresses
+  (0x836DA000), surfaces physical ones (0x036DA000).
+- **The DrawVerticesUP epilogue** (0x6F4E2) clears stream 0 in guest memory as D3D does after a UP draw; the runtime's
+  DrawUp restores the previous stream in its own state instead (no visible effect found; noted).
+- **No visibility tests**: CS never pushes the report methods (0x17C8/0x17CC/0x17D0).
+- **The front end hands a match over through Z:\releasemap.txt** (the command line) plus the launch page
+  (tests/launch/README.md).
+
+Open:
+- **A band of the world is not drawn** near the spawn on de_airstrip (behind the trees, above the fogged ground): the
+  reference renderer leaves it black, the Vulkan backend shows the target's old contents. Only about 15 world polygons
+  (DrawVerticesUP, POLYGON) are submitted per frame, all small and far; nearer world surfaces are never submitted, so
+  the cause is before the renderers (culling or a path the runtime does not see). Not yet explained.
+
 ## Assumptions / to verify
 
 - Third-party licenses (from prior knowledge, confirm before reusing any code): Half-Life SDK — Valve's restrictive

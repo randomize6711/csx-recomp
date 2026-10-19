@@ -1,0 +1,23 @@
+# Straight into the offline Beginner match on de_airstrip, without the front end: run with
+#   --launch tests/launch/de_airstrip_beginner
+# (the launch data the front end's relaunch left, see tests/launch/README.md). Picks Terrorist and leaves the buy menu.
+wait log open D:\\de_airstrip.sxwad
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 12
+snap in_match
+expect image in_match 20
+state idle
+press LS 90
+sleep 5
+state ran
+expect moved idle ran 400 1100
+expect nolog fatal error screen
+expect nolog guest trap

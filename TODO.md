@@ -1,9 +1,12 @@
 # TODO (priority order)
 
 ## Now
-0. Vulkan backend (decided 2026-10-19): milestone 2 menus, milestone 3 a live match at a playable rate
-   (docs/vulkan_plan.md). Install vulkan-validation-layers for CSX_VK_VALIDATION=1 runs.
-1. Verify player control in the match: close the buy menu, move/turn/fire, check the view changes (REF=1 snapshots).
+0. World surfaces missing at the de_airstrip spawn in both renderers (FINDINGS.md "In-game rendering"): find why
+   nearer world polygons are never submitted.
+1. Vulkan milestone 3 remainder: compare a matched in-game frame with the reference renderer once the world draws
+   (same launch fixture and timing), point sprites, CopyRects, feedback copies, guest readback (Sync), gamma.
+   Install vulkan-validation-layers for CSX_VK_VALIDATION=1 runs. The upload ring's overflow path re-uses offsets a
+   draw already took (never reached: peak 2.4 MB of 64 MB).
 2. Compare in-game rendering with xemu (dark sky/wall area on de_airstrip, lightmaps, fog, rain, colours).
 3. Overlay compositing so movies are visible (reference renderer first, then backends); front buffer resolve of the
    640x960 back buffer.

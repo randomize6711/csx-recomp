@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <memory>
@@ -198,6 +199,17 @@ struct Frame {
     VkDeviceSize used = 0;
     std::vector<std::pair<VkImage, VkDeviceMemory>> garbage;
     std::vector<VkImageView> garbage_views;
+    bool timed = false;  // both timestamps written for the frame last recorded in this slot
+};
+
+// pixel shader keys share the shader map with vertex shader keys; the salt keeps them apart (as in the D3D12 renderer)
+constexpr uint64_t kPixelKeySalt = 0x9E3779B97F4A7C15ull;
+
+// adds the time to the end of the scope to a total, in nanoseconds
+struct Span {
+    double& total;
+    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    ~Span() { total += std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - start).count(); }
 };
 
 class VulkanBackend final : public Backend {
@@ -235,9 +247,25 @@ private:
     Target* EnsureTarget(const Surface& s, bool depth);
     void BeginRendering(Target* rt, Target* ds);
     void EndRendering();
-    Texture* EnsureTexture(const State& s, int stage, TexInfo& info);
+    Image* EnsureTexture(const State& s, int stage, Target* drawing, TexInfo& info, uint32_t& w, uint32_t& h);
+    Target* FindTarget(uint32_t data, uint32_t w, uint32_t h);
     VkSampler EnsureSampler(const State& s, int stage, const TexInfo& info);
     VkPipeline EnsurePipeline(const PipelineKey& k, const std::vector<uint32_t>& vs, const std::vector<uint32_t>& ps);
+    // compiled SPIR-V (owned by vk_shader's cache) and its hash, by shader key
+    struct Shader {
+        const std::vector<uint32_t>* code = nullptr;
+        uint64_t hash = 0;
+    };
+    std::unordered_map<uint64_t, Shader> shaders_;
+    template <typename Source>
+    const Shader& EnsureShader(uint64_t key, vk_shader::Stage stage, Source&& source) {
+        Shader& sh = shaders_[key];
+        if (!sh.code) {
+            sh.code = &vk_shader::Compile(source(), stage);
+            sh.hash = Hash(sh.code->data(), sh.code->size() * 4);
+        }
+        return sh;
+    }
     void SaveShot(Target& t, const std::string& name);
 
     VkInstance instance_ = VK_NULL_HANDLE;
@@ -276,6 +304,14 @@ private:
     uint64_t presents_ = 0;
     uint32_t guest_w_ = 640, guest_h_ = 480;
     std::chrono::steady_clock::time_point fps_t_ = std::chrono::steady_clock::now();
+    unsigned long long draws_ = 0, dropped_[4] = {}, wraps_ = 0, peak_ = 0, frame_draws_ = 0;
+    // performance: GPU time from timestamps, CPU time inside Clear / Draw (recording) and Present, per logged span
+    VkQueryPool timestamps_ = VK_NULL_HANDLE;
+    float timestamp_ns_ = 1;
+    bool frame_open_ = false;
+    double gpu_ns_ = 0, record_ns_ = 0, present_ns_ = 0;
+    unsigned gpu_frames_ = 0;
+    std::string step_name_;  // totals since start: draws, and draws not recorded by cause
 };
 
 VulkanBackend::~VulkanBackend() {
@@ -400,7 +436,20 @@ bool VulkanBackend::CreateSwapchain() {
     ci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     ci.preTransform = caps.currentTransform;
     ci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    ci.presentMode = VK_PRESENT_MODE_FIFO_KHR;  // always available; vsync
+    // FIFO (vsync, always available); CSX_VK_PRESENT=immediate or mailbox when the surface offers it, for measuring
+    // what the renderer sustains past the display's rate (the title's own pacing still applies, FPS=0 lifts it)
+    ci.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    if (const char* want = std::getenv("CSX_VK_PRESENT")) {
+        VkPresentModeKHR mode = std::strcmp(want, "immediate") == 0 ? VK_PRESENT_MODE_IMMEDIATE_KHR
+                                : std::strcmp(want, "mailbox") == 0 ? VK_PRESENT_MODE_MAILBOX_KHR
+                                                                    : VK_PRESENT_MODE_FIFO_KHR;
+        uint32_t n = 0;
+        vkGetPhysicalDeviceSurfacePresentModesKHR(gpu_, surface_, &n, nullptr);
+        std::vector<VkPresentModeKHR> modes(n);
+        vkGetPhysicalDeviceSurfacePresentModesKHR(gpu_, surface_, &n, modes.data());
+        if (std::find(modes.begin(), modes.end(), mode) != modes.end()) ci.presentMode = mode;
+        LOG_FIRST(1, "vulkan: present mode %s %s", want, ci.presentMode == mode ? "in use" : "not offered, FIFO");
+    }
     ci.clipped = VK_TRUE;
     ci.oldSwapchain = swapchain_;
     VkSwapchainKHR sc = VK_NULL_HANDLE;
@@ -459,6 +508,14 @@ bool VulkanBackend::CreateLayouts() {
 }
 
 void VulkanBackend::CreateFrames() {
+    // two timestamps per frame slot: the frame's GPU time, read when the slot comes round again
+    VkPhysicalDeviceProperties props;
+    vkGetPhysicalDeviceProperties(gpu_, &props);
+    timestamp_ns_ = props.limits.timestampPeriod;
+    VkQueryPoolCreateInfo qi{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+    qi.queryType = VK_QUERY_TYPE_TIMESTAMP;
+    qi.queryCount = 2 * kFrames;
+    if (vkCreateQueryPool(dev_, &qi, nullptr, &timestamps_) != VK_SUCCESS) timestamps_ = VK_NULL_HANDLE;
     VkCommandPoolCreateInfo pc{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     pc.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     pc.queueFamilyIndex = qfamily_;
@@ -581,6 +638,19 @@ VkCommandBuffer VulkanBackend::Cmd() {
         bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(f.cmd, &bi);
         recording_ = true;
+        if (!frame_open_ && timestamps_) {
+            // this slot's previous frame is done (its fence waited above): its GPU time, then the new frame's start
+            uint32_t q = uint32_t(frame_ % kFrames) * 2;
+            uint64_t t[2];
+            if (f.timed && vkGetQueryPoolResults(dev_, timestamps_, q, 2, sizeof t, t, 8, VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
+                gpu_ns_ += double(t[1] - t[0]) * timestamp_ns_;
+                gpu_frames_++;
+            }
+            vkCmdResetQueryPool(f.cmd, timestamps_, q, 2);
+            vkCmdWriteTimestamp2(f.cmd, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, timestamps_, q);
+            f.timed = false;
+        }
+        frame_open_ = true;
     }
     return f.cmd;
 }
@@ -605,6 +675,7 @@ VulkanBackend::Alloc VulkanBackend::Upload(VkDeviceSize size, VkDeviceSize align
     Frame* f = &frames_[frame_ % kFrames];
     VkDeviceSize off = (f->used + align - 1) & ~(align - 1);
     if (off + size > kUploadSize) {
+        wraps_++;
         bool was = rendering_;
         Target *rt = rendering_rt_, *ds = rendering_ds_;
         Submit(true);
@@ -614,6 +685,7 @@ VulkanBackend::Alloc VulkanBackend::Upload(VkDeviceSize size, VkDeviceSize align
         if (was) BeginRendering(rt, ds);
     }
     f->used = off + size;
+    peak_ = std::max<unsigned long long>(peak_, f->used);
     return {off, f->map + off};
 }
 
@@ -711,6 +783,7 @@ bool VulkanBackend::Init(uint32_t width, uint32_t height) {
 
 void VulkanBackend::Clear(const State& s, uint32_t count, const uint8_t* rects, uint32_t flags, uint32_t color,
                           float z, uint32_t stencil) {
+    Span span{record_ns_};
     Target* rt = (flags & kClearTarget) ? EnsureTarget(s.rt, false) : nullptr;
     Target* ds = (flags & (kClearZ | kClearStencil)) ? EnsureTarget(s.zs, true) : nullptr;
     if (!rt && !ds) return;
@@ -774,10 +847,35 @@ uint64_t Signature(uint32_t data, uint32_t bytes) {
     return h;
 }
 
-Texture* VulkanBackend::EnsureTexture(const State& s, int stage, TexInfo& info) {
+// a colour target with that guest surface: what the title renders and then samples (CS's blur chain renders to
+// 320x240, 320x120, 160x120 and 40x60 surfaces and draws them back); its guest memory never holds the GPU's result
+Target* VulkanBackend::FindTarget(uint32_t data, uint32_t w, uint32_t h) {
+    uint64_t key = uint64_t(data) | uint64_t(w) << 32 | uint64_t(h) << 46;
+    auto it = targets_.find(key);
+    return it == targets_.end() ? nullptr : &it->second;
+}
+
+// drawing: the draw's colour target, which a texture must not be (the rendering scope open may be the last draw's)
+Image* VulkanBackend::EnsureTexture(const State& s, int stage, Target* drawing, TexInfo& info, uint32_t& w, uint32_t& h) {
     info = {};
     TextureDesc d;
     if (!s.textures[size_t(stage)] || !Describe(s.textures[size_t(stage)], d)) return nullptr;
+    w = d.width;
+    h = d.height;
+    if (!d.cube && d.depth == 1 && !Format(d.format).compressed && !Format(d.format).depth) {
+        // the texture's data is a virtual address (0x8xxxxxxx), a surface's the physical one the header holds
+        if (Target* t = FindTarget(mem::PhysicalFromVirtual(d.data), d.width, d.height)) {
+            info.kind = kTex2D;
+            info.rect = d.linear;
+            if (t == drawing) {
+                LOG_FIRST(4, "vulkan: a draw samples the target it renders to (feedback copy not done yet)");
+                return nullptr;
+            }
+            EndRendering();
+            Barrier(*t, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            return t;
+        }
+    }
     if (d.cube || d.depth > 1) {
         LOG_FIRST(4, "vulkan: cube and volume textures are not drawn yet");
         return nullptr;
@@ -982,35 +1080,71 @@ VkPipeline VulkanBackend::EnsurePipeline(const PipelineKey& k, const std::vector
 }
 
 void VulkanBackend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t count, const uint8_t* indices) {
+    Span span{record_ns_};
+    // CSX_VK_STEPSHOTS=NAME:N: in the frame after shot NAME, the target saved before every Nth draw (finding the draw
+    // that paints a region)
+    static const char* step_env = std::getenv("CSX_VK_STEPSHOTS");
+    static const std::string step_shot = step_env && std::strchr(step_env, ':')
+                                             ? std::string(step_env, std::strchr(step_env, ':')) : "";
+    static const long step = step_shot.empty() ? 0 : std::atol(std::strchr(step_env, ':') + 1);
+    if (step && step_name_ == step_shot && frame_draws_ % step == 0 && s.rt.header) {
+        if (Target* t = EnsureTarget(s.rt, false)) {
+            char suffix[32];
+            std::snprintf(suffix, sizeof suffix, "_step%04llu", frame_draws_);
+            SaveShot(*t, step_name_ + suffix);
+        }
+    }
+    frame_draws_++;
     Assembled a;
-    if (!Assemble(s, prim, start, count, indices, a)) return;
+    draws_++;
+    if (!Assemble(s, prim, start, count, indices, a)) {
+        dropped_[0]++;
+        return;
+    }
     if (a.topology == Topology::Points) {
         LOG_FIRST(2, "vulkan: point sprites are not drawn yet");
+        dropped_[1]++;
         return;
     }
     Target* rt = s.rt.header ? EnsureTarget(s.rt, false) : nullptr;
     Target* ds = s.zs.header ? EnsureTarget(s.zs, true) : nullptr;
     if (!rt && !ds) return;
 
-    // shaders
+    // shaders, by the keys the HLSL is a function of (generating and hashing the source per draw cost most of the
+    // recording time)
     ShaderChoice sh = ClassifyShaders(s, a, count);
     if (sh.prog) EnsureProgramHash(s);
-    std::string vsrc = QuantiseDepth(VertexHlsl(s, a, sh));
-    const auto& vs = vk_shader::Compile(sh.quad ? QuadHlsl(std::move(vsrc)) : vsrc, vk_shader::Stage::Vertex);
+    const Shader& vs = EnsureShader(VertexKey(s, a, sh), vk_shader::Stage::Vertex, [&] {
+        std::string src = QuantiseDepth(VertexHlsl(s, a, sh));
+        return sh.quad ? QuadHlsl(std::move(src)) : src;
+    });
     // textures before the rendering scope: uploads are transfers
     TexInfo tex[4];
-    Texture* stage_tex[4] = {};
-    for (int i = 0; i < 4; i++) stage_tex[i] = EnsureTexture(s, i, tex[i]);
+    Image* stage_tex[4] = {};
+    uint32_t tex_w[4] = {}, tex_h[4] = {};
+    for (int i = 0; i < 4; i++) stage_tex[i] = EnsureTexture(s, i, rt, tex[i], tex_w[i], tex_h[i]);
     PixelKey pk = MakePixelKey(s, tex);
     pk.quad = sh.quad;
-    std::string psrc = PixelHlsl(pk);
-    const auto& ps = vk_shader::Compile(psrc, vk_shader::Stage::Pixel);  // PixelHlsl applies QuadHlsl for pk.quad
-    if (vs.empty() || ps.empty()) return;
+    // PixelHlsl applies QuadHlsl for pk.quad
+    const Shader& ps = EnsureShader(Hash(&pk, sizeof(pk)) ^ kPixelKeySalt, vk_shader::Stage::Pixel, [&] { return PixelHlsl(pk); });
+    // CSX_VK_LOGFRAME=N: every draw of the Nth presented frame in the log
+    static const long log_frame = std::getenv("CSX_VK_LOGFRAME") ? std::atol(std::getenv("CSX_VK_LOGFRAME")) : -1;
+    if (long(presents_) == log_frame)
+        LOGI("vulkan: draw %llu prim %u n %u regs %X pre %d prog %d quad %d idx %u verts %u rt %08X ds %08X z %u zf %X "
+             "zw %u cull %X blend %u vp %u %u %u %u tex0 %d", frame_draws_ - 1, prim, count, a.regs,
+             int(a.pretransformed), int(sh.prog), int(sh.quad), a.index_count, a.vertex_count, rt ? rt->data : 0,
+             ds ? ds->data : 0, s.rs[kRsZEnable], SimpleState(s, kMZFunc), SimpleState(s, kMZWriteEnable),
+             s.rs[kRsCullMode], SimpleState(s, kMBlendEnable), s.viewport.x, s.viewport.y, s.viewport.w, s.viewport.h,
+             int(stage_tex[0] != nullptr));
+    if (!vs.code || vs.code->empty() || !ps.code || ps.code->empty()) {
+        dropped_[2]++;
+        return;
+    }
 
     // pipeline
     PipelineKey k{};
-    k.vs = Hash(vs.data(), vs.size() * 4);
-    k.ps = Hash(ps.data(), ps.size() * 4);
+    k.vs = vs.hash;
+    k.ps = ps.hash;
     k.regs = a.regs;
     k.buffers = a.buffer_count;
     for (uint32_t r = 0; r < 16; r++)
@@ -1049,8 +1183,11 @@ void VulkanBackend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t
     k.cull = cull != 0 && a.topology == Topology::Triangles;
     k.ccw = cull == 0x900;  // D3DCULL_CW (GL_CW): culling clockwise leaves counter clockwise as the front
     k.fill = s.rs[kRsFillMode];
-    VkPipeline pipe = EnsurePipeline(k, vs, ps);
-    if (!pipe) return;
+    VkPipeline pipe = EnsurePipeline(k, *vs.code, *ps.code);
+    if (!pipe) {
+        dropped_[3]++;
+        return;
+    }
 
     // constants, vertices and indices into the upload ring
     GuestExtent size;
@@ -1061,8 +1198,8 @@ void VulkanBackend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t
     FillCombinerConstants(s, c);
     for (int i = 0; i < 4; i++) {
         if (stage_tex[i]) {
-            c.texsize[i][0] = float(stage_tex[i]->desc.width);
-            c.texsize[i][1] = float(stage_tex[i]->desc.height);
+            c.texsize[i][0] = float(tex_w[i]);
+            c.texsize[i][1] = float(tex_h[i]);
         }
         const auto& t = s.tss[size_t(i)];
         c.bump[i][0] = Bits(t[kTssBumpEnvMat00]);
@@ -1181,11 +1318,28 @@ void VulkanBackend::SaveShot(Target& t, const std::string& name) {
 }
 
 void VulkanBackend::Present(const Surface& front) {
+    Span span{present_ns_};
     Target* t = EnsureTarget(front, false);
     if (!t) return;
     // a shot request (the window's "shot" file): the presented target, as the reference renderer's captures are
     std::string shot = window::TakeShotRequest();
-    if (!shot.empty()) SaveShot(*t, shot);
+    step_name_.clear();
+    frame_draws_ = 0;
+    if (!shot.empty()) {
+        SaveShot(*t, shot);
+        step_name_ = shot;
+        // CSX_VK_SHOT_TARGETS=1: every colour target too, for comparing intermediate passes (glow chain) with the
+        // reference renderer's guest memory
+        static const bool all = std::getenv("CSX_VK_SHOT_TARGETS") != nullptr;
+        if (all) {
+            for (auto& [key, other] : targets_) {
+                if (key >> 63 || &other == t) continue;
+                char name[64];
+                std::snprintf(name, sizeof name, "_%08X_%ux%u", other.data, other.w, other.h);
+                SaveShot(other, shot + name);
+            }
+        }
+    }
     EndRendering();
     VkCommandBuffer cb = Cmd();
     Frame& f = frames_[frame_ % kFrames];
@@ -1231,6 +1385,20 @@ void VulkanBackend::Present(const Surface& front) {
         b.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
         vkCmdPipelineBarrier2(cb, &d);
     }
+    if (timestamps_) {
+        vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, timestamps_, uint32_t(frame_ % kFrames) * 2 + 1);
+        f.timed = true;
+    }
+    frame_open_ = false;
+    // CSX_VK_MAGENTA=1: the presented target cleared to magenta afterwards, so what the next frame on it leaves
+    // undrawn shows (the title clears colour rarely: CS clears depth and stencil only in game)
+    static const bool magenta = std::getenv("CSX_VK_MAGENTA") != nullptr;
+    if (magenta) {
+        Barrier(*t, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        VkClearColorValue m{{1, 0, 1, 1}};
+        VkImageSubresourceRange r{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCmdClearColorImage(cb, t->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &m, 1, &r);
+    }
     vkEndCommandBuffer(cb);
     vkResetFences(dev_, 1, &f.fence);
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
@@ -1263,7 +1431,14 @@ void VulkanBackend::Present(const Surface& front) {
     if (presents_ % 30 == 0) {
         auto now = std::chrono::steady_clock::now();
         double secs = std::chrono::duration<double>(now - fps_t_).count();
-        LOGI("renderer: frame %llu, %.1f frames/s", (unsigned long long)presents_, secs > 0 ? 30.0 / secs : 0.0);
+        LOGI("renderer: frame %llu, %.1f frames/s, %llu draws, dropped: assembly %llu, points %llu, shaders %llu, "
+             "pipeline %llu, upload wraps %llu, peak %llu KB", (unsigned long long)presents_, secs > 0 ? 30.0 / secs : 0.0,
+             draws_, dropped_[0], dropped_[1], dropped_[2], dropped_[3], wraps_, peak_ >> 10);
+        LOGI("renderer: per frame: GPU %.3f ms, CPU recording %.3f ms, present %.3f ms",
+             gpu_frames_ ? gpu_ns_ / gpu_frames_ / 1e6 : 0.0, record_ns_ / 30 / 1e6, present_ns_ / 30 / 1e6);
+        peak_ = 0;
+        gpu_ns_ = record_ns_ = present_ns_ = 0;
+        gpu_frames_ = 0;
         fps_t_ = now;
     }
 }

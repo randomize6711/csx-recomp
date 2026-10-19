@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Drives the headless harness through a scenario by watching its log.
 
-Usage: python3 -I tools/drive.py SCENARIO [--timeout S] [--env K=V ...] [--exe PATH] [--run DIR]
+Usage: python3 -I tools/drive.py SCENARIO [--timeout S] [--env K=V ...] [--exe PATH] [--run DIR] [--launch DIR]
 
 The harness runs in build/run (network namespace, reflink game copy in build/gamedata). The scenario file has one step
 per line, executed in order:
@@ -100,6 +100,7 @@ def main():
     if not args:
         sys.exit(__doc__)
     scenario, timeout, env = args[0], 600.0, dict(os.environ)
+    launch = None
     i = 1
     while i < len(args):
         if args[i] == '--timeout':
@@ -113,6 +114,8 @@ def main():
             RUN = os.path.abspath(args[i + 1]); i += 2
         elif args[i] == '--env':
             k, v = args[i + 1].split('=', 1); env[k] = v; i += 2
+        elif args[i] == '--launch':
+            launch = os.path.abspath(args[i + 1]); i += 2
         else:
             sys.exit('unknown argument ' + args[i])
     steps = [l.split() for l in open(scenario) if l.strip() and not l.startswith('#')]
@@ -120,6 +123,13 @@ def main():
     for d in ('logs', 'hdd', 'cap', 'snaps', 'dumps', 'shots'):
         shutil.rmtree(os.path.join(RUN, d), ignore_errors=True)
     os.makedirs(os.path.join(RUN, 'snaps'))
+    if launch:
+        # what the front end leaves for its relaunch into a match: the launch data page (launch.bin, kept by the host as
+        # launch_seen.bin) and the match's command line on the cache partition (Z:\releasemap.txt); with both the
+        # title boots straight into that match
+        os.makedirs(os.path.join(RUN, 'hdd', 'Z'))
+        shutil.copyfile(os.path.join(launch, 'launch.bin'), os.path.join(RUN, 'hdd', 'launch.bin'))
+        shutil.copyfile(os.path.join(launch, 'releasemap.txt'), os.path.join(RUN, 'hdd', 'Z', 'releasemap.txt'))
     out = open(os.path.join(RUN, 'run.out'), 'w')
     proc = subprocess.Popen(['unshare', '-rn', EXE, GAME], cwd=RUN, env=env, stdout=out, stderr=subprocess.STDOUT)
     log, start, ok = Log(), time.time(), True

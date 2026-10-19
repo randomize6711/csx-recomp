@@ -42,9 +42,11 @@ void StartApuClock() {
 }
 
 void Loaded() {
+    KeepLaunchData();
     StartApuClock();
     StartMemoryDumps();
     StartStateProbe();
+    StartWriteWatch();
 }
 
 }  // namespace csx

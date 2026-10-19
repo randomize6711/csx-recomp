@@ -85,3 +85,20 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
 - Plan (docs/vulkan_plan.md), shared draw helpers (SDK patch 0016), DXC SPIR-V verified, Vulkan backend renders the
   original title screen on the RX 9070 XT (RADV); 40.5 dB PSNR against the reference renderer.
 - Regression 112/112 with the refactor; Windows-only sources syntax-checked (tools/check_windows.sh).
+
+## 2026-10-19 — Vulkan milestone 2: menus
+
+- Front end screens through the Vulkan backend, 45-48 dB PSNR against the reference renderer (docs/vulkan_plan.md).
+
+## 2026-10-19 — Models in game; Vulkan milestone 3 (partly)
+
+- SDK patch 0017: vertex program memory (LoadVertexShaderProgram / LoadVertexShader / SelectVertexShader); studio
+  models render in both renderers (they were garbage). Regression 112/112, player control numbers unchanged.
+- Vulkan: render targets sampled as textures (the glow chain), shader caches (CPU recording 6.7 -> 0.68 ms per
+  frame), GPU timestamps; measured in game on the RX 9070 XT: GPU 0.23 ms, recording 0.68 ms, present 0.08 ms per
+  frame (medians); the match runs at 72 frames/s, the title's own cap (immediate present gives the same).
+- Straight into a match: launch fixtures (tests/launch) and drive.py --launch; 45 s to a moving player.
+- tools/apply_sdk_patches.sh: files a patch creates are removed before re-applying (the reset left them behind and
+  patch 0016 then failed to apply).
+- Diagnostics: write watch (CSX_WATCH), Vulkan target shots, per-draw step shots, magenta undrawn areas, frame log.
+- Open: a band of the world is not submitted at the de_airstrip spawn (both renderers; FINDINGS.md).
