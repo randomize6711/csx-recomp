@@ -127,3 +127,14 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
 - build/zcache (tools/make_zcache.sh) seeds Z: for direct starts so the HD sound banks are there.
 - tests/audio_check.sh + tools/check_audio.py: not silent, placed to a side, under 0.5% full scale, finite.
 - Regression 112/112 (the turn measured 129.2 degrees in one run, 129.3 before: frame timing).
+
+## 2026-10-19 — Native mouse look (Linux window)
+
+- The title's view angles found (0x552C10 yaw, 0x552C14 pitch) and a hook in its look routine adds the mouse's
+  degrees before its pitch clamp (src/game/mouse_look.cpp, config [[hook]] at 0x19E4EB with the proof).
+- Window: captured relative motion x 0.022 x CSX_MOUSE_SENS (default 3), CSX_MOUSE_INVERT, CSX_MOUSE=stick for the
+  old stick emulation; click captures, F1 / focus loss releases (unchanged).
+- Tests: regress_mouse_look (headless, direct match: exact yaw/pitch changes, clamp, no acceleration, stick intact)
+  in run_regression.sh, which now passes a scenario's --launch fixture; vk_match_direct checks the window's mouse.
+- Tools: state lines carry the view yaw/pitch; drive.py steps look, mouse, poke, pokefile and expect yaw/pitch.
+- Regression 257/257 (the 112 earlier checks unchanged).

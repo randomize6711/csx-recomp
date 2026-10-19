@@ -25,6 +25,8 @@ void EndFrameInput();                     // after a batch of events: mouse moti
 // the SDL window (an SDL_Window*), and which renderer draws into it
 void* SdlWindow();
 bool UseVulkan();
+// the device id scenario input carries (SDL keyboard and mouse ids), so a test run can tell it from the host's
+constexpr uint32_t kInjectedDevice = 0x7E57;
 // a window shot request ("shot" file) handed to a renderer that presents by itself (Vulkan); empty when none
 std::string TakeShotRequest();
 void RequestShot(const std::string& name);

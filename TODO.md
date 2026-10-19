@@ -1,7 +1,7 @@
 # TODO (priority order)
 
 ## Now
-0. Next milestone (recommended): playable match quality on Linux — raw mouse aim, movies (overlay), then a full round on several maps (de_dust, cs_italy) through the
+0. Next milestone (recommended): playable match quality on Linux — movies (overlay), then a full round on several maps (de_dust, cs_italy) through the
    Vulkan window with checks in game state; collect rendering discrepancies per map.
 0b. Audio remainder: HRTF-like positioning (elevation, front/back) instead of the linear pan, envelopes (SetEG),
    filters and the I3DL2 reverb; listening test on headphones by a person.

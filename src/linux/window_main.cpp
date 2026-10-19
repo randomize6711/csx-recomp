@@ -50,13 +50,13 @@ namespace {
 
 // keyboard id the keys file's events carry; with CSX_TEST_INPUT_ONLY=1 every other input event is dropped, so a test
 // run is not steered by whatever the desktop types into the window when it takes focus
-constexpr SDL_KeyboardID kInjectedKeyboard = 0x7E57;
+constexpr SDL_KeyboardID kInjectedKeyboard = window::kInjectedDevice;
 
 bool HostInputEvent(const SDL_Event& e) {
     switch (e.type) {
         case SDL_EVENT_KEY_DOWN:
         case SDL_EVENT_KEY_UP: return e.key.which != kInjectedKeyboard;
-        case SDL_EVENT_MOUSE_MOTION:
+        case SDL_EVENT_MOUSE_MOTION: return e.motion.which != window::kInjectedDevice;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
         case SDL_EVENT_MOUSE_BUTTON_UP:
         case SDL_EVENT_MOUSE_WHEEL:
@@ -152,6 +152,8 @@ int main(int argc, char** argv) {
         SDL_PushEvent(&ev);
     };
     const std::string keys_file = (app::ExeDir() / "keys").string();
+    // "mouse" request: "DX DY" counts of relative motion, as a captured mouse gives them (tests of the mouse look)
+    const std::string mouse_file = (app::ExeDir() / "mouse").string();
     const bool test_input_only = std::getenv("CSX_TEST_INPUT_ONLY") && *std::getenv("CSX_TEST_INPUT_ONLY") == '1';
     if (test_input_only) LOGI("window: test input only, host keyboard, mouse and gamepads ignored");
     for (bool quit = false; !quit;) {
@@ -173,6 +175,20 @@ int main(int argc, char** argv) {
             }
             std::fclose(kf);
             std::remove(keys_file.c_str());
+        }
+        if (FILE* mf = std::fopen(mouse_file.c_str(), "r")) {
+            float dx = 0, dy = 0;
+            if (std::fscanf(mf, "%f %f", &dx, &dy) == 2) {
+                SDL_Event ev{};
+                ev.type = SDL_EVENT_MOUSE_MOTION;
+                ev.motion.windowID = SDL_GetWindowID(win);
+                ev.motion.which = window::kInjectedDevice;
+                ev.motion.xrel = dx;
+                ev.motion.yrel = dy;
+                SDL_PushEvent(&ev);
+            }
+            std::fclose(mf);
+            std::remove(mouse_file.c_str());
         }
         for (size_t i = 0; i < held.size();) {
             if (tnow >= held[i].until) {
@@ -200,7 +216,9 @@ int main(int argc, char** argv) {
                 continue;
             }
             if (e.type == SDL_EVENT_WINDOW_FOCUS_LOST) SDL_SetWindowRelativeMouseMode(win, false);
-            if (e.type == SDL_EVENT_MOUSE_MOTION && !SDL_GetWindowRelativeMouseMode(win)) continue;
+            if (e.type == SDL_EVENT_MOUSE_MOTION && !SDL_GetWindowRelativeMouseMode(win) &&
+                e.motion.which != window::kInjectedDevice)
+                continue;
             window::HandleEvent(&e);
         }
         window::EndFrameInput();

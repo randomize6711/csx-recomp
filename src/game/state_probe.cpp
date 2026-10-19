@@ -11,13 +11,14 @@
 #include <thread>
 
 #include "app/app.h"
+#include "common/csx.h"
 #include "core/log.h"
 #include "kernel/kernel.h"
 
 namespace csx {
 
 namespace {
-constexpr uint32_t kPosition = 0x3AE3E0, kYaw = 0x3AE3F0, kClip = 0x3A2988;
+constexpr uint32_t kPosition = 0x3AE3E0, kYaw = 0x3AE3F0, kClip = 0x3A2988, kViewYaw = 0x552C10, kViewPitch = 0x552C14;
 
 float F(uint32_t va) {
     float f;
@@ -30,9 +31,22 @@ void StartStateProbe() {
     std::thread([] {
         namespace fs = std::filesystem;
         const fs::path req = app::ExeDir() / "state";
+        const fs::path look = app::ExeDir() / "look";
         for (;;) {
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
             std::error_code ec;
+            // look: "RIGHT UP" degrees for the mouse look hook, as a mouse would give them (tools/drive.py "look")
+            if (fs::exists(look, ec)) {
+                float right = 0, up = 0;
+                if (FILE* f = std::fopen(look.string().c_str(), "r")) {
+                    if (std::fscanf(f, "%f %f", &right, &up) == 2) {
+                        AddLook(right, up);
+                        LOGI("look: %g right, %g up", right, up);
+                    }
+                    std::fclose(f);
+                }
+                fs::remove(look, ec);
+            }
             if (!fs::exists(req, ec)) continue;
             char name[64] = "state";
             if (FILE* f = std::fopen(req.string().c_str(), "r")) {
@@ -40,8 +54,9 @@ void StartStateProbe() {
                 std::fclose(f);
             }
             fs::remove(req, ec);
-            LOGI("state %s %.3f %.3f %.3f %.3f %d", name, F(kPosition), F(kPosition + 4), F(kPosition + 8), F(kYaw),
-                 int32_t(kernel::R32(kClip)));
+            // then the view yaw and pitch the look routine keeps (0x552C10 / 0x552C14, src/game/mouse_look.cpp)
+            LOGI("state %s %.3f %.3f %.3f %.3f %d %.3f %.3f", name, F(kPosition), F(kPosition + 4), F(kPosition + 8),
+                 F(kYaw), int32_t(kernel::R32(kClip)), F(kViewYaw), F(kViewPitch));
             logx::Flush();
         }
     }).detach();

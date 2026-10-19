@@ -391,6 +391,14 @@ D3D_MakeRequestedSpace = ["stack", "eax"]
 D3DDevice_Reset = ["ebx"]
 
 # bring-up diagnostics (src/game/diag_hooks.cpp)
+# Native mouse look (src/game/mouse_look.cpp): the stick look routine 0x19E160 adds the stick's turn to the yaw at
+# 0x19E4C3 (fadds/fstps 0x552C10) and its pitch at 0x19E4DD (0x552C14), then clamps the pitch from 0x19E4EB (flds
+# 0x552C14; fcomps against the cvar at [0x543714]+0xC, the lower limit from [0x5436D0]+0xC); writing 0x552C10 turns the
+# view and stays (bisected over every float that followed the yaw, FINDINGS.md "Mouse look")
+[[hook]]
+at = 0x19E4EB
+call = "MouseLookApply"
+
 [[hook]]
 at = 0x108470
 call = "LogFatalScreen"

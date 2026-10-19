@@ -320,6 +320,26 @@ Approximations / open:
 - Envelopes (SetEG) and filters (SetFilter, the I3DL2 filter coefficients) are not applied; the I3DL2 reverb is not
   mixed. Voice starts and stops are not ramped (the console's envelopes would).
 
+## Mouse look (2026-10-19)
+
+Confirmed:
+- **The title's own view angles are the yaw at 0x552C10 and the pitch at 0x552C14** (degrees; yaw positive to the
+  left, pitch positive looking down, as in GoldSrc). Found by dumping memory before and after controlled stick turns
+  and looks (296 floats followed the yaw), then bisecting with writes (src/common/memory_dump.cpp "poke"): writing all
+  candidates turned the view, and of them only 0x552C10 turns it and stays; every other copy (the render view at
+  0x5623D0+0x84, the audio listener, the player state at 0x3AE3EC, client copies near 0x7D66xx) is rebuilt from it.
+- **The stick look routine 0x19E160** turns the stick into angle changes through a response curve, a turn acceleration
+  ramp (timer at 0x5CBBA8) and aim assist state, adds them at 0x19E4C3 (yaw) and 0x19E4DD (pitch) and clamps the pitch
+  from 0x19E4EB against cvars ([0x543714]+0xC and [0x5436D0]+0xC; -89 measured). It returns early where the title
+  takes no look input.
+- Native mouse look adds the mouse's degrees in a hook at 0x19E4EB (src/game/mouse_look.cpp): after the stick, before
+  the clamp. Degrees = counts x 0.022 x sensitivity (GoldSrc's m_yaw / m_pitch; default sensitivity 3). Measured:
+  -30 / +75 degrees of yaw and -20 / +35 of pitch exactly, the clamp at -89, 100 steps of 0.1 degree making 10.001
+  (no acceleration), 100 counts in the window turning 6.600 degrees; the stick turns as before; the player's
+  server-side yaw follows (the movement command carries the new view).
+- The mouse bypasses the stick's response curve, turn acceleration and the aim assist slowdown in that routine (the
+  stick keeps them); it is applied once per pass, not scaled by frame time, so frame rate does not change it.
+
 ## Assumptions / to verify
 
 - Third-party licenses (from prior knowledge, confirm before reusing any code): Half-Life SDK — Valve's restrictive

@@ -16,10 +16,15 @@ per line, executed in order:
     dump NAME               guest memory dump to build/run/dumps/NAME.bin (src/common/memory_dump.cpp)
     state NAME              log the local player's state (src/game/state_probe.cpp) and keep it as NAME
     expect moved A B MIN MAX       horizontal distance between states A and B in [MIN, MAX] game units
+    expect yaw A B DEG TOL         view yaw (0x552C10) changed by DEG (+ left) within TOL; expect pitch likewise
     expect turned A B MIN          yaw difference between states A and B (shortest way) at least MIN degrees
     expect shots A B N             the shot counter dropped by exactly N from A to B
     expect still A B               position and yaw equal in A and B
     expect heading A B MAXDEG      the move from A to B points along A's yaw within MAXDEG degrees
+    mouse DX DY             (window build) relative mouse motion in counts, through the window's mouse look
+    look RIGHT UP           turn the view by degrees through the mouse look hook (src/game/mouse_look.cpp)
+    pokefile FILE           every "VA FLOAT" line of FILE (relative to the repository) written at once
+    poke VA FLOAT           write FLOAT to guest address VA (hex) once, src/common/memory_dump.cpp (diagnostics)
     snap NAME               draw the next two frames and keep them as build/run/snaps/NAME_1.tga / NAME_2.tga
     expect log REGEX        fail unless a log line matches
     expect nolog REGEX      fail if a log line matches
@@ -202,20 +207,32 @@ def main():
                     f.write(st[1] + '\n')
                 os.replace(tmp, os.path.join(RUN, 'memdump'))
                 good = wait_until(lambda: log.match('memdump: .*' + re.escape(st[1]) + r'\.bin written'))
+            elif kind == 'mouse':
+                send_file('mouse', st[1] + ' ' + st[2])
+                good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'mouse')))
+            elif kind == 'look':
+                send_file('look', st[1] + ' ' + st[2])
+                good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'look')))
+            elif kind == 'pokefile':
+                send_file('poke', open(os.path.join(ROOT, st[1])).read().strip())
+                good = wait_until(lambda: log.match(r'poke: .*writes'))
+            elif kind == 'poke':
+                send_file('poke', st[1] + ' ' + st[2])
+                good = wait_until(lambda: log.match('poke: ' + st[1].upper().lstrip('0X').rjust(8, '0')))
             elif kind == 'state':
                 send_file('state', st[1])
-                rx = re.compile(r'state ' + re.escape(st[1]) + r' (\S+) (\S+) (\S+) (\S+) (-?\d+)')
+                rx = re.compile(r'state ' + re.escape(st[1]) + r' (\S+) (\S+) (\S+) (\S+) (-?\d+)(?: (\S+) (\S+))?')
                 def got():
                     for l in log.lines:
                         m = rx.search(l)
                         if m:
-                            states[st[1]] = [float(v) for v in m.groups()]
+                            states[st[1]] = [float(v) for v in m.groups() if v is not None]
                             return True
                     return False
                 good = wait_until(got)
                 if good:
                     print('     ' + st[1] + ' = ' + ' '.join(str(v) for v in states[st[1]]))
-            elif kind == 'expect' and st[1] in ('moved', 'turned', 'shots', 'still', 'heading'):
+            elif kind == 'expect' and st[1] in ('moved', 'turned', 'shots', 'still', 'heading', 'yaw', 'pitch'):
                 a, b = states.get(st[2]), states.get(st[3])
                 good = a is not None and b is not None
                 if good and st[1] == 'moved':
@@ -226,6 +243,13 @@ def main():
                     dy = abs((b[3] - a[3] + 180) % 360 - 180)
                     good = dy >= float(st[4])
                     print(f'     turned {dy:.1f} degrees')
+                elif good and st[1] in ('yaw', 'pitch'):
+                    # the view angles the look routine keeps: signed change, yaw wrapped (positive to the left)
+                    i = 5 if st[1] == 'yaw' else 6
+                    good = len(a) > i and len(b) > i
+                    d = (b[i] - a[i] + 180) % 360 - 180 if st[1] == 'yaw' else b[i] - a[i]
+                    good = good and abs(d - float(st[4])) <= float(st[5])
+                    print(f'     view {st[1]} changed {d:+.3f} degrees (want {st[4]} +- {st[5]})')
                 elif good and st[1] == 'shots':
                     good = a[4] - b[4] == int(st[4])
                     print(f'     shot counter {int(a[4])} -> {int(b[4])}')

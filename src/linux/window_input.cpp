@@ -1,18 +1,24 @@
 // input::Poll for the Linux window: the first SDL gamepad and the keyboard and mouse, both as the console controller on
 // port 0. The title reads only the controller (XInputGetState), so keyboard and mouse are folded into one:
-//   WASD left stick, mouse right stick (accumulated motion per poll), arrows d-pad, Space A, Left Ctrl B, R X, Q Y,
+//   WASD left stick, mouse look (below), arrows d-pad, Space A, Left Ctrl B, R X, Q Y,
 //   1 white, 2 black, left mouse right trigger, right mouse left trigger, Enter / Escape START, Tab BACK,
 //   Left Shift left stick click, middle mouse right stick click; F1 releases or captures the mouse.
-// Mouse aim through the stick is an approximation; direct mouse aim belongs to the later PC options.
+// Mouse look: while the mouse is captured (relative mode, SDL's unaccelerated motion), each count turns the view by
+// 0.022 degrees x CSX_MOUSE_SENS (default 3, GoldSrc's m_yaw / m_pitch and CS's default sensitivity) through the
+// title's look routine (src/game/mouse_look.cpp); CSX_MOUSE_INVERT=1 inverts the pitch. CSX_MOUSE=stick feeds the
+// right stick instead, as before (the title's stick response, acceleration and aim assist apply then).
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <cstring>
+#include <cstdlib>
 #include <cmath>
 #include <mutex>
 #include <set>
 
 #include "app/app.h"
 #include "core/input.h"
+#include "common/csx.h"
 #include "core/log.h"
 #include "linux/window.h"
 
@@ -23,7 +29,25 @@ std::set<SDL_Keycode> g_keys;
 uint32_t g_mouse_buttons = 0;
 float g_mouse_dx = 0, g_mouse_dy = 0;  // since the last poll
 SDL_Gamepad* g_pad = nullptr;
-constexpr float kMouseScale = 1200.0f;  // stick units per pixel of motion in one poll
+constexpr float kMouseScale = 1200.0f;  // CSX_MOUSE=stick: stick units per pixel of motion in one poll
+constexpr float kDegreesPerCount = 0.022f;  // GoldSrc's m_yaw and m_pitch
+
+struct MouseConfig {
+    bool stick = false;
+    float sens = 3.0f;
+    bool invert = false;
+    MouseConfig() {
+        if (const char* m = std::getenv("CSX_MOUSE")) stick = std::strcmp(m, "stick") == 0;
+        if (const char* v = std::getenv("CSX_MOUSE_SENS")) sens = std::max(0.0f, float(std::atof(v)));
+        if (const char* v = std::getenv("CSX_MOUSE_INVERT")) invert = *v == '1';
+        LOGI("input: mouse %s, sensitivity %.2f (%.4f degrees per count)%s", stick ? "on the right stick" : "look",
+             sens, sens * kDegreesPerCount, invert ? ", pitch inverted" : "");
+    }
+};
+const MouseConfig& Mouse() {
+    static const MouseConfig c;
+    return c;
+}
 
 bool Down(SDL_Keycode k) { return g_keys.count(k) != 0; }
 
@@ -42,8 +66,15 @@ void HandleEvent(const void* p) {
         case SDL_EVENT_MOUSE_BUTTON_DOWN: g_mouse_buttons |= 1u << e.button.button; break;
         case SDL_EVENT_MOUSE_BUTTON_UP: g_mouse_buttons &= ~(1u << e.button.button); break;
         case SDL_EVENT_MOUSE_MOTION:
-            g_mouse_dx += e.motion.xrel;
-            g_mouse_dy += e.motion.yrel;
+            if (Mouse().stick) {
+                g_mouse_dx += e.motion.xrel;
+                g_mouse_dy += e.motion.yrel;
+            } else if (e.motion.which == window::kInjectedDevice ||
+                       SDL_GetWindowRelativeMouseMode(static_cast<SDL_Window*>(window::SdlWindow()))) {
+                // captured: straight to the view angles, scaled only (no acceleration)
+                float k = Mouse().sens * kDegreesPerCount;
+                csx::AddLook(e.motion.xrel * k, (Mouse().invert ? 1.0f : -1.0f) * e.motion.yrel * k);
+            }
             break;
         case SDL_EVENT_GAMEPAD_ADDED:
             if (!g_pad) {

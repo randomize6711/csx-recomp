@@ -1,0 +1,151 @@
+# Regression: native mouse look (src/game/mouse_look.cpp) in the direct match, headless. Run with
+#   --env FPS=30 --launch tests/launch/de_airstrip_beginner
+# "look" adds degrees as the window's mouse does; the checks read the view angles the look routine keeps.
+wait log open D:\\de_airstrip.sxwad
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 12
+state start
+look 30 0
+sleep 1
+state right30
+expect yaw start right30 -30 0.01
+look -75 0
+sleep 1
+state left45
+expect yaw right30 left45 75 0.01
+look 0 20
+sleep 1
+state up20
+expect pitch left45 up20 -20 0.01
+look 0 -35
+sleep 1
+state down15
+expect pitch up20 down15 35 0.01
+# the title clamps the pitch: far more than 90 degrees up stays at its limit
+look 0 500
+sleep 1
+state upmax
+look 0 10
+sleep 1
+state upmax2
+expect pitch upmax upmax2 0 0.01
+# small steps add exactly (no acceleration): 100 steps of 0.1 degrees right make 10
+state before_steps
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+look 0.1 0
+sleep 1
+state after_steps
+expect yaw before_steps after_steps -10 0.05
+# the stick still turns as before
+press RSR 10
+sleep 2
+state stick
+expect turned after_steps stick 20
+expect nolog fatal error screen
+expect nolog guest trap

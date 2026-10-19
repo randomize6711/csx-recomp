@@ -56,6 +56,14 @@ repeats match_direct's steps at FPS=30 in the Vulkan window, for comparing its `
 
 The regression keeps booting through the front end (it covers the menus and the relaunch).
 
+## Mouse look
+
+`regress_mouse_look.txt` (part of run_regression.sh, starts in the match through its `--launch` header line) turns
+the view with `look RIGHT UP` steps, which add degrees through the same hook the window's mouse uses, and checks the
+view angles the title keeps (`expect yaw/pitch A B DEG TOL`): exact changes, the -89 degree pitch clamp, 100 small
+steps adding up exactly (no acceleration), and the stick still turning. `vk_match_direct.txt` sends relative mouse
+motion to the window (`mouse DX DY`) and checks the result at the default sensitivity.
+
 ## Audio
 
 `tests/audio_check.sh` runs `vk_match_direct` with the mixer output captured (`CSX_AUDIO_WAV`, null device) and

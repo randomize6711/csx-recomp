@@ -15,6 +15,7 @@
 #include "app/app.h"
 #include "common/csx.h"
 #include "core/log.h"
+#include "kernel/kernel.h"
 #include "kernel/memory.h"
 
 namespace csx {
@@ -66,9 +67,29 @@ void StartMemoryDumps() {
     std::thread([] {
         namespace fs = std::filesystem;
         const fs::path req = app::ExeDir() / "memdump";
+        const fs::path poke = app::ExeDir() / "poke";
         for (;;) {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
             std::error_code ec;
+            // poke: "VA FLOAT" written to guest memory once (diagnostics: which copy of a value the title reads)
+            if (fs::exists(poke, ec)) {
+                unsigned va = 0;
+                float v = 0;
+                if (FILE* f = std::fopen(poke.string().c_str(), "r")) {
+                    // one or more "VA FLOAT" pairs, all written at once
+                    unsigned first = 0, count = 0;
+                    while (std::fscanf(f, "%x %f", &va, &v) == 2) {
+                        if (!va) continue;
+                        uint32_t bits;
+                        std::memcpy(&bits, &v, 4);
+                        kernel::W32(va, bits);
+                        if (!count++) first = va;
+                    }
+                    if (count) LOGI("poke: %08X = %g (%u writes)", first, v, count);
+                    std::fclose(f);
+                }
+                fs::remove(poke, ec);
+            }
             if (!fs::exists(req, ec)) continue;
             char name[64] = "dump";
             if (FILE* f = std::fopen(req.string().c_str(), "r")) {
