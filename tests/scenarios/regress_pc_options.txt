@@ -1,0 +1,61 @@
+# PC Options inside the game's own Options menu (FINDINGS.md "Original menus", src/game/pc_menu.cpp): seeded with
+# mouse_sensitivity 4, the screen shows it (two steps right make it 6), A saves through the screen's own command,
+# and the original entries stay reachable (Control Options opens).
+#   --pc mouse_sensitivity=4
+wait draws==1
+expect log multisample type 2012, back buffer 640x960
+expect nolog fatal error screen
+snap title
+expect image title 20
+sleep 6
+press START
+wait draws>=3
+sleep 3
+press A
+wait draws>=50
+sleep 3
+snap keyboard
+expect image keyboard 20
+press A
+wait draws<=20
+sleep 3
+sleep 3
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 3
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 3
+snap pc_options
+expect image pc_options 10
+press RIGHT
+sleep 1
+press RIGHT
+sleep 1
+press A
+sleep 3
+expect log pc: mouse_sensitivity = 6
+expect log pc: settings saved
+press UP
+sleep 1
+press UP
+sleep 1
+press UP
+sleep 1
+press A
+sleep 3
+snap control_options
+expect image control_options 20
+expect nolog fatal error screen

@@ -508,3 +508,23 @@ at = 0x000F33FC
 call = "LogFatalSite_000F33FC"
 # END fatal-site diagnostics
 
+
+# PC options in the game's own menus (src/game/pc_menu.cpp): the UI text loader 0xCD9A0 takes the file's size into ebp
+# at 0xCDA2C (IFileSystem size, vtable +0x3C) and allocates ebp + 1 at 0xCDA3C..0xCDAD1; 0xCDB1A follows the read
+# (+0x54) and close (+0x30), with the buffer in esi; the name stays at [esp+0x10] (4 registers pushed on a frame whose
+# first dword is the name, 0xCD9BD)
+[[hook]]
+at = 0xCDA2E
+call = "PcUiLoadSize"
+
+[[hook]]
+at = 0xCDB1A
+call = "PcUiLoadText"
+
+# Cmd_ExecuteString (0x3CA10: the text tokenized at 0x3CA1A into cmd_argc 0x4253E8 / cmd_argv 0x4251A8, then the
+# alias and command lists are searched from 0x3CA33): pc_ commands are served by the hook, which then leaves through
+# the function's own empty-command exit (0x3CB27: pop ecx, ret)
+[[hook]]
+at = 0x3CA25
+call = "PcConsoleCommand"
+on_true = 0x3CB27

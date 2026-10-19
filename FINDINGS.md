@@ -605,6 +605,52 @@ Confirmed:
 Open:
 - Point and line offsets (0x330 / 0x334) are not applied; CS's decals use the fill offset.
 
+## Original menus and PC Options (2026-10-19)
+
+How the game builds its menus (CS 5659, evidence from the code and a dump of the loaded text):
+- **Screens are text, loaded whole at startup**: FrontEndUI.txt for the front end, InGameUI.txt for the in-game menus
+  (with _CS / _DE / _CS_DE variants chosen at 0xD7873; LocBase.txt for localised strings), from the game's packed
+  files, through the engine's file system (0xCD9A0: open +0x2C, size +0x3C taken into ebp at 0xCDA2C, buffer of size
+  + 1, read +0x54, close +0x30, then parsed by 0xD71B0's callees). FrontEndUI.txt is 216 KB, 97 screens.
+- **The format**: a screen is a name and a block with MenuType, EnterSound / HighlightSound (menu/buy_submenu.wav,
+  menu/buy_hover.wav), CachedImage / BackgroundImage (textures by name: Back_2ndary.1Pane, Cancel_Accept,
+  Arrows_Selected...), BackgroundText (colour, rectangle, scale, text), handlers OnEntry / OnButtonDownA, B, X, Y,
+  Back, Start / CommandSimulate1, 2, the four pie directions Generic_4_1..4 (CommandHighlight "tableMoveUp",
+  "tableIncreaseValue"...), and a Table: a Layout (column widths and justification, location, size, row spacing,
+  text scale, colours, highlight images) and Rows. A row holds cells: CellFixed (a label), CellList (choices
+  ListOption / ListDefault "label" "value") and nested Tables (the help text shown at the bottom while the row is
+  highlighted), and a CommandSelect. Example: SuperLauncher_Options' four rows open SuperLauncher_ControllerOptions,
+  run "!pushSoundtracksToUI; xbui open SuperLauncher_Sound", open SuperLauncher_OnlineOptions, run "!PlayCredits".
+- **Commands**: a command beginning with "!" is a console command (0xCA6F0 formats it and hands it to Cbuf_AddText
+  0x3B970); others are UI commands ("open X", "back"). The screens' logic lives in console commands the game
+  registers with Cmd_AddCommand (0x3C760), e.g. stuffUItoPlayerData 0xDAD40 (saves a screen's choices to the profile),
+  pushSoundtracksToUI. There is no binding of a list to a variable in the text: values move through such commands.
+- **The UI objects** (read by stuffUItoPlayerData, written by 0xD7920): screens in a list from 0x5523D0 (name pointer
+  +0, next +0x378, table +0x380); a table's rows +0x60..+0x64 (32 bytes each); a row's cells +0xC..+0x10 (0x78 bytes
+  each); a list cell's current choice index at +0, its choices +0xC..+0x10 (0x1C bytes each, std::string).
+- **Settings storage**: the Xbox profile (U:\<id>\data.bin, T:\CurrentProfile.dat) via the game's own commands; PC
+  settings go to a separate pc_settings.ini in the run folder so the profile format is untouched.
+
+The integration (src/game/pc_menu.cpp, src/common/pc_settings.cpp; no game file changed, no UI code of ours):
+- **Text added at load**: the hook after the size (0xCDA2E) gives a FrontEndUI file 64 KB more buffer, the hook after
+  the read (0xCDB1A) inserts a "PC Options" row into SuperLauncher_Options (before View Credits, with its own help
+  text) and appends a screen, SuperLauncher_PCOptions, written like the game's Control Options screen: same
+  backgrounds, sounds, arrows, layout, help lines, A to accept and B to cancel. The game parses, draws and navigates it
+  with its own code (fonts, highlight, sounds, controller).
+- **Its commands**: OnEntry "!pc_options_load" (the lists take their values from pc_settings.ini), OnButtonDownA
+  "!pc_options_save; xbui back". A hook in Cmd_ExecuteString (0x3CA25, after tokenising; the engine has no such
+  command) serves pc_ commands and leaves through the function's empty-command exit (0x3CB27). (Cmd_ForwardToServer
+  is not reached for unknown commands while not connected.) The rows' choices come from one table in pc_menu.cpp,
+  which also generates their text.
+- **First setting: Mouse Sensitivity** (0.5 to 10, default 3 = GoldSrc's), read by the window's mouse look
+  (src/linux/window_input.cpp; CSX_MOUSE_SENS still wins when set). Checked: the row and screen in the reference
+  renderer and the Vulkan window; changes saved on A, not on B; the saved value shown on the next launch; 100 mouse
+  counts turn 13.2 degrees at sensitivity 6 (6.6 at 3); regress_pc_options.txt.
+
+Open:
+- InGameUI.txt (the pause menu's options) does not have the screen yet; the mouse in menus (the original UI has no
+  pointer: arrows, Space / Left Ctrl or a pad navigate).
+
 ## Assumptions / to verify
 
 - Third-party licenses (from prior knowledge, confirm before reusing any code): Half-Life SDK — Valve's restrictive

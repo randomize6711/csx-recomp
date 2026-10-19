@@ -2,6 +2,9 @@
 """Drives the headless harness through a scenario by watching its log.
 
 Usage: python3 -I tools/drive.py SCENARIO [--timeout S] [--env K=V ...] [--exe PATH] [--run DIR] [--launch DIR] [--wine]
+                                [--pc NAME=VALUE ...]
+
+--pc seeds the run folder's pc_settings.ini (Options > PC Options); without it every run starts with none.
 
 --wine runs the Windows build (build/windows/dist/CounterStrike.exe unless --exe names another) under Wine, prefix
 build/wineprefix, in a network namespace like the Linux runs. A title relaunch there starts a new Windows process, so
@@ -114,6 +117,7 @@ def main():
     scenario, timeout, env = args[0], 600.0, dict(os.environ)
     launch = None
     wine = False
+    pc = []
     i = 1
     while i < len(args):
         if args[i] == '--timeout':
@@ -130,6 +134,8 @@ def main():
             k, v = args[i + 1].split('=', 1); env[k] = v; i += 2
         elif args[i] == '--launch':
             launch = os.path.abspath(args[i + 1]); i += 2
+        elif args[i] == '--pc':
+            pc.append(args[i + 1]); i += 2
         elif args[i] == '--wine':
             wine = True; i += 1
             if EXE.endswith(os.path.join('harness', 'CounterStrike')):
@@ -145,6 +151,13 @@ def main():
     for d in ('logs', 'hdd', 'cap', 'snaps', 'dumps', 'shots'):
         shutil.rmtree(os.path.join(RUN, d), ignore_errors=True)
     os.makedirs(os.path.join(RUN, 'snaps'))
+    # PC settings: none unless the run seeds them (src/common/pc_settings.cpp format, "name = value")
+    settings = os.path.join(RUN, 'pc_settings.ini')
+    if os.path.exists(settings):
+        os.remove(settings)
+    if pc:
+        with open(settings, 'w') as f:
+            f.write(''.join(kv.replace('=', ' = ', 1) + '\n' for kv in pc))
     if launch:
         # what the front end leaves for its relaunch into a match: the launch data page (launch.bin, kept by the host as
         # launch_seen.bin) and the match's command line on the cache partition (Z:\releasemap.txt); with both the

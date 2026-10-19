@@ -103,6 +103,13 @@ current vertex data is lost (SDK patch 0025).
 0.3 degrees apart (`expect darkfrac NAME X0 Y0 X1 Y1 LUM MIN MAX`: share of the box's pixels darker than LUM): the
 sign's ink fills about 0.57 of the box with the polygon offset, 0.00-0.46 and varying without it (SDK patch 0026).
 
+## PC Options
+
+`regress_pc_options.txt` boots through the front end to Options > PC Options (the screen added to the game's own menu
+text, src/game/pc_menu.cpp), seeded with `--pc mouse_sensitivity=4` (drive.py writes the run folder's
+pc_settings.ini; without --pc a run starts with none), steps the setting to 6, accepts, checks the save in the log and
+that Control Options still opens. run_regression.sh passes `--pc` lines of a scenario header like `--env` ones.
+
 ## Mouse look
 
 `regress_mouse_look.txt` (part of run_regression.sh, starts in the match through its `--launch` header line) turns

@@ -211,3 +211,12 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   VK_EXT_depth_bias_control) apply it (FINDINGS.md "Decals").
 - Tests: regress_decals.txt; drive.py step expect darkfrac. Regression 321/321; Vulkan vk_match_direct 32/32.
 
+## 2026-10-19 — PC Options in the original menus (proof of concept)
+
+- The front end's menus are text (FrontEndUI.txt) the game parses and draws with its own UI code; screen commands are
+  console commands (FINDINGS.md "Original menus and PC Options").
+- src/game/pc_menu.cpp adds, at load, a "PC Options" row to Options and a SuperLauncher_PCOptions screen in the
+  game's own format; its commands (pc_options_load / pc_options_save) are served by a hook in Cmd_ExecuteString;
+  src/common/pc_settings.cpp keeps pc_settings.ini. First setting: Mouse Sensitivity, used by the native mouse look.
+- Tests: regress_pc_options.txt; drive.py --pc.
+
