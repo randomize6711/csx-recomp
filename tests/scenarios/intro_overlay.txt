@@ -1,0 +1,15 @@
+# The boot intro's movies through the video overlay, headless: the reference renderer's snapshots carry the overlay
+# (SDK patch 0021). Run with --env FPS=30.
+wait log open d:\\Media\\Videos\\MGS_Logo.xmv
+sleep 5
+snap intro_mgs
+expect image intro_mgs 20
+wait log open d:\\Media\\Videos\\Valve_Logo.xmv
+sleep 4
+snap intro_valve
+expect image intro_valve 20
+wait log open d:\\Media\\Videos\\ESRB.xmv
+sleep 3
+snap intro_esrb
+expect image intro_esrb 20
+expect nolog fatal error screen

@@ -56,6 +56,12 @@ repeats match_direct's steps at FPS=30 in the Vulkan window, for comparing its `
 
 The regression keeps booting through the front end (it covers the menus and the relaunch).
 
+## Video
+
+`intro_overlay.txt` (headless, FPS=30) snaps the three boot movies with the overlay composited into the reference
+renderer's captures; `vk_intro.txt` takes the same frames from the Vulkan window. `expect image` also checks window
+shots (`shots/NAME.bmp`).
+
 ## Rounds
 
 `rounds_direct.txt` plays complete rounds from the direct start of any map fixture (`de_airstrip_beginner`,

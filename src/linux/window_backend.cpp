@@ -6,6 +6,7 @@
 
 #include "core/log.h"
 #include "gpu/backend.h"
+#include "gpu/draw.h"
 #include "gpu/texture.h"
 #include "harness.h"
 #include "kernel/kernel.h"
@@ -46,6 +47,9 @@ public:
             std::vector<uint8_t> px;
             uint32_t pitch = 0;
             DecodeLevel(d, 0, 0, static_cast<const uint8_t*>(kernel::HostPtr(d.data)), nullptr, px, pitch);
+            // the video overlay over the shown copy (movies)
+            if (overlay_.enabled && px.size() >= size_t(d.width) * d.height * 4)
+                CompositeOverlay(overlay_, reinterpret_cast<uint32_t*>(px.data()), d.width, d.height, d.width);
             auto& f = window::Latest();
             std::lock_guard<std::mutex> lock(f.lock);
             f.pixels.swap(px);
@@ -69,6 +73,13 @@ public:
     void Flush() override {}
     std::chrono::steady_clock::time_point last_ = std::chrono::steady_clock::now();
     void SetGamma(const uint8_t*) override { LOG_FIRST(1, "renderer: gamma ramps are not applied in the window"); }
+    void SetOverlay(const OverlayImage& o) override {
+        overlay_ = o;
+        overlay_pixels_.assign(o.pixels ? o.pixels : nullptr, o.pixels ? o.pixels + size_t(o.width) * o.height : nullptr);
+        overlay_.pixels = overlay_pixels_.data();
+    }
+    OverlayImage overlay_;
+    std::vector<uint32_t> overlay_pixels_;
 };
 
 }  // namespace

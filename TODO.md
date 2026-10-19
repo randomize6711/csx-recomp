@@ -1,7 +1,7 @@
 # TODO (priority order)
 
 ## Now
-0. Next milestone (recommended): playable match quality on Linux — movies (overlay), then a full round on several maps (de_dust, cs_italy) through the
+0. Next milestone (recommended): playable match quality on Linux — then a full round on several maps (de_dust, cs_italy) through the
    Vulkan window with checks in game state; collect rendering discrepancies per map.
 0b. Audio remainder: HRTF-like positioning (elevation, front/back) instead of the linear pan, envelopes (SetEG),
    filters and the I3DL2 reverb; listening test on headphones by a person.
@@ -10,8 +10,6 @@
    Install vulkan-validation-layers for CSX_VK_VALIDATION=1 runs. The upload ring's overflow path re-uses offsets a
    draw already took (never reached: peak 9 MB of 64 MB).
 2. Compare in-game rendering with xemu (dark sky/wall area on de_airstrip, lightmaps, fog, rain, colours).
-3. Overlay compositing so movies are visible (reference renderer first, then backends); front buffer resolve of the
-   640x960 back buffer.
 4. Prove the 8 register-convention D3D functions and the 12 unproven ones (analysis/missing_symbols_5659.md).
 5. Relative paths without a drive ("valve/gfx/vgui/mouse.tga", "launcher/voice_ban.dt"): console semantics.
 6. Unhandled DSOUND export B0080 at 0x246488 (still runs original code); MultiSampleMode adjustment (logged only).

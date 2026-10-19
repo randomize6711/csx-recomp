@@ -145,3 +145,8 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
 - Map fixtures de_dust_beginner and cs_italy_beginner; tests/scenarios/rounds_direct.txt; drive.py count step.
 - de_airstrip, de_dust, cs_italy: four complete rounds each with movement, shots, deaths and respawns, bot combat,
   bomb plant/detonation, hostage rescue, time expiry (FINDINGS.md "Rounds").
+
+## 2026-10-19 — Video playback (overlay)
+
+- SDK patch 0021: the XMV movies' overlay composited (reference captures, software window, Vulkan); the boot intro
+  is visible with its sound. Tests: intro_overlay.txt (headless), vk_intro.txt (window). Regression 257/257.

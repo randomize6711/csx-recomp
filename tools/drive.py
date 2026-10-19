@@ -29,7 +29,7 @@ per line, executed in order:
     snap NAME               draw the next two frames and keep them as build/run/snaps/NAME_1.tga / NAME_2.tga
     expect log REGEX        fail unless a log line matches
     expect nolog REGEX      fail if a log line matches
-    expect image NAME MIN   fail unless snaps/NAME_2.tga has a luminance standard deviation of at least MIN
+    expect image NAME MIN   fail unless snaps/NAME_2.tga (or the window shot shots/NAME.bmp) has a luminance standard deviation of at least MIN
                             (a blank or flat frame fails; game pixels are never stored in the repository)
 Exit status 0 when every step passed, 1 otherwise. Prints one line per step.
 """
@@ -279,7 +279,11 @@ def main():
             elif kind == 'expect' and st[1] == 'image':
                 from PIL import Image, ImageStat
                 path = os.path.join(RUN, 'snaps', st[2] + '_2.tga')
+                if not os.path.exists(path):  # a window shot of that name
+                    path = os.path.join(RUN, 'shots', st[2] + '.bmp')
                 good = os.path.exists(path) and ImageStat.Stat(Image.open(path).convert('L')).stddev[0] >= float(st[3])
+                if good:
+                    print(f'     {st[2]}: luminance spread {ImageStat.Stat(Image.open(path).convert("L")).stddev[0]:.1f}')
             elif kind == 'expect':
                 time.sleep(1.2)  # the log flushes every second
                 log.poll()

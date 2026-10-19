@@ -1,0 +1,344 @@
+diff --git a/harness/null_backend.cpp b/harness/null_backend.cpp
+index 3664bd8..08f73d0 100644
+--- a/harness/null_backend.cpp
++++ b/harness/null_backend.cpp
+@@ -7,6 +7,7 @@
+ #include <cstring>
+ #include <filesystem>
+ #include <string>
++#include <vector>
+ 
+ #include "app/app.h"
+ #include "core/log.h"
+@@ -49,15 +50,15 @@ public:
+         }
+         if (draws_ == last_draws_) empty_++;
+         last_draws_ = draws_;
+-        if (drawing_ && !snap_) reference::WriteTga(front, File("cap/ref_%05llu.tga", frames_).c_str());
++        if (drawing_ && !snap_) reference::WriteTga(front, File("cap/ref_%05llu.tga", frames_).c_str(), Overlay());
+         // snap asks for the next two frames drawn
+         std::string snap = (app::ExeDir() / "snap").string();
+         if (snap_ == 2) {
+-            reference::WriteTga(front, (app::ExeDir() / "snap_2.tga").string().c_str());
++            reference::WriteTga(front, (app::ExeDir() / "snap_2.tga").string().c_str(), Overlay());
+             std::remove(snap.c_str());
+             snap_ = 0;
+         } else if (snap_ == 1) {
+-            reference::WriteTga(front, (app::ExeDir() / "snap_1.tga").string().c_str());
++            reference::WriteTga(front, (app::ExeDir() / "snap_1.tga").string().c_str(), Overlay());
+             snap_ = 2;
+         } else if (FILE* f = std::fopen(snap.c_str(), "r")) {
+             std::fclose(f);
+@@ -74,6 +75,13 @@ public:
+     void SyncLate(uint32_t) override {}
+     void Flush() override {}
+     void SetGamma(const uint8_t*) override {}
++    // the video overlay, kept for the captures (composited into the TGA, not into guest memory)
++    void SetOverlay(const OverlayImage& o) override {
++        overlay_ = o;
++        overlay_pixels_.assign(o.pixels ? o.pixels : nullptr, o.pixels ? o.pixels + size_t(o.width) * o.height : nullptr);
++        overlay_.pixels = overlay_pixels_.data();
++    }
++    const OverlayImage* Overlay() const { return overlay_.enabled ? &overlay_ : nullptr; }
+ 
+ private:
+     static std::string File(const char* fmt, unsigned long long n) {
+@@ -131,6 +139,8 @@ private:
+     bool drawing_ = false;
+     int snap_ = 0;
+     FILE* list_ = nullptr;
++    OverlayImage overlay_;
++    std::vector<uint32_t> overlay_pixels_;
+ };
+ 
+ }  // namespace
+diff --git a/harness/reference_renderer.cpp b/harness/reference_renderer.cpp
+index a69bb04..568c77a 100644
+--- a/harness/reference_renderer.cpp
++++ b/harness/reference_renderer.cpp
+@@ -4,6 +4,8 @@
+ // probe with its triangle's vertices; TRACE="x,y": log the combiner registers of fragments there.
+ #include "reference_renderer.h"
+ 
++#include "gpu/draw.h"
++
+ #include <algorithm>
+ #include <array>
+ #include <cmath>
+@@ -1315,9 +1317,17 @@ void Draw(const State& s, uint32_t prim, uint32_t start, uint32_t count, const u
+     if (zs.ok) Written(zs.data, zs.End());
+ }
+ 
+-bool WriteTga(const Surface& s, const char* path) {
++bool WriteTga(const Surface& s, const char* path, const gpu::OverlayImage* overlay) {
+     Plane p = OpenPlane(s);
+     if (!p.ok) return false;
++    std::vector<uint32_t> image(size_t(p.w) * p.h);
++    for (uint32_t y = 0; y < p.h; y++)
++        for (uint32_t x = 0; x < p.w; x++) {
++            Vec c = p.Load(x, y);
++            image[size_t(y) * p.w + x] = 0xFF000000 | uint32_t(Sat(c[0]) * 255) << 16 | uint32_t(Sat(c[1]) * 255) << 8 |
++                                         uint32_t(Sat(c[2]) * 255);
++        }
++    if (overlay) gpu::CompositeOverlay(*overlay, image.data(), p.w, p.h, p.w);
+     FILE* f = std::fopen(path, "wb");
+     if (!f) return false;
+     uint8_t head[18] = {0, 0, 2};  // uncompressed true colour
+@@ -1328,8 +1338,8 @@ bool WriteTga(const Surface& s, const char* path) {
+     std::vector<uint8_t> row(size_t(p.w) * 3);
+     for (uint32_t y = 0; y < p.h; y++) {
+         for (uint32_t x = 0; x < p.w; x++) {
+-            Vec c = p.Load(x, y);
+-            for (int i = 0; i < 3; i++) row[x * 3 + i] = uint8_t(Sat(c[2 - i]) * 255);
++            uint32_t c = image[size_t(y) * p.w + x];
++            row[x * 3] = uint8_t(c), row[x * 3 + 1] = uint8_t(c >> 8), row[x * 3 + 2] = uint8_t(c >> 16);
+         }
+         std::fwrite(row.data(), 1, row.size(), f);
+     }
+diff --git a/harness/reference_renderer.h b/harness/reference_renderer.h
+index 5e0cd7d..3cebccc 100644
+--- a/harness/reference_renderer.h
++++ b/harness/reference_renderer.h
+@@ -1,6 +1,7 @@
+ #pragma once
+ #include <cstdint>
+ 
++#include "gpu/backend.h"
+ #include "gpu/state.h"
+ 
+ // CPU renderer for the headless harness: draws the title's calls into its own surfaces in guest memory, so a frame
+@@ -11,7 +12,7 @@ void BeginFrame();  // drops decoded textures and restarts the draw count
+ void Clear(const gpu::State& s, uint32_t count, const uint8_t* rects, uint32_t flags, uint32_t color, float z, uint32_t stencil);
+ void Copy(const gpu::Surface& src, const gpu::Surface& dst, uint32_t count, uint32_t rects_va, uint32_t points_va);
+ void Draw(const gpu::State& s, uint32_t prim, uint32_t start, uint32_t count, const uint8_t* indices);
+-// 24 bit TGA of a surface's colour
+-bool WriteTga(const gpu::Surface& s, const char* path);
++// 24 bit TGA of a surface's colour, the video overlay over it when one is given
++bool WriteTga(const gpu::Surface& s, const char* path, const gpu::OverlayImage* overlay = nullptr);
+ 
+ }  // namespace reference
+diff --git a/runtime/gpu/backend.h b/runtime/gpu/backend.h
+index 14a066a..8f177db 100644
+--- a/runtime/gpu/backend.h
++++ b/runtime/gpu/backend.h
+@@ -14,6 +14,19 @@ enum : uint32_t {
+     kClearStencil = 0x02,
+ };
+ 
++// the video overlay the console's display hardware puts over the frame buffer (UpdateOverlay, EnableOverlay: movies),
++// decoded to BGRA rows at the present: dst is in display pixels (display_w x display_h, the video mode), where only
++// pixels equal to color_key show it when use_color_key is set
++struct OverlayImage {
++    bool enabled = false;
++    uint32_t width = 0, height = 0;
++    const uint32_t* pixels = nullptr;
++    int32_t dst[4] = {};
++    uint32_t display_w = 640, display_h = 480;
++    bool use_color_key = false;
++    uint32_t color_key = 0;
++};
++
+ class Backend {
+ public:
+     virtual ~Backend() = default;
+@@ -27,6 +40,8 @@ public:
+     virtual void Copy(const Surface& src, const Surface& dst, uint32_t count, uint32_t src_rects_va,
+                       uint32_t dst_points_va) = 0;
+     virtual void Present(const Surface& front) = 0;
++    // the overlay shown with the next Present (called before each one; disabled when none)
++    virtual void SetOverlay(const OverlayImage&) {}
+     // the CPU is about to touch this resource's memory: write GPU results back first
+     virtual void Sync(uint32_t data_va, uint32_t size) = 0;
+     // a lock that does not wait for the GPU (NOOVERWRITE): a result a frame or two old is what the console gives too
+diff --git a/runtime/gpu/draw.cpp b/runtime/gpu/draw.cpp
+index 6575622..b3956da 100644
+--- a/runtime/gpu/draw.cpp
++++ b/runtime/gpu/draw.cpp
+@@ -2,6 +2,7 @@
+ // constants (DrawConstants) both stages read. Shared by the D3D12 renderer and other GPU backends.
+ #include "gpu/draw.h"
+ 
++#include <algorithm>
+ #include <cmath>
+ #include <cstring>
+ 
+@@ -225,4 +226,34 @@ void FillLightConstants(const State& s, const FixedKey& fk, DrawConstants& c) {
+     }
+ }
+ 
++void CompositeOverlay(const OverlayImage& o, uint32_t* image, uint32_t w, uint32_t h, uint32_t pitch) {
++    if (!o.enabled || !o.pixels || !o.width || !o.height || !o.display_w || !o.display_h) return;
++    float sx = float(w) / o.display_w, sy = float(h) / o.display_h;
++    int x0 = std::max(0, int(o.dst[0] * sx)), y0 = std::max(0, int(o.dst[1] * sy));
++    int x1 = std::min(int(w), int(o.dst[2] * sx)), y1 = std::min(int(h), int(o.dst[3] * sy));
++    if (x1 <= x0 || y1 <= y0) return;
++    float ux = float(o.width) / float(x1 - x0), uy = float(o.height) / float(y1 - y0);
++    for (int y = y0; y < y1; y++) {
++        float fy = std::max(0.0f, (float(y - y0) + 0.5f) * uy - 0.5f);
++        uint32_t ya = std::min(uint32_t(fy), o.height - 1), yb = std::min(ya + 1, o.height - 1);
++        float ty = fy - float(ya);
++        for (int x = x0; x < x1; x++) {
++            uint32_t& dst = image[size_t(y) * pitch + uint32_t(x)];
++            if (o.use_color_key && (dst & 0xFFFFFF) != (o.color_key & 0xFFFFFF)) continue;
++            float fx = std::max(0.0f, (float(x - x0) + 0.5f) * ux - 0.5f);
++            uint32_t xa = std::min(uint32_t(fx), o.width - 1), xb = std::min(xa + 1, o.width - 1);
++            float tx = fx - float(xa);
++            const uint32_t* p = o.pixels;
++            uint32_t c00 = p[ya * o.width + xa], c01 = p[ya * o.width + xb], c10 = p[yb * o.width + xa], c11 = p[yb * o.width + xb];
++            uint32_t out = 0xFF000000;
++            for (int k = 0; k < 24; k += 8) {
++                float a = float(c00 >> k & 255) * (1 - tx) + float(c01 >> k & 255) * tx;
++                float b = float(c10 >> k & 255) * (1 - tx) + float(c11 >> k & 255) * tx;
++                out |= uint32_t(a * (1 - ty) + b * ty + 0.5f) << k;
++            }
++            dst = out;
++        }
++    }
++}
++
+ }  // namespace gpu
+diff --git a/runtime/gpu/draw.h b/runtime/gpu/draw.h
+index 451d62a..af82752 100644
+--- a/runtime/gpu/draw.h
++++ b/runtime/gpu/draw.h
+@@ -3,6 +3,7 @@
+ #include <cstdint>
+ #include <string>
+ 
++#include "gpu/backend.h"
+ #include "gpu/shaders.h"
+ #include "gpu/state.h"
+ #include "gpu/vertex.h"
+@@ -40,4 +41,8 @@ void FillCombinerConstants(const State& s, DrawConstants& c);
+ void FillTransformConstants(const State& s, GuestExtent size, DrawConstants& c);
+ void FillLightConstants(const State& s, const FixedKey& fk, DrawConstants& c);
+ 
++// the overlay over a BGRA image of w x h pixels (rows pitch pixels apart) showing the display_w x display_h video mode:
++// its dst rectangle scaled to the image, bilinear, only on pixels equal to the colour key when it is used
++void CompositeOverlay(const OverlayImage& o, uint32_t* image, uint32_t w, uint32_t h, uint32_t pitch);
++
+ }  // namespace gpu
+diff --git a/runtime/gpu/render_thread.cpp b/runtime/gpu/render_thread.cpp
+index def8fc5..bcfce17 100644
+--- a/runtime/gpu/render_thread.cpp
++++ b/runtime/gpu/render_thread.cpp
+@@ -41,7 +41,7 @@ constexpr uint32_t kHeaderRing = 1u << 20;  // guest memory for header copies; a
+ 
+ enum class WaitFor : uint8_t { ReadBack, Resource, Fence, Flush, Copy, Frame, Count };
+ 
+-enum class Op : uint8_t { State, Draw, Clear, Copy, Present, Sync, RecordLate, Flush, Gamma, ClearReport, GetReport };
++enum class Op : uint8_t { State, Draw, Clear, Copy, Present, Sync, RecordLate, Flush, Gamma, ClearReport, GetReport, Overlay };
+ 
+ struct Cmd {
+     Op op;
+@@ -206,6 +206,15 @@ public:
+         Wait(Submit(), WaitFor::Flush, "flush");
+     }
+ 
++    // the overlay description, then its pixels, copied: the title reuses the surfaces
++    void SetOverlay(const OverlayImage& o) override {
++        Cmd c{Op::Overlay};
++        c.data = Put(&o, sizeof(o));
++        c.size = o.pixels ? uint32_t(size_t(o.width) * o.height * 4) : 0;
++        if (c.size) c.a = Put(o.pixels, c.size);
++        cur_->cmds.push_back(c);
++    }
++
+     void SetGamma(const uint8_t* ramp) override {
+         Cmd c{Op::Gamma};
+         c.data = Put(ramp, 768);
+@@ -440,6 +449,13 @@ private:
+             case Op::Gamma: inner_->SetGamma(data); break;
+             case Op::ClearReport: inner_->ClearReport(); break;
+             case Op::GetReport: inner_->GetReport(c.a); break;
++            case Op::Overlay: {
++                OverlayImage o;
++                std::memcpy(&o, data, sizeof(o));
++                o.pixels = c.size ? reinterpret_cast<const uint32_t*>(b.bytes.data() + c.a) : nullptr;
++                inner_->SetOverlay(o);
++                break;
++            }
+         }
+     }
+ 
+diff --git a/runtime/xdk/d3d8.cpp b/runtime/xdk/d3d8.cpp
+index 4e16116..041af41 100644
+--- a/runtime/xdk/d3d8.cpp
++++ b/runtime/xdk/d3d8.cpp
+@@ -580,11 +580,63 @@ HLE_STDCALL(D3DDevice_UpdateOverlay, 5) {
+     if (XDK_CDevice_OverlayUpdate != xdk::kUnknown && XDK_CDevice_VBlankCount != xdk::kUnknown)
+         SetDev(XDK_CDevice_OverlayUpdate, Dev(XDK_CDevice_VBlankCount));
+     if (XDK_CDevice_OverlaySurface != xdk::kUnknown) SetDev(XDK_CDevice_OverlaySurface, a[0]);
+-    LOG_FIRST(1, "d3d: overlay surface %08X src %d,%d-%d,%d dst %d,%d-%d,%d (not composited yet)", a[0], g_overlay.src[0],
++    LOG_FIRST(1, "d3d: overlay surface %08X src %d,%d-%d,%d dst %d,%d-%d,%d", a[0], g_overlay.src[0],
+               g_overlay.src[1], g_overlay.src[2], g_overlay.src[3], g_overlay.dst[0], g_overlay.dst[1], g_overlay.dst[2],
+               g_overlay.dst[3]);
+     return 0;
+ }
++// the overlay as the backend gets it with each Present: the source rectangle of the overlay surface decoded to BGRA
++// (YUY2, the movies' format, as the console's overlay converts it: ITU-R BT.601 with studio range; 32 bit RGB copied)
++void PassOverlay() {
++    static std::vector<uint32_t> pixels;
++    gpu::OverlayImage o;
++    uint32_t h = g_overlay.surface;
++    if (g_overlay.enabled && h) {
++        uint32_t fmt = R32(h + 12) >> 8 & 0xFF, size = R32(h + 16);
++        uint32_t w = (size & 0xFFF) + 1, ht = (size >> 12 & 0xFFF) + 1, pitch = ((size >> 24) + 1) * 64;
++        uint32_t data = mem::VirtualFromPhysical(R32(h + 4));
++        int32_t sx0 = std::clamp<int32_t>(g_overlay.src[0], 0, int32_t(w)), sy0 = std::clamp<int32_t>(g_overlay.src[1], 0, int32_t(ht));
++        int32_t sx1 = std::clamp<int32_t>(g_overlay.src[2], sx0, int32_t(w)), sy1 = std::clamp<int32_t>(g_overlay.src[3], sy0, int32_t(ht));
++        o.width = uint32_t(sx1 - sx0);
++        o.height = uint32_t(sy1 - sy0);
++        pixels.resize(size_t(o.width) * o.height);
++        auto clip = [](int v) { return uint32_t(std::clamp(v, 0, 255)); };
++        bool known = true;
++        for (uint32_t y = 0; y < o.height && known; y++) {
++            const uint8_t* row = static_cast<const uint8_t*>(HostPtr(data + (uint32_t(sy0) + y) * pitch));
++            for (uint32_t x = 0; x < o.width; x++) {
++                uint32_t sx = uint32_t(sx0) + x;
++                uint32_t& out = pixels[size_t(y) * o.width + x];
++                if (fmt == 0x24) {  // YUY2: Y0 U Y1 V per pixel pair
++                    const uint8_t* q = row + (sx & ~1u) * 2;
++                    int c = int(q[(sx & 1) * 2]) - 16, d = int(q[1]) - 128, e = int(q[3]) - 128;
++                    out = 0xFF000000 | clip((298 * c + 409 * e + 128) >> 8) << 16 |
++                          clip((298 * c - 100 * d - 208 * e + 128) >> 8) << 8 | clip((298 * c + 516 * d + 128) >> 8);
++                } else if (fmt == 0x12 || fmt == 0x1E) {  // linear A8R8G8B8 / X8R8G8B8
++                    std::memcpy(&out, row + sx * 4, 4);
++                    out |= 0xFF000000;
++                } else {
++                    known = false;
++                    break;
++                }
++            }
++        }
++        if (known) {
++            o.enabled = true;
++            o.pixels = pixels.data();
++            for (int i = 0; i < 4; i++) o.dst[i] = g_overlay.dst[i];
++            uint32_t fs = R32(g_buffers[1] + 16);
++            o.display_w = uint32_t(float((fs & 0xFFF) + 1) / g_bb_scale[0]);
++            o.display_h = uint32_t(float((fs >> 12 & 0xFFF) + 1) / g_bb_scale[1]);
++            o.use_color_key = g_overlay.use_color_key;
++            o.color_key = g_overlay.color_key;
++        } else {
++            LOG_FIRST(1, "d3d: overlay format %02X is not shown", fmt);
++        }
++    }
++    g_backend->SetOverlay(o);
++}
++
+ // the front buffer, read back at the guest size, is kept for the next instance after a quick reboot, which may
+ // fade from it at its first frames
+ HLE_STDCALL(D3DDevice_PersistDisplay, 0) {
+@@ -686,7 +738,10 @@ HLE_STDCALL(D3DDevice_Swap, 1) {
+         }
+     }
+     Walk(Dev(kDevPush));  // reports asked for at the end of the frame
+-    if (g_backend) g_backend->Present(SurfaceOf(g_buffers[1]));
++    if (g_backend) {
++        PassOverlay();
++        g_backend->Present(SurfaceOf(g_buffers[1]));
++    }
+     app::Pace();
+     // like the XDK, the surfaces stay put and their memory rotates: titles keep back buffer pointers and copy its data
+     uint32_t last = g_buffers[g_buffer_count - 1], data = R32(last + 4), lk = R32(last + 8);

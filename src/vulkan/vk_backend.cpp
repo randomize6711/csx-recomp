@@ -220,6 +220,11 @@ public:
                uint32_t stencil) override;
     void Draw(const State& s, uint32_t prim, uint32_t start, uint32_t count, const uint8_t* indices) override;
     void Copy(const Surface& src, const Surface& dst, uint32_t count, uint32_t src_rects, uint32_t dst_points) override;
+    void SetOverlay(const OverlayImage& o) override {
+        overlay_ = o;
+        overlay_pixels_.assign(o.pixels ? o.pixels : nullptr, o.pixels ? o.pixels + size_t(o.width) * o.height : nullptr);
+        overlay_.pixels = overlay_pixels_.data();
+    }
     void Present(const Surface& front) override;
     void Sync(uint32_t, uint32_t) override { LOG_FIRST(4, "vulkan: guest read of a render target is not synchronised yet"); }
     void SyncLate(uint32_t) override {}
@@ -266,7 +271,8 @@ private:
         }
         return sh;
     }
-    void SaveShot(Target& t, const std::string& name);
+    void SaveShot(Image& t, const std::string& name);
+    Image* ComposeOverlay(Target& t);
 
     VkInstance instance_ = VK_NULL_HANDLE;
     VkSurfaceKHR surface_ = VK_NULL_HANDLE;
@@ -290,6 +296,10 @@ private:
     VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
     VkPipelineLayout layout_ = VK_NULL_HANDLE;
     Image dummy_;  // 1x1 for unused texture slots
+    // the video overlay (movies): its pixels, an image of them, and the presented target with it composited
+    OverlayImage overlay_;
+    std::vector<uint32_t> overlay_pixels_;
+    Image overlay_img_, overlay_target_;
     VkSampler dummy_sampler_ = VK_NULL_HANDLE;
 
     std::unordered_map<uint64_t, Target> targets_;
@@ -1296,7 +1306,7 @@ void VulkanBackend::Copy(const Surface& src, const Surface& dst, uint32_t, uint3
     LOG_FIRST(4, "vulkan: CopyRects is not done yet");
 }
 
-void VulkanBackend::SaveShot(Target& t, const std::string& name) {
+void VulkanBackend::SaveShot(Image& t, const std::string& name) {
     // the target to a host buffer, after this frame's work
     EndRendering();
     VkDeviceSize bytes = VkDeviceSize(t.w) * t.h * 4;
@@ -1317,6 +1327,55 @@ void VulkanBackend::SaveShot(Target& t, const std::string& name) {
     }
 }
 
+// the presented target with the video overlay over it, in an image of its own (the title's buffer stays as drawn): the
+// overlay's pixels uploaded and blitted, filtered, into its destination rectangle scaled from the video mode to the
+// target; the target itself when no overlay shows
+Image* VulkanBackend::ComposeOverlay(Target& t) {
+    const OverlayImage& o = overlay_;
+    if (!o.enabled || !o.pixels || !o.width || !o.height || !o.display_w || !o.display_h) return &t;
+    if (o.use_color_key) LOG_FIRST(1, "vulkan: the overlay's colour key is not applied");
+    auto ensure = [&](Image& im, uint32_t w, uint32_t h) {
+        if (im.image && im.w == w && im.h == h) return true;
+        if (im.image) FreeImage(im);
+        return MakeImage(im, w, h, kColorFormat, 1,
+                         VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, false);
+    };
+    if (!ensure(overlay_target_, t.w, t.h) || !ensure(overlay_img_, o.width, o.height)) return &t;
+    EndRendering();
+    VkDeviceSize bytes = VkDeviceSize(o.width) * o.height * 4;
+    Alloc a = Upload(bytes, 16);
+    std::memcpy(a.cpu, o.pixels, bytes);
+    VkCommandBuffer cb = Cmd();
+    Barrier(t, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    Barrier(overlay_target_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkImageCopy copy{};
+    copy.srcSubresource = copy.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    copy.extent = {t.w, t.h, 1};
+    vkCmdCopyImage(cb, t.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, overlay_target_.image,
+                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+    Barrier(overlay_img_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkBufferImageCopy up{};
+    up.bufferOffset = a.offset;
+    up.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    up.imageExtent = {o.width, o.height, 1};
+    vkCmdCopyBufferToImage(cb, frames_[frame_ % kFrames].upload, overlay_img_.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                           1, &up);
+    Barrier(overlay_img_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    float sx = float(t.w) / o.display_w, sy = float(t.h) / o.display_h;
+    int x0 = std::max(0, int(o.dst[0] * sx)), y0 = std::max(0, int(o.dst[1] * sy));
+    int x1 = std::min(int(t.w), int(o.dst[2] * sx)), y1 = std::min(int(t.h), int(o.dst[3] * sy));
+    if (x1 > x0 && y1 > y0) {
+        VkImageBlit blit{};
+        blit.srcSubresource = blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        blit.srcOffsets[1] = {int(o.width), int(o.height), 1};
+        blit.dstOffsets[0] = {x0, y0, 0};
+        blit.dstOffsets[1] = {x1, y1, 1};
+        vkCmdBlitImage(cb, overlay_img_.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, overlay_target_.image,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+    }
+    return &overlay_target_;
+}
+
 void VulkanBackend::Present(const Surface& front) {
     Span span{present_ns_};
     Target* t = EnsureTarget(front, false);
@@ -1325,8 +1384,9 @@ void VulkanBackend::Present(const Surface& front) {
     std::string shot = window::TakeShotRequest();
     step_name_.clear();
     frame_draws_ = 0;
+    Image* shown = ComposeOverlay(*t);
     if (!shot.empty()) {
-        SaveShot(*t, shot);
+        SaveShot(*shown, shot);
         step_name_ = shot;
         // CSX_VK_SHOT_TARGETS=1: every colour target too, for comparing intermediate passes (glow chain) with the
         // reference renderer's guest memory
@@ -1370,14 +1430,14 @@ void VulkanBackend::Present(const Surface& front) {
             tw = H * 4 / 3;
         }
         int dx = int((W - tw) / 2), dy = int((H - th) / 2);
-        Barrier(*t, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        Barrier(*shown, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         VkImageBlit blit{};
         blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-        blit.srcOffsets[1] = {int(t->w), int(t->h), 1};
+        blit.srcOffsets[1] = {int(shown->w), int(shown->h), 1};
         blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         blit.dstOffsets[0] = {dx, dy, 0};
         blit.dstOffsets[1] = {dx + int(tw), dy + int(th), 1};
-        vkCmdBlitImage(cb, t->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swap_images_[index],
+        vkCmdBlitImage(cb, shown->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swap_images_[index],
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
         b.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
         b.dstAccessMask = 0;

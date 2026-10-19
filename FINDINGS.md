@@ -364,6 +364,24 @@ Open:
 - Bomb defusal and the player planting were not seen in these runs (bots decide); a player-driven objective test
   needs scripted movement on each map.
 
+## Video (2026-10-19)
+
+Confirmed:
+- **The boot intro plays through the video overlay**: MGS_Logo.xmv, Valve_Logo.xmv and ESRB.xmv open about 10 s apart;
+  the XMV player decodes into two YUY2 surfaces (format byte 0x24, 320x240, pitch 640) it alternates and shows with
+  UpdateOverlay (source 0,0-320,240, destination 0,0-640,480 of the 640x480 mode, no colour key, overlay enabled).
+  Nothing composited the overlay, so the intro played invisible (its sound did play).
+- SDK patch 0021: Backend::SetOverlay with the overlay decoded at each present (YUY2 with ITU-R BT.601 studio range,
+  as the console's overlay converts; 32 bit RGB copied), forwarded through the render thread with a copy of the
+  pixels; a shared CompositeOverlay (bilinear, colour key honoured) used by the reference renderer's captures and the
+  software window; the Vulkan backend blits the overlay into a copy of the presented target (the title's buffer stays
+  as drawn). Shown in captures and the window: the MGS studio logo animation, Valve's logo, the ESRB notice; the
+  movies' soundtracks play in stereo; the 4:3 source fills the 4:3 display.
+
+Open:
+- The Vulkan path does not apply a colour key (logged; CS's movies use none). AttractMovie.xmv and Credits.xmv were
+  not exercised (attract mode after idling in the menus, credits from the options).
+
 ## Assumptions / to verify
 
 - Third-party licenses (from prior knowledge, confirm before reusing any code): Half-Life SDK — Valve's restrictive

@@ -1,0 +1,13 @@
+# The boot intro (MGS, Valve and ESRB movies through the video overlay) in the Vulkan window: run with
+#   --exe build/window/CounterStrike --run build/wrun --env CSX_RENDERER=vulkan --env FPS=30
+wait log open d:\\Media\\Videos\\MGS_Logo.xmv
+sleep 5
+windowshot intro_mgs
+wait log open d:\\Media\\Videos\\Valve_Logo.xmv
+sleep 4
+windowshot intro_valve
+wait log open d:\\Media\\Videos\\ESRB.xmv
+sleep 3
+windowshot intro_esrb
+expect image intro_valve 20
+expect nolog vulkan: .* failed
