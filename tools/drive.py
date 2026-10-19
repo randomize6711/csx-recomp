@@ -109,6 +109,7 @@ def main():
             global EXE
             EXE = os.path.abspath(args[i + 1]); i += 2
             env.setdefault('CSX_TEST_INPUT_ONLY', '1')  # a window front end: only the scenario's keys reach the title
+            env.setdefault('CSX_AUDIO', 'null')  # silent unless a scenario run asks for the device (--env CSX_AUDIO=sdl)
         elif args[i] == '--run':
             global RUN
             RUN = os.path.abspath(args[i + 1]); i += 2
@@ -127,7 +128,14 @@ def main():
         # what the front end leaves for its relaunch into a match: the launch data page (launch.bin, kept by the host as
         # launch_seen.bin) and the match's command line on the cache partition (Z:\releasemap.txt); with both the
         # title boots straight into that match
-        os.makedirs(os.path.join(RUN, 'hdd', 'Z'))
+        # the cache partition as the front end leaves it (it copies the HD sound banks and more there on boot; a
+        # direct start without them has no weapon or player sounds): build/zcache, made by tools/make_zcache.sh
+        zcache = os.path.join(ROOT, 'build', 'zcache')
+        if os.path.isdir(zcache):
+            shutil.copytree(zcache, os.path.join(RUN, 'hdd', 'Z'))
+        else:
+            os.makedirs(os.path.join(RUN, 'hdd', 'Z'))
+            print('note: no build/zcache (tools/make_zcache.sh): the match starts without the cached sound banks')
         shutil.copyfile(os.path.join(launch, 'launch.bin'), os.path.join(RUN, 'hdd', 'launch.bin'))
         shutil.copyfile(os.path.join(launch, 'releasemap.txt'), os.path.join(RUN, 'hdd', 'Z', 'releasemap.txt'))
     out = open(os.path.join(RUN, 'run.out'), 'w')

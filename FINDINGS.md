@@ -286,6 +286,40 @@ Open:
 - RunPushBuffer fixups (pFixup) are not applied (CS passes none); the world's re-recording path (0x1979DA) is
   supported by clearing the recording at BeginPushBuffer, not otherwise exercised.
 
+## Audio (2026-10-19)
+
+Confirmed:
+- **The mixer was producing silence in the match** when the game's sounds came only from XACT's 3D path: XACT plays
+  every 3D sound as a pair, a MIXIN buffer (flags 0x00602000, DSBCAPS_MIXIN 0x2000) that receives the 3D voice data
+  (azimuth, distance and cone levels, Doppler) and a source buffer (flags 0x00400000) holding the wave, which XACT
+  plays and routes with SetOutputBuffer(source, mixin). The runtime ignored SetOutputBuffer, so sources played
+  through their own extra sends (I3DL2 bin 10 and LFE only) and the azimuth on the mixin was never heard: the output
+  was centred (left = right in every second). Evidence: per-voice logs of creation, 3D data and Play in one match.
+  SDK patch 0020 routes a source into its MIXIN destination: the source's volume times the destination's levels (its
+  bins 6/8/7/9/2, the 3D voice data terms, the azimuth pan) and the destination's Doppler pitch (the library adds the
+  parent's pitch for a voice that outputs into a submix, analysis/dsound_xact_5659.md). A destination released first
+  (XACT releases the mixin ~30 ms before its source) leaves the source silent.
+- **Direction is right**: for sounds away from the player, the side of the source in game coordinates (relative
+  position against GoldSrc's right vector from the player's yaw) and the sign of XACT's azimuth agree in every sample
+  (e.g. 144.8 units right, 45.5 ahead: 72.6 degrees, XACT 75.9; 86 left, 57.5 ahead: -56.2, XACT -59.9), and the
+  listener's front is the player's forward. The mixer pans positive azimuth to the right. Measured in a capture: the
+  balance follows the sounds (-0.88 left, +0.23 right).
+- **Direct starts lacked the HD sound banks**: the front end copies HDWeapons, HDCounterStrike, HDStreaming and more
+  to Z: on boot; a match started with an empty hdd has only the DVD map bank. tools/make_zcache.sh saves a filled Z:
+  as build/zcache (game data, not in git), which drive.py --launch seeds.
+- **No mix bin headroom**: the game sets headroom 0 on all 32 mix bins, so the console sums without headroom and
+  saturates; the mixer's final clamp does the same. Clipping appears only with several loud sounds at once (one
+  second of a 50 s match, 293 samples).
+- **Output**: the mixer's 48 kHz stereo float goes to SDL3 (src/linux/sdl_audio.cpp); PipeWire takes it as it is
+  (48000 Hz, 2 channels, F32), 960 frame (20 ms) device period, no late callbacks over a match, and a capture's length
+  matches the run's (no drift).
+
+Approximations / open:
+- The console positions 3D voices with its HRTF filter (DSP, per-voice coefficients from azimuth and elevation); the
+  mixer pans linearly by the sine of the azimuth instead. Elevation and the front/back distinction are not rendered.
+- Envelopes (SetEG) and filters (SetFilter, the I3DL2 filter coefficients) are not applied; the I3DL2 reverb is not
+  mixed. Voice starts and stops are not ramped (the console's envelopes would).
+
 ## Assumptions / to verify
 
 - Third-party licenses (from prior knowledge, confirm before reusing any code): Half-Life SDK — Valve's restrictive

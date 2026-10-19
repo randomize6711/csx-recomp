@@ -56,6 +56,14 @@ repeats match_direct's steps at FPS=30 in the Vulkan window, for comparing its `
 
 The regression keeps booting through the front end (it covers the menus and the relaunch).
 
+## Audio
+
+`tests/audio_check.sh` runs `vk_match_direct` with the mixer output captured (`CSX_AUDIO_WAV`, null device) and
+checks it with `tools/check_audio.py`: not silent, at least one second placed clearly to a side (3D sounds), under
+0.5% of samples at full scale, all finite. Needs `build/zcache` (`tools/make_zcache.sh`, about 2 minutes once: the
+cache partition the front end fills, with the HD sound banks; a direct start without it has no weapon sounds).
+To hear the game in a window run, pass `--env CSX_AUDIO=sdl` (drive.py defaults window runs to the null output).
+
 ## Window build scenarios (manual, open a window on the desktop)
 
 `window_to_menu.txt` and `window_to_match.txt` drive `build/window/CounterStrike` (tools/build_window.sh) with SDL key

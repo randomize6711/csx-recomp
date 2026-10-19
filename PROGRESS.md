@@ -116,3 +116,14 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
 - Window key requests take SDL names with underscores (Left_Ctrl): scenarios had sent an unknown "LCtrl", so the buy
   menu never closed and W did not walk; vk_match_direct now checks the walk in game state (716 units).
 - Regression 112/112, player control numbers unchanged; menus unchanged (40.5-47.9 dB).
+
+## 2026-10-19 — Audio output (Linux)
+
+- SDL3 output for the window build (src/linux/sdl_audio.cpp), null output kept for headless and test runs
+  (CSX_AUDIO=null by default in drive.py window runs); capture to WAV (CSX_AUDIO_WAV) for checks.
+- The in-match mixer output was centred and partly missing: XACT's 3D sounds play through MIXIN buffers the runtime
+  did not route. SDK patch 0020: SetOutputBuffer routing with the destination's levels, pan and Doppler. Direction
+  verified against game geometry (FINDINGS.md "Audio").
+- build/zcache (tools/make_zcache.sh) seeds Z: for direct starts so the HD sound banks are there.
+- tests/audio_check.sh + tools/check_audio.py: not silent, placed to a side, under 0.5% full scale, finite.
+- Regression 112/112 (the turn measured 129.2 degrees in one run, 129.3 before: frame timing).

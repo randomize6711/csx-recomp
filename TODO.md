@@ -1,9 +1,10 @@
 # TODO (priority order)
 
 ## Now
-0. Next milestone (recommended): playable match quality on Linux — audio output (SDL3, XACT already mixes into a
-   null device), movies (overlay), raw mouse aim, then a full round on several maps (de_dust, cs_italy) through the
+0. Next milestone (recommended): playable match quality on Linux — raw mouse aim, movies (overlay), then a full round on several maps (de_dust, cs_italy) through the
    Vulkan window with checks in game state; collect rendering discrepancies per map.
+0b. Audio remainder: HRTF-like positioning (elevation, front/back) instead of the linear pan, envelopes (SetEG),
+   filters and the I3DL2 reverb; listening test on headphones by a person.
 1. Vulkan remainder: point sprites, CopyRects, feedback copies, guest readback (Sync), gamma; investigate the lower
    ground tint difference against the reference (fog or glow); occasional frame dips to ~64 with ~1150 draws.
    Install vulkan-validation-layers for CSX_VK_VALIDATION=1 runs. The upload ring's overflow path re-uses offsets a
