@@ -1,0 +1,45 @@
+diff --git a/harness/reference_renderer.cpp b/harness/reference_renderer.cpp
+index 9160824..4cfcd87 100644
+--- a/harness/reference_renderer.cpp
++++ b/harness/reference_renderer.cpp
+@@ -1202,22 +1202,29 @@ void Draw(const State& s, uint32_t prim, uint32_t start, uint32_t count, const u
+         // flat shading takes the first vertex's colours
+         const Vec* provoking = tri[0].attr;
+         Vec flat_colour[4] = {provoking[kD0], provoking[kD1], provoking[kB0], provoking[kB1]};
+-        // clipped against w > near_w: a triangle leaves at most four corners
+-        Clip poly[4];
+-        int corners = 0;
+-        for (int i = 0; i < 3; i++) {
+-            const Clip &p = tri[i], &q = tri[(i + 1) % 3];
+-            bool p_in = p.h[3] > near_w, q_in = q.h[3] > near_w;
+-            if (p_in) poly[corners++] = p;
+-            if (p_in == q_in) continue;
+-            float t = (near_w - p.h[3]) / (q.h[3] - p.h[3]);
+-            Clip& m = poly[corners++];
++        // clipped against w > near_w and D3D's near plane z >= 0 (clip space: before the divide, so a triangle that
++        // reaches behind the eye does not project to huge coordinates and fail the area test): at most five corners
++        Clip poly[5], half[4];
++        int corners = 0, nh = 0;
++        auto lerp = [&](const Clip& p, const Clip& q, float t, Clip& m) {
+             for (int j = 0; j < 4; j++) m.h[j] = p.h[j] + (q.h[j] - p.h[j]) * t;
+             for (int a = 0; a < kAttrs; a++)
+                 for (int j = 0; j < 4; j++) m.attr[a][j] = p.attr[a][j] + (q.attr[a][j] - p.attr[a][j]) * t;
++        };
++        for (int i = 0; i < 3; i++) {
++            const Clip &p = tri[i], &q = tri[(i + 1) % 3];
++            bool p_in = p.h[3] > near_w, q_in = q.h[3] > near_w;
++            if (p_in) half[nh++] = p;
++            if (p_in != q_in) lerp(p, q, (near_w - p.h[3]) / (q.h[3] - p.h[3]), half[nh++]);
++        }
++        for (int i = 0; i < nh; i++) {
++            const Clip &p = half[i], &q = half[(i + 1) % nh];
++            bool p_in = p.h[2] >= 0, q_in = q.h[2] >= 0;
++            if (p_in) poly[corners++] = p;
++            if (p_in != q_in) lerp(p, q, p.h[2] / (p.h[2] - q.h[2]), poly[corners++]);
+         }
+         if (corners < 3) continue;
+-        Screen sv[4];
++        Screen sv[5];
+         for (int i = 0; i < corners; i++) {
+             float iw = 1 / poly[i].h[3];
+             sv[i].x = poly[i].h[0] * iw;

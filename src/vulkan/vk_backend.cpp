@@ -167,6 +167,8 @@ struct Image {
 
 struct Target : Image {
     uint32_t data = 0;
+    uint32_t pitch = 0;   // guest bytes per row, for writing results back (linear 32 bit surfaces)
+    bool linear32 = false;
 };
 
 struct Texture : Image {
@@ -226,10 +228,19 @@ public:
         overlay_.pixels = overlay_pixels_.data();
     }
     void Present(const Surface& front) override;
-    void Sync(uint32_t, uint32_t) override { LOG_FIRST(4, "vulkan: guest read of a render target is not synchronised yet"); }
+    // the CPU is about to read a resource: a render target's GPU result written to its guest memory first (the title
+    // reads its front buffer for PersistDisplay before a relaunch)
+    void Sync(uint32_t va, uint32_t size) override;
     void SyncLate(uint32_t) override {}
     void Flush() override { Submit(true); }
-    void SetGamma(const uint8_t*) override { LOG_FIRST(1, "vulkan: gamma ramps are not applied yet"); }
+    // the title's gamma ramp (3 x 256 bytes), applied at the present as the console's display hardware does
+    void SetGamma(const uint8_t* r) override {
+        std::memcpy(gamma_, r, sizeof(gamma_));
+        gamma_identity_ = true;
+        for (int c = 0; c < 3; c++)
+            for (int i = 0; i < 256; i++) gamma_identity_ = gamma_identity_ && r[c * 256 + i] == i;
+        gamma_dirty_ = true;
+    }
 
 private:
     bool CreateInstance();
@@ -272,7 +283,8 @@ private:
         return sh;
     }
     void SaveShot(Image& t, const std::string& name);
-    Image* ComposeOverlay(Target& t);
+    Image* ComposeOverlay(Image& t);
+    Image* ApplyGamma(Image& src);
 
     VkInstance instance_ = VK_NULL_HANDLE;
     VkSurfaceKHR surface_ = VK_NULL_HANDLE;
@@ -300,6 +312,11 @@ private:
     OverlayImage overlay_;
     std::vector<uint32_t> overlay_pixels_;
     Image overlay_img_, overlay_target_;
+    // the gamma ramp, its 256 x 1 lookup image and the presented image mapped through it
+    uint8_t gamma_[768] = {};
+    bool gamma_identity_ = true, gamma_dirty_ = false;
+    Image gamma_lut_;
+    Target gamma_target_;
     VkSampler dummy_sampler_ = VK_NULL_HANDLE;
 
     std::unordered_map<uint64_t, Target> targets_;
@@ -715,6 +732,11 @@ Target* VulkanBackend::EnsureTarget(const Surface& s, bool depth) {
             return nullptr;
         }
         t.data = s.data;
+        TextureDesc d;
+        if (!depth && DescribeSurface(s, d) && d.linear && Format(d.format).bits == 32 && Format(d.format).host == Host::BGRA8) {
+            t.linear32 = true;
+            t.pitch = d.pitch ? d.pitch : w * 4;
+        }
         LOGI("vulkan: %s target %08X %ux%u", depth ? "depth" : "colour", s.data, w, h);
         // a new target starts cleared, as fresh console memory reads; its guest contents are not loaded yet
         VkCommandBuffer cb = Cmd();
@@ -1306,6 +1328,32 @@ void VulkanBackend::Copy(const Surface& src, const Surface& dst, uint32_t, uint3
     LOG_FIRST(4, "vulkan: CopyRects is not done yet");
 }
 
+void VulkanBackend::Sync(uint32_t va, uint32_t size) {
+    Target* t = nullptr;
+    for (auto& [key, other] : targets_)
+        if (!(key >> 63) && other.data == mem::PhysicalFromVirtual(va)) t = &other;
+    if (!t) return;
+    if (!t->linear32) {
+        LOG_FIRST(4, "vulkan: a guest read of a swizzled or non 32 bit target is not written back");
+        return;
+    }
+    EndRendering();
+    VkDeviceSize bytes = VkDeviceSize(t->w) * t->h * 4;
+    Alloc a = Upload(bytes, 16);
+    Barrier(*t, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    VkBufferImageCopy c{};
+    c.bufferOffset = a.offset;
+    c.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    c.imageExtent = {t->w, t->h, 1};
+    vkCmdCopyImageToBuffer(Cmd(), t->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, frames_[frame_ % kFrames].upload, 1, &c);
+    Submit(true);
+    uint32_t rows = std::min<uint32_t>(t->h, t->pitch ? size / t->pitch : 0);
+    for (uint32_t y = 0; y < rows; y++)
+        std::memcpy(kernel::HostPtr(va + y * t->pitch), static_cast<const uint8_t*>(a.cpu) + size_t(y) * t->w * 4,
+                    t->w * 4);
+    LOG_FIRST(4, "vulkan: target %08X (%ux%u) written back for a guest read", t->data, t->w, t->h);
+}
+
 void VulkanBackend::SaveShot(Image& t, const std::string& name) {
     // the target to a host buffer, after this frame's work
     EndRendering();
@@ -1330,7 +1378,7 @@ void VulkanBackend::SaveShot(Image& t, const std::string& name) {
 // the presented target with the video overlay over it, in an image of its own (the title's buffer stays as drawn): the
 // overlay's pixels uploaded and blitted, filtered, into its destination rectangle scaled from the video mode to the
 // target; the target itself when no overlay shows
-Image* VulkanBackend::ComposeOverlay(Target& t) {
+Image* VulkanBackend::ComposeOverlay(Image& t) {
     const OverlayImage& o = overlay_;
     if (!o.enabled || !o.pixels || !o.width || !o.height || !o.display_w || !o.display_h) return &t;
     if (o.use_color_key) LOG_FIRST(1, "vulkan: the overlay's colour key is not applied");
@@ -1376,6 +1424,83 @@ Image* VulkanBackend::ComposeOverlay(Target& t) {
     return &overlay_target_;
 }
 
+// the presented image through the title's gamma ramp (a full screen pass reading the image and a 256 x 1 lookup of
+// the three ramps), into an image of its own; the image itself while the ramp is the identity
+Image* VulkanBackend::ApplyGamma(Image& src) {
+    if (gamma_identity_) return &src;
+    if (!gamma_lut_.image && !MakeImage(gamma_lut_, 256, 1, kColorFormat, 1,
+                                        VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, false))
+        return &src;
+    if (gamma_target_.image && (gamma_target_.w != src.w || gamma_target_.h != src.h)) FreeImage(gamma_target_);
+    if (!gamma_target_.image &&
+        !MakeImage(gamma_target_, src.w, src.h, kColorFormat, 1,
+                   VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                   false))
+        return &src;
+    static const char* kVs = R"(
+float4 main(uint id : SV_VertexID) : SV_Position {
+    float2 p = float2((id << 1) & 2, id & 2);
+    return float4(p * 2 - 1, 0, 1);
+})";
+    static const char* kPs = R"(
+Texture2D<float4> image : register(t0);
+Texture2D<float4> ramp : register(t1);
+float4 main(float4 pos : SV_Position) : SV_Target {
+    float3 c = image.Load(int3(pos.xy, 0)).rgb;
+    int3 i = int3(c * 255 + 0.5);
+    return float4(ramp.Load(int3(i.r, 0, 0)).r, ramp.Load(int3(i.g, 0, 0)).g, ramp.Load(int3(i.b, 0, 0)).b, 1);
+})";
+    const auto& vs = vk_shader::Compile(kVs, vk_shader::Stage::Vertex);
+    const auto& ps = vk_shader::Compile(kPs, vk_shader::Stage::Pixel);
+    if (vs.empty() || ps.empty()) return &src;
+    PipelineKey k{};
+    k.vs = Hash(vs.data(), vs.size() * 4);
+    k.ps = Hash(ps.data(), ps.size() * 4);
+    k.topo = uint32_t(Topology::Triangles);
+    k.has_rt = 1;
+    k.wmask = 0xF;
+    k.fill = 0x1B02;
+    VkPipeline pipe = EnsurePipeline(k, vs, ps);
+    if (!pipe) return &src;
+    EndRendering();
+    VkCommandBuffer cb = Cmd();
+    if (gamma_dirty_) {
+        Alloc a = Upload(256 * 4, 16);
+        uint8_t* p = static_cast<uint8_t*>(a.cpu);
+        for (int i = 0; i < 256; i++) p[i * 4] = gamma_[512 + i], p[i * 4 + 1] = gamma_[256 + i], p[i * 4 + 2] = gamma_[i], p[i * 4 + 3] = 255;
+        Barrier(gamma_lut_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        VkBufferImageCopy up{};
+        up.bufferOffset = a.offset;
+        up.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        up.imageExtent = {256, 1, 1};
+        vkCmdCopyBufferToImage(cb, frames_[frame_ % kFrames].upload, gamma_lut_.image,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &up);
+        gamma_dirty_ = false;
+    }
+    Barrier(gamma_lut_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    Barrier(src, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    BeginRendering(&gamma_target_, nullptr);
+    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+    VkDescriptorImageInfo ii[2] = {{VK_NULL_HANDLE, src.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+                                   {VK_NULL_HANDLE, gamma_lut_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}};
+    VkWriteDescriptorSet w[2];
+    for (int i = 0; i < 2; i++) {
+        w[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        w[i].dstBinding = 2 + i;
+        w[i].descriptorCount = 1;
+        w[i].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        w[i].pImageInfo = &ii[i];
+    }
+    push_descriptors_(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, 2, w);
+    VkViewport v{0, 0, float(src.w), float(src.h), 0, 1};
+    vkCmdSetViewport(cb, 0, 1, &v);
+    VkRect2D sc{{0, 0}, {src.w, src.h}};
+    vkCmdSetScissor(cb, 0, 1, &sc);
+    vkCmdDraw(cb, 3, 1, 0, 0);
+    EndRendering();
+    return &gamma_target_;
+}
+
 void VulkanBackend::Present(const Surface& front) {
     Span span{present_ns_};
     Target* t = EnsureTarget(front, false);
@@ -1384,7 +1509,8 @@ void VulkanBackend::Present(const Surface& front) {
     std::string shot = window::TakeShotRequest();
     step_name_.clear();
     frame_draws_ = 0;
-    Image* shown = ComposeOverlay(*t);
+    // the frame buffer through the gamma ramp, then the overlay (the console mixes its video plane after the ramp)
+    Image* shown = ComposeOverlay(*ApplyGamma(*t));
     if (!shot.empty()) {
         SaveShot(*shown, shot);
         step_name_ = shot;

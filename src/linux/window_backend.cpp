@@ -47,7 +47,10 @@ public:
             std::vector<uint8_t> px;
             uint32_t pitch = 0;
             DecodeLevel(d, 0, 0, static_cast<const uint8_t*>(kernel::HostPtr(d.data)), nullptr, px, pitch);
-            // the video overlay over the shown copy (movies)
+            // the gamma ramp, then the video overlay, over the shown copy (as the console's display does)
+            if (gamma_on_)
+                for (size_t i = 0; i + 3 < px.size(); i += 4)
+                    px[i] = gamma_[512 + px[i]], px[i + 1] = gamma_[256 + px[i + 1]], px[i + 2] = gamma_[px[i + 2]];
             if (overlay_.enabled && px.size() >= size_t(d.width) * d.height * 4)
                 CompositeOverlay(overlay_, reinterpret_cast<uint32_t*>(px.data()), d.width, d.height, d.width);
             auto& f = window::Latest();
@@ -72,7 +75,13 @@ public:
     void SyncLate(uint32_t) override {}
     void Flush() override {}
     std::chrono::steady_clock::time_point last_ = std::chrono::steady_clock::now();
-    void SetGamma(const uint8_t*) override { LOG_FIRST(1, "renderer: gamma ramps are not applied in the window"); }
+    void SetGamma(const uint8_t* r) override {
+        std::memcpy(gamma_, r, sizeof(gamma_));
+        gamma_on_ = false;
+        for (int i = 0; i < 768; i++) gamma_on_ = gamma_on_ || r[i] != uint8_t(i & 255);
+    }
+    uint8_t gamma_[768] = {};
+    bool gamma_on_ = false;
     void SetOverlay(const OverlayImage& o) override {
         overlay_ = o;
         overlay_pixels_.assign(o.pixels ? o.pixels : nullptr, o.pixels ? o.pixels + size_t(o.width) * o.height : nullptr);

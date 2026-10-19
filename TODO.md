@@ -1,14 +1,15 @@
 # TODO (priority order)
 
 ## Now
-0. Next milestone (recommended): playable match quality on Linux — then a full round on several maps (de_dust, cs_italy) through the
-   Vulkan window with checks in game state; collect rendering discrepancies per map.
+0. Next milestone (recommended): Windows build of the full game (the same SDL3 window, audio and Vulkan backend; the
+   D3D12 side of patches 0010/0012 untested), then image comparisons on de_dust and cs_italy.
 0b. Audio remainder: HRTF-like positioning (elevation, front/back) instead of the linear pan, envelopes (SetEG),
    filters and the I3DL2 reverb; listening test on headphones by a person.
-1. Vulkan remainder: point sprites, CopyRects, feedback copies, guest readback (Sync), gamma; investigate the lower
-   ground tint difference against the reference (fog or glow); occasional frame dips to ~64 with ~1150 draws.
-   Install vulkan-validation-layers for CSX_VK_VALIDATION=1 runs. The upload ring's overflow path re-uses offsets a
-   draw already took (never reached: peak 9 MB of 64 MB).
+1. Vulkan remainder: point sprites and CopyRects (unused by CS so far, logged on first use), feedback copies;
+   occasional frame dips with ~1150 draws. Install vulkan-validation-layers for CSX_VK_VALIDATION=1 runs. The upload
+   ring's overflow path re-uses offsets a draw already took (never reached: peak 9 MB of 64 MB).
+1b. Identify what starts the title's gamma fade after a long frame (FINDINGS.md "Rendering accuracy").
+1c. Player-driven objectives (defuse, plant) with scripted movement per map.
 2. Compare in-game rendering with xemu (dark sky/wall area on de_airstrip, lightmaps, fog, rain, colours).
 4. Prove the 8 register-convention D3D functions and the 12 unproven ones (analysis/missing_symbols_5659.md).
 5. Relative paths without a drive ("valve/gfx/vgui/mouse.tga", "launcher/voice_ban.dt"): console semantics.
@@ -17,9 +18,7 @@
 8. Re-test patches 0009-0012 against the upstream titles' expectations before offering them upstream.
 
 ## Next
-- Linux presentation: SDL3 window + Vulkan gpu::Backend (or a stopgap that blits the reference renderer output).
-- Windows build of the full game exe (mingw-w64 cross or clang-cl) with the upstream D3D12 backend; the D3D12 side of
-  patches 0010/0012 is compiled only there and untested.
+- Windows toolchain choice (mingw-w64 cross or clang-cl); the upstream D3D12 backend stays a reference/fallback.
 - `xbe_symbols --sign` to produce xdk/5659/signatures.toml once the config is complete.
 
 ## Later

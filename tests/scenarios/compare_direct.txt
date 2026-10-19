@@ -1,0 +1,16 @@
+# Headless twin of vk_compare_direct.txt: the same steps and pacing (FPS=30) up to in_match and in_match_late,
+# compared with the Vulkan window's shots of the same moments (tools/compare_images.py).
+wait log open D:\\de_airstrip.sxwad
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 12
+snap in_match
+sleep 45
+snap in_match_late

@@ -62,6 +62,13 @@ The regression keeps booting through the front end (it covers the menus and the 
 renderer's captures; `vk_intro.txt` takes the same frames from the Vulkan window. `expect image` also checks window
 shots (`shots/NAME.bmp`).
 
+## Rendering comparison
+
+`compare_direct.txt` (headless) and `vk_compare_direct.txt` (Vulkan window, `--env CSX_RENDERER=vulkan`) take the
+same moments of a direct de_airstrip start at FPS=30, `in_match` and `in_match_late` (45 s later); compare with
+`python3 -I tools/compare_images.py build/run/snaps/in_match_late_2.tga build/wrun/shots/in_match_late.bmp OUT.png`.
+Both include the title's gamma ramp. Expect about 25 dB PSNR: smoke, rain and bots move between runs.
+
 ## Rounds
 
 `rounds_direct.txt` plays complete rounds from the direct start of any map fixture (`de_airstrip_beginner`,
@@ -72,7 +79,8 @@ src/game/game_log.cpp). About 6 to 13 minutes a map headless:
     python3 -I tools/drive.py tests/scenarios/rounds_direct.txt --timeout 900 --env FPS=30 \
         --launch tests/launch/de_dust_beginner [--run build/run_dust]
 
-`vk_soak_direct.txt` leaves the Vulkan window running for eight rounds (real time) as a stability check.
+`vk_soak_direct.txt` leaves the Vulkan window running for eight rounds (real time) as a stability check (39.5
+minutes, nine rounds on de_airstrip on 2026-10-19).
 Map fixtures other than de_airstrip differ only in `releasemap.txt`'s `+map`.
 
 ## Mouse look

@@ -12,4 +12,7 @@ sleep 4
 key Left_Ctrl
 sleep 12
 windowshot in_match
+# after the round start's gamma fade (src/vulkan ApplyGamma; FINDINGS.md "Rendering accuracy")
+sleep 45
+windowshot in_match_late
 expect nolog vulkan: .* failed

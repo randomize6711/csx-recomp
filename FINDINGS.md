@@ -281,8 +281,6 @@ Confirmed:
   the frame time; raising it is a PC enhancement.
 
 Open:
-- The reference renderer leaves a few near ground triangles black at the de_airstrip spawn (bottom left) where the
-  Vulkan backend draws them; a reference renderer problem (near plane handling), not seen on the GPU.
 - RunPushBuffer fixups (pFixup) are not applied (CS passes none); the world's re-recording path (0x1979DA) is
   supported by clearing the recording at BeginPushBuffer, not otherwise exercised.
 
@@ -360,6 +358,10 @@ Confirmed:
   runs out to Target_Saved; scores advance; no fatal error screen or guest trap over 6 to 13 minutes per map.
 - The rescue lines on cs_italy come right after the CT win in the log (the game's order).
 
+- **Stability**: tests/scenarios/vk_soak_direct.txt ran the Vulkan window on de_airstrip for 39.5 minutes of real
+  time at the game's 72 fps cap, nine complete rounds with the player moving and turning by mouse: no fatal error
+  screen, guest trap or Vulkan failure, no dropped draw, upload peak under 9 MB of 64 MB.
+
 Open:
 - Bomb defusal and the player planting were not seen in these runs (bots decide); a player-driven objective test
   needs scripted movement on each map.
@@ -381,6 +383,43 @@ Confirmed:
 Open:
 - The Vulkan path does not apply a colour key (logged; CS's movies use none). AttractMovie.xmv and Credits.xmv were
   not exercised (attract mode after idling in the menus, credits from the options).
+
+## Rendering accuracy (2026-10-19)
+
+Compared: the Vulkan window against the reference renderer at the same moments of a direct de_airstrip start
+(tests/scenarios/vk_compare_direct.txt and its headless twin compare_direct.txt, FPS=30, tools/compare_images.py).
+
+Confirmed:
+- **Gamma is set and was not applied.** The title's inlined SetGammaRamp writes the ramp into slot swapcount&1 of the
+  device (0x314B40, ramps at +0x1E04, second slot +0x300) and flags it pending (+0x2404, index +0x240C); the runtime
+  picks it up at the next swap (its parity rule matches). CS sets an identity ramp at boot, then at team join a
+  brighter one (64 -> 107, 128 -> 213, about x1.67 in the midtones, from the brightness/gamma cvars 0x37A198 = 0.0 and
+  0x37A184 = "2.5") that stays for the match. Now applied: the Vulkan backend runs a full screen LUT pass on the
+  presented target (the title's buffer stays as drawn), the software window and the reference captures look up the
+  same ramp (SDK patch 0022).
+- **Fog and the lower ground tint**: the difference reported earlier (Vulkan's ground fog lighter) was the gamma ramp
+  plus a capture artifact, not the fog or glow. The reference renderer's snap frames take about a second each, and
+  the title answers that long frame by starting a gamma fade (213 -> 165 at the next frame, then down by one a frame);
+  the second snap frame was saved with the faded ramp. Snaps now use the ramp in effect when they were asked for.
+  After both fixes the late in-match frame (45 s in) matches to 25.1 dB PSNR, region means within 1-5 levels (sky
+  127.5 / 127.6, hills 66.8 / 65.2, fog band 86.8 / 81.8, ground 90.6 / 89.9); what differs is the animated smoke
+  puffs, rain and bots, which move between runs. The faint horizontal bands in the ground fog appear in both.
+- **Incorrect ground triangles** (reference renderer, black near triangles at the spawn): a triangle clipped at
+  w = 1e-30 projected to huge coordinates and its edge functions overflowed. SDK patch 0023 also clips at z >= 0 in
+  clip space; the triangles now render as on the GPU.
+- **CPU readback**: the front end reads its 640x960 front buffer before the relaunch (PersistDisplay, 2457600
+  bytes). The Vulkan backend's Sync now copies a render target back into guest memory (logged "target 03934000
+  (640x960) written back").
+- **Point sprites and CopyRects are not used by CS** in the paths run: the Vulkan dropped-draw counters (points) and
+  the first-use logs of point sprites and CopyRects stayed at zero over the in-match runs and the 39.5 minute soak.
+  Rain is drawn as quads.
+- **Transparency and depth**: the fog sprites, glow add, HUD and weapon blend and occlude alike in both renderers at
+  the compared moments (no region differs beyond the moving particles).
+
+Open:
+- What starts the gamma fade on a long frame is not identified (it does not happen at a steady frame rate; a real
+  hitch on a PC would show it). de_dust and cs_italy were not compared image by image; point sprites and CopyRects
+  remain unimplemented in Vulkan (logged on first use).
 
 ## Assumptions / to verify
 

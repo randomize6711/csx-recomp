@@ -150,3 +150,15 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
 
 - SDK patch 0021: the XMV movies' overlay composited (reference captures, software window, Vulkan); the boot intro
   is visible with its sound. Tests: intro_overlay.txt (headless), vk_intro.txt (window). Regression 257/257.
+
+## 2026-10-19 — Rendering accuracy
+
+- Gamma: the title's ramp (x1.67 at team join) applied in the Vulkan backend (LUT pass at present), the software
+  window and the reference captures (SDK patch 0022); snaps keep the ramp in effect when asked for, as the slow
+  reference frames start the title's gamma fade.
+- Vulkan Sync: render targets read back into guest memory (the front end's PersistDisplay).
+- Reference renderer near-plane clipping fixed (SDK patch 0023): no black ground triangles at the spawn.
+- Vulkan against reference, late in-match frame: 20.4 -> 25.1 dB PSNR, region means within 1-5 levels; the fog
+  difference was gamma and the capture artifact. Point sprites and CopyRects never reached by CS.
+- Soak: Vulkan window, de_airstrip, 39.5 minutes, nine rounds, no errors (FINDINGS.md "Rounds").
+- Tests: compare_direct.txt (headless twin of vk_compare_direct.txt, adds in_match_late).
