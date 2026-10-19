@@ -1,6 +1,6 @@
 # PC Options inside the game's own Options menu (FINDINGS.md "Original menus", src/game/pc_menu.cpp): seeded with
-# mouse_sensitivity 4, the screen shows it (two steps right make it 6), A saves through the screen's own command,
-# and the original entries stay reachable (Control Options opens).
+# mouse_sensitivity 4, the screen shows it (two steps right make it 6), Invert Mouse is switched on, A saves every
+# row through the screen's own command, and the original entries stay reachable (Control Options opens).
 #   --pc mouse_sensitivity=4
 wait draws==1
 expect log multisample type 2012, back buffer 640x960
@@ -44,9 +44,15 @@ press RIGHT
 sleep 1
 press RIGHT
 sleep 1
+press DOWN
+sleep 1
+press RIGHT
+sleep 1
 press A
 sleep 3
 expect log pc: mouse_sensitivity = 6
+expect log pc: mouse_invert = 1
+expect log pc: master_volume = 100
 expect log pc: settings saved
 press UP
 sleep 1

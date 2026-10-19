@@ -41,6 +41,22 @@ const std::vector<Setting>& Settings() {
          {{"0.5", "0.5"}, {"1", "1"}, {"1.5", "1.5"}, {"2", "2"}, {"2.5", "2.5"}, {"3", "3"}, {"3.5", "3.5"},
           {"4", "4"}, {"5", "5"}, {"6", "6"}, {"7", "7"}, {"8", "8"}, {"10", "10"}},
          5},
+        {"mouse_invert",
+         "Invert Mouse",
+         {"Turn on this option to reverse the vertical look", "of the mouse."},
+         {{"Off", "0"}, {"On", "1"}},
+         0},
+        {"display_mode",
+         "Display Mode",
+         {"Play in a window or on the full screen.", "F11 also switches between them."},
+         {{"Windowed", "windowed"}, {"Fullscreen", "fullscreen"}},
+         0},
+        {"master_volume",
+         "Master Volume",
+         {"Set the volume of everything the game plays.", "Sound Options set its parts."},
+         {{"0", "0"}, {"10", "10"}, {"20", "20"}, {"30", "30"}, {"40", "40"}, {"50", "50"}, {"60", "60"},
+          {"70", "70"}, {"80", "80"}, {"90", "90"}, {"100", "100"}},
+         10},
     };
     return s;
 }

@@ -27,4 +27,5 @@
   2026-10-19; on Windows itself: pending
 - M7d — Linux play-test fixes: 3D sound distance attenuation, character shadows and HUD colours ✅ 2026-10-19; lamp
   glows fixed by the same change (seen in the de_airstrip tunnel); decals (polygon offset) ✅ 2026-10-19
+- M7e — PC Options inside the original menus (mouse sensitivity, invert, display mode, master volume) ✅ 2026-10-19
 - M8 — PC feature set complete

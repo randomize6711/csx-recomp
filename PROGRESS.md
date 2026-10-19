@@ -220,3 +220,11 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   src/common/pc_settings.cpp keeps pc_settings.ini. First setting: Mouse Sensitivity, used by the native mouse look.
 - Tests: regress_pc_options.txt; drive.py --pc.
 
+## 2026-10-19 — PC Options: invert, display mode, master volume
+
+- Invert Mouse, Display Mode (windowed / fullscreen, applied after the first frame for Wayland tiling compositors;
+  F11 saves it) and Master Volume join Mouse Sensitivity in Options > PC Options; Window Size was not verifiable on a
+  tiling compositor and is not offered.
+- The Vulkan swapchain now follows the window's size on Wayland (fullscreen, resizes).
+- Regression 384/384 (regress_pc_options also switches Invert Mouse on and checks every row's save).
+

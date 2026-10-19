@@ -1649,6 +1649,13 @@ void VulkanBackend::Present(const Surface& front) {
         VkResult pr = vkQueuePresentKHR(queue_, &pi);
         remake = pr == VK_ERROR_OUT_OF_DATE_KHR || pr == VK_SUBOPTIMAL_KHR || ar == VK_SUBOPTIMAL_KHR;
     }
+    if (!remake) {
+        // a Wayland surface takes the swapchain's size and reports neither out of date nor suboptimal when the window
+        // changes size (fullscreen, a resize): the window's pixel size is compared instead
+        int w = 0, h = 0;
+        SDL_GetWindowSizeInPixels(static_cast<SDL_Window*>(window::SdlWindow()), &w, &h);
+        remake = w > 0 && h > 0 && (uint32_t(w) != swap_extent_.width || uint32_t(h) != swap_extent_.height);
+    }
     if (remake) CreateSwapchain();
     frame_++;
     presents_++;

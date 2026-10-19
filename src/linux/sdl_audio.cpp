@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "audio/audio.h"
+#include "common/pc_settings.h"
 #include "core/log.h"
 
 namespace audio {
@@ -68,6 +69,18 @@ void Capture(const float* samples, uint32_t frames) {
     }
 }
 
+// Options > PC Options: Master Volume (0-100, default 100) on what goes to the device, after the game's own mix
+void Volume(float* samples, uint32_t frames) {
+    static unsigned seen = ~0u;
+    static float gain = 1.0f;
+    if (pc::Version() != seen) {
+        seen = pc::Version();
+        gain = std::clamp(pc::GetFloat("master_volume", 100.0f), 0.0f, 100.0f) / 100.0f;
+    }
+    if (gain != 1.0f)
+        for (uint32_t i = 0; i < frames * 2; i++) samples[i] *= gain;
+}
+
 // SDL's audio thread: render what the device asks for
 void SDLCALL Feed(void*, SDL_AudioStream* stream, int additional, int) {
     static std::vector<float> buf;
@@ -80,6 +93,7 @@ void SDLCALL Feed(void*, SDL_AudioStream* stream, int additional, int) {
         uint32_t n = std::min<uint32_t>(frames, kRate / 100);
         buf.assign(size_t(n) * 2, 0.0f);
         g_render(buf.data(), n);
+        Volume(buf.data(), n);
         Capture(buf.data(), n);
         SDL_PutAudioStreamData(stream, buf.data(), int(n * 8));
         frames -= n;
@@ -93,6 +107,7 @@ void NullPump() {
         for (;;) {
             std::fill(b.begin(), b.end(), 0.0f);
             g_render(b.data(), kRate / 100);
+            Volume(b.data(), kRate / 100);
             Capture(b.data(), kRate / 100);
             next += std::chrono::milliseconds(10);
             std::this_thread::sleep_until(next);

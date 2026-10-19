@@ -647,9 +647,26 @@ The integration (src/game/pc_menu.cpp, src/common/pc_settings.cpp; no game file 
   renderer and the Vulkan window; changes saved on A, not on B; the saved value shown on the next launch; 100 mouse
   counts turn 13.2 degrees at sensitivity 6 (6.6 at 3); regress_pc_options.txt.
 
+- **Further settings, each checked where it acts**:
+  - Invert Mouse (Off / On): the mouse look's pitch; -50 counts give +3.3 degrees instead of -3.3 (CSX_MOUSE_INVERT
+    still wins when set).
+  - Display Mode (Windowed / Fullscreen, SDL's borderless desktop fullscreen; F11 switches and saves it): on Hyprland
+    the window goes fullscreen at 2400x1350. Asked at window creation or before the first frame it is ignored (the
+    tiling compositor keeps the window tiled), so it is applied once the first frame is up.
+  - Master Volume (0-100, default 100): scales the mixer's output to the device (after the game's own Sound Options);
+    a capture of the intro movies at 50 has 0.501 of the level at 100.
+- **Dropped: Window Size.** SDL was asked for 960x720 and the window stayed at the compositor's tile (1181x1300) on
+  this desktop (Hyprland, tiling); not verifiable here, so not offered.
+- **Vulkan swapchain follows the window**: a Wayland surface takes the swapchain's size and reports neither out of
+  date nor suboptimal on a resize, so the swapchain kept its first size (fullscreen showed the old 1190x652 image,
+  tiling resizes were ignored). Present now compares the window's pixel size and recreates it (2400x1350 in
+  fullscreen, 1181x643 after a tile change).
+
 Open:
 - InGameUI.txt (the pause menu's options) does not have the screen yet; the mouse in menus (the original UI has no
-  pointer: arrows, Space / Left Ctrl or a pad navigate).
+  pointer: arrows, Space / Left Ctrl or a pad navigate); key bindings, field of view, frame rate limit and audio
+  device are not offered yet (the frame pacing is read once by the SDK harness; FOV changes the game's look and
+  needs care with the view model).
 
 ## Assumptions / to verify
 

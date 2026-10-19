@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "app/app.h"
+#include "common/pc_settings.h"
 #include "core/log.h"
 #include "harness.h"
 #include "image_symbols.h"
@@ -70,6 +71,21 @@ void FinishHandover() {
 void OpenHandover() {}
 void FinishHandover() {}
 #endif
+
+// Options > PC Options: Display Mode, windowed or fullscreen (SDL's borderless desktop fullscreen). Applied once the
+// window shows its first frame: asked earlier (at creation or before the window is mapped) a tiling Wayland
+// compositor (Hyprland) leaves the window tiled.
+bool WantFullscreen() { return pc::Get("display_mode", "windowed") == "fullscreen"; }
+void ApplyDisplaySettings(SDL_Window* win) {
+    bool full = WantFullscreen();
+    if (full == ((SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN) != 0)) return;
+    SDL_SetWindowFullscreen(win, full);
+    SDL_SyncWindow(win);  // the window manager's answer, for the log
+    int w = 0, h = 0;
+    SDL_GetWindowSize(win, &w, &h);
+    LOGI("window: %s asked, now %s %dx%d", full ? "fullscreen" : "windowed",
+         (SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN) ? "fullscreen" : "windowed", w, h);
+}
 
 }  // namespace
 
@@ -156,6 +172,8 @@ int main(int argc, char** argv) {
         return 1;
     }
     if (ren) SDL_SetRenderVSync(ren, 1);
+    unsigned settings_seen = pc::Version();
+    bool display_applied = false;
     LOGI("window: SDL %d.%d.%d, %s", SDL_MAJOR_VERSION, SDL_MINOR_VERSION, SDL_MICRO_VERSION,
          g_vulkan ? "Vulkan renderer" : SDL_GetRendererName(ren));
 
@@ -247,7 +265,10 @@ int main(int argc, char** argv) {
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat) {
                 bool alt_enter = e.key.key == SDLK_RETURN && (e.key.mod & SDL_KMOD_ALT);
                 if (e.key.key == SDLK_F11 || alt_enter) {
-                    SDL_SetWindowFullscreen(win, !(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN));
+                    // kept as the PC Options Display Mode
+                    bool full = !(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN);
+                    pc::Set("display_mode", full ? "fullscreen" : "windowed");
+                    pc::Save();
                     continue;
                 }
                 if (e.key.key == SDLK_F1) SDL_SetWindowRelativeMouseMode(win, !SDL_GetWindowRelativeMouseMode(win));
@@ -265,6 +286,12 @@ int main(int argc, char** argv) {
         }
         window::EndFrameInput();
         FinishHandover();
+        // the display mode once the first frame is up, then whenever PC Options change (the game thread saves them)
+        if ((!display_applied && harness::g_frames > 0) || (display_applied && pc::Version() != settings_seen)) {
+            display_applied = true;
+            settings_seen = pc::Version();
+            ApplyDisplaySettings(win);
+        }
         if (g_vulkan) {
             // the backend presents; shot requests go to it, the loop only handles events
             const std::string shot_file = (app::ExeDir() / "shot").string();

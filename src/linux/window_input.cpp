@@ -38,6 +38,7 @@ struct MouseConfig {
     bool stick = false;
     bool sens_env = false;  // CSX_MOUSE_SENS given: it wins over the PC Options setting
     float env_sens = 3.0f;
+    bool invert_env = false;  // CSX_MOUSE_INVERT given: it wins over the PC Options setting
     bool invert = false;
     MouseConfig() {
         if (const char* m = std::getenv("CSX_MOUSE")) stick = std::strcmp(m, "stick") == 0;
@@ -45,10 +46,13 @@ struct MouseConfig {
             sens_env = true;
             env_sens = std::max(0.0f, float(std::atof(v)));
         }
-        if (const char* v = std::getenv("CSX_MOUSE_INVERT")) invert = *v == '1';
+        if (const char* v = std::getenv("CSX_MOUSE_INVERT")) {
+            invert_env = true;
+            invert = *v == '1';
+        }
         LOGI("input: mouse %s, sensitivity %.2f (%.4f degrees per count)%s%s", stick ? "on the right stick" : "look",
              Sens(), Sens() * kDegreesPerCount, sens_env ? " from CSX_MOUSE_SENS" : "",
-             invert ? ", pitch inverted" : "");
+             Invert() ? ", pitch inverted" : "");
     }
     // GoldSrc's sensitivity: the environment's, else Options > PC Options (pc_settings.ini), else the game's 3
     float Sens() const {
@@ -61,6 +65,7 @@ struct MouseConfig {
         }
         return sens;
     }
+    bool Invert() const { return invert_env ? invert : pc::Get("mouse_invert", "0") == "1"; }
 };
 const MouseConfig& Mouse() {
     static const MouseConfig c;
@@ -91,7 +96,7 @@ void HandleEvent(const void* p) {
                        SDL_GetWindowRelativeMouseMode(static_cast<SDL_Window*>(window::SdlWindow()))) {
                 // captured: straight to the view angles, scaled only (no acceleration)
                 float k = Mouse().Sens() * kDegreesPerCount;
-                csx::AddLook(e.motion.xrel * k, (Mouse().invert ? 1.0f : -1.0f) * e.motion.yrel * k);
+                csx::AddLook(e.motion.xrel * k, (Mouse().Invert() ? 1.0f : -1.0f) * e.motion.yrel * k);
             }
             break;
         case SDL_EVENT_GAMEPAD_ADDED:

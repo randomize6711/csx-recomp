@@ -4,6 +4,8 @@
 0. Windows: run build/windows/dist on a real Windows 10/11 PC (startup, Vulkan driver, WASAPI, mouse capture,
    relaunch handover, a full round); then a GUI-subsystem exe (no console) if wanted. Then image comparisons on de_dust
    and cs_italy.
+0. PC Options next: the in-game (pause) menu's copy (InGameUI.txt), key bindings, frame rate limit (SDK harness
+   pacing read at run time), field of view, audio output device; Window Size where the compositor honours it.
 0a. Linux play-test follow-up: compare the gamma ramp (x1.67) and glow pass with a console capture; current vertex
    data for vertex-buffer draws; point / line polygon offsets.
 0b. Audio remainder: HRTF-like positioning (elevation, front/back) instead of the linear pan, envelopes (SetEG),
