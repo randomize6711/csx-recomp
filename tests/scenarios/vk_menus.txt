@@ -1,0 +1,25 @@
+# Window build: keys through SDL events across the front end, saving the presented frame of each screen.
+# python3 -I tools/drive.py tests/scenarios/vk_menus.txt --exe build/window/CounterStrike --run build/wrun [--env CSX_RENDERER=vulkan]
+wait log renderer:
+wait log open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+windowshot title
+key Return
+sleep 5
+windowshot notice
+key Space
+sleep 6
+windowshot keyboard
+key Space
+sleep 8
+windowshot main_menu
+key Down
+sleep 2
+key Space
+sleep 6
+windowshot single_player
+key Space
+sleep 6
+windowshot map_selection
+expect nolog fatal error screen
+expect nolog vulkan: .* failed

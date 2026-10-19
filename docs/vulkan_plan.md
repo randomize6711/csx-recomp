@@ -100,3 +100,12 @@ stays a set of small patches. It includes only runtime headers (state, vertex, t
 - Test isolation: the window, when it took focus on the desktop, received host keystrokes that navigated the menus and
   made the title relaunch. CSX_TEST_INPUT_ONLY=1 (set by tools/drive.py for window runs) drops host keyboard, mouse and
   gamepad events; scenario keys carry a marker keyboard id.
+
+### Milestone 2: menus (done 2026-10-19)
+
+- tests/scenarios/vk_menus.txt drives the Vulkan build with SDL key events through title, notice, profile keyboard,
+  main menu, Single Player and Map Selection, saving each presented frame; navigation is exact now that host input
+  is ignored in test runs.
+- Against the reference renderer's captures of the same screens (regress_boot_to_spawn snapshots), PSNR / pixels over
+  8 levels: title 40.5 dB / 0.90%, keyboard 47.2 / 0.42%, main menu 45.0 / 0.11%, Single Player 46.6 / 0.11%,
+  Map Selection 47.9 / 0.11%. No unimplemented Vulkan path was reached in the front end.
