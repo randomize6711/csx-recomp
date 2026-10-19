@@ -37,3 +37,11 @@ Done:
 
 Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (parallel analysis running), then the
 ~100 host-replaced functions the 5849 signatures missed.
+
+## 2026-10-19 — Past Direct3D device creation and the UIX front end
+
+- Merged proven 5659 D3D data/layout, 15 LTCG [abi] maps, 26 more D3D symbols (spot-checked independently).
+- Runtime additions: D3DDevice_Reset (SDK patch 0002); offline XOnlineGetUsers (src/game/xonline.cpp).
+- Diagnostics: [[hook]] on the fatal error screen and its 29 entry sites (src/game/diag_hooks.cpp).
+- The title now creates the device, applies its default states, resets the device, initialises UIX and loads the UIX
+  sound banks. Current blocker: XACT calls DirectSound buffer methods the runtime does not implement.

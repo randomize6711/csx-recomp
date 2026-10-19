@@ -63,7 +63,7 @@ crt_sqrt                                             = 0
 crt_tan                                              = 0
 D3D_BlockOnResource                                  = 0
 D3D_BlockOnTime                                      = 0x30A000
-D3D_InitDefaultState                                 = 0
+D3D_InitDefaultState                                 = 0x30B3F0  # default transforms/states, reads AutoDepth dev+0x1A20 at 0x30B49F
 D3D_InternalAddRef                                   = 0
 D3D_InternalRelease                                  = 0x307F30
 D3D_KickOffAndWaitForIdle                            = 0
@@ -83,10 +83,10 @@ D3DDevice_DrawIndexedVertices                        = 0x308480
 D3DDevice_DrawVertices                               = 0x3083B0
 D3DDevice_DrawVerticesUP                             = 0x308200
 D3DDevice_EnableOverlay                              = 0x30A8D0
-D3DDevice_End                                        = 0
+D3DDevice_End                                        = 0x308820  # method 0x417FC value 0 at 0x30883D, flags & 0xFFFFE7FF
 D3DDevice_EndPush                                    = 0
 D3DDevice_FlushVertexCache                           = 0
-D3DDevice_GetBackBuffer2                             = 0
+D3DDevice_GetBackBuffer2                             = 0x305D40  # analysis/d3d_layout_5659.md; ret checked against the runtime declaration
 D3DDevice_GetDepthStencilSurface2                    = 0
 D3DDevice_GetRenderTarget2                           = 0
 D3DDevice_GetVertexShaderFunction                    = 0
@@ -94,7 +94,7 @@ D3DDevice_InsertFence                                = 0
 D3DDevice_IsFencePending                             = 0
 D3DDevice_LightEnable                                = 0
 D3DDevice_LoadVertexShader                           = 0
-D3DDevice_MakeSpace                                  = 0
+D3DDevice_MakeSpace                                  = 0x30A2B0  # push [0x3181A4]>>1; call D3D_MakeRequestedSpace 0x30A170
 D3DDevice_PersistDisplay                             = 0x306B20
 D3DDevice_Release                                    = 0
 D3DDevice_SelectVertexShader                         = 0x3073D0
@@ -106,40 +106,40 @@ D3DDevice_SetMaterial                                = 0
 D3DDevice_SetPalette                                 = 0
 D3DDevice_SetPixelShader                             = 0x304F70
 D3DDevice_SetPixelShaderConstant                     = 0x305180
-D3DDevice_SetRenderState_BackFillMode                = 0
+D3DDevice_SetRenderState_BackFillMode                = 0x3041E0  # stores RS[140] 0x317228 at 0x3041EA, tail-jumps to FillMode
 D3DDevice_SetRenderState_CullMode                    = 0x3039E0
-D3DDevice_SetRenderState_DoNotCullUncompressed       = 0
+D3DDevice_SetRenderState_DoNotCullUncompressed       = 0x303F80  # stores RS[165] 0x31728C at 0x303F84
 D3DDevice_SetRenderState_Dxt1NoiseEnable             = 0x303D90
-D3DDevice_SetRenderState_EdgeAntiAlias               = 0
-D3DDevice_SetRenderState_FillMode                    = 0
+D3DDevice_SetRenderState_EdgeAntiAlias               = 0x303900  # stores RS[151] 0x317254 at 0x303932, method 0x80320
+D3DDevice_SetRenderState_FillMode                    = 0x304190  # stores RS[139] 0x317224 at 0x3041D4, method 0x8038C
 D3DDevice_SetRenderState_FogColor                    = 0x303980
-D3DDevice_SetRenderState_FrontFace                   = 0
+D3DDevice_SetRenderState_FrontFace                   = 0x303A60  # stores RS[146] 0x317240 at 0x303A95, method 0x403A0
 D3DDevice_SetRenderState_LineWidth                   = 0x303D20
-D3DDevice_SetRenderState_LogicOp                     = 0
-D3DDevice_SetRenderState_MultiSampleAntiAlias        = 0
-D3DDevice_SetRenderState_MultiSampleMask             = 0
-D3DDevice_SetRenderState_MultiSampleMode             = 0
-D3DDevice_SetRenderState_MultiSampleRenderTargetMode = 0
-D3DDevice_SetRenderState_NormalizeNormals            = 0
-D3DDevice_SetRenderState_OcclusionCullEnable         = 0
+D3DDevice_SetRenderState_LogicOp                     = 0x304130  # stores RS[150] 0x317250 at 0x304163, method 0x417BC
+D3DDevice_SetRenderState_MultiSampleAntiAlias        = 0x3040B0  # stores RS[152] 0x317258 at 0x3040BC
+D3DDevice_SetRenderState_MultiSampleMask             = 0x3040F0  # stores RS[153] 0x31725C at 0x3040FB
+D3DDevice_SetRenderState_MultiSampleMode             = 0x304050  # stores RS[154] 0x317260 at 0x304059
+D3DDevice_SetRenderState_MultiSampleRenderTargetMode = 0x304080  # stores RS[155] 0x317264 at 0x304089
+D3DDevice_SetRenderState_NormalizeNormals            = 0x303AB0  # stores RS[142] 0x317230 at 0x303AE9
+D3DDevice_SetRenderState_OcclusionCullEnable         = 0x303E60  # stores RS[161] 0x31727C at 0x303E6B
 D3DDevice_SetRenderState_PSTextureModes              = 0x3042B0
-D3DDevice_SetRenderState_RopZCmpAlwaysRead           = 0
-D3DDevice_SetRenderState_RopZRead                    = 0
-D3DDevice_SetRenderState_SampleAlpha                 = 0
-D3DDevice_SetRenderState_ShadowFunc                  = 0
-D3DDevice_SetRenderState_Simple                      = 0
-D3DDevice_SetRenderState_StencilCullEnable           = 0
+D3DDevice_SetRenderState_RopZCmpAlwaysRead           = 0x303F40  # stores RS[163] 0x317284 at 0x303F44
+D3DDevice_SetRenderState_RopZRead                    = 0x303F60  # stores RS[164] 0x317288 at 0x303F64
+D3DDevice_SetRenderState_SampleAlpha                 = 0x304110  # stores RS[158] 0x317270 at 0x30411B
+D3DDevice_SetRenderState_ShadowFunc                  = 0x303940  # stores RS[156] 0x317268 at 0x303975, method 0x41E6C
+D3DDevice_SetRenderState_Simple                      = 0x3042E0  # analysis/d3d_layout_5659.md; ret checked against the runtime declaration
+D3DDevice_SetRenderState_StencilCullEnable           = 0x303ED0  # stores RS[162] 0x317280 at 0x303EDB
 D3DDevice_SetRenderState_StencilEnable               = 0x303BA0
 D3DDevice_SetRenderState_StencilFail                 = 0x303C30
-D3DDevice_SetRenderState_TextureFactor               = 0
-D3DDevice_SetRenderState_TwoSidedLighting            = 0
-D3DDevice_SetRenderState_VertexBlend                 = 0
-D3DDevice_SetRenderState_YuvEnable                   = 0
+D3DDevice_SetRenderState_TextureFactor               = 0x303CB0  # stores RS[148] 0x317248 at 0x303CFA
+D3DDevice_SetRenderState_TwoSidedLighting            = 0x304200  # stores RS[141] 0x31722C at 0x304244, method 0x417C4
+D3DDevice_SetRenderState_VertexBlend                 = 0x304260  # stores RS[137] 0x31721C at 0x3042A3
+D3DDevice_SetRenderState_YuvEnable                   = 0x303E20  # stores RS[160] 0x317278 at 0x303E2B
 D3DDevice_SetRenderState_ZEnable                     = 0x303B00
 D3DDevice_SetRenderStateNotInline                    = 0
 D3DDevice_SetRenderTarget                            = 0x305A30
 D3DDevice_SetScissors                                = 0x3067B0
-D3DDevice_SetScreenSpaceOffset                       = 0
+D3DDevice_SetScreenSpaceOffset                       = 0x306CF0  # analysis/d3d_layout_5659.md; ret checked against the runtime declaration
 D3DDevice_SetShaderConstantMode                      = 0x307490
 D3DDevice_SetSoftDisplayFilter                       = 0
 D3DDevice_SetStreamSource                            = 0x3070C0
@@ -152,9 +152,9 @@ D3DDevice_SetTextureState_TexCoordIndex              = 0x304310
 D3DDevice_SetTile                                    = 0
 D3DDevice_SetTransform                               = 0x3060E0
 D3DDevice_SetVertexShader                            = 0x307AD0
-D3DDevice_SetVertexShaderConstant1                   = 0
+D3DDevice_SetVertexShaderConstant1                   = 0x307C40  # fastcall ecx,edx; 0x41EA4 + 0x100B80 at 0x307C56
 D3DDevice_SetVertexShaderConstant1Fast               = 0
-D3DDevice_SetVertexShaderConstant4                   = 0
+D3DDevice_SetVertexShaderConstant4                   = 0x307CA0  # fastcall ecx,edx; 0x41EA4 + 0x400B80 at 0x307CD8
 D3DDevice_SetVertexShaderConstantNotInlineFast       = 0x307D50
 D3DDevice_SetViewport                                = 0x306240
 D3DDevice_Swap                                       = 0x309660
@@ -257,16 +257,24 @@ XNetUnregisterKey                                    = 0x262FC6
 XNetXnAddrToInAddr                                   = 0x262FD1
 XOnlineCleanup                                       = 0x275F7F
 XOnlineStartup                                       = 0x275E94
+# .XTLID 0x30005; body 0x27AB21 clears a 0x700 byte user array and a count, then reads stored accounts (XOnlineGetUsers)
+XOnlineGetUsers                                      = 0x275876
+
+# D3DDevice_Reset: identified by shape at 0x305980 — waits on the device time (0x30598F D3D_BlockOnTime), tears the
+# frame buffers down (0x30C410) and builds them again (0x30C620), sets the mode from the parameters (0x30EB81), then
+# SetRenderTarget(device+0x1A14 back buffer, device+0x1A20 auto depth) 0x305A0B and Clear(0, 0, 3, 0, 1.0, 0) 0x305A1F
+D3DDevice_Reset                                      = 0x305980
 
 [data]
-D3D_DeferredTextureState    = 0
-D3D_Device                  = 0x314B40
-D3D_DirtyFlags              = 0
-D3D_IndexData               = 0
-D3D_pDevice                 = 0x316FE8
-D3D_RenderState             = 0
-D3D_SimpleRenderStateEncode = 0
-D3D_Streams                 = 0
+D3D_FvfShader               = 0x317EB0  # the device init 0x30C111 stores it into CDevice_VertexShader
+D3D_DeferredTextureState    = 0x314930  # state query 0x306D98 reads [0x314930 + (stage * 32 + type) * 4]
+D3D_Device                  = 0x314B40  # .XTLID 0x80001
+D3D_DirtyFlags              = 0x316FF0  # D3DDevice_SetTexture 0x3064ED ors 0x4800 into it
+D3D_IndexData               = 0x317E98  # D3DDevice_SetIndices 0x30662A stores pIndexData->Data
+D3D_pDevice                 = 0x316FE8  # .XTLID 0x80003
+D3D_RenderState             = 0x316FF8  # D3DDevice_SetPixelShader 0x305075 copies the definition to it
+D3D_SimpleRenderStateEncode = 0x3283A8  # state apply 0x3088AB passes [0x3283A8 + rs * 4] to SetRenderState_Simple
+D3D_Streams                 = 0x317FC8  # D3DDevice_SetStreamSource 0x307117 stores Stride at it + n * 12
 DSound_StreamVtable         = 0x321B8C
 DSound_StreamVtable2        = 0x321B7C
 XPP_GamepadType             = 0x31823C
@@ -329,3 +337,102 @@ D3D_InternalRelease = ["esi"]
 # 0x30A1B5), the stack slot (ret 4) the minimum (0x30A1D4); callers push the smaller value (0x12996 push half,
 # eax = full)
 D3D_MakeRequestedSpace = ["stack", "eax"]
+# D3DDevice_Reset(pPresentationParameters): ebx is the parameters — 0x3059DE..0x3059ED read [ebx] width, +4 height,
+# +8 format, +0x28 flags, +0x2C refresh rate, 0x3059BB passes ebx to the frame buffer init; plain ret (0x3059D2,
+# 0x305A29); caller 0x1084F6 lea ebx, [esp+0x20] on the parameters it built at 0x1084A3..0x1084DB
+D3DDevice_Reset = ["ebx"]
+
+# bring-up diagnostics (src/game/diag_hooks.cpp)
+[[hook]]
+at = 0x108470
+call = "LogFatalScreen"
+
+# BEGIN fatal-site diagnostics (temporary)
+[[hook]]
+at = 0x001058FC
+call = "LogFatalSite_001058FC"
+[[hook]]
+at = 0x001059EB
+call = "LogFatalSite_001059EB"
+[[hook]]
+at = 0x00105BAA
+call = "LogFatalSite_00105BAA"
+[[hook]]
+at = 0x00105C42
+call = "LogFatalSite_00105C42"
+[[hook]]
+at = 0x00105FD4
+call = "LogFatalSite_00105FD4"
+[[hook]]
+at = 0x00106062
+call = "LogFatalSite_00106062"
+[[hook]]
+at = 0x00106275
+call = "LogFatalSite_00106275"
+[[hook]]
+at = 0x001062FA
+call = "LogFatalSite_001062FA"
+[[hook]]
+at = 0x001065FA
+call = "LogFatalSite_001065FA"
+[[hook]]
+at = 0x00106675
+call = "LogFatalSite_00106675"
+[[hook]]
+at = 0x00106797
+call = "LogFatalSite_00106797"
+[[hook]]
+at = 0x001067B4
+call = "LogFatalSite_001067B4"
+[[hook]]
+at = 0x001067F5
+call = "LogFatalSite_001067F5"
+[[hook]]
+at = 0x00106827
+call = "LogFatalSite_00106827"
+[[hook]]
+at = 0x00106E63
+call = "LogFatalSite_00106E63"
+[[hook]]
+at = 0x00106EB1
+call = "LogFatalSite_00106EB1"
+[[hook]]
+at = 0x00106EE0
+call = "LogFatalSite_00106EE0"
+[[hook]]
+at = 0x00106EFF
+call = "LogFatalSite_00106EFF"
+[[hook]]
+at = 0x000AD88A
+call = "LogFatalSite_000AD88A"
+[[hook]]
+at = 0x000ADC0E
+call = "LogFatalSite_000ADC0E"
+[[hook]]
+at = 0x000ADE32
+call = "LogFatalSite_000ADE32"
+[[hook]]
+at = 0x000BF330
+call = "LogFatalSite_000BF330"
+[[hook]]
+at = 0x000C30E4
+call = "LogFatalSite_000C30E4"
+[[hook]]
+at = 0x000C6FA4
+call = "LogFatalSite_000C6FA4"
+[[hook]]
+at = 0x000C6FBA
+call = "LogFatalSite_000C6FBA"
+[[hook]]
+at = 0x000C6FEA
+call = "LogFatalSite_000C6FEA"
+[[hook]]
+at = 0x000C6FFF
+call = "LogFatalSite_000C6FFF"
+[[hook]]
+at = 0x000C7358
+call = "LogFatalSite_000C7358"
+[[hook]]
+at = 0x000F33FC
+call = "LogFatalSite_000F33FC"
+# END fatal-site diagnostics

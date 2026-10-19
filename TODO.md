@@ -1,10 +1,11 @@
 # TODO (priority order)
 
 ## Now
-1. Merge analysis/d3d_layout_5659.md into xdk/5659/layout.toml + config [data]; iterate past Direct3D_CreateDevice.
-2. Merge analysis/abi_5659.md (15 LTCG maps) into config [abi]; un-park the symbols.
-3. Merge analysis/missing_symbols_5659.md (FOUND entries) into config [symbols].
-4. Iterate the headless boot to the first frame; capture with REF=N (reference renderer).
+1. DSOUND: implement the buffer/stream methods XACT uses that the runtime lacks (id-less 0x246444 / 0x246428,
+   SetEG, SetPitch, SetLFO, GetVoiceProperties, CreateSoundStream) — identify each from its CDirectSound body first.
+2. Iterate the headless boot to the first frame; capture with REF=N.
+3. Prove the 8 register-convention D3D functions in analysis/missing_symbols_5659.md and the 12 unproven ones.
+4. Remove the temporary fatal-site hooks once boot is stable (keep LogFatalScreen).
 
 ## Next
 6. Once the config is complete: `xbe_symbols --sign config/game.toml --out xdk/5659/signatures.toml` (5659 signatures
