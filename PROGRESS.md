@@ -45,3 +45,12 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
 - Diagnostics: [[hook]] on the fatal error screen and its 29 entry sites (src/game/diag_hooks.cpp).
 - The title now creates the device, applies its default states, resets the device, initialises UIX and loads the UIX
   sound banks. Current blocker: XACT calls DirectSound buffer methods the runtime does not implement.
+
+## 2026-10-19 — Title screen reached (headless, Linux)
+
+- SDK patches 0003-0007: DSOUND 3D voice data/pitch/voice properties, D3D overlay, GPU time pointer, end-of-file read
+  semantics, thread exit status. Config: XACT DSOUND methods, overlay, missed vtable method, stream vtable layout.
+- Boot now runs: CRT -> file system -> XACT/DSOUND -> D3D device + Reset -> UIX -> cache unpack to Z: -> MGS/Valve/ESRB
+  movies -> title screen ("Please press START to begin") -> attract movie after idle. No crash in 120 s runs.
+- First frame captured with the reference renderer.
+- Not yet: input, overlay compositing (movies invisible), any windowed/GPU presentation on Linux.

@@ -18,3 +18,4 @@ void LogFatalScreen(X86Context& ctx, uint8_t*) {
 #define CSX_FATAL_SITE_HOOK(a) \
     void LogFatalSite_##a(X86Context& ctx, uint8_t*) { LOGE("fatal error screen from site %s, eax %08X", #a, ctx.eax); logx::Flush(); }
 CSX_FATAL_SITES(CSX_FATAL_SITE_HOOK)
+

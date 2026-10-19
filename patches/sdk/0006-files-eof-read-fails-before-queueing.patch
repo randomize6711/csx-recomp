@@ -1,0 +1,17 @@
+diff -ru a/runtime/kernel/files.cpp b/runtime/kernel/files.cpp
+--- a/runtime/kernel/files.cpp
++++ b/runtime/kernel/files.cpp
+@@ -489,7 +489,12 @@
+     }
+     f->pos = pos + n;
+     if (write && n < len) return Finish(*f, 0xC000007F, n, event, apc, apc_ctx, iosb);  // disk full
+-    if (!write && len && !n) return Finish(*f, kEndOfFile, 0, event, apc, apc_ctx, iosb);
++    // nothing at the offset: the read fails before it is queued, so as on the console the caller's status block,
++    // event and APC are left alone (an overlapped reader may signal its own event and read the status it set)
++    if (!write && len && !n) {
++        SetEvent(*f);
++        return kEndOfFile;
++    }
+     return Finish(*f, kSuccess, n, event, apc, apc_ctx, iosb);
+ }
+ 

@@ -1,8 +1,21 @@
 #!/bin/bash
-# Applies patches/sdk/*.patch to the sdk submodule working tree; already applied patches are skipped.
+# Puts the sdk submodule working tree at its commit plus patches/sdk/*.patch, in order.
+# The expected tree is built in a scratch index; when the working tree already matches it nothing is touched (so
+# builds stay incremental), otherwise the patched files are reset to the commit and every patch is applied again.
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
-for p in "$root"/patches/sdk/*.patch; do
-    if git -C "$root/sdk" apply --reverse --check "$p" 2>/dev/null; then echo "applied  $(basename "$p")"
-    else git -C "$root/sdk" apply "$p" && echo "applying $(basename "$p")"; fi
-done
+sdk=$root/sdk
+patches=("$root"/patches/sdk/*.patch)
+index=$(mktemp)
+trap 'rm -f "$index"' EXIT
+export GIT_INDEX_FILE=$index
+git -C "$sdk" read-tree HEAD
+for p in "${patches[@]}"; do git -C "$sdk" apply --cached "$p"; done
+if git -C "$sdk" diff --quiet; then
+    echo "sdk patches applied (${#patches[@]})"
+    exit 0
+fi
+unset GIT_INDEX_FILE
+files=$(for p in "${patches[@]}"; do git -C "$sdk" apply --numstat "$p" | cut -f3; done | sort -u)
+git -C "$sdk" checkout -- $files
+for p in "${patches[@]}"; do git -C "$sdk" apply "$p" && echo "applying $(basename "$p")"; done

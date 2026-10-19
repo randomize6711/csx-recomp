@@ -132,6 +132,31 @@ Output `analysis/game_5849sigs_experiment.toml`, log `analysis/xbe_symbols_exper
   computed voice parameters, not positions; the runtime's position-based 3D model does not see them. Field meanings
   under analysis (analysis/dsound_xact_5659.md).
 
+## To the title screen (2026-10-19)
+
+- XACT 3D path implemented from analysis/dsound_xact_5659.md (SDK patch 0003): 3D voice data (id-less 0x246428 /
+  0x246444 and stream twins), SetPitch (1/4096 octave re 48 kHz), SetLFO/SetEG (logged, not played),
+  GetVoiceProperties, CreateSoundStream, stream SetOutputBuffer. DirectSoundUseFullHRTF 0x244BED must run its original
+  body: 0x2485C4 fills the calculator table 0x262CF4..0x262D18 XACT calls through (lock 0x262654 is statically
+  initialised, lock count -1).
+- Missed function 0x10DCC0 (virtual method via [vtable+0x224]) added to [functions].
+- CDirectSoundStream vtables at +0/+4 (constructor 0x246D95, destructor 0x245535).
+- D3DDevice_UpdateOverlay 0x30A760 (ret 0x14) / GetOverlayUpdateStatus 0x30A940: overlay surface at device+0x1C1C,
+  update vertical blank count at +0x2410. Movies (XMV) present only through the overlay (SDK patch 0004 records it;
+  compositing not implemented yet).
+- device+0x30 = pointer to the GPU's time (D3D_BlockOnTime 0x30A007, inlined IsFencePending 0xAD052); the runtime
+  points it at the device time (+0x2C) so inlined fence checks pass (SDK patch 0005).
+- **End-of-file reads must fail before being queued**: the cache reader (0x1FC230) double-buffers 128 KB overlapped
+  reads and expects the read past the end of CacheTree-English.SXWad to fail synchronously, leaving OVERLAPPED.Internal
+  at the STATUS_PENDING XAPI ReadFile set (0x1FEDB2); XAPI GetOverlappedResult (0x2019E9) then returns TRUE. The runtime
+  wrote STATUS_END_OF_FILE into the status block, which made the cache step fatal ("Cache", 0x5522E8). SDK patch 0006.
+- **ETHREAD.ExitStatus (+0x120)** is read by XAPI GetExitCodeThread (0x200C04, after the signal state at +4); the
+  runtime did not write it, so the main thread waited forever for the cache worker. SDK patch 0007.
+- The cache worker unpacks D:\CacheTree-<lang>.SXWad to Z: (55 MB for English) on first boot.
+- Result: MGS, Valve and ESRB movies play (through the overlay), then the title screen is drawn ("Please press START
+  to begin", one 1024x512 DXT quad, 640x480 orthographic), and after ~50 s idle the attract movie starts, as on the
+  console. First frame captured with the reference renderer (REF=1). Colours not yet compared against the console.
+
 ## Assumptions / to verify
 
 - Third-party licenses (from prior knowledge, confirm before reusing any code): Half-Life SDK — Valve's restrictive
@@ -142,3 +167,7 @@ Output `analysis/game_5849sigs_experiment.toml`, log `analysis/xbe_symbols_exper
 - `.data1`/`DOLBY` sections: purpose not yet confirmed. DSKERDAT is presumably the DSP (DSP56300) program image
   DirectSound downloads; verified only that it is not x86 called from code.
 - XGSCNT granularity of 32 samples follows xemu's model, not a hardware measurement.
+- Azimuth sign (positive = right) for the 3D pan: moderate confidence, needs a listening check.
+- Synchronous-error I/O semantics (status block and event untouched) are inferred from CS's own XAPI and reader code,
+  consistent with NT; not checked against the console kernel binary.
+- The REF=200 captures came out black while REF=1 captures show the title screen; the cause is not yet understood.

@@ -51,3 +51,13 @@ Stream_Size           = 12      # D3DDevice_SetStreamSource 0x3070D6 indexes the
 Stream_Stride         = 0x0     # D3DDevice_SetStreamSource 0x307117 stores Stride
 Stream_Buffer         = 0x8     # D3DDevice_SetStreamSource 0x30711D stores the vertex buffer
 PixelShader_Definition = 0x8  # D3DDevice_SetPixelShader 0x304FF2 reads the definition pointer
+# DSOUND CDirectSoundStream: constructor 0x246D95 stores the vtables after the base init at this+4 (0x246DA2),
+# the destructor 0x245535 stores them again
+CDirectSoundStream_Vtable  = 0x0  # 0x246DAE / 0x245541 store 0x321B8C (DSound_StreamVtable) at this
+CDirectSoundStream_Vtable2 = 0x4  # 0x246DA7 / 0x245547 store 0x321B7C (DSound_StreamVtable2) at this+4
+# D3D8 video overlay: D3DDevice_UpdateOverlay 0x30A760, D3DDevice_GetOverlayUpdateStatus 0x30A940
+CDevice_OverlaySurface = 0x1C1C  # UpdateOverlay 0x30A77F stores its surface argument
+CDevice_OverlayUpdate  = 0x2410  # UpdateOverlay 0x30A768..0x30A76E copies the vertical blank count (+0x1DE8) to it;
+                                 # GetOverlayUpdateStatus 0x30A945..0x30A956 returns it != the current count
+CDevice_GpuTime        = 0x30    # D3D_BlockOnTime 0x30A007..0x30A00A reads the GPU time through it; inlined
+                                 # IsFencePending in the title 0xAD052..0xAD068 does the same

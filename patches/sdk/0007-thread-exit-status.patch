@@ -1,0 +1,12 @@
+diff -ru a/runtime/kernel/threads.cpp b/runtime/kernel/threads.cpp
+--- a/runtime/kernel/threads.cpp
++++ b/runtime/kernel/threads.cpp
+@@ -76,6 +76,8 @@
+ 
+ void MarkExited(Thread& t, uint32_t code) {
+     t.exit_code = code;
++    // ETHREAD.ExitStatus: XAPI's GetExitCodeThread reads it once the thread object is signalled
++    if (t.ethread) W32(t.ethread + 0x120, code);
+     std::lock_guard<std::mutex> lock(DispatchLock());
+     SetSignal(t, 1);
+     SignalChanged();

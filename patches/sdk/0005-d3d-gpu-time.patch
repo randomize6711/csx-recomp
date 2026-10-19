@@ -1,0 +1,27 @@
+diff -ru a/runtime/xdk/d3d8.cpp b/runtime/xdk/d3d8.cpp
+--- a/runtime/xdk/d3d8.cpp
++++ b/runtime/xdk/d3d8.cpp
+@@ -348,6 +348,10 @@
+ #if HAS_D3D_FvfShader
+     if (XDK_CDevice_VertexShader != xdk::kUnknown) SetDev(XDK_CDevice_VertexShader, SYM(D3D_FvfShader));
+ #endif
++    // the pointer to the time the GPU has reached, which inlined fence and busy checks compare with the device's
++    // time: the device's own time, so every fence the title inserts reads as passed
++    if (XDK_CDevice_GpuTime != xdk::kUnknown && XDK_CDevice_Time != xdk::kUnknown)
++        SetDev(XDK_CDevice_GpuTime, kDevice + XDK_CDevice_Time);
+     if (kVBlank) {
+         // notification event, signalled
+         SetDev(XDK_CDevice_VBlankEvent, 0x00040000);
+diff -ru a/runtime/xdk/layout.h b/runtime/xdk/layout.h
+--- a/runtime/xdk/layout.h
++++ b/runtime/xdk/layout.h
+@@ -90,6 +90,9 @@
+ #ifndef XDK_CDevice_Time
+ #define XDK_CDevice_Time 0xFFFFFFFFu
+ #endif
++#ifndef XDK_CDevice_GpuTime
++#define XDK_CDevice_GpuTime 0xFFFFFFFFu
++#endif
+ #ifndef XDK_CDevice_PixelShader
+ #define XDK_CDevice_PixelShader 0xFFFFFFFFu
+ #endif

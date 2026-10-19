@@ -1,0 +1,76 @@
+diff -ru a/runtime/xdk/d3d8.cpp b/runtime/xdk/d3d8.cpp
+--- a/runtime/xdk/d3d8.cpp
++++ b/runtime/xdk/d3d8.cpp
+@@ -39,6 +39,10 @@
+ #define SYM_D3DDevice_GetVertexShaderFunction FFFFFE03
+ #define HAS_D3DDevice_GetVertexShaderFunction 0
+ #endif
++#ifndef SYM_D3DDevice_UpdateOverlay
++#define SYM_D3DDevice_UpdateOverlay FFFFFE05
++#define HAS_D3DDevice_UpdateOverlay 0
++#endif
+ #ifndef SYM_D3DDevice_Reset
+ #define SYM_D3DDevice_Reset FFFFFE04
+ #define HAS_D3DDevice_Reset 0
+@@ -84,6 +88,12 @@
+ std::array<uint32_t, 3> g_buffers{};  // front, back surfaces
+ uint32_t g_buffer_count = 2;
+ uint32_t g_depth = 0;
++// the video overlay (D3DDevice_UpdateOverlay / EnableOverlay)
++struct Overlay {
++    bool enabled = false, use_color_key = false;
++    uint32_t surface = 0, color_key = 0;
++    int32_t src[4] = {}, dst[4] = {};
++} g_overlay;
+ uint32_t g_scratch_push = 0, g_scratch_size = 0;
+ uint32_t g_walk = 0;  // first scratch command not read yet
+ 
+@@ -467,7 +477,31 @@
+ }
+ HLE_STDCALL(D3DDevice_SetFlickerFilter, 1) { return 0; }
+ HLE_STDCALL(D3DDevice_SetSoftDisplayFilter, 1) { return 0; }
+-HLE_STDCALL(D3DDevice_EnableOverlay, 1) { return 0; }
++HLE_STDCALL(D3DDevice_EnableOverlay, 1) {
++    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    g_overlay.enabled = a[0] != 0;
++    return 0;
++}
++// UpdateOverlay(surface, src rect, dst rect, enable color key, color key): the overlay the video hardware shows over
++// the frame buffer (movies). Kept for the presentation; as the library does, the vertical blank count at the update
++// is stored so GetOverlayUpdateStatus (inline or recompiled) sees it complete after the next vertical blank.
++HLE_STDCALL(D3DDevice_UpdateOverlay, 5) {
++    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    g_overlay.surface = a[0];
++    for (int i = 0; i < 4; i++) {
++        g_overlay.src[i] = a[1] ? int32_t(R32(a[1] + i * 4)) : 0;
++        g_overlay.dst[i] = a[2] ? int32_t(R32(a[2] + i * 4)) : 0;
++    }
++    g_overlay.color_key = a[3] ? a[4] : 0;
++    g_overlay.use_color_key = a[3] != 0;
++    if (XDK_CDevice_OverlayUpdate != xdk::kUnknown && XDK_CDevice_VBlankCount != xdk::kUnknown)
++        SetDev(XDK_CDevice_OverlayUpdate, Dev(XDK_CDevice_VBlankCount));
++    if (XDK_CDevice_OverlaySurface != xdk::kUnknown) SetDev(XDK_CDevice_OverlaySurface, a[0]);
++    LOG_FIRST(1, "d3d: overlay surface %08X src %d,%d-%d,%d dst %d,%d-%d,%d (not composited yet)", a[0], g_overlay.src[0],
++              g_overlay.src[1], g_overlay.src[2], g_overlay.src[3], g_overlay.dst[0], g_overlay.dst[1], g_overlay.dst[2],
++              g_overlay.dst[3]);
++    return 0;
++}
+ // the front buffer, read back at the guest size, is kept for the next instance after a quick reboot, which may
+ // fade from it at its first frames
+ HLE_STDCALL(D3DDevice_PersistDisplay, 0) {
+diff -ru a/runtime/xdk/layout.h b/runtime/xdk/layout.h
+--- a/runtime/xdk/layout.h
++++ b/runtime/xdk/layout.h
+@@ -120,6 +120,12 @@
+ #ifndef XDK_CDevice_VBlankCount
+ #define XDK_CDevice_VBlankCount 0xFFFFFFFFu
+ #endif
++#ifndef XDK_CDevice_OverlaySurface
++#define XDK_CDevice_OverlaySurface 0xFFFFFFFFu
++#endif
++#ifndef XDK_CDevice_OverlayUpdate
++#define XDK_CDevice_OverlayUpdate 0xFFFFFFFFu
++#endif
+ #ifndef XDK_CDevice_Field
+ #define XDK_CDevice_Field 0xFFFFFFFFu
+ #endif

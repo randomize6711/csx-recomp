@@ -16,6 +16,7 @@ code_sections = [".text", "D3DX", "DSOUND", "XNET", "XONLINE", "XMV", "WMADEC", 
 
 # extra entry points
 [functions]
+0x10DCC0 = "sub_0010DCC0"  # virtual method (thiscall prologue), called through [vtable+0x224] at 0x10DB91; missed by pointer seeding
 
 # functions the host replaces or calls by name, 0 where the image has none
 [symbols]
@@ -166,7 +167,9 @@ DirectSoundCreate                                    = 0x247A2D
 DirectSoundCreateBuffer                              = 0
 DirectSoundCreateStream                              = 0x247A74
 DirectSoundDoWork                                    = 0x2464B8
-DirectSoundUseFullHRTF                               = 0x244BED
+# original body runs: 0x2485C4 fills the 3D calculator table 0x262CF4..0x262D18 XACT calls through (the runtime's
+# version is empty); it only takes the statically initialised lock 0x262654
+DirectSoundUseFullHRTF                               = 0  # .XTLID 0xB002F at 0x244BED
 DirectSoundUseLightHRTF                              = 0
 getsockname                                          = 0x263091
 getsockopt                                           = 0
@@ -264,6 +267,27 @@ XOnlineGetUsers                                      = 0x275876
 # frame buffers down (0x30C410) and builds them again (0x30C620), sets the mode from the parameters (0x30EB81), then
 # SetRenderTarget(device+0x1A14 back buffer, device+0x1A20 auto depth) 0x305A0B and Clear(0, 0, 3, 0, 1.0, 0) 0x305A1F
 D3DDevice_Reset                                      = 0x305980
+
+# D3DDevice_UpdateOverlay(pSurface, SrcRect, DstRect, EnableColorKey, ColorKey): ret 0x14 (0x30A8CB); src rect read
+# at 0x30A785, dst rect at 0x30A7A7, color key written to the overlay color key register at 0x30A7C6; called by the
+# XMV player 0x2902BA, which waits on GetOverlayUpdateStatus 0x30A940 (0x290298)
+D3DDevice_UpdateOverlay                              = 0x30A760
+
+# XDK 5659 DSOUND methods XACT uses (analysis/dsound_xact_5659.md); the 3D voice data names are labels, the
+# methods have no .XTLID entry
+IDirectSoundBuffer_Set3DVoiceData                    = 0x246428  # -> 0x245E3B -> 0x245075, XACT 0x2FCB91
+CDirectSoundStream_Set3DVoiceData                    = 0x246165
+IDirectSoundBuffer_Use3DVoiceData                    = 0x246444  # -> 0x245E89 -> 0x2451A6, XACT 0x2FBDD9
+CDirectSoundStream_Use3DVoiceData                    = 0x2461B7
+IDirectSoundBuffer_SetPitch                          = 0x2462AC  # .XTLID 0xB0076
+CDirectSoundStream_SetPitch                          = 0x245ED5
+IDirectSoundBuffer_SetLFO                            = 0x2462C8  # .XTLID 0xB006D
+CDirectSoundStream_SetLFO                            = 0x245F79
+IDirectSoundBuffer_SetEG                             = 0x2462E4  # .XTLID 0xB0067
+IDirectSoundBuffer_GetVoiceProperties                = 0x24640C  # .XTLID 0xB0055
+CDirectSoundStream_GetVoiceProperties                = 0x246113
+IDirectSound_CreateSoundStream                       = 0x247843  # .XTLID 0xB003B
+CDirectSoundStream_SetOutputBuffer                   = 0x246975  # .XTLID 0xB0098
 
 [data]
 D3D_FvfShader               = 0x317EB0  # the device init 0x30C111 stores it into CDevice_VertexShader
@@ -436,3 +460,4 @@ call = "LogFatalSite_000C7358"
 at = 0x000F33FC
 call = "LogFatalSite_000F33FC"
 # END fatal-site diagnostics
+
