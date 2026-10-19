@@ -1,0 +1,42 @@
+# Complete offline rounds, headless, from the direct start of any map fixture:
+#   --env FPS=30 --launch tests/launch/<map>_beginner --timeout 900
+# Picks Terrorist, then each round moves, turns and fires a magazine; waits for three round ends and the start of
+# the next round. Round, kill and objective events come from the game's own server log (src/game/game_log.cpp).
+wait log open D:\\.*\.sxwad
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+count game:.World.triggered."Round_Start" 2
+sleep 14
+state r1_start
+press LS 60
+look 90 0
+press RT 3
+sleep 1
+press RT 3
+sleep 1
+press RT 3
+state r1_acted
+expect moved r1_start r1_acted 50 5000
+count game:.World.triggered."Round_End" 2
+count game:.World.triggered."Round_Start" 3
+sleep 14
+state r2_start
+press LS 60
+press RT 3
+count game:.World.triggered."Round_End" 3
+count game:.World.triggered."Round_Start" 4
+sleep 14
+state r3_start
+press LS 60
+count game:.World.triggered."Round_End" 4
+count game:.World.triggered."Round_Start" 5
+expect log game:.*killed
+expect nolog fatal error screen
+expect nolog guest trap

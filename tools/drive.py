@@ -22,6 +22,7 @@ per line, executed in order:
     expect still A B               position and yaw equal in A and B
     expect heading A B MAXDEG      the move from A to B points along A's yaw within MAXDEG degrees
     mouse DX DY             (window build) relative mouse motion in counts, through the window's mouse look
+    count REGEX N           until N log lines match REGEX (no spaces: write . for them)
     look RIGHT UP           turn the view by degrees through the mouse look hook (src/game/mouse_look.cpp)
     pokefile FILE           every "VA FLOAT" line of FILE (relative to the repository) written at once
     poke VA FLOAT           write FLOAT to guest address VA (hex) once, src/common/memory_dump.cpp (diagnostics)
@@ -210,6 +211,11 @@ def main():
             elif kind == 'mouse':
                 send_file('mouse', st[1] + ' ' + st[2])
                 good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'mouse')))
+            elif kind == 'count':
+                # count REGEX N: until N log lines match (the Nth round end, ...)
+                rx = re.compile(st[1])
+                n = int(st[2])
+                good = wait_until(lambda: sum(1 for l in log.lines if rx.search(l)) >= n)
             elif kind == 'look':
                 send_file('look', st[1] + ' ' + st[2])
                 good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'look')))

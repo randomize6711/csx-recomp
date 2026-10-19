@@ -56,6 +56,19 @@ repeats match_direct's steps at FPS=30 in the Vulkan window, for comparing its `
 
 The regression keeps booting through the front end (it covers the menus and the relaunch).
 
+## Rounds
+
+`rounds_direct.txt` plays complete rounds from the direct start of any map fixture (`de_airstrip_beginner`,
+`de_dust_beginner`, `cs_italy_beginner`, same settings as the front end's Beginner match): Terrorist, then each round
+moves and fires, and waits for round ends (`count REGEX N`) on the game's own server log lines (`game: ...`,
+src/game/game_log.cpp). About 6 to 13 minutes a map headless:
+
+    python3 -I tools/drive.py tests/scenarios/rounds_direct.txt --timeout 900 --env FPS=30 \
+        --launch tests/launch/de_dust_beginner [--run build/run_dust]
+
+`vk_soak_direct.txt` leaves the Vulkan window running for eight rounds (real time) as a stability check.
+Map fixtures other than de_airstrip differ only in `releasemap.txt`'s `+map`.
+
 ## Mouse look
 
 `regress_mouse_look.txt` (part of run_regression.sh, starts in the match through its `--launch` header line) turns

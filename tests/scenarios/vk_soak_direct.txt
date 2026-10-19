@@ -1,0 +1,38 @@
+# Extended session in the Vulkan window (real time, 72 frames/s): the direct match left running for eight rounds with
+# the player moving and looking each round. Run with
+#   --exe build/window/CounterStrike --run build/wrun --env CSX_RENDERER=vulkan --env FPS=0 --timeout 3600 --launch tests/launch/<map>_beginner
+wait log open D:\\.*\.sxwad
+sleep 15
+key Down
+sleep 2
+key Down
+sleep 2
+key Space
+sleep 6
+key Left_Ctrl
+count game:.World.triggered."Round_End" 2
+sleep 18
+key W 2
+mouse 400 0
+count game:.World.triggered."Round_End" 3
+sleep 18
+key W 2
+mouse -400 0
+count game:.World.triggered."Round_End" 4
+sleep 18
+key W 2
+count game:.World.triggered."Round_End" 5
+sleep 18
+key W 2
+count game:.World.triggered."Round_End" 6
+sleep 18
+key W 2
+count game:.World.triggered."Round_End" 7
+sleep 18
+key W 2
+count game:.World.triggered."Round_End" 8
+count game:.World.triggered."Round_End" 9
+windowshot soak_end
+expect nolog fatal error screen
+expect nolog guest trap
+expect nolog vulkan: .* failed

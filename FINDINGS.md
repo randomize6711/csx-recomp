@@ -340,6 +340,30 @@ Confirmed:
 - The mouse bypasses the stick's response curve, turn acceleration and the aim assist slowdown in that routine (the
   stick keeps them); it is applied once per pass, not scaled by frame time, so frame rate does not change it.
 
+## Rounds (2026-10-19)
+
+Confirmed:
+- **The game's server log as a test oracle**: CS's game code reports joins, round starts and ends, kills and
+  objectives through UTIL_LogPrintf (0x14BC80, cdecl (format, ...); skipped unless the title's log is on, [0x7D6D4C]);
+  a hook at its entry formats the line on the host and logs it as "game: ..." (src/game/game_log.cpp), e.g.
+  'World triggered "Round_End"', '"Neil<4><BOT><CT>" killed "empty<1><...><TERRORIST>" with "m249"',
+  'Team "CT" triggered "Target_Saved" (CT "2") (T "1")'. The local player is "empty<1>".
+- **Complete offline rounds on three maps** (tests/scenarios/rounds_direct.txt, headless, FPS=30, direct starts):
+
+  | Map | Rounds seen | Player | Objectives | Round ends |
+  |---|---|---|---|---|
+  | de_airstrip | 4 + start of the 5th | moved, fired, killed in round 1, respawned | bomb planted and detonated | CT elimination, Target_Bombed, Target_Saved (time) |
+  | de_dust | 4 + start of the 5th | moved 79 units, 3 shots (20 -> 17), respawned each round | bomb carried and dropped | Terrorists_Win, Target_Saved twice |
+  | cs_italy | 4 + start of the 5th | killed in three rounds, respawned | hostages touched and all four rescued | CTs_Win, Terrorists_Win twice |
+
+  Bots buy, move, fight (kills with xm1014, sg552, m249, m3, ump45, sg550, mp5navy), plant and rescue; the round timer
+  runs out to Target_Saved; scores advance; no fatal error screen or guest trap over 6 to 13 minutes per map.
+- The rescue lines on cs_italy come right after the CT win in the log (the game's order).
+
+Open:
+- Bomb defusal and the player planting were not seen in these runs (bots decide); a player-driven objective test
+  needs scripted movement on each map.
+
 ## Assumptions / to verify
 
 - Third-party licenses (from prior knowledge, confirm before reusing any code): Half-Life SDK — Valve's restrictive

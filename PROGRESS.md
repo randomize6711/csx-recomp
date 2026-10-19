@@ -138,3 +138,10 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   in run_regression.sh, which now passes a scenario's --launch fixture; vk_match_direct checks the window's mouse.
 - Tools: state lines carry the view yaw/pitch; drive.py steps look, mouse, poke, pokefile and expect yaw/pitch.
 - Regression 257/257 (the 112 earlier checks unchanged).
+
+## 2026-10-19 — Complete offline rounds on three maps
+
+- Game server log in the host log (src/game/game_log.cpp, [[hook]] at 0x14BC80): rounds, kills, objectives, scores.
+- Map fixtures de_dust_beginner and cs_italy_beginner; tests/scenarios/rounds_direct.txt; drive.py count step.
+- de_airstrip, de_dust, cs_italy: four complete rounds each with movement, shots, deaths and respawns, bot combat,
+  bomb plant/detonation, hostage rescue, time expiry (FINDINGS.md "Rounds").
