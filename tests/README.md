@@ -26,6 +26,15 @@ What each step depends on (evidence in FINDINGS.md):
 Negative check (2026-10-19): with patch 0007 taken out of patches/sdk the scenario fails at its first step
 (`wait draws==1`, 0 draws after 600 s: the main thread waits forever for the cache worker's exit code).
 
+## regress_player_control (about 130 s)
+
+Boot to an offline Beginner match on de_airstrip as a Terrorist, wait out freeze time, then check game state through
+src/game/state_probe.cpp (position 0x3AE3E0, yaw 0x3AE3F0, Glock shot counter 0x3A2988): idle stays still; 90 frames
+of forward stick move 400..1100 units along the yaw (measured 765.1, within 0.0 degrees); 20 frames of right stick turn
+at least 30 degrees (measured 129.3); 45 more frames move along the new yaw; three trigger presses fire three shots.
+
+Both scenarios run at FPS=30 (tests/run_regression.sh).
+
 ## Other scenarios
 
 `to_keyboard`, `to_menu`, `to_single_player`, `to_match`, `to_airstrip`, `to_spawn` stop at intermediate screens and

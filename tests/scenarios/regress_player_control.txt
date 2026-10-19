@@ -1,0 +1,77 @@
+# Regression: player control in an offline match (de_airstrip, Beginner), at 30 presented frames per second.
+# Run with FPS=30 (tests/run_regression.sh passes it). Checks game state, not pixels: position, yaw, shot counter
+# (src/game/state_probe.cpp, addresses in FINDINGS.md "Player control").
+# Regression: boot to a spawned player in an offline Beginner match on de_airstrip (about 2 minutes headless).
+# Each step depends on runtime behaviour found during bring-up; FINDINGS.md has the evidence for each.
+wait draws==1
+expect log multisample type 2012, back buffer 640x960
+expect nolog fatal error screen
+snap title
+expect image title 20
+sleep 6
+press START
+wait draws>=3
+sleep 3
+press A
+wait draws>=50
+sleep 3
+snap keyboard
+expect image keyboard 20
+press A
+wait draws<=20
+sleep 3
+snap main_menu
+expect image main_menu 20
+press DOWN
+sleep 2
+press A
+sleep 5
+snap single_player
+expect image single_player 20
+press A
+sleep 5
+snap map_selection
+expect image map_selection 20
+press A
+wait log relaunching into
+wait log open D:\\de_airstrip.sxwad
+wait draws>=150
+sleep 10
+# team menu: Auto-Select, Counter-Terrorist, Terrorist; Terrorist for a fixed weapon (Glock, the shot counter's)
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+# freeze time: the round starts a few seconds after spawning
+sleep 12
+state idle_a
+sleep 2
+state idle_b
+expect still idle_a idle_b
+press LS 90
+sleep 5
+state ran
+expect moved idle_b ran 400 1100
+expect heading idle_b ran 15
+press RSR 20
+sleep 2
+state turned
+expect turned ran turned 30
+press LS 45
+sleep 3
+state ran2
+expect moved turned ran2 150 700
+expect heading turned ran2 15
+press RT 3
+sleep 1.5
+press RT 3
+sleep 1.5
+press RT 3
+sleep 1.5
+state fired
+expect shots ran2 fired 3
+expect nolog fatal error screen
+expect nolog guest trap

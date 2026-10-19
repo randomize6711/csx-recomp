@@ -6,11 +6,18 @@ Usage: python3 -I tools/drive.py SCENARIO [--timeout S] [--env K=V ...]
 The harness runs in build/run (network namespace, reflink game copy in build/gamedata). The scenario file has one step
 per line, executed in order:
     wait draws>=N           until a frame logs at least N draws per frame (from the 60-frame renderer lines)
-    wait draws==N           until the draws per frame equal N
+    wait draws==N           until the draws per frame equal N (also draws<=N)
     wait log REGEX          until a log line matches
     sleep S                 wait S seconds
     press BUTTONS [FRAMES]  press through the harness cmd file (buttons as in the pad script, joined by +)
-    pressuntil BUTTONS COND press every 2 s until COND (draws>=N or draws==N) holds, at most 15 times
+    pressuntil BUTTONS COND press, wait for two fresh draw measurements, repeat until COND holds (at most 15)
+    dump NAME               guest memory dump to build/run/dumps/NAME.bin (src/common/memory_dump.cpp)
+    state NAME              log the local player's state (src/game/state_probe.cpp) and keep it as NAME
+    expect moved A B MIN MAX       horizontal distance between states A and B in [MIN, MAX] game units
+    expect turned A B MIN          yaw difference between states A and B (shortest way) at least MIN degrees
+    expect shots A B N             the shot counter dropped by exactly N from A to B
+    expect still A B               position and yaw equal in A and B
+    expect heading A B MAXDEG      the move from A to B points along A's yaw within MAXDEG degrees
     snap NAME               draw the next two frames and keep them as build/run/snaps/NAME_1.tga / NAME_2.tga
     expect log REGEX        fail unless a log line matches
     expect nolog REGEX      fail if a log line matches
@@ -40,6 +47,7 @@ class Log:
         self.path = None
         self.prev = None  # (frame, draws) of the previous renderer line
         self.per_frame = 0.0
+        self.samples = 0  # renderer lines seen, each a new draws-per-frame measurement
 
     def poll(self):
         logs = os.path.join(RUN, 'logs')
@@ -62,11 +70,19 @@ class Log:
                 frame, draws = int(m.group(1)), int(m.group(2))
                 if self.prev and frame > self.prev[0]:
                     self.per_frame = (draws - self.prev[1]) / (frame - self.prev[0])
+                    self.samples += 1
                 self.prev = (frame, draws)
 
     def match(self, rx):
         r = re.compile(rx)
         return any(r.search(l) for l in self.lines)
+
+
+def send_file(name, text):
+    tmp = os.path.join(RUN, name + '.tmp')
+    with open(tmp, 'w') as f:
+        f.write(text + '\n')
+    os.replace(tmp, os.path.join(RUN, name))
 
 
 def send(text):
@@ -92,12 +108,13 @@ def main():
             sys.exit('unknown argument ' + args[i])
     steps = [l.split() for l in open(scenario) if l.strip() and not l.startswith('#')]
 
-    for d in ('logs', 'hdd', 'cap', 'snaps'):
+    for d in ('logs', 'hdd', 'cap', 'snaps', 'dumps'):
         shutil.rmtree(os.path.join(RUN, d), ignore_errors=True)
     os.makedirs(os.path.join(RUN, 'snaps'))
     out = open(os.path.join(RUN, 'run.out'), 'w')
     proc = subprocess.Popen(['unshare', '-rn', EXE, GAME], cwd=RUN, env=env, stdout=out, stderr=subprocess.STDOUT)
     log, start, ok = Log(), time.time(), True
+    states = {}
 
     def alive():
         return proc.poll() is None
@@ -120,13 +137,13 @@ def main():
                     rx = ' '.join(st[2:])
                     good = wait_until(lambda: log.match(rx))
                 else:
-                    m = re.match(r'draws(>=|==)(\d+)', st[1])
-                    n = int(m.group(2))
-                    good = wait_until(lambda: log.per_frame >= n if m.group(1) == '>=' else round(log.per_frame) == n)
+                    m = re.match(r'draws(>=|==|<=)(\d+)', st[1])
+                    n, op = int(m.group(2)), m.group(1)
+                    good = wait_until(lambda: log.per_frame >= n if op == '>=' else log.per_frame <= n if op == '<=' else round(log.per_frame) == n)
             elif kind == 'sleep':
                 time.sleep(float(st[1])); good = alive()
             elif kind == 'press':
-                frames = st[2] if len(st) > 2 else '8'
+                frames = st[2] if len(st) > 2 else '3'
                 send(f'{st[1]} {frames}\n')
                 good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'cmd')))
             elif kind == 'pressuntil':
@@ -135,17 +152,58 @@ def main():
                 cond = lambda: log.per_frame >= n if m.group(1) == '>=' else round(log.per_frame) == n
                 good = False
                 for _ in range(15):
-                    send(f'{st[1]} 8\n')
-                    t0 = time.time()
-                    while time.time() - t0 < 2.0 and alive():
+                    send(f'{st[1]} 3\n')
+                    # two fresh measurements after the press (the renderer logs every 60 frames), at most 20 s
+                    seen, t0 = log.samples, time.time()
+                    while log.samples < seen + 2 and time.time() - t0 < 20 and alive():
                         log.poll()
                         time.sleep(0.2)
-                    log.poll()
                     if cond():
                         good = True
                         break
                     if not alive():
                         break
+            elif kind == 'dump':
+                tmp = os.path.join(RUN, 'memdump.tmp')
+                with open(tmp, 'w') as f:
+                    f.write(st[1] + '\n')
+                os.replace(tmp, os.path.join(RUN, 'memdump'))
+                good = wait_until(lambda: log.match('memdump: .*' + re.escape(st[1]) + r'\.bin written'))
+            elif kind == 'state':
+                send_file('state', st[1])
+                rx = re.compile(r'state ' + re.escape(st[1]) + r' (\S+) (\S+) (\S+) (\S+) (-?\d+)')
+                def got():
+                    for l in log.lines:
+                        m = rx.search(l)
+                        if m:
+                            states[st[1]] = [float(v) for v in m.groups()]
+                            return True
+                    return False
+                good = wait_until(got)
+                if good:
+                    print('     ' + st[1] + ' = ' + ' '.join(str(v) for v in states[st[1]]))
+            elif kind == 'expect' and st[1] in ('moved', 'turned', 'shots', 'still', 'heading'):
+                a, b = states.get(st[2]), states.get(st[3])
+                good = a is not None and b is not None
+                if good and st[1] == 'moved':
+                    dist = ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5
+                    good = float(st[4]) <= dist <= float(st[5])
+                    print(f'     moved {dist:.1f}')
+                elif good and st[1] == 'turned':
+                    dy = abs((b[3] - a[3] + 180) % 360 - 180)
+                    good = dy >= float(st[4])
+                    print(f'     turned {dy:.1f} degrees')
+                elif good and st[1] == 'shots':
+                    good = a[4] - b[4] == int(st[4])
+                    print(f'     shot counter {int(a[4])} -> {int(b[4])}')
+                elif good and st[1] == 'still':
+                    good = a[:4] == b[:4]
+                elif good and st[1] == 'heading':
+                    import math
+                    move = math.degrees(math.atan2(b[1] - a[1], b[0] - a[0]))
+                    off = abs((move - a[3] + 180) % 360 - 180)
+                    good = off <= float(st[4])
+                    print(f'     moved toward {move:.1f}, yaw {a[3]:.1f}, off by {off:.1f} degrees')
             elif kind == 'snap':
                 open(os.path.join(RUN, 'snap.tmp'), 'w').close()
                 os.replace(os.path.join(RUN, 'snap.tmp'), os.path.join(RUN, 'snap'))

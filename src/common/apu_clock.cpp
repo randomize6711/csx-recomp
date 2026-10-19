@@ -41,4 +41,10 @@ void StartApuClock() {
     LOGI("apu: XGSCNT at %08X runs at %llu Hz", kXgscnt, (unsigned long long)kRate);
 }
 
+void Loaded() {
+    StartApuClock();
+    StartMemoryDumps();
+    StartStateProbe();
+}
+
 }  // namespace csx

@@ -65,3 +65,10 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
 - Reached: notice, profile creation, main menu, Training, Single Player, Map Selection, title relaunch into
   de_airstrip, team selection, spawn with HUD/radar/buy menu; round timer runs and bots fight.
 - Not yet: verified player control, overlay compositing, comparison against xemu, any windowed presentation.
+
+## 2026-10-19 — Player control verified (headless)
+
+- Memory dump facility and state search; player position, yaw and the Glock's shot counter located with evidence.
+- regress_player_control: idle, run, turn, run along the new heading, fire three shots, all checked in game state.
+- Harness: optional FPS pacing (0014), right stick / black / white / stick clicks in pad scripts (0013).
+- Scenario driver: single presses with waits (re-press loops raced the 2 s draw measurements), 3-frame presses.

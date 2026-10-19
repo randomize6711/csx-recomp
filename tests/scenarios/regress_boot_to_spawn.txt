@@ -5,13 +5,18 @@ expect log multisample type 2012, back buffer 640x960
 expect nolog fatal error screen
 snap title
 expect image title 20
-pressuntil START draws>=3
-pressuntil A draws>=50
+sleep 6
+press START
+wait draws>=3
+sleep 3
+press A
+wait draws>=50
 sleep 3
 snap keyboard
 expect image keyboard 20
 press A
-sleep 6
+wait draws<=20
+sleep 3
 snap main_menu
 expect image main_menu 20
 press DOWN

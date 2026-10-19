@@ -195,6 +195,29 @@ Output `analysis/game_5849sigs_experiment.toml`, log `analysis/xbe_symbols_exper
 - Input: the harness reads a press from build/run/cmd; written non-atomically it could be read empty and dropped,
   so tools/drive.py writes it to a temporary file and renames it.
 
+## Player control (2026-10-19)
+
+- Input path: the title polls XInputGetState (0x319670), which the runtime replaces; it calls input::Poll (pad script or
+  build/run/cmd in the harness) and writes packet, buttons, 8 analog buttons and both sticks (XINPUT_STATE). Menu and
+  gameplay input take the same path.
+- State found by diffing memory dumps (src/common/memory_dump.cpp, tools/find_state.py) around controlled input:
+  - 0x3AE3E0: float x, y, z of the local player; z 36.031 standing on de_airstrip. Constant while idle, moves while the
+    left stick is held. Copies of the same triple: 0x3038A8 (beside the 3D audio listener at 0x3038A0), 0x4C7138 with
+    z + 17.03 (consistent with a view origin).
+  - 0x3AE3F0: yaw in degrees. Proof: turning right for 20 frames took it from 0 to 230.751 while the 3D audio
+    listener's forward vector (0x3038C0) went from (1, 0, 0) to (-0.633, -0.774, 0) = (cos 230.75, sin 230.75).
+  - 0x3A2988: int, 20 -> 19 -> 18 -> 17 over three single right-trigger presses with the Terrorist's Glock (20 round
+    magazine). Reads 0 when the player is a Counter-Terrorist (USP): it is not a generic current-magazine value.
+- Measured at 30 presented frames per second (harness FPS=30): 90 frames of full forward stick move the player 765.1
+  units (about 255 units/s) along the yaw within 0.0 degrees; 20 frames of full right stick turn 129.3 degrees; the
+  same numbers come out in separate runs. Three trigger presses fire three shots. Round freeze time after spawning
+  blocks movement for several seconds (a first test that moved too early measured 260 units).
+- At spawn the buy menu opens by itself during freeze time; B was pressed before moving. Movement worked after it.
+- The team menu's Auto-Select varies the team between runs; tests pick Terrorist explicitly.
+- Harness pacing: unpaced the harness presented 100-400 frames per second, so presses held a fixed number of frames
+  lasted 20-80 ms and could carry into the next screen (an A on "Done" also selected Training). With FPS=30 (CS creates
+  its device with presentation interval 0x80000002, read as every second vertical blank) a 3-frame press is 100 ms.
+
 ## Assumptions / to verify
 
 - Third-party licenses (from prior knowledge, confirm before reusing any code): Half-Life SDK — Valve's restrictive
@@ -205,6 +228,8 @@ Output `analysis/game_5849sigs_experiment.toml`, log `analysis/xbe_symbols_exper
 - `.data1`/`DOLBY` sections: purpose not yet confirmed. DSKERDAT is presumably the DSP (DSP56300) program image
   DirectSound downloads; verified only that it is not x86 called from code.
 - XGSCNT granularity of 32 samples follows xemu's model, not a hardware measurement.
+- Presentation interval 0x80000002 read as "two vertical blanks, or immediate when late" (30 frames per second); the
+  runtime does not model the interval, the harness paces only with FPS=N.
 - Azimuth sign (positive = right) for the 3D pan: moderate confidence, needs a listening check.
 - Synchronous-error I/O semantics (status block and event untouched) are inferred from CS's own XAPI and reader code,
   consistent with NT; not checked against the console kernel binary.
