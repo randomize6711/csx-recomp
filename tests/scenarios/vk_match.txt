@@ -32,7 +32,7 @@ sleep 2
 key Space
 sleep 6
 windowshot spawned
-key LCtrl
+key Left_Ctrl
 sleep 12
 windowshot in_game
 key W 3

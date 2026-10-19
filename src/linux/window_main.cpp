@@ -160,6 +160,9 @@ int main(int argc, char** argv) {
             char name[64] = {};
             double secs = 0.1;
             if (std::fscanf(kf, "%63s %lf", name, &secs) >= 1) {
+                // SDL key names with spaces ("Left Ctrl") are written with underscores in the request file
+                for (char* c = name; *c; c++)
+                    if (*c == '_') *c = ' ';
                 SDL_Keycode k = SDL_GetKeyFromName(name);
                 if (k != SDLK_UNKNOWN) {
                     push_key(k, true);

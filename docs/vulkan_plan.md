@@ -119,8 +119,10 @@ stays a set of small patches. It includes only runtime headers (state, vertex, t
 - Render targets sampled as textures (CS's glow chain): the texture's virtual address is matched to the surface's
   physical one; the draw's own target is refused (feedback copy not done).
 - In-game models were garbage in both renderers until SDK patch 0017 (vertex program memory); see FINDINGS.md.
-- Not done: matched-frame comparison with the reference renderer (blocked on the missing world band, which is not a
-  Vulkan problem), point sprites, CopyRects, feedback copies, Sync, gamma, overlay.
+- The missing world was not a Vulkan problem (SDK patches 0018/0019, FINDINGS.md). With it: ~1150 draws a frame,
+  median 72 frames/s (the game's fps_max), GPU 0.75 ms. Matched frame against the reference renderer
+  (vk_compare_direct): walls/tunnel 39.7 dB, sky/hills 31.1 dB.
+- Not done: point sprites, CopyRects, feedback copies, Sync, gamma, overlay.
 - Diagnostics (environment): CSX_VK_PRESENT=immediate|mailbox, CSX_VK_SHOT_TARGETS=1 (every colour target with a
   shot), CSX_VK_STEPSHOTS=NAME:N (the target before every Nth draw of the frame after shot NAME), CSX_VK_MAGENTA=1
   (undrawn areas magenta), CSX_VK_LOGFRAME=N (every draw of frame N logged); stats every 30 frames in the log.

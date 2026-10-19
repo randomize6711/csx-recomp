@@ -102,3 +102,17 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   patch 0016 then failed to apply).
 - Diagnostics: write watch (CSX_WATCH), Vulkan target shots, per-draw step shots, magenta undrawn areas, frame log.
 - Open: a band of the world is not submitted at the de_airstrip spawn (both renderers; FINDINGS.md).
+
+## 2026-10-19 — The world renders (both renderers)
+
+- Cause of the missing world found and fixed (FINDINGS.md "In-game rendering"): recorded push buffers (SDK patch 0019:
+  BeginPushBuffer / EndPushBuffer / RunPushBuffer bound with proofs), inline arrays and pushed commands drawn in
+  order (patch 0018, with the program reload after select). The de_airstrip spawn shows the jungle, tunnel, path and
+  hills; the first person weapon and player models are back.
+- Software vs Vulkan at the same moment (vk_compare_direct vs match_direct, timer 4:55): walls/tunnel 39.7 dB,
+  sky/hills 31.1 dB; differences: the reference renderer's black near triangles, bots and rain, lower ground tint.
+- Vulkan in game: ~1150 draws a frame, median 72 frames/s (the game's fps_max cap), minimum 64 over a run; GPU
+  0.75 ms, RunPushBuffer replay 1.6 ms a frame including its 576 draws.
+- Window key requests take SDL names with underscores (Left_Ctrl): scenarios had sent an unknown "LCtrl", so the buy
+  menu never closed and W did not walk; vk_match_direct now checks the walk in game state (716 units).
+- Regression 112/112, player control numbers unchanged; menus unchanged (40.5-47.9 dB).

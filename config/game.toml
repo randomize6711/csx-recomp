@@ -280,6 +280,21 @@ D3DDevice_UpdateOverlay                              = 0x30A760
 # SelectVertexShaderDirect (0x307370 -> SelectVertexShader 0x3073D0 with the static object 0x318088 | 1)
 D3DDevice_LoadVertexShaderProgram                    = 0x3072E0
 
+# Push buffers (the BSP world renderer records the world at load and replays it every frame); identified by shape:
+# D3DDevice_BeginPushBuffer(pPushBuffer in edi) 0x312C90 — stores edi at device+0x764 (0x312CD1), AddRefs it
+# (0x312CD7), saves the device push pointer and limit (0x312CE2/0x312CE8) and points them into pPushBuffer->Data
+# (0x312CF1) with the limit at Data + AllocationSize - 0x204 (0x312CF9), sets device flag 4 (0x312D03), plain ret;
+# callers 0x1976FD and 0x1979DA load edi with the object D3DDevice_CreatePushBuffer (0x312C10, type 0x00020000
+# header written at 0x312C45) returned.
+# D3DDevice_EndPushBuffer() 0x312D10 — Size (+0xC) from the push pointer less Data (0x312D3C..0x312D42), device push
+# pointer and limit restored (0x312D57/0x312D62), flags 4 and 0x80 cleared (0x312D5C), plain ret 0x312D92.
+# D3DDevice_RunPushBuffer(pPushBuffer, pFixup) 0x312900 — Size read from +0xC (0x312923) and Data from +4 (0x312926),
+# the fixup's Data and Size when given (0x312943..0x312949), a jump into the buffer pushed, ret 8 (0x312B43);
+# called by the world renderer 0x198A6C with [0x552C04], the buffer recorded at load.
+D3DDevice_BeginPushBuffer                            = 0x312C90
+D3DDevice_EndPushBuffer                              = 0x312D10
+D3DDevice_RunPushBuffer                              = 0x312900
+
 # XDK 5659 DSOUND methods XACT uses (analysis/dsound_xact_5659.md); the 3D voice data names are labels, the
 # methods have no .XTLID entry
 IDirectSoundBuffer_Set3DVoiceData                    = 0x246428  # -> 0x245E3B -> 0x245075, XACT 0x2FCB91
@@ -346,6 +361,8 @@ D3DDevice_SetShaderConstantMode = ["eax"]
 # AddRef'd and stored at +8 (0x30711D), the stack slot (ret 4) stored at +0 (0x307117); caller 0xAF510 push 0x18,
 # eax = 0, ebx = buffer
 D3DDevice_SetStreamSource = ["eax", "ebx", "stack"]
+# D3DDevice_BeginPushBuffer(pPushBuffer): edi (see the push buffer entries above)
+D3DDevice_BeginPushBuffer = ["edi"]
 # D3DDevice_SetTexture(Stage, pTexture): eax indexes device+0xF88 (0x306473, 0x3064A6), the stack slot (ret 4) is
 # the texture, AddRef'd at 0x3064FF; caller 0x12A56 pushes the texture, eax = stage
 D3DDevice_SetTexture = ["eax", "stack"]

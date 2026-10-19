@@ -1,0 +1,271 @@
+diff --git a/runtime/xdk/d3d8.cpp b/runtime/xdk/d3d8.cpp
+index 028756c..4e16116 100644
+--- a/runtime/xdk/d3d8.cpp
++++ b/runtime/xdk/d3d8.cpp
+@@ -149,6 +149,47 @@ void DrainPush() {
+ 
+ namespace {
+ 
++// the state's plain words a recording can change, region by region in a fixed order
++template <typename F>
++void ForStateWords(gpu::State& s, F f) {
++    f(reinterpret_cast<uint32_t*>(s.vsc.data()), s.vsc.size() * 4);
++    f(reinterpret_cast<uint32_t*>(s.psc.data()), s.psc.size() * 4);
++    f(&s.scissor_count, 1);
++    f(s.scissors.data(), s.scissors.size());
++    f(reinterpret_cast<uint32_t*>(s.transforms.data()), s.transforms.size() * 16);
++    f(reinterpret_cast<uint32_t*>(s.material.data()), s.material.size());
++    f(s.lights[0].data(), s.lights.size() * 26);
++    f(&s.light_enable, 1);
++}
++static_assert(sizeof(float) == 4);
++
++std::vector<uint32_t*> StateWords(gpu::State& s) {
++    std::vector<uint32_t*> w;
++    ForStateWords(s, [&](void* p, size_t n) {
++        for (size_t i = 0; i < n; i++) w.push_back(static_cast<uint32_t*>(p) + i);
++    });
++    return w;
++}
++
++// push buffer recording: the state words host entry points wrote since BeginPushBuffer, recorded even when they hold
++// what the state held then (a recording that sets a value again must replay it)
++bool g_touching = false;
++std::vector<bool> g_touched;
++void Touch(const void* p, size_t bytes) {
++    if (!g_touching) return;
++    static std::unordered_map<const uint32_t*, uint32_t> index;
++    if (index.empty()) {
++        std::vector<uint32_t*> w = StateWords(g_state);
++        for (uint32_t i = 0; i < w.size(); i++) index[w[i]] = i;
++    }
++    g_touched.resize(index.size());
++    const uint32_t* w = static_cast<const uint32_t*>(p);
++    for (size_t i = 0; i < bytes / 4; i++) {
++        auto it = index.find(w + i);
++        if (it != index.end()) g_touched[it->second] = true;
++    }
++}
++
+ // Hardware commands a caller still pushes go to a scratch buffer, rewound at every request once Walk has read it
+ uint32_t ScratchPush(uint32_t bytes = 0) {
+     Walk(Dev(kDevPush));
+@@ -713,6 +754,7 @@ HLE_STDCALL(D3DDevice_SetScreenSpaceOffset, 2) {
+ HLE_FASTCALL(D3DDevice_SetRenderState_Simple, 0) {
+     uint32_t method = a[0] & 0x1FFC, value = a[1];
+     g_state.simple[method >> 2] = value;
++    Touch(&g_state.simple[method >> 2], 4);
+     return 0;
+ }
+ 
+@@ -797,6 +839,7 @@ HLE_STDCALL(D3DDevice_SetTransform, 2) {
+     std::memcpy(HostPtr(kDevice + kDevTransforms + t * 64), HostPtr(a[1]), 64);
+     uint32_t pc = t < 2 ? t + 2 : t < 6 ? t + 14 : t + 250;
+     std::memcpy(g_state.transforms[pc].data(), HostPtr(a[1]), 64);
++    Touch(g_state.transforms[pc].data(), 64);
+     return 0;
+ }
+ 
+@@ -966,25 +1009,27 @@ HLE_STDCALL(D3DDevice_SetVertexShader, 1) {
+ 
+ HLE_FASTCALL(D3DDevice_SetVertexShaderConstant1Fast, 0) {
+     uint32_t reg = a[0];
+-    if (reg < 192) std::memcpy(g_state.vsc[reg].data(), HostPtr(a[1]), 16);
++    if (reg < 192) std::memcpy(g_state.vsc[reg].data(), HostPtr(a[1]), 16), Touch(g_state.vsc[reg].data(), 16);
+     return 0;
+ }
+ 
+ HLE_FASTCALL(D3DDevice_SetVertexShaderConstant1, 0) {
+     uint32_t reg = a[0];
+-    if (reg < 192) std::memcpy(g_state.vsc[reg].data(), HostPtr(a[1]), 16);
++    if (reg < 192) std::memcpy(g_state.vsc[reg].data(), HostPtr(a[1]), 16), Touch(g_state.vsc[reg].data(), 16);
+     return 0;
+ }
+ 
+ HLE_FASTCALL(D3DDevice_SetVertexShaderConstant4, 0) {
+     uint32_t reg = a[0], src = a[1];
+-    for (uint32_t i = 0; i < 4 && reg + i < 192; i++) std::memcpy(g_state.vsc[reg + i].data(), HostPtr(src + i * 16), 16);
++    for (uint32_t i = 0; i < 4 && reg + i < 192; i++)
++        std::memcpy(g_state.vsc[reg + i].data(), HostPtr(src + i * 16), 16), Touch(g_state.vsc[reg + i].data(), 16);
+     return 0;
+ }
+ 
+ HLE_FASTCALL(D3DDevice_SetVertexShaderConstantNotInlineFast, 1) {
+     uint32_t reg = a[0], src = a[1], dwords = a[2];
+-    for (uint32_t i = 0; i < dwords / 4 && reg + i < 192; i++) std::memcpy(g_state.vsc[reg + i].data(), HostPtr(src + i * 16), 16);
++    for (uint32_t i = 0; i < dwords / 4 && reg + i < 192; i++)
++        std::memcpy(g_state.vsc[reg + i].data(), HostPtr(src + i * 16), 16), Touch(g_state.vsc[reg + i].data(), 16);
+     return 0;
+ }
+ 
+@@ -1151,18 +1196,85 @@ HLE_STDCALL(D3DDevice_SetPixelShader, 1) {
+ HLE_STDCALL(D3DDevice_SetPixelShaderConstant, 3) {
+     std::lock_guard<std::recursive_mutex> lock(g_lock);
+     uint32_t reg = a[0], src = a[1], n = a[2];
+-    for (uint32_t i = 0; i < n && reg + i < 16; i++) std::memcpy(g_state.psc[reg + i].data(), HostPtr(src + i * 16), 16);
++    for (uint32_t i = 0; i < n && reg + i < 16; i++)
++        std::memcpy(g_state.psc[reg + i].data(), HostPtr(src + i * 16), 16), Touch(g_state.psc[reg + i].data(), 16);
+     gpu::ApplyPixelConstants(g_state, reg, n);
+     return 0;
+ }
+ 
++// Push buffers: CS records its world (BeginPushBuffer .. EndPushBuffer at load) and replays it every frame
++// (RunPushBuffer) after setting the camera constants. The host draws go to a recording instead of the backend. A
++// recorded draw keeps its render states, streams, indices, textures and shaders as they were, and of the other state
++// (constants, transforms, lights) the words the recording wrote or changed against the state at BeginPushBuffer; a
++// replay applies those over the state of the moment, so constants set before RunPushBuffer (the camera) stay. The
++// target, depth buffer, viewport and super sample scale stay the current ones (the back buffers alternate).
++namespace {
++struct RenderStates {
++    decltype(gpu::State::simple) simple;
++    decltype(gpu::State::rs) rs;
++    decltype(gpu::State::tss) tss;
++    bool operator==(const RenderStates&) const = default;
++};
++struct RecordedDraw {
++    std::vector<std::pair<uint32_t, uint32_t>> words;  // index into StateWords, value
++    // render states as they were when the draw was recorded, shared by consecutive draws with the same ones: replays
++    // drawn over the render states of the moment came out black (the frame start resets textures stages and render
++    // states before RunPushBuffer), drawn with the recorded ones they match the scene
++    std::shared_ptr<const RenderStates> render;
++    // what the draw reads its vertices, indices and textures from, always as recorded: a recording may set them to
++    // what the state already held, which a comparison with the state at BeginPushBuffer would miss
++    std::array<gpu::State::Stream, 16> streams{};
++    std::array<uint32_t, 4> textures{}, palettes{};
++    uint32_t index_buffer = 0, index_data = 0, base_vertex = 0;
++    uint32_t vs_handle = 0;
++    std::shared_ptr<gpu::VertexShader> vs;
++    std::shared_ptr<gpu::PixelShader> ps;
++    uint32_t prim = 0, start = 0, count = 0;
++    std::vector<uint8_t> indices;  // 16 bit indices, copied
++    std::vector<uint8_t> up;       // DrawVerticesUP and immediate vertices, copied
++    uint32_t up_stride = 0;
++};
++std::unordered_map<uint32_t, std::vector<RecordedDraw>> g_push_buffers;  // by guest D3DPushBuffer
++std::vector<RecordedDraw>* g_recording = nullptr;
++gpu::State g_record_base;
++
++// true when a recording took the draw
++bool RecordDraw(uint32_t prim, uint32_t start, uint32_t count, const uint8_t* indices, const void* up, uint32_t stride) {
++    if (!g_recording) return false;
++    static std::vector<uint32_t*> now, base;
++    now = StateWords(g_state);
++    base = StateWords(g_record_base);
++    RecordedDraw d;
++    for (size_t i = 0; i < now.size(); i++)
++        if (*now[i] != *base[i] || (i < g_touched.size() && g_touched[i])) d.words.emplace_back(uint32_t(i), *now[i]);
++    RenderStates rs{g_state.simple, g_state.rs, g_state.tss};
++    if (!g_recording->empty() && *g_recording->back().render == rs) d.render = g_recording->back().render;
++    else d.render = std::make_shared<const RenderStates>(rs);
++    d.streams = g_state.streams;
++    d.textures = g_state.textures;
++    d.palettes = g_state.palettes;
++    d.index_buffer = g_state.index_buffer, d.index_data = g_state.index_data, d.base_vertex = g_state.base_vertex;
++    d.vs_handle = g_state.vs_handle;
++    d.vs = g_state.vs;
++    d.ps = g_state.ps;
++    d.prim = prim, d.start = start, d.count = count;
++    if (indices) d.indices.assign(indices, indices + count * 2);
++    if (up) {
++        d.up.assign(static_cast<const uint8_t*>(up), static_cast<const uint8_t*>(up) + count * stride);
++        d.up_stride = stride;
++    }
++    g_recording->push_back(std::move(d));
++    return true;
++}
++}  // namespace
++
+ // drawing
+ 
+ HLE_STDCALL(D3DDevice_DrawVertices, 3) {
+     std::lock_guard<std::recursive_mutex> lock(g_lock);
+     Walk(Dev(kDevPush));  // a visibility test begun since the last draw counts this one
+     SyncDeferred();
+-    if (g_backend) g_backend->Draw(g_state, a[0], a[1], a[2], nullptr);
++    if (g_backend && !RecordDraw(a[0], a[1], a[2], nullptr, nullptr, 0)) g_backend->Draw(g_state, a[0], a[1], a[2], nullptr);
+     return 0;
+ }
+ 
+@@ -1171,7 +1283,7 @@ HLE_STDCALL(D3DDevice_DrawIndexedVertices, 3) {
+     Walk(Dev(kDevPush));
+     SyncDeferred();
+     const uint8_t* indices = a[2] ? static_cast<const uint8_t*>(HostPtr(a[2])) : nullptr;
+-    if (g_backend) g_backend->Draw(g_state, a[0], 0, a[1], indices);
++    if (g_backend && !RecordDraw(a[0], 0, a[1], indices, nullptr, 0)) g_backend->Draw(g_state, a[0], 0, a[1], indices);
+     return 0;
+ }
+ 
+@@ -1206,6 +1318,7 @@ uint32_t UpVertices(const void* src, uint32_t bytes) {
+ void DrawUp(uint32_t prim, uint32_t count, const void* vertices, uint32_t stride) {
+     if (!g_backend || !count || !stride) return;
+     SyncDeferred();
++    if (RecordDraw(prim, 0, count, nullptr, vertices, stride)) return;
+     auto stream = g_state.streams[0];
+     g_state.streams[0] = {UpVertices(vertices, count * stride), stride};
+     g_backend->Draw(g_state, prim, 0, count, nullptr);
+@@ -1455,6 +1568,65 @@ HLE_STDCALL(D3DDevice_EndPush, 1) {
+     return a[0];
+ }
+ 
++// (pPushBuffer in edi): host draws until EndPushBuffer go to its recording
++HLE_STDCALL(D3DDevice_BeginPushBuffer, 1) {
++    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    SyncDeferred();
++    g_recording = &g_push_buffers[a[0]];
++    g_recording->clear();
++    g_record_base = g_state;
++    g_touched.assign(g_touched.size(), false);
++    g_touching = true;
++    return 0;
++}
++
++HLE_STDCALL(D3DDevice_EndPushBuffer, 0) {
++    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    if (g_recording) LOG_FIRST(8, "d3d: push buffer recorded, %zu draws", g_recording->size());
++    g_recording = nullptr;
++    g_touching = false;
++    return 0;
++}
++
++// (pPushBuffer, pFixup): the recording drawn over the current state, which is put back afterwards (the library
++// does not track what a push buffer sets)
++HLE_STDCALL(D3DDevice_RunPushBuffer, 2) {
++    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    if (a[1]) LOG_FIRST(1, "d3d: RunPushBuffer fixups are not applied");
++    auto it = g_push_buffers.find(a[0]);
++    if (it == g_push_buffers.end() || !g_backend) return 0;
++    SyncDeferred();
++    gpu::State saved = g_state;
++    std::vector<uint32_t*> now = StateWords(g_state), was = StateWords(saved);
++    const std::vector<std::pair<uint32_t, uint32_t>>* prev = nullptr;
++    for (const RecordedDraw& d : it->second) {
++        if (prev)
++            for (auto& [i, v] : *prev) *now[i] = *was[i];
++        for (auto& [i, v] : d.words) *now[i] = v;
++        prev = &d.words;
++        if (&d == &it->second.front() || d.render != (&d - 1)->render) {
++            g_state.simple = d.render->simple;
++            g_state.rs = d.render->rs;
++            g_state.tss = d.render->tss;
++        }
++        g_state.streams = d.streams;
++        g_state.textures = d.textures;
++        g_state.palettes = d.palettes;
++        g_state.index_buffer = d.index_buffer, g_state.index_data = d.index_data, g_state.base_vertex = d.base_vertex;
++        g_state.vs_handle = d.vs_handle;
++        g_state.vs = d.vs;
++        g_state.ps = d.ps;
++        if (!d.up.empty()) {
++            g_state.streams[0] = {UpVertices(d.up.data(), uint32_t(d.up.size())), d.up_stride};
++            g_backend->Draw(g_state, d.prim, 0, d.count, nullptr);
++        } else {
++            g_backend->Draw(g_state, d.prim, d.start, d.count, d.indices.empty() ? nullptr : d.indices.data());
++        }
++    }
++    g_state = saved;
++    return 0;
++}
++
+ // frame buffer compression tiles are the console's memory controller's business
+ HLE_STDCALL(D3DDevice_SetTile, 2) { return 0; }
+ 

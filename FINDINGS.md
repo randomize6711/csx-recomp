@@ -254,11 +254,37 @@ Confirmed:
 - **The front end hands a match over through Z:\releasemap.txt** (the command line) plus the launch page
   (tests/launch/README.md).
 
+- **The missing world (fixed 2026-10-19): CS draws through three paths the runtime did not see.** Measured with a
+  per-site count of draws per frame and per-draw step shots (CSX_VK_STEPSHOTS):
+  1. **Recorded push buffers.** The BSP world renderer (selected by the cvar jcab_render_bsp at 0x51ED0) records the
+     whole world at load between D3DDevice_BeginPushBuffer (0x312C90) and EndPushBuffer (0x312D10), 576 indexed
+     draws from 0x1986A6 into the buffer made by CreatePushBuffer (0x312C10, kept at 0x552C04), and every frame sets
+     the camera into vertex constants 3..6 and calls RunPushBuffer (0x312900). None was bound: the runtime drew the
+     576 draws once at load (with the state of the moment) and the replays jumped into an empty buffer. SDK patch 0019
+     records host draws between Begin and End and replays them at RunPushBuffer (proofs in config/game.toml).
+     Replaying needs the recorded draw's render states, streams, indices, textures and shaders as they were, and of
+     the constants only what the recording wrote (so the camera set before RunPushBuffer stays): comparing with the
+     state at BeginPushBuffer alone missed values the second recording set again (stream 0 stayed the tree model's,
+     constants 8..13 stayed the frame's), and replaying over the frame's render states drew every surface black.
+  2. **Inline arrays.** The GoldSrc model renderer (triangle commands, 0x91990) and the GL layer push Begin, an
+     NV097_INLINE_ARRAY (0x1818) of packed vertices and End themselves; the push buffer walker ignored 0x1818, so all
+     of it vanished (first person weapon, player models, about 470 primitives a frame). The vertex formats D3D's
+     stream setup pushes (0x1760) read 0 / 0x1000, because they come from the library's vertex shader object, which
+     the host SetVertexShader does not keep: the layout is taken from the host's shader / FVF state (patch 0018).
+  3. **Pushed commands drawn with later state.** The walker ran only at the next HLE draw, so inline draws took the
+     render target, textures and shader of whatever HLE call came after them (127 strips landed in a glow target).
+     Patch 0018 walks pending commands at the start of every D3D entry point (HLE_BEFORE in xdk/hle.h).
+  Also: a vertex program selected before its microcode is loaded (the world renderer selects at 0x1963FD, loads at
+  0x19691A) ran the previous program; a load now rebuilds the selected shader (patch 0018).
+- **The frame cap is the game's**: fps_max (cvar 0x377D08, default "72.0", FCVAR_ARCHIVE) limits the host frame rate
+  as GoldSrc's Host_FilterTime does (read at 0x5CDAF); the runtime adds no cap. Kept: the movement physics depends on
+  the frame time; raising it is a PC enhancement.
+
 Open:
-- **A band of the world is not drawn** near the spawn on de_airstrip (behind the trees, above the fogged ground): the
-  reference renderer leaves it black, the Vulkan backend shows the target's old contents. Only about 15 world polygons
-  (DrawVerticesUP, POLYGON) are submitted per frame, all small and far; nearer world surfaces are never submitted, so
-  the cause is before the renderers (culling or a path the runtime does not see). Not yet explained.
+- The reference renderer leaves a few near ground triangles black at the de_airstrip spawn (bottom left) where the
+  Vulkan backend draws them; a reference renderer problem (near plane handling), not seen on the GPU.
+- RunPushBuffer fixups (pFixup) are not applied (CS passes none); the world's re-recording path (0x1979DA) is
+  supported by clearing the recording at BeginPushBuffer, not otherwise exercised.
 
 ## Assumptions / to verify
 

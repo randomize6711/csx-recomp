@@ -1,12 +1,13 @@
 # TODO (priority order)
 
 ## Now
-0. World surfaces missing at the de_airstrip spawn in both renderers (FINDINGS.md "In-game rendering"): find why
-   nearer world polygons are never submitted.
-1. Vulkan milestone 3 remainder: compare a matched in-game frame with the reference renderer once the world draws
-   (same launch fixture and timing), point sprites, CopyRects, feedback copies, guest readback (Sync), gamma.
+0. Next milestone (recommended): playable match quality on Linux — audio output (SDL3, XACT already mixes into a
+   null device), movies (overlay), raw mouse aim, then a full round on several maps (de_dust, cs_italy) through the
+   Vulkan window with checks in game state; collect rendering discrepancies per map.
+1. Vulkan remainder: point sprites, CopyRects, feedback copies, guest readback (Sync), gamma; investigate the lower
+   ground tint difference against the reference (fog or glow); occasional frame dips to ~64 with ~1150 draws.
    Install vulkan-validation-layers for CSX_VK_VALIDATION=1 runs. The upload ring's overflow path re-uses offsets a
-   draw already took (never reached: peak 2.4 MB of 64 MB).
+   draw already took (never reached: peak 9 MB of 64 MB).
 2. Compare in-game rendering with xemu (dark sky/wall area on de_airstrip, lightmaps, fog, rain, colours).
 3. Overlay compositing so movies are visible (reference renderer first, then backends); front buffer resolve of the
    640x960 back buffer.

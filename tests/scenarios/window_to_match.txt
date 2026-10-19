@@ -28,7 +28,7 @@ sleep 3
 key Space
 sleep 20
 windowshot spawned
-key LCtrl
+key Left_Ctrl
 sleep 20
 key W 3
 sleep 6

@@ -1,0 +1,15 @@
+# Vulkan window, same steps and pacing (run with --env FPS=30) as match_direct.txt up to its in_match snapshot, for
+# comparing an in-game frame with the reference renderer's (bots and rain differ; the world and HUD should not)
+#   --exe build/window/CounterStrike --run build/wrun --env CSX_RENDERER=vulkan --env FPS=30 --launch tests/launch/de_airstrip_beginner
+wait log open D:\\de_airstrip.sxwad
+sleep 12
+key Down
+sleep 1
+key Down
+sleep 1
+key Space
+sleep 4
+key Left_Ctrl
+sleep 12
+windowshot in_match
+expect nolog vulkan: .* failed

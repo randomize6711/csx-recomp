@@ -1,6 +1,6 @@
 # The Vulkan window straight into the offline match (no front end): run with
 #   --exe build/window/CounterStrike --run build/wrun --env CSX_RENDERER=vulkan --launch tests/launch/de_airstrip_beginner
-# Team menu: Down, Down, Space (Terrorist); LCtrl leaves the buy menu; W walks.
+# Team menu: Down, Down, Space (Terrorist); Left_Ctrl (B) leaves the buy menu; W walks.
 wait log open D:\\de_airstrip.sxwad
 sleep 15
 windowshot team_menu
@@ -11,11 +11,14 @@ sleep 2
 key Space
 sleep 6
 windowshot spawned
-key LCtrl
+key Left_Ctrl
 sleep 12
 windowshot in_game
+state before_walk
 key W 3
 sleep 5
+state after_walk
+expect moved before_walk after_walk 100 2000
 windowshot moved
 expect nolog fatal error screen
 expect nolog guest trap

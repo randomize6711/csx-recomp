@@ -1127,9 +1127,9 @@ void VulkanBackend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t
     pk.quad = sh.quad;
     // PixelHlsl applies QuadHlsl for pk.quad
     const Shader& ps = EnsureShader(Hash(&pk, sizeof(pk)) ^ kPixelKeySalt, vk_shader::Stage::Pixel, [&] { return PixelHlsl(pk); });
-    // CSX_VK_LOGFRAME=N: every draw of the Nth presented frame in the log
+    // CSX_VK_LOGFRAME=N: every draw of the Nth presented frame in the log (and of the CSX_VK_STEPSHOTS frame)
     static const long log_frame = std::getenv("CSX_VK_LOGFRAME") ? std::atol(std::getenv("CSX_VK_LOGFRAME")) : -1;
-    if (long(presents_) == log_frame)
+    if (long(presents_) == log_frame || (step && step_name_ == step_shot))
         LOGI("vulkan: draw %llu prim %u n %u regs %X pre %d prog %d quad %d idx %u verts %u rt %08X ds %08X z %u zf %X "
              "zw %u cull %X blend %u vp %u %u %u %u tex0 %d", frame_draws_ - 1, prim, count, a.regs,
              int(a.pretransformed), int(sh.prog), int(sh.quad), a.index_count, a.vertex_count, rt ? rt->data : 0,

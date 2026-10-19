@@ -20,6 +20,7 @@
 - M3 — Generated code compiles and links in the harness ✅ 2026-10-19 (boots to Direct3D_CreateDevice)
 - M4 — First frame from the reference renderer ✅ 2026-10-19 (title screen "Please press START")
 - M5 — Main menu reached and rendered (headless reference renderer) ✅ 2026-10-19; on Windows: pending
-- M6 — Offline match initialises: de_airstrip, spawn, HUD, bots active ✅ 2026-10-19 (headless); player control not yet verified
-- M7 — Linux Vulkan renders the main menu
+- M6 — Offline match initialises: de_airstrip, spawn, HUD, bots active ✅ 2026-10-19 (headless); player control verified 2026-10-19
+- M7 — Linux Vulkan renders the main menu ✅ 2026-10-19
+- M7b — Complete in-game scene (world, models, view model) in both renderers ✅ 2026-10-19 (de_airstrip spawn)
 - M8 — PC feature set complete

@@ -49,6 +49,11 @@ tests/launch/de_airstrip_beginner` (tests/launch/README.md):
     python3 -I tools/drive.py tests/scenarios/vk_match_direct.txt --exe build/window/CounterStrike --run build/wrun \
         --env CSX_RENDERER=vulkan --env FPS=0 --launch tests/launch/de_airstrip_beginner
 
+`vk_match_direct` checks the walk in game state (state probe works in the window build too). `vk_compare_direct`
+repeats match_direct's steps at FPS=30 in the Vulkan window, for comparing its `in_match` shot with match_direct's
+`snaps/in_match_2.tga` (tools/compare_images.py). Window key names are SDL's, with underscores for spaces
+(`Left_Ctrl`).
+
 The regression keeps booting through the front end (it covers the menus and the relaunch).
 
 ## Window build scenarios (manual, open a window on the desktop)
