@@ -1,0 +1,42 @@
+diff --git a/runtime/xdk/dsound.cpp b/runtime/xdk/dsound.cpp
+index bcc976b..5c871c5 100644
+--- a/runtime/xdk/dsound.cpp
++++ b/runtime/xdk/dsound.cpp
+@@ -4,6 +4,7 @@
+ #include <chrono>
+ #include <cmath>
+ #include <condition_variable>
++#include <cstdlib>
+ #include <deque>
+ #include <map>
+ #include <vector>
+@@ -173,6 +174,7 @@ struct Voice {
+     // submixing (XACT's 3D sounds): a voice SetOutputBuffer sends to a MIXIN buffer (DSBCAPS_MIXIN 0x2000) plays
+     // through that buffer's mix bins, 3D voice data and pan instead of its own bins, and takes its Doppler pitch
+     uint32_t output = 0;  // the destination voice, 0: the voice's own mix bins
++    float logged_gain = -1;  // XBE_LOG_3D: the routed 3D gain last logged
+     // SetPitch: 1/4096 octave relative to 48 kHz, used instead of the rate while pitch_set
+     int32_t pitch = 0;
+     bool pitch_set = false;
+@@ -386,9 +388,21 @@ void Render(float* out, uint32_t frames) {
+             if (!dest) continue;
+             float d[2][2];
+             Levels(*const_cast<Voice*>(dest), d);
++            // the source's own 3D voice data still sets its output level: the voice update applies the distance and
++            // cone term to every bin of a voice (0x24AF4E), and XACT puts l3DDistanceVolume on the source
+             float own = v.volume * v.headroom;
++            if (v.use3d && v.vd3d) own *= Db(VoiceData3DLevel(v, 0));
+             for (int c = 0; c < 2; c++)
+                 for (int k = 0; k < 2; k++) g[c][k] = own * d[dest->channels > 1 ? c : 0][k];
++            // XBE_LOG_3D=1: a routed 3D voice's gain whenever it moves by 1 dB or more (diagnostics)
++            static const bool log3d = std::getenv("XBE_LOG_3D") && *std::getenv("XBE_LOG_3D") == '1';
++            float peak = std::max(std::max(g[0][0], g[0][1]), std::max(g[1][0], g[1][1]));
++            if (log3d && v.use3d && v.vd3d &&
++                (v.logged_gain < 0 || std::fabs(20 * std::log10((peak + 1e-9f) / (v.logged_gain + 1e-9f))) >= 1)) {
++                v.logged_gain = peak;
++                LOGI("dsound: voice %08X routed gain L %.4f R %.4f, 3D level %d mB", v.obj, std::max(g[0][0], g[1][0]),
++                     std::max(g[0][1], g[1][1]), VoiceData3DLevel(v, 0));
++            }
+         } else {
+             Levels(v, g);
+         }

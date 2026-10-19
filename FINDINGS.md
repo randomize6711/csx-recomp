@@ -312,6 +312,29 @@ Confirmed:
   (48000 Hz, 2 channels, F32), 960 frame (20 ms) device period, no late callbacks over a match, and a capture's length
   matches the run's (no drift).
 
+- **Distance attenuation was dropped (fixed, SDK patch 0024).** XACT runs the DSOUND library's 3D calculator as guest
+  code and sends its result with IDirectSoundBuffer_Set3DVoiceData (0x2FCB91) to the **source** buffer (flags
+  0x400000) it routes into the MIXIN buffer: in a de_airstrip match, all 710 blocks carrying a distance level (flag
+  0x01, l3DDistanceVolume at +4) went to routed sources, and only that term was ever non-zero on them (cone, front /
+  back and I3DL2 terms 0). Patch 0020 mixed a routed source as its volume x headroom x the destination's levels and
+  never applied the source's own block, so every 3D sound played at full level whatever its distance (direction was
+  right: it comes from the destination). The voice update applies a voice's distance and cone term D = clamp(+4 + +8)
+  to every bin (0x24AF4E, analysis/dsound_xact_5659.md), a source's output into a submix included; patch 0024 applies
+  it to the routed source.
+- **The levels are the game's**: the calculator's inputs at the call (src/game/audio3d_probe.cpp, CSX_AUDIO_LOG3D=1)
+  are the listener (0x3038A0, position at +8; distance, rolloff and Doppler factors 1) and the cue's source parameters
+  (cue+0x44: position at +8, minimum / maximum distance at +0x38 / +0x3C). The level follows DirectSound's inverse
+  distance law with a rolloff of 0.75 (its source not traced; the listener factors read 1) for the min 400 / max 10000 class (weapons and most world sounds): gain =
+  400 / (400 + 0.75 (d - 400)), e.g. 699 units -386 mB, 902 -576, 951.6 -617 (computed values match to 1 mB), about
+  -12.6 dB at 2140 units and -18 dB at 4000. Other classes seen: min 500 / max 100000, 50 / 2000, 120 / 600, 50 / 200,
+  30 / 300, 10 / 350 (the shorter ones fall faster near their maximum). Inside the minimum distance the level is 0.
+- **Checked on de_airstrip, de_dust and cs_italy** (tests/audio3d_check.sh, tools/check_audio3d.py, with XBE_LOG_3D=1
+  logging each routed 3D voice's mixer gain): per class the level falls strictly with distance (rank correlation
+  -1.000), the mixer applies XACT's latest level in 95-99 % of gain changes (the rest are a probe / mixer timing
+  offset), far voices (-800 mB or lower) play 16-18.5 dB below voices at 0 mB; left and right still differ by
+  azimuth. Music, menu and other 2D sounds do not go through a submix and are unchanged (the window capture check
+  still passes).
+
 Approximations / open:
 - The console positions 3D voices with its HRTF filter (DSP, per-voice coefficients from azimuth and elevation); the
   mixer pans linearly by the sine of the azimuth instead. Elevation and the front/back distinction are not rendered.

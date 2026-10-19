@@ -175,3 +175,16 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   through WASAPI. Not run on Windows itself.
 - Tests: tests/windows_check.sh (build, PE and import checks, override parity with Linux, Wine scenarios);
   drive.py --wine. Linux: window build vk_match_direct 32/32.
+
+## 2026-10-19 — 3D sound distance attenuation (Linux)
+
+- Played-in report: distant gunshots as loud as near ones. XACT puts the distance level its 3D calculator computes
+  (l3DDistanceVolume) on the source buffer it routes into the MIXIN buffer; the routed mix (patch 0020) ignored the
+  source's own 3D block. SDK patch 0024 applies the source's distance / cone term, as the voice update does for every
+  bin (FINDINGS.md "Audio").
+- Evidence and tests: src/game/audio3d_probe.cpp ([[hook]] 0x2FCB91, CSX_AUDIO_LOG3D=1) logs each 3D update's distance
+  and level; XBE_LOG_3D=1 logs the mixer gain; tools/check_audio3d.py, tests/audio3d_check.sh: on de_airstrip,
+  de_dust and cs_italy the level falls with distance in every sound class, reaches the mixer, far voices play 16-18.5
+  dB below near ones. regress_audio3d.txt in run_regression.sh (which now passes --env from scenario headers).
+- Regression 272/272 (257 plus the new scenario's 15 checks).
+

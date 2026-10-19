@@ -1,0 +1,17 @@
+# 3D sounds fade with distance (FINDINGS.md "Audio"): XACT's distance level reaches the mixer for the routed source
+#   --launch tests/launch/de_airstrip_beginner --env XBE_LOG_3D=1 --env CSX_AUDIO_LOG3D=1
+wait log open D:\\.*\.sxwad
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+count game:.World.triggered."Round_Start" 2
+sleep 40
+expect log audio3d: voice \w+ distance [0-9.]+ min 400 max 10000 level -[1-9][0-9][0-9]+ mB
+expect log dsound: voice \w+ routed gain L [0-9.]+ R [0-9.]+, 3D level -[1-9][0-9][0-9]+ mB
+expect nolog guest trap

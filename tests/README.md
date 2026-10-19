@@ -83,6 +83,14 @@ src/game/game_log.cpp). About 6 to 13 minutes a map headless:
 minutes, nine rounds on de_airstrip on 2026-10-19).
 Map fixtures other than de_airstrip differ only in `releasemap.txt`'s `+map`.
 
+## 3D sound distance
+
+`regress_audio3d.txt` (in run_regression.sh; `--env` lines in a scenario header are passed to drive.py) checks that
+XACT's distance level for a far sound reaches the mixer for the routed source. `tests/audio3d_check.sh [maps]` plays a
+minute of each map's direct-start match (`audio3d_direct.txt`) with `CSX_AUDIO_LOG3D=1` (game-side probe: distance
+and XACT's level per 3D update) and `XBE_LOG_3D=1` (mixer gain per routed 3D voice) and runs `tools/check_audio3d.py`:
+level falling with distance per sound class, the level reaching the mixer, far voices at least 6 dB below near ones.
+
 ## Mouse look
 
 `regress_mouse_look.txt` (part of run_regression.sh, starts in the match through its `--launch` header line) turns

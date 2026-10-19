@@ -411,6 +411,13 @@ call = "LogGameLine"
 at = 0x108470
 call = "LogFatalScreen"
 
+# 3D sound diagnostics (src/game/audio3d_probe.cpp, CSX_AUDIO_LOG3D=1): XACT's IDirectSoundBuffer_Set3DVoiceData call
+# at 0x2FCB91 (0x2FCB8D push ebx = the block cue+0xE8, 0x2FCB90 push eax = the buffer [esi+0x1C]); the block was
+# filled by the 3D calculator call at 0x2FCB69 (listener edi, source esi+0x44, out ebx)
+[[hook]]
+at = 0x2FCB91
+call = "Audio3DProbe"
+
 # BEGIN fatal-site diagnostics (temporary)
 [[hook]]
 at = 0x001058FC

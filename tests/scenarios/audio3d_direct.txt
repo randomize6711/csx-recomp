@@ -1,0 +1,19 @@
+# 3D sound distance attenuation, headless, from the direct start of any map fixture (tests/audio3d_check.sh):
+#   --env FPS=30 --env XBE_LOG_3D=1 --env CSX_AUDIO_LOG3D=1 --launch tests/launch/<map>_beginner
+# Terrorist, two shots, then a minute of the bots' round (their footsteps, shots and radio at all distances).
+wait log open D:\\.*\.sxwad
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+count game:.World.triggered."Round_Start" 2
+sleep 14
+press RT 3
+sleep 1
+press RT 3
+sleep 60

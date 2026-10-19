@@ -10,6 +10,8 @@ for s in tests/scenarios/regress_*.txt; do
     # 30 presented frames per second (CS presents every second vertical blank): presses held N frames last alike
     # a scenario that starts in the match names its launch fixture in its header ("--launch tests/launch/...")
     launch=$(grep -m1 -o -- '--launch tests/launch/[A-Za-z0-9_]*' "$s" || true)
-    python3 -I tools/drive.py "$s" --timeout 600 --env FPS=30 $launch || status=1
+    # and the environment it needs ("--env NAME=VALUE" in its header)
+    envs=$(grep '^#' "$s" | grep -o -- '--env [A-Z0-9_]*=[^ ]*' | tr '\n' ' ' || true)
+    python3 -I tools/drive.py "$s" --timeout 600 --env FPS=30 $launch $envs || status=1
 done
 exit $status
