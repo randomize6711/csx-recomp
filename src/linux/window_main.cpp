@@ -114,8 +114,8 @@ bool HostInputEvent(const SDL_Event& e) {
         case SDL_EVENT_KEY_UP: return e.key.which != kInjectedKeyboard;
         case SDL_EVENT_MOUSE_MOTION: return e.motion.which != window::kInjectedDevice;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
-        case SDL_EVENT_MOUSE_BUTTON_UP:
-        case SDL_EVENT_MOUSE_WHEEL:
+        case SDL_EVENT_MOUSE_BUTTON_UP: return e.button.which != window::kInjectedDevice;
+        case SDL_EVENT_MOUSE_WHEEL: return e.wheel.which != window::kInjectedDevice;
         case SDL_EVENT_GAMEPAD_ADDED:
         case SDL_EVENT_GAMEPAD_AXIS_MOTION:
         case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
@@ -200,6 +200,7 @@ int main(int argc, char** argv) {
     struct Held {
         SDL_Keycode key;
         std::chrono::steady_clock::time_point until;
+        uint8_t button = 0;  // a mouse button instead of a key
     };
     std::vector<Held> held;
     auto push_key = [&](SDL_Keycode k, bool down) {
@@ -212,7 +213,17 @@ int main(int argc, char** argv) {
         SDL_PushEvent(&ev);
     };
     const std::string keys_file = (app::ExeDir() / "keys").string();
-    // "mouse" request: "DX DY" counts of relative motion, as a captured mouse gives them (tests of the mouse look)
+    // "mouse" request: "DX DY" counts of relative motion, as a captured mouse gives them (tests of the mouse look),
+    // "button N SECONDS" a mouse button (SDL numbering: 1 left, 2 middle, 3 right) held, "wheel N" wheel notches
+    auto push_button = [&](uint8_t b, bool down) {
+        SDL_Event ev{};
+        ev.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
+        ev.button.button = b;
+        ev.button.down = down;
+        ev.button.windowID = SDL_GetWindowID(win);
+        ev.button.which = window::kInjectedDevice;
+        SDL_PushEvent(&ev);
+    };
     const std::string mouse_file = (app::ExeDir() / "mouse").string();
     const bool test_input_only = std::getenv("CSX_TEST_INPUT_ONLY") && *std::getenv("CSX_TEST_INPUT_ONLY") == '1';
     if (test_input_only) LOGI("window: test input only, host keyboard, mouse and gamepads ignored");
@@ -238,7 +249,23 @@ int main(int argc, char** argv) {
         }
         if (FILE* mf = std::fopen(mouse_file.c_str(), "r")) {
             float dx = 0, dy = 0;
-            if (std::fscanf(mf, "%f %f", &dx, &dy) == 2) {
+            char word[16] = {};
+            double secs = 0.1;
+            int n = 0;
+            long at = std::ftell(mf);
+            if (std::fscanf(mf, "button %d %lf", &n, &secs) >= 1 && n > 0) {
+                push_button(uint8_t(n), true);
+                held.push_back({SDLK_UNKNOWN, tnow + std::chrono::milliseconds(long(secs * 1000)), uint8_t(n)});
+            } else if (std::fseek(mf, at, SEEK_SET) == 0 && std::fscanf(mf, "%15s %d", word, &n) == 2 &&
+                       !std::strcmp(word, "wheel")) {
+                SDL_Event ev{};
+                ev.type = SDL_EVENT_MOUSE_WHEEL;
+                ev.wheel.windowID = SDL_GetWindowID(win);
+                ev.wheel.which = window::kInjectedDevice;
+                ev.wheel.y = float(n);
+                ev.wheel.integer_y = n;
+                SDL_PushEvent(&ev);
+            } else if (std::fseek(mf, at, SEEK_SET) == 0 && std::fscanf(mf, "%f %f", &dx, &dy) == 2) {
                 SDL_Event ev{};
                 ev.type = SDL_EVENT_MOUSE_MOTION;
                 ev.motion.windowID = SDL_GetWindowID(win);
@@ -252,7 +279,8 @@ int main(int argc, char** argv) {
         }
         for (size_t i = 0; i < held.size();) {
             if (tnow >= held[i].until) {
-                push_key(held[i].key, false);
+                if (held[i].button) push_button(held[i].button, false);
+                else push_key(held[i].key, false);
                 held.erase(held.begin() + long(i));
             } else {
                 i++;
@@ -274,7 +302,8 @@ int main(int argc, char** argv) {
                 if (e.key.key == SDLK_F1) SDL_SetWindowRelativeMouseMode(win, !SDL_GetWindowRelativeMouseMode(win));
             }
             // the mouse is captured by a click in the window and let go with F1 or when the window loses focus
-            if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && !SDL_GetWindowRelativeMouseMode(win)) {
+            if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && !SDL_GetWindowRelativeMouseMode(win) &&
+                e.button.which != window::kInjectedDevice) {
                 SDL_SetWindowRelativeMouseMode(win, true);
                 continue;
             }

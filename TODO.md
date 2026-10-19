@@ -4,7 +4,7 @@
 0. Windows: run build/windows/dist on a real Windows 10/11 PC (startup, Vulkan driver, WASAPI, mouse capture,
    relaunch handover, a full round); then a GUI-subsystem exe (no console) if wanted. Then image comparisons on de_dust
    and cs_italy.
-0. PC Options next: key bindings, frame rate limit (SDK harness
+0. PC Options next: press-a-key capture in PC Controls (TrapKey_Event's trap mode), frame rate limit (SDK harness
    pacing read at run time), field of view, audio output device; Window Size where the compositor honours it.
 0a. Linux play-test follow-up: compare the gamma ramp (x1.67) and glow pass with a console capture; current vertex
    data for vertex-buffer draws; point / line polygon offsets.

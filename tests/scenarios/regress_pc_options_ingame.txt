@@ -41,5 +41,5 @@ sleep 1
 press A
 sleep 2
 expect log pc: mouse_sensitivity = 4
-expect log pc menu: PC Options added to InGameUI.txt
+expect log pc menu: PC screens added to InGameUI.txt
 expect nolog guest trap

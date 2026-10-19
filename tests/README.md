@@ -112,6 +112,14 @@ that Control Options still opens. `regress_pc_options_ingame.txt` does the same 
 pause menu (START > Options > PC Options). run_regression.sh passes `--pc` lines of a scenario header like `--env`
 ones.
 
+## PC key bindings
+
+`regress_pc_bindings.txt` starts a match with Jump saved on Tab (`--pc bind.jump=TAB`) and sends engine key events
+(`pckey key KEYNUM DOWN`, `pckey cmd TEXT`; src/game/pc_keys.cpp polls the run folder's pckey file): Tab jumps
+(`expect rose A B MIN`), Space does not, the pad's A still jumps, Mouse 1 fires, R reloads, B opens the buy menu, then
+the pause menu's PC Controls restores the defaults (X) and saves (A) and Space jumps. In the window build `click
+BUTTON [SECONDS]` and `wheel N` send mouse buttons and wheel notches through SDL like `key`.
+
 ## Mouse look
 
 `regress_mouse_look.txt` (part of run_regression.sh, starts in the match through its `--launch` header line) turns

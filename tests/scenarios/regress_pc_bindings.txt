@@ -1,0 +1,96 @@
+# PC key bindings (FINDINGS.md "PC key bindings", src/game/pc_keys.cpp, Options > PC Controls): keys reach the engine
+# as its own keys and run the bindings kept in keybindings[]. Seeded with Jump on Tab (a saved setting, as after a
+# restart): Tab jumps, Space does nothing, the pad's A still jumps, Mouse 1 fires, R reloads, B opens the buy menu; in
+# the pause menu's PC Controls X restores the defaults and A saves them: Space jumps again.
+#   --launch tests/launch/de_airstrip_beginner --pc bind.jump=TAB
+wait log open D:\\.*\.sxwad
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+count game:.World.triggered."Round_Start" 2
+sleep 6
+expect log pc keys: bindings set
+state j0
+pckey key 9 1
+sleep 0.2
+state j1
+pckey key 9 0
+expect rose j0 j1 20
+sleep 1.5
+state j2
+pckey key 32 1
+sleep 0.2
+state j3
+pckey key 32 0
+expect still j2 j3
+sleep 1.5
+state p0
+press A 4
+sleep 0.1
+state p1
+expect rose p0 p1 20
+sleep 1.5
+pckey key 241 1
+sleep 0.1
+pckey key 241 0
+sleep 0.6
+state f1
+expect shots p1 f1 1
+pckey key 114 1
+sleep 0.1
+pckey key 114 0
+sleep 3.5
+state f2
+expect shots f1 f2 -1
+pckey key 98 1
+sleep 0.2
+pckey key 98 0
+sleep 1
+count pc.keys:.menu.T_BuyMenuRoot 2
+press B
+sleep 2
+press START
+sleep 2
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 2
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 2
+press X
+sleep 1
+expect log pc menu: InGame_PCControls shows its defaults
+press A
+sleep 2
+expect log pc: bind.jump = SPACE
+press B
+sleep 1
+press B
+sleep 2
+state d0
+pckey key 32 1
+sleep 0.2
+state d1
+pckey key 32 0
+expect rose d0 d1 20
+expect nolog guest trap

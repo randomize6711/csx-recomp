@@ -27,12 +27,15 @@ per line, executed in order:
     expect turned A B MIN          yaw difference between states A and B (shortest way) at least MIN degrees
     expect shots A B N             the shot counter dropped by exactly N from A to B
     expect still A B               position and yaw equal in A and B
+    expect rose A B MIN            the player rose at least MIN units from A to B (a jump)
     expect heading A B MAXDEG      the move from A to B points along A's yaw within MAXDEG degrees
     mouse DX DY             (window build) relative mouse motion in counts, through the window's mouse look
     count REGEX N           until N log lines match REGEX (no spaces: write . for them)
     look RIGHT UP           turn the view by degrees through the mouse look hook (src/game/mouse_look.cpp)
     pokefile FILE           every "VA FLOAT" line of FILE (relative to the repository) written at once
     poke VA FLOAT           write FLOAT to guest address VA (hex) once, src/common/memory_dump.cpp (diagnostics)
+    click BUTTON [SECONDS]  (window build) a mouse button (1 left, 2 middle, 3 right) through SDL; wheel N: wheel notches
+    pckey cmd TEXT          console text through Cbuf_AddText; pckey key KEYNUM DOWN: an engine key event (pc_keys.cpp)
     snap NAME               draw the next two frames and keep them as build/run/snaps/NAME_1.tga / NAME_2.tga
     expect region NAME X0 Y0 X1 Y1 MIN MAX  mean luminance of that box of snaps/NAME_2.tga (or shots/NAME.bmp) in [MIN, MAX]
     expect darkfrac NAME X0 Y0 X1 Y1 LUM MIN MAX  share of that box's pixels darker than LUM in [MIN, MAX]
@@ -229,6 +232,15 @@ def main():
             elif kind == 'key':
                 send_file('keys', st[1] + ' ' + (st[2] if len(st) > 2 else '0.12'))
                 good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'keys')))
+            elif kind in ('click', 'wheel'):
+                # click BUTTON [SECONDS] (1 left, 2 middle, 3 right) / wheel N: window build, through SDL's event queue
+                send_file('mouse', ('button ' + st[1] + ' ' + (st[2] if len(st) > 2 else '0.12')) if kind == 'click'
+                          else 'wheel ' + st[1])
+                good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'mouse')))
+            elif kind == 'pckey':
+                # pckey cmd TEXT... | pckey key KEYNUM DOWN: console text or an engine key event (src/game/pc_keys.cpp)
+                send_file('pckey', ' '.join(st[1:]))
+                good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'pckey')))
             elif kind == 'windowshot':
                 send_file('shot', st[1])
                 good = wait_until(lambda: log.match('window: shot .*' + re.escape(st[1]) + r'\.bmp'))
@@ -285,10 +297,13 @@ def main():
                 good = wait_until(got)
                 if good:
                     print('     ' + st[1] + ' = ' + ' '.join(str(v) for v in states[st[1]]))
-            elif kind == 'expect' and st[1] in ('moved', 'turned', 'shots', 'still', 'heading', 'yaw', 'pitch'):
+            elif kind == 'expect' and st[1] in ('moved', 'turned', 'shots', 'still', 'heading', 'yaw', 'pitch', 'rose'):
                 a, b = states.get(st[2]), states.get(st[3])
                 good = a is not None and b is not None
-                if good and st[1] == 'moved':
+                if good and st[1] == 'rose':
+                    good = b[2] - a[2] >= float(st[4])
+                    print(f'     rose {b[2] - a[2]:.1f}')
+                elif good and st[1] == 'moved':
                     dist = ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5
                     good = float(st[4]) <= dist <= float(st[5])
                     print(f'     moved {dist:.1f}')

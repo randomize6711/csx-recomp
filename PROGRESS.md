@@ -233,3 +233,12 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
 - InGameUI.txt gets the same row and an InGame_PCOptions screen in the pause menu's own style; settings change during
   a match (mouse sensitivity checked in the Vulkan window). Test: regress_pc_options_ingame.txt. Regression 426/426.
 
+## 2026-10-19 — PC key and mouse bindings
+
+- The engine's GoldSrc key system serves PC keys: keys, mouse buttons and the wheel are engine keys while playing
+  (src/game/pc_keys.cpp hands them to Key_Event), bound with the engine's bind from Options > PC Controls (27 actions,
+  PC defaults, restore defaults, duplicates resolved); menus keep the keyboard as the pad (FINDINGS.md "PC key
+  bindings").
+- pc_menu.cpp is now a registration of PC screens (PC Options, PC Controls) from which both menus' text is made.
+- Tests: regress_pc_bindings.txt; drive.py steps pckey, click, wheel, expect rose.
+

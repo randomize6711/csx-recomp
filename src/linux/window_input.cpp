@@ -1,8 +1,9 @@
-// input::Poll for the Linux window: the first SDL gamepad and the keyboard and mouse, both as the console controller on
-// port 0. The title reads only the controller (XInputGetState), so keyboard and mouse are folded into one:
-//   WASD left stick, mouse look (below), arrows d-pad, Space A, Left Ctrl B, R X, Q Y,
-//   1 white, 2 black, left mouse right trigger, right mouse left trigger, Enter / Escape START, Tab BACK,
-//   Left Shift left stick click, middle mouse right stick click; F1 releases or captures the mouse.
+// input::Poll for the Linux window: the first SDL gamepad, and the keyboard and mouse. While a menu screen of the game
+// is open the keyboard and mouse act as the console controller on port 0 (the title's menus read only the pad):
+//   WASD left stick, arrows d-pad, Space A, Left Ctrl B, R X, Q Y, 1 white, 2 black, left mouse right trigger,
+//   right mouse left trigger, Enter / Escape START, Tab BACK, Left Shift left stick click, middle mouse right stick
+//   click. While playing they are the engine's own keys and run their bindings (Options > PC Controls), Escape
+//   staying START (the game menu). F1 releases or captures the mouse.
 // Mouse look: while the mouse is captured (relative mode, SDL's unaccelerated motion), each count turns the view by
 // 0.022 degrees x the sensitivity (CSX_MOUSE_SENS, else Options > PC Options, else 3: GoldSrc's m_yaw / m_pitch and
 // CS's default) through the title's look routine (src/game/mouse_look.cpp); CSX_MOUSE_INVERT=1 inverts the pitch.
@@ -15,11 +16,13 @@
 #include <cstdlib>
 #include <cmath>
 #include <mutex>
+#include <map>
 #include <set>
 
 #include "app/app.h"
 #include "core/input.h"
 #include "common/csx.h"
+#include "common/pc_bindings.h"
 #include "common/pc_settings.h"
 #include "core/log.h"
 #include "linux/window.h"
@@ -74,6 +77,93 @@ const MouseConfig& Mouse() {
 
 bool Down(SDL_Keycode k) { return g_keys.count(k) != 0; }
 
+// Playing (no menu screen open), keys and mouse buttons are the engine's own keys and run their bindings (Options >
+// PC Controls, src/game/pc_keys.cpp); Escape stays the pad's START (the game menu). In the game's menus they stay the
+// pad (arrows, Space, Left Ctrl...) whatever the bindings, so the menus are always reachable.
+std::set<int> g_engine_held;  // engine keys down: their release goes to the engine whatever is open then
+bool g_was_menu = true;
+
+// SDL key -> engine key number (keys.c: letters, digits and punctuation as their characters, the rest from 127 up)
+int EngineKey(SDL_Keycode k) {
+    if ((k >= SDLK_A && k <= SDLK_Z) || (k >= SDLK_0 && k <= SDLK_9)) return int(k);
+    switch (k) {
+        case SDLK_SPACE: return 32;
+        case SDLK_TAB: return 9;
+        case SDLK_RETURN: return 13;
+        case SDLK_BACKSPACE: return 127;
+        case SDLK_GRAVE: case SDLK_MINUS: case SDLK_EQUALS: case SDLK_LEFTBRACKET: case SDLK_RIGHTBRACKET:
+        case SDLK_SEMICOLON: case SDLK_COMMA: case SDLK_PERIOD: case SDLK_SLASH: case SDLK_BACKSLASH:
+        case SDLK_APOSTROPHE: return int(k);
+        case SDLK_UP: return 128;
+        case SDLK_DOWN: return 129;
+        case SDLK_LEFT: return 130;
+        case SDLK_RIGHT: return 131;
+        case SDLK_LALT: case SDLK_RALT: return 132;
+        case SDLK_LCTRL: case SDLK_RCTRL: return 133;
+        case SDLK_LSHIFT: case SDLK_RSHIFT: return 134;
+        case SDLK_F2: case SDLK_F3: case SDLK_F4: case SDLK_F5: case SDLK_F6: case SDLK_F7: case SDLK_F8:
+        case SDLK_F9: case SDLK_F10: case SDLK_F12: return 135 + int(k - SDLK_F1);
+        case SDLK_INSERT: return 147;
+        case SDLK_DELETE: return 148;
+        case SDLK_PAGEDOWN: return 149;
+        case SDLK_PAGEUP: return 150;
+        case SDLK_HOME: return 151;
+        case SDLK_END: return 152;
+        case SDLK_KP_7: return 160;
+        case SDLK_KP_8: return 161;
+        case SDLK_KP_9: return 162;
+        case SDLK_KP_4: return 163;
+        case SDLK_KP_5: return 164;
+        case SDLK_KP_6: return 165;
+        case SDLK_KP_1: return 166;
+        case SDLK_KP_2: return 167;
+        case SDLK_KP_3: return 168;
+        case SDLK_KP_ENTER: return 169;
+        case SDLK_KP_0: return 170;
+        case SDLK_KP_PERIOD: return 171;
+        case SDLK_KP_DIVIDE: return 172;
+        case SDLK_KP_MINUS: return 173;
+        case SDLK_KP_PLUS: return 174;
+        case SDLK_CAPSLOCK: return 175;
+        default: return -1;  // Escape (the game menu), F1 / F11 (the window) and the rest
+    }
+}
+
+// SDL mouse button -> MOUSE1..MOUSE5
+int EngineMouseKey(uint8_t b) {
+    switch (b) {
+        case SDL_BUTTON_LEFT: return 241;
+        case SDL_BUTTON_RIGHT: return 242;
+        case SDL_BUTTON_MIDDLE: return 243;
+        case SDL_BUTTON_X1: return 244;
+        case SDL_BUTTON_X2: return 245;
+        default: return -1;
+    }
+}
+
+// actions bound as a pad button (pc::Action::pad): engine key number -> buttons, and the ones held now
+std::map<int, unsigned> g_pad_actions;
+std::map<int, unsigned> g_pad_held;
+unsigned PadAction(int key) {
+    static unsigned seen = ~0u;
+    if (pc::Version() != seen) {
+        seen = pc::Version();
+        g_pad_actions.clear();
+        for (const pc::Action& a : pc::Actions())
+            if (const pc::KeyInfo* k = pc::FindKey(pc::BoundKey(a)); a.pad && k && k->number >= 0)
+                g_pad_actions[k->number] = a.pad;
+    }
+    auto it = g_pad_actions.find(key);
+    return it == g_pad_actions.end() ? 0 : it->second;
+}
+
+void EngineKeyEvent(int key, bool down) {
+    if (key < 0) return;
+    if (down && !g_engine_held.insert(key).second) return;  // auto repeat
+    if (!down && !g_engine_held.erase(key)) return;
+    csx::QueueEngineKey(key, down);
+}
+
 int16_t Stick(float v) { return int16_t(std::clamp(v, -32767.0f, 32767.0f)); }
 
 }  // namespace
@@ -84,10 +174,39 @@ void HandleEvent(const void* p) {
     const SDL_Event& e = *static_cast<const SDL_Event*>(p);
     std::lock_guard<std::mutex> lock(g_lock);
     switch (e.type) {
-        case SDL_EVENT_KEY_DOWN: g_keys.insert(e.key.key); break;
-        case SDL_EVENT_KEY_UP: g_keys.erase(e.key.key); break;
-        case SDL_EVENT_MOUSE_BUTTON_DOWN: g_mouse_buttons |= 1u << e.button.button; break;
-        case SDL_EVENT_MOUSE_BUTTON_UP: g_mouse_buttons &= ~(1u << e.button.button); break;
+        case SDL_EVENT_KEY_DOWN:
+            if (int key = EngineKey(e.key.key); !csx::MenuOpen() && key >= 0) {
+                if (unsigned pad = PadAction(key)) g_pad_held[key] = pad;
+                else EngineKeyEvent(key, true);
+            } else {
+                g_keys.insert(e.key.key);
+            }
+            break;
+        case SDL_EVENT_KEY_UP:
+            g_pad_held.erase(EngineKey(e.key.key));
+            EngineKeyEvent(EngineKey(e.key.key), false);
+            g_keys.erase(e.key.key);
+            break;
+        case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            if (int key = EngineMouseKey(e.button.button); !csx::MenuOpen() && key >= 0) {
+                if (unsigned pad = PadAction(key)) g_pad_held[key] = pad;
+                else EngineKeyEvent(key, true);
+            } else {
+                g_mouse_buttons |= 1u << e.button.button;
+            }
+            break;
+        case SDL_EVENT_MOUSE_BUTTON_UP:
+            g_pad_held.erase(EngineMouseKey(e.button.button));
+            EngineKeyEvent(EngineMouseKey(e.button.button), false);
+            g_mouse_buttons &= ~(1u << e.button.button);
+            break;
+        case SDL_EVENT_MOUSE_WHEEL:  // MWHEELUP / MWHEELDOWN, a press and a release per notch, as the engine expects
+            if (!csx::MenuOpen() && e.wheel.y != 0) {
+                int key = e.wheel.y > 0 ? 240 : 239;
+                EngineKeyEvent(key, true);
+                EngineKeyEvent(key, false);
+            }
+            break;
         case SDL_EVENT_MOUSE_MOTION:
             if (Mouse().stick) {
                 g_mouse_dx += e.motion.xrel;
@@ -114,6 +233,8 @@ void HandleEvent(const void* p) {
         case SDL_EVENT_WINDOW_FOCUS_LOST:
             g_keys.clear();
             g_mouse_buttons = 0;
+            for (int k : std::set<int>(g_engine_held)) EngineKeyEvent(k, false);
+            g_pad_held.clear();
             break;
         default: break;
     }
@@ -132,11 +253,20 @@ Pad Poll(int port) {
     p.connected = port == 0;
     if (port != 0) return p;
     std::lock_guard<std::mutex> lock(g_lock);
+    // play resumed: keys still down from the menu leave the pad. (Engine keys held when a menu opens stay engine
+    // keys until released: +showscores opens the Scoreboard screen and lasts while its key is held.)
+    bool menu = csx::MenuOpen();
+    if (!menu && g_was_menu) {
+        g_keys.clear();
+        g_mouse_buttons = 0;
+    }
+    g_was_menu = menu;
     // keyboard and mouse
     float lx = (Down(SDLK_D) ? 32767.0f : 0) - (Down(SDLK_A) ? 32767.0f : 0);
     float ly = (Down(SDLK_W) ? 32767.0f : 0) - (Down(SDLK_S) ? 32767.0f : 0);
     float rx = g_mouse_dx * kMouseScale, ry = -g_mouse_dy * kMouseScale;
     g_mouse_dx = g_mouse_dy = 0;
+    for (auto& [key, buttons] : g_pad_held) p.buttons |= uint16_t(buttons);
     if (Down(SDLK_UP)) p.buttons |= 1;
     if (Down(SDLK_DOWN)) p.buttons |= 2;
     if (Down(SDLK_LEFT)) p.buttons |= 4;

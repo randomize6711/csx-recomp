@@ -675,6 +675,62 @@ Open:
   device are not offered yet (the frame pacing is read once by the SDK harness; FOV changes the game's look and
   needs care with the view model).
 
+## PC key bindings (2026-10-19)
+
+How the original game takes input (CS 5659):
+- **GoldSrc's key system is intact.** The engine's key table (0x378250, 107 names) has the PC keys (letters and
+  digits as their characters, SPACE 32, SHIFT 134, F1-F12 135-146, MOUSE1-5 241-245, MWHEELUP 240 / MWHEELDOWN 239,
+  the keypad 160-175) and the pad's buttons as keys: GREEN 203 (A), RED 204 (B), BLUE 205 (X), YELLOW 206 (Y), BLACK
+  211, WHITE 212, LTRIGGER 213, RTRIGGER 214, DPAD 215-218, START 219, BACK 220, LBUTTON / RBUTTON 221 / 222 (stick
+  clicks). Pad presses reach Key_Event (0x66510: keydown[] 0x6CAFE0, keybindings[] 0x6CABE0, the client's key hook
+  [0x7D6D28] first) through CEngine::TrapKey_Event (vtable 0x339E24 slot 9, 0xAEEE0; with a trap mode a binding UI
+  could capture a key, unused). The controller layout is a set of bindings: in a match GREEN +jump, RED +attack2, BLUE
+  +use, YELLOW cycle_weapon, BLACK cycle_grenade, WHITE drop, LTRIGGER +duck, RTRIGGER +attack, the d-pad the radio
+  (followme, holdpos, report, needhelp), START "xbui mainmenu", BACK +showscores, LBUTTON +buymenu, RBUTTON +fastlook.
+  bind / unbind are the engine's (0x65F40 / 0x65ED0, Key_StringToKeynum 0x65C70).
+- **GoldSrc's commands work**: with keys sent to Key_Event, +forward walked 425 units in 1.5 s, +jump rose 41-44
+  units, +attack fired, +reload reloaded, +buymenu opened the buy menu; invnext / invprev / lastinv / slot1-5 select
+  weapons once hud_fastswitch is 1 (without it the slot keys wait for a confirming fire, as on a PC). The Scoreboard
+  screen (InGameUI.txt) closes on OnButtonUpBack, the pad's BACK release, not on -showscores.
+- **The open menu screen** is 0x5523D4 (0 while playing; TeamSelect_RootSinglePlayer, T_BuyMenuRoot, Scoreboard,
+  InGame_RootSinglePlayer... while one is up).
+
+The implementation (src/game/pc_keys.cpp, src/common/pc_bindings.cpp, src/linux/window_input.cpp, Options > PC
+Controls):
+- **PC keys are engine keys while playing**: the window queues key, mouse button and wheel events (engine numbers);
+  a hook at Cbuf_Execute's entry (0x3BB50, every frame on the game thread) hands them to Key_Event with CallGuest, so
+  their commands run in that pass. Releases always reach the engine for keys it saw pressed (no stuck keys when a
+  menu opens). Escape stays the pad's START (the game menu); F1 / F11 stay the window's.
+- **In the game's menus the keyboard stays the pad** (arrows d-pad, Space A, Left Ctrl B, R X, WASD left stick for
+  the pie menus...) whatever the bindings, so menus are never lost to a binding; keys still held when play resumes
+  leave the pad.
+- **Bindings are the engine's**: the PC actions' keys are bound with bind (Cbuf_AddText 0x3B970, text on the guest
+  stack) and checked against keybindings[] twice a second, so a rebinding by the game is undone; only keys this set
+  are unbound. hud_fastswitch 1 is set whenever play resumes (the client's cvar). The pad's bindings are untouched.
+  Scoreboard is the one action bound as a pad button (BACK held while its key is), as its screen needs BACK's release.
+- **27 actions with PC defaults**: WASD, Space jump, Ctrl crouch, Shift walk, Mouse 1 / 2 fire, R reload, E use, the
+  wheel next / previous weapon, Q last weapon, 1-5 weapon slots, G drop, B buy menu, Tab scoreboard, N night vision,
+  Z X C V radio. Kept in pc_settings.ini as bind.<action> = <engine key name>.
+- **PC Controls screens** (front end and pause menu) come from the same declaration as PC Options (pc_menu.cpp's
+  registration: a screen is its id, title, rows of settings, reset and uniqueness flags; the text, the Options rows,
+  load, save and defaults are made from it, and only FindTable / ListCell know the UI objects' layout). Each action
+  row is a list of the bindable keys (None, letters, digits, Space... mouse buttons, wheel, arrows, keypad,
+  punctuation; Escape, F1 and F11 left out); X restores the defaults (the game's Cancel_Accept_Reset legend), A saves,
+  B cancels. A key chosen twice stays with the first action in the list and the later one becomes None, logged ("Tab
+  is already Jump's, Scoreboard is left unbound").
+- Checked in the Vulkan window through SDL (keys, clicks, wheel): jump, two shots, reload, knife / C4 / last weapon by
+  3, wheel, Q, buy menu by B, scoreboard held on Tab and closed on release, Escape to the game menu and back; Jump
+  rebound to Tab in the pause menu: Tab jumps, Space does not, Scoreboard unbound; X then A: Space jumps again. Mouse
+  look and the pad unchanged. regress_pc_bindings.txt does the same headless (engine key events, the pad's A, the
+  saved Tab binding as after a restart, the pause menu's X and A).
+
+Open:
+- Rebinding is by the list (left / right on a row) with keyboard or pad; pressing the wanted key on a row is not
+  offered (the original lists have no capture; TrapKey_Event's trap mode could be used).
+- Gamepad buttons are not rebindable (the game's own Controller Setup chooses their layout).
+- Whether the game stores the PC keys' bindings in the Xbox profile was not seen (they are set again from
+  pc_settings.ini anyway).
+
 ## Assumptions / to verify
 
 - Third-party licenses (from prior knowledge, confirm before reusing any code): Half-Life SDK — Valve's restrictive
