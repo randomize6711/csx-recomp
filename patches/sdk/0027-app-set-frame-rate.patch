@@ -1,0 +1,55 @@
+diff -ru a/harness/app_headless.cpp b/harness/app_headless.cpp
+--- a/harness/app_headless.cpp	2026-10-20 19:24:08.321811981 +0200
++++ b/harness/app_headless.cpp	2026-10-20 19:24:14.847555196 +0200
+@@ -1,4 +1,5 @@
+ // the host side without a window: settings at their defaults, the run folder as the exe folder
++#include <atomic>
+ #include <chrono>
+ #include <cstdlib>
+ #include <filesystem>
+@@ -49,11 +50,19 @@
+ 
+ // FPS=N paces presented frames to N per second (unset or 0: as fast as they come), so pad scripts and scenarios keyed
+ // to frames see the title at a console-like rate
+-void Pace() {
+-    static const long fps = [] {
++std::atomic<long>& FrameRate() {
++    static std::atomic<long> fps{[] {
+         const char* e = std::getenv("FPS");
+         return e ? std::atol(e) : 0L;
+-    }();
++    }()};
++    return fps;
++}
++
++// a title's own setting replaces FPS from then on
++void SetFrameRate(unsigned fps) { FrameRate() = long(fps); }
++
++void Pace() {
++    const long fps = FrameRate();
+     if (fps <= 0) return;
+     using clock = std::chrono::steady_clock;
+     static clock::time_point next = clock::now();
+diff -ru a/runtime/app/app.h b/runtime/app/app.h
+--- a/runtime/app/app.h	2026-10-20 19:24:08.320914635 +0200
++++ b/runtime/app/app.h	2026-10-20 19:24:08.332135768 +0200
+@@ -95,5 +95,7 @@
+ 
+ // sleeps out the rest of the frame for the fps cap
+ void Pace();
++// the fps cap Pace keeps from now on (0: none), for a title's own setting
++void SetFrameRate(unsigned fps);
+ 
+ }  // namespace app
+diff -ru a/runtime/app/main.cpp b/runtime/app/main.cpp
+--- a/runtime/app/main.cpp	2026-10-20 19:24:08.320956365 +0200
++++ b/runtime/app/main.cpp	2026-10-20 19:24:08.332211552 +0200
+@@ -197,6 +197,8 @@
+ void ApplyDisplay() { PostMessageW(g_hwnd, kApplyDisplay, 0, 0); }
+ void OpenGameWindow(bool apply) { SendMessageW(g_hwnd, kOpenWindow, apply, 0); }
+ 
++void SetFrameRate(unsigned fps) { Get().fps_cap = fps; }
++
+ void Pace() {
+     using clock = std::chrono::steady_clock;
+     static clock::time_point next = clock::now();

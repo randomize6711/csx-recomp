@@ -1,11 +1,14 @@
 // Logs local player state on request, for control tests (tools/drive.py "state" steps).
 //
 // A file named state in the run folder holding a name asks for one line: "state <name> x y z yaw clip view_yaw
-// view_pitch weapon". The
+// view_pitch weapon"; "NAME SECONDS" follows the position that long first (every 5 ms) and logs "track NAME over S s:
+// rose Z at most (highest less lowest), moved D" (jump heights, distances over a fixed real time). The
 // addresses were found by diffing memory dumps (FINDINGS.md, "Player control"): the float triple at 0x3AE3E0 moves by
 // the run speed while the left stick is held and stays put otherwise; 0x3AE3F0 holds the yaw in degrees (it matches
 // the 3D audio listener's forward vector at 0x3038C0); the int at 0x3A2988 drops by one per shot (20 for a full Glock).
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -53,11 +56,24 @@ void StartStateProbe() {
             }
             if (!fs::exists(req, ec)) continue;
             char name[64] = "state";
+            float track = 0;  // "NAME SECONDS": the position followed that long (every 5 ms) first
             if (FILE* f = std::fopen(req.string().c_str(), "r")) {
-                if (std::fscanf(f, "%63s", name) != 1) std::snprintf(name, sizeof name, "state");
+                if (std::fscanf(f, "%63s %f", name, &track) < 1) std::snprintf(name, sizeof name, "state");
                 std::fclose(f);
             }
             fs::remove(req, ec);
+            if (track > 0) {
+                float x0 = F(kPosition), y0 = F(kPosition + 4), top = F(kPosition + 8), bottom = top;
+                auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(int(track * 1000));
+                while (std::chrono::steady_clock::now() < end) {
+                    top = std::max(top, F(kPosition + 8));
+                    bottom = std::min(bottom, F(kPosition + 8));
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                }
+                float dx = F(kPosition) - x0, dy = F(kPosition + 4) - y0;
+                LOGI("track %s over %.2f s: rose %.2f at most, moved %.2f", name, track, top - bottom,
+                     std::sqrt(dx * dx + dy * dy));
+            }
             // then the view yaw and pitch the look routine keeps (0x552C10 / 0x552C14, src/game/mouse_look.cpp) and
             // the weapon in hand
             LOGI("state %s %.3f %.3f %.3f %.3f %d %.3f %.3f %d", name, F(kPosition), F(kPosition + 4), F(kPosition + 8),

@@ -1,0 +1,36 @@
+# Frame rate (FINDINGS.md "Frame rate", src/game/pc_frame.cpp, PC Options > Frame Rate Limit): at 144 the title
+# presents 144 frames per second (the window's pacing and the engine's fps_max), and the movement is the same as at
+# any rate: GoldSrc's movement command counts whole milliseconds, which at 144 dropped 0.94 of every 6.94 ms (the
+# player walked 216 units/s instead of 250); the fraction is now carried. A jump rises 45 units, two seconds of
+# steady walking cover 500 units forward and back.
+#   --launch tests/launch/de_airstrip_beginner --pc frame_rate=144
+wait log open D:\\.*\.sxwad
+expect log pc frame: limit 144 frames per second, movement time carried
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 14
+expect fps 138 150
+pckey key 32 1
+track jump 1.2
+pckey key 32 0
+expect tracked jump rose 43 47
+sleep 2
+pckey key 119 1
+sleep 1
+track walk 2
+pckey key 119 0
+expect tracked walk moved 490 510
+sleep 2
+pckey key 115 1
+sleep 1
+track back 2
+pckey key 115 0
+expect tracked back moved 490 510
+expect nolog guest trap

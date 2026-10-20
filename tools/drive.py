@@ -26,11 +26,14 @@ per line, executed in order:
     pressuntil BUTTONS COND press, wait for two fresh draw measurements, repeat until COND holds (at most 15)
     dump NAME               guest memory dump to build/run/dumps/NAME.bin (src/common/memory_dump.cpp)
     state NAME              log the local player's state (src/game/state_probe.cpp) and keep it as NAME
+    track NAME SECONDS      follow the player's position that long and log how high it rose and how far it moved
     expect moved A B MIN MAX       horizontal distance between states A and B in [MIN, MAX] game units
     expect yaw A B DEG TOL         view yaw (0x552C10) changed by DEG (+ left) within TOL; expect pitch likewise
     expect turned A B MIN          yaw difference between states A and B (shortest way) at least MIN degrees
     expect shots A B N             the shot counter dropped by exactly N from A to B
     expect still A B               position and yaw equal in A and B
+    expect tracked NAME rose|moved MIN MAX  a track step's height risen or distance moved in [MIN, MAX]
+    expect fps MIN MAX             presented frames per second (the renderer's frame lines) in [MIN, MAX]
     expect weapon A ID             the weapon in hand at A (17 Glock, 29 knife, 4 HE grenade, 25 flashbang, 9 smoke)
     expect rose A B MIN            the player rose at least MIN units from A to B (a jump)
     expect heading A B MAXDEG [OFF] the move from A to B points along A's yaw (+ OFF degrees: 90 left, -90 right, 180
@@ -193,6 +196,7 @@ def main():
     proc = subprocess.Popen(cmd, cwd=RUN, env=env, stdout=out, stderr=subprocess.STDOUT)
     log, start, ok = Log(), time.time(), True
     states = {}
+    tracks = {}  # track steps: NAME -> rose, moved
     exe_name = os.path.basename(EXE)
 
     def wine_alive():
@@ -304,6 +308,16 @@ def main():
             elif kind == 'poke':
                 send_file('poke', st[1] + ' ' + st[2])
                 good = wait_until(lambda: log.match('poke: ' + st[1].upper().lstrip('0X').rjust(8, '0')))
+            elif kind == 'track':
+                # track NAME SECONDS: the position followed that long (state_probe.cpp); its "track" line printed
+                send_file('state', st[1] + ' ' + st[2])
+                rx = re.compile(r'track ' + re.escape(st[1]) + r' over')
+                good = wait_until(lambda: any(rx.search(l) for l in log.lines))
+                for l in log.lines:
+                    if rx.search(l):
+                        print('     ' + l[l.index('track'):])
+                        m = re.search(r'rose (-?[0-9.]+) at most, moved ([0-9.]+)', l)
+                        tracks[st[1]] = {'rose': float(m.group(1)), 'moved': float(m.group(2))}
             elif kind == 'state':
                 send_file('state', st[1])
                 rx = re.compile(r'state ' + re.escape(st[1]) + r' (\S+) (\S+) (\S+) (\S+) (-?\d+)(?: (\S+) (\S+))?(?: (-?\d+))?')
@@ -397,6 +411,25 @@ def main():
                     mean = ImageStat.Stat(Image.open(path).convert('L').crop(box)).mean[0]
                     print(f'     {st[2]} {box}: mean luminance {mean:.1f} (want {st[7]}..{st[8]})')
                     good = float(st[7]) <= mean <= float(st[8])
+            elif kind == 'expect' and st[1] == 'tracked':
+                # expect tracked NAME rose|moved MIN MAX: a track step's result
+                v = tracks.get(st[2], {}).get(st[3])
+                good = v is not None and float(st[4]) <= v <= float(st[5])
+            elif kind == 'expect' and st[1] == 'fps':
+                # expect fps MIN MAX: presented frames per second over the last renderer lines (about two seconds)
+                time.sleep(2.5)
+                log.poll()
+                pts = []
+                for l in log.lines:
+                    m = re.match(r'\[\s*([0-9.]+)\].*renderer: frame (\d+)', l)
+                    if m:
+                        pts.append((float(m.group(1)), int(m.group(2))))
+                rate = None
+                if len(pts) >= 3:
+                    (t0, f0), (t1, f1) = pts[-3], pts[-1]
+                    rate = (f1 - f0) / (t1 - t0) if t1 > t0 and f1 > f0 else None
+                print(f'     presented {rate:.1f} frames per second' if rate else '     no frame count')
+                good = rate is not None and float(st[2]) <= rate <= float(st[3])
             elif kind == 'expect' and st[1] == 'menuaudio':
                 # expect menuaudio [SOUND]: the menu sound audible at every mouse play in the run's audio capture
                 # (CSX_AUDIO_WAV, CSX_LOG_MENU_SOUNDS=1; tools/check_menu_audio.py)
