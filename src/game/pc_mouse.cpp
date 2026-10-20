@@ -17,7 +17,9 @@
 //   the key: typing, Shift, Symbols, Done...); a click on the name field (the screen's EditBox) starts typing with
 //   the PC keyboard: the layout's characters go into the edit box through the keyboard's own insert (0xD04A0), with
 //   its limits and sounds, Backspace and the arrows through its keys' functions, Enter is START (Done), Escape or a
-//   click elsewhere ends it.
+//   click elsewhere ends it;
+// - PC Controls (pc_menu.cpp's binding screens): a click on a row's key name, between its arrows, waits for a key
+//   (press-a-key rebinding); the arrows still step through the list, the label selects (a double click is A).
 // The presses go through the pad as the game reads it (GameInfo::pad), so sounds, transitions and commands are the
 // game's. Pointer movement only acts while it moves: keyboard and pad navigation keep their selection meanwhile.
 #include <algorithm>
@@ -38,6 +40,8 @@
 #include "core/log.h"
 #include "cpu/x86_context.h"
 #include "kernel/kernel.h"
+
+bool PcBindingScreen(const std::string& name);  // pc_menu.cpp
 
 namespace {
 
@@ -313,6 +317,8 @@ void Click(X86Context& ctx, uint32_t screen, const std::string& name, const Scre
         float arrow = std::min(28.0f, (a1 - a0) / 4);
         if (x >= a0 && x < a0 + arrow) Queue({kLeft, -1});
         else if (x >= a1 - arrow && x < a1) Queue({kRight, -1});
+        // a binding's key name: waits for the key to bind
+        else if (x >= a0 && x < a1 && PcBindingScreen(name)) csx::BindStart();
         // elsewhere on a setting's row: selected; a double click is A (it accepts the whole screen: the in-game
         // screens have no help bar to click)
         else if (twice) Queue({0, kA});
@@ -401,6 +407,29 @@ void MenuWheel(int notches) {
 // takes the pie's stick back
 void MenuPad(int port, input::Pad& p) {
     if (port != 0) return;
+    // a binding waiting for its key: the pad does nothing in the menu meanwhile, its B cancels the wait; buttons held
+    // during the wait stay hidden from the menu until let go (B would leave the screen once the wait has ended)
+    static uint16_t held_buttons = 0;
+    static uint8_t held_analog = 0;  // bit per analog button
+    static bool b_was = false;
+    uint8_t analog = 0;
+    for (int i = 0; i < 8; i++)
+        if (p.analog[i] > 0x80) analog |= uint8_t(1u << i);
+    if (BindCapturing()) {
+        bool b = analog & (1u << kB);
+        if (b && !b_was) BindInput(-1);
+        b_was = b;
+        held_buttons = p.buttons;
+        held_analog = analog;
+        p = input::Pad{.connected = p.connected};
+        return;
+    }
+    b_was = false;
+    held_buttons &= p.buttons;
+    held_analog &= analog;
+    p.buttons &= uint16_t(~held_buttons);
+    for (int i = 0; i < 8; i++)
+        if (held_analog & (1u << i)) p.analog[i] = 0;
     p.buttons |= uint16_t(g_pad_buttons.load());
     if (uint32_t a = g_pad_analog.load(); a < 8) p.analog[a] = 255;
     if (g_stick_on.load()) {
@@ -488,6 +517,8 @@ void PcMouseFrame(X86Context& ctx) {
     const ScreenUi* ui = it == g_screens.end() ? nullptr : &it->second;
     uint32_t table = R32(screen + 0x380), vk = R32(screen + 0x38C);
     if (vk && g_typing) TypeInto(ctx, screen, vk, typed, typed_keys);
+    // a binding waiting for its key: the pointer and clicks leave the menu as it is
+    if (csx::BindCapturing()) return;
     if (moved && x >= 0 && vk) {
         VkSelect(ctx, screen, vk, VkHit(vk, x, y), x);
     } else if (moved && x >= 0) {

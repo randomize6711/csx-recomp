@@ -1,0 +1,209 @@
+# Press-a-key rebinding in PC Controls (FINDINGS.md "Press-a-key rebinding", src/game/pc_menu.cpp): from a fresh
+# front end, Options > PC Controls. A click on Jump's key name waits for a key (the pad's A meanwhile does nothing), K
+# becomes Jump's; Enter (pckey bindstart, as the window sends it) on Fire waits, Mouse 5 becomes Fire's; Reload's wait
+# is cancelled by Escape (bindcancel) and by the pad's B, Reload unchanged and the screen still open; Use stepped by the
+# pad's right (the list as before); Next Weapon takes Wheel Up, which Previous Weapon held (the save keeps it with the
+# first row: Previous Weapon unbound); Toggle Developer Console refuses an unknown key and takes F2. A saves them all.
+# A Single Player match (the title relaunches: a new process reading pc_settings.ini): K jumps, Space does not, Mouse 5
+# fires, Mouse 1 does not. In the pause menu's PC Controls X restores the defaults and A saves them: Space jumps again.
+# The window's own routing (SDL keys, buttons, wheel, Escape, layouts) is vk_bind_capture.txt.
+wait draws==1
+expect nolog fatal error screen
+sleep 6
+press START
+wait draws>=3
+sleep 3
+press A
+wait draws>=50
+sleep 3
+press A
+wait draws<=20
+sleep 6
+expect log pc mouse: screen SuperLauncher_MainScreen
+pckey pointer 150 260
+sleep 1
+pckey mclick 1
+sleep 3
+expect log pc mouse: screen SuperLauncher_Options,
+pckey pointer 150 268
+sleep 1
+pckey mclick 1
+sleep 3
+expect log pc mouse: screen SuperLauncher_PCControls, 28 rows from 83 108, 26 high
+pckey pointer 470 225
+sleep 0.5
+pckey mclick 1
+sleep 1
+expect log pc menu: Jump waits for a key
+press A
+sleep 1.5
+expect count pc.mouse:.screen.SuperLauncher_Options, 1
+pckey bindkey 107
+sleep 1
+expect log pc menu: Jump set to K
+press DOWN
+sleep 0.5
+press DOWN
+sleep 0.5
+press DOWN
+sleep 0.5
+pckey bindstart
+sleep 1
+expect log pc menu: Fire waits for a key
+pckey bindkey 245
+sleep 1
+expect log pc menu: Fire set to Mouse 5
+press DOWN
+sleep 0.5
+press DOWN
+sleep 0.5
+pckey bindstart
+sleep 1
+expect log pc menu: Reload waits for a key
+pckey bindcancel
+sleep 1
+expect count pc.menu:.key.capture.cancelled 1
+pckey bindstart
+sleep 1
+press B
+sleep 1.5
+expect count pc.menu:.key.capture.cancelled 2
+expect count pc.mouse:.screen.SuperLauncher_Options, 1
+press DOWN
+sleep 0.5
+press RIGHT
+sleep 0.5
+press DOWN
+sleep 0.5
+pckey bindstart
+sleep 1
+expect log pc menu: Next Weapon waits for a key
+pckey bindkey 240
+sleep 1
+expect log pc menu: Next Weapon set to Wheel Up
+pckey mwheel -8
+sleep 3
+pckey mwheel -8
+sleep 3
+expect count pc.mouse:.screen.SuperLauncher_Options, 1
+pckey bindstart
+sleep 1
+expect log pc menu: Toggle Developer Console waits for a key
+pckey bindkey 999
+sleep 1
+expect log pc menu: key 999 cannot be bound, still waiting
+pckey bindkey 136
+sleep 1
+expect log pc menu: Toggle Developer Console set to F2
+press A
+sleep 2
+expect log pc: bind.jump = k
+expect log pc: bind.attack = MOUSE5
+expect log pc: bind.reload = r
+expect log pc: bind.use = f
+expect log pc: bind.weapon_next = MWHEELUP
+expect log pc menu: Wheel Up is already Next Weapon's, Previous Weapon is left unbound
+expect log pc: bind.weapon_prev = $
+expect log pc: bind.console = F2
+expect log pc: settings saved
+expect count pc.mouse:.screen.SuperLauncher_Options, 2
+pckey mclick 2
+sleep 3
+pckey pointer 150 160
+sleep 1
+pckey mclick 1
+sleep 5
+press A
+sleep 5
+press A
+wait log relaunching into
+wait log open D:\\de_airstrip.sxwad
+wait draws>=150
+sleep 10
+# Terrorist (the Glock: the shot counter's weapon), out of the buy menu, the freeze time over
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 12
+expect log pc: bind.jump = k
+expect log pc keys: bindings set
+state j0
+pckey key 107 1
+sleep 0.2
+state j1
+pckey key 107 0
+expect rose j0 j1 20
+sleep 1.5
+state j2
+pckey key 32 1
+sleep 0.2
+state j3
+pckey key 32 0
+expect still j2 j3
+sleep 1.5
+state f0
+pckey key 241 1
+sleep 0.1
+pckey key 241 0
+sleep 0.6
+state f1
+expect shots f0 f1 0
+pckey key 245 1
+sleep 0.1
+pckey key 245 0
+sleep 0.6
+state f2
+expect shots f1 f2 1
+press START
+sleep 2
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 2
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 2
+press X
+sleep 1
+expect log pc menu: InGame_PCControls shows its defaults
+press A
+sleep 2
+expect log pc: bind.jump = SPACE
+expect log pc: bind.attack = MOUSE1
+expect log pc: bind.console = `
+press B
+sleep 1
+press B
+sleep 2
+state d0
+pckey key 32 1
+sleep 0.2
+state d1
+pckey key 32 0
+expect rose d0 d1 20
+sleep 1.5
+state d2
+pckey key 107 1
+sleep 0.2
+state d3
+pckey key 107 0
+expect still d2 d3
+expect nolog guest trap
+expect nolog fatal error screen

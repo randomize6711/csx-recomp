@@ -35,4 +35,5 @@
 - M7i — Native-resolution rendering (Vulkan) with the display's modes in PC Options ✅ 2026-10-20
 - M7j — Mouse navigation in the original menus (tables, settings, help bars, buy pies) ✅ 2026-10-20; checked in the
   window at every aspect with audible hover sounds, the profile name's keyboard ✅ 2026-10-20
+- M7k — Press-a-key rebinding in PC Controls (keys, mouse buttons, wheel, every keyboard layout) ✅ 2026-10-20
 - M8 — PC feature set complete

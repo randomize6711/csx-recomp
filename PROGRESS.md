@@ -286,7 +286,7 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
 - Tests: regress_pc_menu_mouse.txt, regress_pc_menu_mouse_fe.txt, vk_menu_mouse.txt; drive.py `point X Y`, pckey
   `pointer X Y`, `mclick N`, `mwheel N`.
 
-## 2026-10-20 — Mouse validation and the profile name
+## 2026-10-20 — Mouse validation, the profile name, press-a-key rebinding
 
 - Mouse in the menus checked in the Vulkan window with real SDL events in a headless gamescope
   (tools/run_window_tests.py): cursor positions at 4:3 and 16:9 windowed, 21:9 letterboxed and 4:3 pillarboxed full
@@ -295,5 +295,12 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   screen's own moves do.
 - The profile name: the virtual keyboard by pointer and click, a click on the name field to type with the PC
   keyboard into the game's edit box (its insert, limits and sounds; Å/Ä/Ö), Backspace, the cursor, Enter as Done.
-- Tests: regress_pc_profile_name.txt, vk_menu_mouse_fe.txt, vk_menu_pointer_*.txt; drive.py `pointat`,
-  `expect count`, `expect menuaudio`, keys as NAME#SCANCODE.
+- PC Controls: Enter or a click on a key name waits ("Press a key" in the game's own row), the next key, mouse button
+  or wheel notch is the binding; Escape / the pad's B cancel; keys by position for every layout with the layout's
+  names (Swedish Å Ö Ä §), new keys ' \ < and keypad . /; the pad's list stepping, Accept / Cancel / Reset and the
+  duplicate rule as before (FINDINGS.md "Press-a-key rebinding").
+- The lists' stepping no longer skips keys in PC Controls (the original list's enable bytes cover 0x27 choices; hooks
+  take the rest as enabled): the old "steps over -" was every fourth key from there.
+- Tests: regress_pc_profile_name.txt, regress_pc_bind_capture.txt (with the relaunch into a match),
+  vk_menu_mouse_fe.txt, vk_menu_pointer_*.txt, vk_bind_capture.txt; drive.py `pointat`, `expect count`,
+  `expect menuaudio`, keys as NAME#SCANCODE.

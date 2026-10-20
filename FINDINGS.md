@@ -725,8 +725,7 @@ Controls):
   saved Tab binding as after a restart, the pause menu's X and A).
 
 Open:
-- Rebinding is by the list (left / right on a row) with keyboard or pad; pressing the wanted key on a row is not
-  offered (the original lists have no capture; TrapKey_Event's trap mode could be used).
+- (Done 2026-10-20: press-a-key rebinding, section "Press-a-key rebinding"; the list stays for the pad.)
 - Gamepad buttons are not rebindable (the game's own Controller Setup chooses their layout).
 - Whether the game stores the PC keys' bindings in the Xbox profile was not seen (they are set again from
   pc_settings.ini anyway).
@@ -957,6 +956,62 @@ taking the clicks), vk_menu_pointer_43 / _169 / _219 / _43_full.txt (raw window 
 independently of the window's mapping: 4:3 and 16:9 windows, 21:9 letterboxed and 4:3 pillarboxed full screen,
 points in the bars and beside the menus' columns doing nothing).
 
+## Press-a-key rebinding (2026-10-20)
+
+How the original menu holds a binding row (CS 5659, PC Controls as pc_menu.cpp declares it): a CellList cell (0x78
+bytes: +0 the shown choice's index, +0xC..+0x10 the choices) whose choices are the game's std::wstring (MSVC, 0x1C
+bytes: +4 up to 7 UTF-16 characters in place or, from 8 on, a pointer to them; +0x14 the length, +0x18 the capacity;
+the parser widens the UI text's bytes, so the menus' text is Latin-1). The table draws the shown choice's string each
+frame; nothing in the menu code reads keys other than the pad's.
+
+The capture (src/game/pc_menu.cpp on the game thread, src/linux/window_input.cpp in the window):
+- Starting: Enter on a PC Controls row (the window asks the game thread: a binding screen open with a row selected,
+  csx::BindRowSelected), or a click on a row's key name between its arrows (src/game/pc_mouse.cpp). The arrows still
+  step through the list; a click on the label selects, a double click is A (the pause menu has no help bar).
+- Showing it: the shown choice's 0x1C bytes are kept and it points at "Press a key" (UTF-16 in a block of the game's
+  heap from its own malloc 0x22D86A, made once), so the game's table draws it in its own font, highlight and arrows;
+  the bytes are put back exactly when the wait ends (the game never frees or grows a string it did not make). The
+  help lines say how: "Click the key or press Enter, then press a key or mouse button (Escape cancels). The arrows
+  also choose one."
+- Waiting: the window's next key-down (no repeats), mouse button press or wheel notch goes to the row and nothing else
+  (no pad key, no menu move, no game key, no console toggle: the console's own key can be bound this way); Escape
+  cancels; F1 / F11 stay the window's (F11 is handled before; F1 and other keys without an engine key are logged
+  "cannot be bound" and the wait goes on). A double click's second press (SDL clicks 2) is not a key, so the click
+  that started the wait cannot bind Mouse 1 (a later click does); Enter's own release and repeats are ignored. The
+  pad does nothing in the menu meanwhile, its B cancels, and buttons held through the wait stay hidden from the menu
+  until let go (B would otherwise leave the screen right after cancelling). Pointer moves and clicks leave the menu
+  as it is. Leaving the screen or opening the console ends the wait.
+- The key: its engine number is looked up in the row's list (pc_bindings.h's keys) and becomes the shown choice, as
+  if stepped to with the arrows ("Jump set to K (saved with Accept)"). Accept saves as before (pc_settings.ini
+  bind.<action>, applied to keybindings[] at once by pc_keys.cpp's sync); Cancel leaves without saving; Reset shows
+  the defaults. A key chosen twice stays with the first row in the list and the later row becomes None at the save
+  ("Wheel Up is already Crouch's, Previous Weapon is left unbound"), as for the lists.
+
+Keyboard layouts: letters are bound as the layout prints them (keycode: AZERTY's A is a); the digit row and the
+punctuation keys by their position (scancode), named as on a US keyboard for the engine: the key left of 1 is `,
+Swedish Å is [, Ö ;, Ä ', the key left of Z (ISO keyboards) is < (an engine key number of its own, 60: bind takes a
+single character as its number). The window passes the system layout's names for these positions
+(CSX_KEY_LABELS, UTF-8 "C=NAME" lines from SDL_GetKeyFromScancode / SDL_GetKeyName); the menus show them in Latin-1
+(Å, Ö, Ä, §: the game's font has them), a name outside Latin-1 falls back to the US one. New bindable keys: ', \, <,
+Keypad . and Keypad /.
+
+The lists' stepping (the pad's left / right, the arrows): tableIncreaseValue (0xDCAD0) and tableDecreaseValue
+(0xDCB60) pass over a choice whose enable byte (cell +0x29 + index) is 0. The cell holds 0x27 of them (+0x29..+0x4F),
+enough for the original lists; PC Controls' lists of over 100 keys read the cell's other fields and the next cell
+past that, which skipped every fourth key from there (index 2 mod 4: -, then with the new keys [, \, Keypad /...).
+Hooks at the two checks (0xDCB43, 0xDCBCB) take a choice from 0x27 on as enabled; the shorter lists are unchanged.
+
+Engine notes: MOUSE4 / MOUSE5 (244 / 245) are in the engine's key names and fire their bindings. In a match started
+from the front end the shot counter's Glock needs the Terrorist team (as regress_player_control.txt picks).
+
+Checks: regress_pc_bind_capture.txt (headless: keyboard, mouse button and wheel keys, the pad's A ignored and its B
+cancelling while waiting, Escape cancelling, an unknown key refused, the list still stepped by the pad, the
+duplicate rule, the console's key, Accept; the title's relaunch into a match: the saved keys work and the old ones do
+not; the pause menu's Reset and Accept restore Space), vk_bind_capture.txt (the Vulkan window with SDL events: Enter
+not taken itself, a side button, a double click's second press not taken, the wheel, Escape, F1, a Swedish key shown
+as Å, the console's new key opening it; after the relaunch the keys walk and jump; a rebinding in the pause menu
+works at once on returning to the game).
+
 ## Developer console (2026-10-20)
 
 What the Xbox build keeps of GoldSrc's console (CS 5659):
@@ -993,8 +1048,8 @@ Restored (src/game/pc_console.cpp, the window's input in src/linux/window_input.
   menu's text). In play it is drawn once, as before.
 - At 16:9 / 21:9 it is centred with the rest of the 2D (it draws with the text renderer, see "Widescreen").
 - Limitations: no cursor movement inside the line (typing and Backspace at its end), no backdrop, ten lines shown
-  (Page Up / Down scroll through the 200 kept); the PC Controls list steps over the "-" key (the game's list control
-  skips that choice; the other keys are reachable).
+  (Page Up / Down scroll through the 200 kept). (The PC Controls list stepping over "-" was the list's enable bytes
+  running out: section "Press-a-key rebinding", fixed 2026-10-20.)
 
 Checks: regress_pc_console.txt (4:3: default key, typing, echo, completion, history, a typed toggleconsole closing
 it, the pad jumping meanwhile, the pause menu's PC Controls rebinding it and only the new key opening it),

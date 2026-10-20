@@ -204,6 +204,9 @@ int main(int argc, char** argv) {
         LOGI("window: display %s, desktop %s, modes %s", SDL_GetDisplayName(display),
              std::getenv("CSX_DESKTOP_MODE") ? std::getenv("CSX_DESKTOP_MODE") : "?", list.c_str());
     }
+    // the punctuation keys' names as the keyboard layout prints them, for PC Controls (kept when given: a relaunch, a
+    // test's layout)
+    if (!std::getenv("CSX_KEY_LABELS")) SetEnv("CSX_KEY_LABELS", window::KeyLabels().c_str());
     // the Vulkan backend presents by itself; the software path shows frames through an SDL renderer
     SDL_Renderer* ren = win && !g_vulkan ? SDL_CreateRenderer(win, nullptr) : nullptr;
     if (!win || (!g_vulkan && !ren)) {

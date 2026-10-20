@@ -4,14 +4,14 @@
 0. Windows: run build/windows/dist on a real Windows 10/11 PC (startup, Vulkan driver, WASAPI, mouse capture,
    relaunch handover, a full round); then a GUI-subsystem exe (no console) if wanted. Then image comparisons on de_dust
    and cs_italy.
-0. Developer console remainder: cursor movement inside the input line, a backdrop behind its lines; the PC Controls
-   list stepping over the "-" key.
+0. Developer console remainder: cursor movement inside the input line, a backdrop behind its lines.
 0. Native resolution remainder: the software renderer at the internal resolution (CPU cost), fullscreen exclusive
    display modes (only the desktop's size is used; the rendering size is independent).
 0. Widescreen stage 3 (after stages 1-2 settle): move suitable HUD elements (health/armour/timer left, money/ammo
    right, radar) towards the frame's edges, keeping their look; aspect change without a restart (device Reset).
-0. PC Options next: press-a-key capture in PC Controls (TrapKey_Event's trap mode), frame rate limit (SDK harness
-   pacing read at run time), audio output device; Window Size where the compositor honours it.
+0. PC Options next: frame rate limit (SDK harness pacing read at run time), audio output device; Window Size where
+   the compositor honours it. PC Controls: a key taken from another row could clear that row at once (now the save
+   keeps it with the first row in the list, as before).
 0a. Linux play-test follow-up: compare the gamma ramp (x1.67) and glow pass with a console capture; current vertex
    data for vertex-buffer draws; point / line polygon offsets.
 0b. Audio remainder: HRTF-like positioning (elevation, front/back) instead of the linear pan, envelopes (SetEG),

@@ -1,8 +1,52 @@
 #include "common/pc_bindings.h"
 
+#include <cstdlib>
+#include <cstring>
+#include <deque>
+#include <string>
+
 #include "common/pc_settings.h"
 
 namespace pc {
+
+namespace {
+// UTF-8 to Latin-1 (the menus' text: the game widens its bytes), empty when a character is not in Latin-1
+std::string Latin1(const std::string& utf8) {
+    std::string out;
+    for (size_t i = 0; i < utf8.size();) {
+        unsigned char c = static_cast<unsigned char>(utf8[i]);
+        if (c < 0x80) {
+            out += char(c);
+            i++;
+        } else if (c >= 0xC2 && c <= 0xC3 && i + 1 < utf8.size()) {
+            out += char(((c & 0x1F) << 6) | (static_cast<unsigned char>(utf8[i + 1]) & 0x3F));
+            i += 2;
+        } else {
+            return {};
+        }
+    }
+    return out;
+}
+
+// a punctuation key's name as the keyboard layout prints it (CSX_KEY_LABELS from the window: "C=LABEL" lines in
+// UTF-8), else its US character; the names live as long as the program
+const char* Label(char key, const char* us, const char* suffix = "") {
+    static std::deque<std::string> names;
+    std::string label = us;
+    const char* env = std::getenv("CSX_KEY_LABELS");
+    for (const char* p = env; p && *p;) {
+        const char* end = std::strchr(p, '\n');
+        std::string line = end ? std::string(p, end) : std::string(p);
+        if (std::string l = line.size() > 2 && line[0] == key && line[1] == '=' ? Latin1(line.substr(2)) : "";
+            !l.empty())
+            label = l + suffix;
+        p = end ? end + 1 : nullptr;
+    }
+    if (label == us) return us;
+    names.push_back(label);
+    return names.back().c_str();
+}
+}  // namespace
 
 const std::vector<KeyInfo>& BindableKeys() {
     static const std::vector<KeyInfo> k = [] {
@@ -28,9 +72,12 @@ const std::vector<KeyInfo>& BindableKeys() {
             {"KP_DOWNARROW", 167, "Keypad 2"}, {"KP_PGDN", 168, "Keypad 3"}, {"KP_LEFTARROW", 163, "Keypad 4"},
             {"KP_5", 164, "Keypad 5"}, {"KP_RIGHTARROW", 165, "Keypad 6"}, {"KP_HOME", 160, "Keypad 7"},
             {"KP_UPARROW", 161, "Keypad 8"}, {"KP_PGUP", 162, "Keypad 9"}, {"KP_ENTER", 169, "Keypad Enter"},
-            {"KP_PLUS", 174, "Keypad +"}, {"KP_MINUS", 173, "Keypad -"}, {"`", '`', "` (left of 1)"}, {"-", '-', "-"},
-            {"=", '=', "="}, {"[", '[', "["}, {"]", ']', "]"}, {"SEMICOLON", ';', ";"}, {",", ',', ","},
-            {".", '.', "."}, {"/", '/', "/"}};
+            {"KP_PLUS", 174, "Keypad +"}, {"KP_MINUS", 173, "Keypad -"}, {"KP_DEL", 171, "Keypad ."},
+            {"KP_SLASH", 172, "Keypad /"}, {"`", '`', Label('`', "` (left of 1)", " (left of 1)")},
+            {"-", '-', Label('-', "-")}, {"=", '=', Label('=', "=")}, {"[", '[', Label('[', "[")},
+            {"]", ']', Label(']', "]")}, {"SEMICOLON", ';', Label(';', ";")}, {"'", '\'', Label('\'', "'")},
+            {"\\", '\\', Label('\\', "\\")}, {"<", '<', Label('<', "<")}, {",", ',', Label(',', ",")},
+            {".", '.', Label('.', ".")}, {"/", '/', Label('/', "/")}};
         for (const KeyInfo& r : rest) v.push_back(r);
         return v;
     }();

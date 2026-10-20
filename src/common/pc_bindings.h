@@ -13,7 +13,8 @@ struct KeyInfo {
     const char* label;
 };
 // every key a binding may use, in menu order ("None" first); Escape (the pause menu), F1 and F11 (the window's) are
-// left out so the menus and the window stay reachable
+// left out so the menus and the window stay reachable. The punctuation keys are positions (the window takes them by
+// scancode, US names for the engine) shown as the keyboard layout prints them (CSX_KEY_LABELS from the window)
 const std::vector<KeyInfo>& BindableKeys();
 const KeyInfo* FindKey(const std::string& name);
 

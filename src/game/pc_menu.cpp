@@ -7,17 +7,25 @@
 // are console commands ("!name" in the text, as the game's own screens call theirs): pc_options_load <screen> on
 // entry fills the lists from pc_settings.ini, A runs pc_options_save <screen>, X (where offered) pc_options_defaults
 // <screen>, B leaves without saving. A hook in Cmd_ExecuteString serves them before the engine's own command lookup.
+// PC Controls' rows also take a pressed key (press-a-key rebinding): Enter or a click on a row's key name makes the
+// row wait for a key; its value cell shows "Press a key" in the game's own table (the shown choice's text swapped
+// while it waits); the next key, mouse button or wheel notch the window sends becomes the row's choice in its list,
+// Escape or the pad's B leave it as it was. The list, Accept, Cancel and Reset stay as they are: Accept saves.
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "app/app.h"
+#include "common/csx.h"
 #include "common/pc_bindings.h"
 #include "common/pc_settings.h"
 #include "core/log.h"
@@ -56,8 +64,8 @@ std::vector<Choice> Numbers(std::initializer_list<const char*> v) {
 }
 
 Setting Binding(const pc::Action& a) {
-    Setting s{std::string("bind.") + a.id, a.label, {"Choose the key or mouse button for this action.",
-                                                       "Menus keep their own keys; Escape opens the game menu."}};
+    Setting s{std::string("bind.") + a.id, a.label, {"Click the key or press Enter, then press a key or mouse",
+                                                       "button (Escape cancels). The arrows also choose one."}};
     for (const pc::KeyInfo& k : pc::BindableKeys()) {
         if (std::string(k.name) == a.key) s.def = int(s.choices.size());
         s.choices.push_back({k.label, k.name});
@@ -344,6 +352,16 @@ int IndexOf(const Setting& r, const std::string& value) {
     return r.def;
 }
 
+// a label (Latin-1, the menus' text) for the log
+std::string Utf8(const std::string& latin1) {
+    std::string out;
+    for (unsigned char c : latin1) {
+        if (c < 0x80) out += char(c);
+        else out += {char(0xC0 | c >> 6), char(0x80 | (c & 0x3F))};
+    }
+    return out;
+}
+
 void LoadScreen(const std::string& name, const PcScreen& s) {
     std::vector<uint32_t> cells = Cells(name, s);
     for (size_t i = 0; i < cells.size(); i++) {
@@ -372,7 +390,7 @@ void SaveScreen(const std::string& name, const PcScreen& s) {
         if (s.unique_values && !value.empty()) {
             auto [it, fresh] = taken.emplace(value, i);
             if (!fresh) {
-                LOGI("pc menu: %s is already %s's, %s is left unbound", r.choices[pick].label.c_str(),
+                LOGI("pc menu: %s is already %s's, %s is left unbound", Utf8(r.choices[pick].label).c_str(),
                      s.settings[it->second].label.c_str(), r.label.c_str());
                 value.clear();
                 kernel::W32(cells[i], uint32_t(IndexOf(r, "")));
@@ -382,6 +400,130 @@ void SaveScreen(const std::string& name, const PcScreen& s) {
     }
     pc::Save();
 }
+
+// ---- press-a-key rebinding ----------------------------------------------------------------------------------------
+// A list cell's choices are the game's std::wstring (MSVC, 0x1C bytes: +4 up to 7 UTF-16 characters in place, or
+// from 8 on a pointer to them, +0x14 the length, +0x18 the capacity); while a row waits, its shown choice points at
+// "Press a key" (UTF-16 in a block of the game's heap, made once) and is put back byte for byte afterwards, so the
+// game never frees or grows a string it did not make.
+
+constexpr uint32_t kCurrentScreen = 0x5523D4;
+constexpr uint32_t kMalloc = 0x22D86A;  // the CRT's malloc (size), cdecl
+constexpr char kPressAKey[] = "Press a key";
+
+struct Capture {
+    bool active = false;
+    std::string screen;
+    size_t row = 0;
+    uint32_t cell = 0, shown = 0;  // the list cell, the choice whose text is swapped
+    uint8_t saved[0x1C] = {};
+};
+Capture g_capture;
+std::atomic<bool> g_capturing{false}, g_row_selected{false};
+std::mutex g_bind_lock;
+bool g_start = false;
+std::deque<int> g_bind_keys;
+
+void ShowChoice(X86Context& ctx, uint32_t choice, const char* text) {
+    static uint32_t buffer = 0;
+    uint32_t n = uint32_t(std::strlen(text));
+    if (!buffer) buffer = kernel::CallGuest(ctx, kMalloc, {(n + 1) * 2});
+    if (!buffer) return;
+    for (uint32_t i = 0; i <= n; i++) {
+        uint16_t c = static_cast<unsigned char>(text[i]);
+        std::memcpy(static_cast<uint8_t*>(kernel::HostPtr(buffer)) + i * 2, &c, 2);
+    }
+    kernel::W32(choice + 4, buffer);
+    kernel::W32(choice + 0x14, n);
+    kernel::W32(choice + 0x18, n);
+}
+
+void EndCapture(const char* how) {
+    if (!g_capture.active) return;
+    std::memcpy(kernel::HostPtr(g_capture.shown), g_capture.saved, sizeof g_capture.saved);
+    g_capture.active = false;
+    g_capturing = false;
+    LOGI("pc menu: key capture %s", how);
+}
+
+std::string ScreenName() {
+    uint32_t screen = R32(kCurrentScreen);
+    return screen ? GuestString(R32(screen)) : std::string();
+}
+
+void StartCapture(X86Context& ctx) {
+    std::string name = ScreenName();
+    const PcScreen* s = FindScreen(name);
+    uint32_t table = s && s->unique_values ? R32(R32(kCurrentScreen) + 0x380) : 0;
+    if (!table || g_capture.active) return;
+    size_t row = R32(table + 0x9C);
+    std::vector<uint32_t> cells = Cells(name, *s);
+    if (row >= cells.size()) return;
+    uint32_t cell = cells[row], pick = R32(cell);
+    if (pick >= Choices(cell)) return;
+    g_capture = {true, name, row, cell, R32(cell + 0xC) + pick * 0x1C, {}};
+    std::memcpy(g_capture.saved, kernel::HostPtr(g_capture.shown), sizeof g_capture.saved);
+    ShowChoice(ctx, g_capture.shown, kPressAKey);
+    g_capturing = true;
+    LOGI("pc menu: %s waits for a key", s->settings[row].label.c_str());
+}
+
+// the pressed key (engine number) as the row's choice; a key the list does not hold leaves the wait on
+void CaptureKey(int key) {
+    const PcScreen* s = FindScreen(g_capture.screen);
+    if (!s) return EndCapture("ended (no screen)");
+    if (key < 0) return EndCapture("cancelled");
+    const Setting& r = s->settings[g_capture.row];
+    for (size_t c = 0; c < r.choices.size(); c++) {
+        const pc::KeyInfo* k = pc::FindKey(r.choices[c].value);
+        if (!k || k->number != key || r.choices[c].value.empty()) continue;
+        EndCapture("done");
+        kernel::W32(g_capture.cell, uint32_t(c));
+        LOGI("pc menu: %s set to %s (saved with Accept)", r.label.c_str(), Utf8(r.choices[c].label).c_str());
+        return;
+    }
+    LOGI("pc menu: key %d cannot be bound, still waiting", key);
+}
+
+}  // namespace
+
+namespace csx {
+bool BindRowSelected() { return g_row_selected; }
+bool BindCapturing() { return g_capturing; }
+void BindStart() {
+    std::lock_guard<std::mutex> lock(g_bind_lock);
+    g_start = true;
+}
+void BindInput(int key) {
+    std::lock_guard<std::mutex> lock(g_bind_lock);
+    g_bind_keys.push_back(key);
+}
+}  // namespace csx
+
+// a PC binding screen of either menu (pc_mouse.cpp: a click on a row's key name waits for a key there)
+bool PcBindingScreen(const std::string& name) {
+    const PcScreen* s = FindScreen(name);
+    return s && s->unique_values;
+}
+
+// on the game thread every frame (pc_keys.cpp's PcKeysFrame): the capture started, fed or ended with its screen
+void PcMenuFrame(X86Context& ctx) {
+    bool start;
+    std::deque<int> keys;
+    {
+        std::lock_guard<std::mutex> lock(g_bind_lock);
+        start = std::exchange(g_start, false);
+        keys.swap(g_bind_keys);
+    }
+    std::string name = ScreenName();
+    if (g_capture.active && (name != g_capture.screen || csx::ConsoleOpen())) EndCapture("ended (screen left)");
+    g_row_selected = PcBindingScreen(name) && !csx::ConsoleOpen();
+    if (start && g_row_selected) StartCapture(ctx);
+    for (int k : keys)
+        if (g_capture.active) CaptureKey(k);
+}
+
+namespace {
 
 }  // namespace
 
@@ -421,6 +563,13 @@ void PcUiLoadText(X86Context& ctx, uint8_t*) {
     static_cast<char*>(kernel::HostPtr(ctx.esi))[out.size()] = 0;
     ctx.ebp = uint32_t(out.size());
 }
+
+// [[hook]] at 0xDCB43 and 0xDCBCB (on true to 0xDCB4A / 0xDCBD2): the table's list steps (tableIncreaseValue 0xDCAD0,
+// tableDecreaseValue 0xDCB60, the pad's right and left) pass over a choice whose enable byte (cell +0x29 + index, edx
+// the index) is 0. The bytes hold 0x27 choices, as many as the original lists have; a longer list (PC Controls' keys,
+// over 100) reads the cell's other fields and the next cell there and skipped every fourth key: from 0x27 on a choice
+// is taken as enabled
+bool PcListChoiceEnabled(X86Context& ctx, uint8_t*) { return ctx.edx >= 0x27; }
 
 // [[hook]] at 0x3CA25 in Cmd_ExecuteString, the command just tokenized (cmd_argc 0x4253E8, cmd_argv 0x4251A8): true
 // serves a pc_ command here and leaves the function

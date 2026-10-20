@@ -9,8 +9,14 @@
 // keyboard is its alone: typed text (SDL text input, so the layout's characters), Backspace, Enter, Up / Down
 // (history), Tab (completion), Page Up / Down and the wheel (scrolling), Escape closing it; held game keys are let go,
 // and the mouse is released, captured again when it closes.
-// The name field of the profile's virtual keyboard (src/game/pc_mouse.cpp), once clicked: typed text (the layout's
-// characters), Backspace, the arrows, Enter (Done), Escape (typing ends) go to the game's edit box.
+// PC Controls' press-a-key rebinding (src/game/pc_menu.cpp): Enter on a binding row (or a click on its key name)
+// makes it wait; then the next key, mouse button or wheel notch is its key and nothing else gets it (no menu move, no
+// game key), Escape cancels; F1 and F11 stay the window's. The name field of the profile's virtual keyboard
+// (src/game/pc_mouse.cpp), once clicked: typed text (the layout's characters), Backspace, the arrows, Enter (Done),
+// Escape (typing ends) go to the game's edit box.
+// Keys by layout: letters are the letter the layout prints; the digit row and the punctuation keys are taken by their
+// position (US names: Swedish Å is [, Ö ;, Ä ', the key left of Z <), so every layout can bind them; the menus show
+// them as the layout prints them (CSX_KEY_LABELS, set here once the window is up).
 // Mouse look: while the mouse is captured (relative mode, SDL's unaccelerated motion), each count turns the view by
 // 0.022 degrees x the sensitivity (CSX_MOUSE_SENS, else Options > PC Options, else 3: GoldSrc's m_yaw / m_pitch and
 // CS's default) through the title's look routine (src/game/mouse_look.cpp); CSX_MOUSE_INVERT=1 inverts the pitch.
@@ -94,12 +100,30 @@ bool Down(SDL_Keycode k) { return g_keys.count(k) != 0; }
 std::set<int> g_engine_held;  // engine keys down: their release goes to the engine whatever is open then
 bool g_was_menu = true;
 
-// SDL key -> engine key number (keys.c: letters, digits and punctuation as their characters, the rest from 127 up).
-// The key left of 1 is ` by its position (SDL_SCANCODE_GRAVE), as PC games take the console key: it prints ` on a US
-// layout, § on a Swedish one, ^ on a German one
+// the keys taken by their position: the digit row and the punctuation keys, as engine keys (their US characters; the
+// ISO key left of Z, which a US keyboard lacks, is <)
+const struct {
+    SDL_Scancode sc;
+    char key;
+} kPositionKeys[] = {
+    {SDL_SCANCODE_GRAVE, '`'}, {SDL_SCANCODE_1, '1'}, {SDL_SCANCODE_2, '2'}, {SDL_SCANCODE_3, '3'},
+    {SDL_SCANCODE_4, '4'}, {SDL_SCANCODE_5, '5'}, {SDL_SCANCODE_6, '6'}, {SDL_SCANCODE_7, '7'},
+    {SDL_SCANCODE_8, '8'}, {SDL_SCANCODE_9, '9'}, {SDL_SCANCODE_0, '0'}, {SDL_SCANCODE_MINUS, '-'},
+    {SDL_SCANCODE_EQUALS, '='}, {SDL_SCANCODE_LEFTBRACKET, '['}, {SDL_SCANCODE_RIGHTBRACKET, ']'},
+    {SDL_SCANCODE_BACKSLASH, '\\'}, {SDL_SCANCODE_NONUSHASH, '\\'}, {SDL_SCANCODE_SEMICOLON, ';'},
+    {SDL_SCANCODE_APOSTROPHE, '\''}, {SDL_SCANCODE_COMMA, ','}, {SDL_SCANCODE_PERIOD, '.'},
+    {SDL_SCANCODE_SLASH, '/'}, {SDL_SCANCODE_NONUSBACKSLASH, '<'},
+};
+
+// SDL key -> engine key number (keys.c: letters, digits and punctuation as their characters, the rest from 127 up):
+// letters as the layout prints them, the digit row and punctuation by position (the key left of 1 is ` as PC games
+// take the console key: it prints ` on a US layout, § on a Swedish one, ^ on a German one). Keys without a scancode
+// (tests) go by their key code.
 int EngineKey(SDL_Keycode k, SDL_Scancode sc = SDL_SCANCODE_UNKNOWN) {
-    if (sc == SDL_SCANCODE_GRAVE) return '`';
-    if ((k >= SDLK_A && k <= SDLK_Z) || (k >= SDLK_0 && k <= SDLK_9)) return int(k);
+    if (k >= SDLK_A && k <= SDLK_Z) return int(k);
+    for (const auto& p : kPositionKeys)
+        if (p.sc == sc) return p.key;
+    if (k >= SDLK_0 && k <= SDLK_9) return int(k);
     switch (k) {
         case SDLK_SPACE: return 32;
         case SDLK_TAB: return 9;
@@ -107,7 +131,7 @@ int EngineKey(SDL_Keycode k, SDL_Scancode sc = SDL_SCANCODE_UNKNOWN) {
         case SDLK_BACKSPACE: return 127;
         case SDLK_GRAVE: case SDLK_MINUS: case SDLK_EQUALS: case SDLK_LEFTBRACKET: case SDLK_RIGHTBRACKET:
         case SDLK_SEMICOLON: case SDLK_COMMA: case SDLK_PERIOD: case SDLK_SLASH: case SDLK_BACKSLASH:
-        case SDLK_APOSTROPHE: return int(k);
+        case SDLK_APOSTROPHE: case SDLK_LESS: return int(k);
         case SDLK_UP: return 128;
         case SDLK_DOWN: return 129;
         case SDLK_LEFT: return 130;
@@ -277,6 +301,14 @@ void HandleEvent(const void* p) {
     std::lock_guard<std::mutex> lock(g_lock);
     switch (e.type) {
         case SDL_EVENT_KEY_DOWN:
+            if (csx::BindCapturing()) {  // a binding waits: this key is its, Escape cancels, repeats do nothing
+                int key = EngineKey(e.key.key, e.key.scancode);
+                if (e.key.repeat) break;
+                if (e.key.key == SDLK_ESCAPE) csx::BindInput(-1);
+                else if (key >= 0) csx::BindInput(key);
+                else LOGI("input: %s cannot be bound", SDL_GetKeyName(e.key.key));  // F1, Print Screen...
+                break;
+            }
             if (csx::TextEntryOpen() && !g_console) {  // the name field: its editing keys; characters come as text
                 using T = csx::TextKey;
                 switch (e.key.key) {
@@ -287,6 +319,10 @@ void HandleEvent(const void* p) {
                     case SDLK_ESCAPE: if (!e.key.repeat) csx::QueueTextEntryKey(T::Escape); break;
                     default: break;
                 }
+                break;
+            }
+            if ((e.key.key == SDLK_RETURN || e.key.key == SDLK_KP_ENTER) && !g_console && csx::BindRowSelected()) {
+                if (!e.key.repeat) csx::BindStart();  // PC Controls: the selected row waits for a key
                 break;
             }
             if (EngineKey(e.key.key, e.key.scancode) == ConsoleKeyNumber() && ConsoleKeyNumber() >= 0) {
@@ -314,6 +350,11 @@ void HandleEvent(const void* p) {
             break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
             if (g_console) break;
+            if (csx::BindCapturing()) {  // its key; a double click's second press is not one
+                if (e.button.clicks < 2 && EngineMouseKey(e.button.button) >= 0)
+                    csx::BindInput(EngineMouseKey(e.button.button));
+                break;
+            }
             if (MenuMouse()) {  // the menus: the pointer clicks (src/game/pc_mouse.cpp), never the pad's triggers
                 float mx, my;
                 if (MenuPoint(e.button.x, e.button.y, mx, my)) csx::MenuPointer(mx, my);
@@ -334,7 +375,9 @@ void HandleEvent(const void* p) {
             g_mouse_buttons &= ~(1u << e.button.button);
             break;
         case SDL_EVENT_MOUSE_WHEEL:  // MWHEELUP / MWHEELDOWN, a press and a release per notch, as the engine expects
-            if (g_console && e.wheel.y != 0) {
+            if (csx::BindCapturing() && e.wheel.y != 0) {
+                csx::BindInput(e.wheel.y > 0 ? 240 : 239);
+            } else if (g_console && e.wheel.y != 0) {
                 csx::QueueConsoleKey(e.wheel.y > 0 ? csx::ConsoleKey::PageUp : csx::ConsoleKey::PageDown);
             } else if (MenuMouse() && e.wheel.y != 0) {  // whole notches (SDL adds up a fine wheel's steps)
                 if (e.wheel.integer_y) csx::MenuWheel(e.wheel.integer_y);
@@ -436,6 +479,22 @@ bool PlayCapture() { return g_capture_play; }
 bool MouseFree() { return g_console || csx::MenuOpen(); }
 
 bool ConsoleShown() { return g_console; }
+
+// the positional keys as the system's layout prints them, for the menus' key names (pc_bindings.cpp, through
+// CSX_KEY_LABELS): lines "C=NAME" (C the engine key's character, NAME in UTF-8), only for keys that differ from US
+std::string KeyLabels() {
+    std::string labels, shown;
+    for (const auto& p : kPositionKeys) {
+        if ((p.key >= '0' && p.key <= '9') || labels.find(std::string(1, p.key) + "=") != std::string::npos) continue;
+        SDL_Keycode k = SDL_GetKeyFromScancode(p.sc, SDL_KMOD_NONE, false);
+        std::string name = k == SDLK_UNKNOWN ? "" : SDL_GetKeyName(k);
+        if (name.empty() || name == std::string(1, p.key) || name.find('\n') != std::string::npos) continue;
+        labels += std::string(1, p.key) + "=" + name + "\n";
+        shown += " " + std::string(1, p.key) + "=" + name;
+    }
+    LOGI("input: key names from the layout:%s", shown.empty() ? " as US" : shown.c_str());
+    return labels;
+}
 
 }  // namespace window
 

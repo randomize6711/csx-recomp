@@ -24,6 +24,7 @@ void HandleEvent(const void* sdl_event);  // an SDL_Event
 void EndFrameInput();                     // after a batch of events: mouse motion turns into this frame's look input
 void UpdateConsole();                     // once a frame: follow the developer console opening or closing
 bool ConsoleShown();                      // the console is open (the keyboard is its, the mouse not captured)
+std::string KeyLabels();                  // CSX_KEY_LABELS: the punctuation keys as the system layout prints them
 void SetPlayCapture(bool on);             // the mouse captured while playing (F1, a click in the window)
 bool PlayCapture();
 bool MouseFree();                         // a menu or the console has the mouse (the pointer shown)

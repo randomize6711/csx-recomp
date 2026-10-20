@@ -2,7 +2,8 @@
 # default key (` : engine key 96, bound to toggleconsole), takes typed text into its input line; Enter runs it
 # (echo), Tab completes a variable (sv_gra -> sv_gravity), Up recalls the history, a typed toggleconsole closes it.
 # The pad still plays while it is open (A jumps): the console never took the pad. The pause menu's PC Controls
-# rebinds it (the last row, one step right: =; the list steps over -), saved, and only the new key opens it.
+# rebinds it (the last row, eight steps right: <, every key on the way taken: - = [ ] ; ' \ <, none skipped), saved,
+# and only the new key opens it.
 #   --launch tests/launch/de_airstrip_beginner
 wait log open D:\\.*\.sxwad
 wait draws>=150
@@ -131,9 +132,23 @@ sleep 0.6
 snap controls
 press RIGHT
 sleep 1
+press RIGHT
+sleep 1
+press RIGHT
+sleep 1
+press RIGHT
+sleep 1
+press RIGHT
+sleep 1
+press RIGHT
+sleep 1
+press RIGHT
+sleep 1
+press RIGHT
+sleep 1
 press A
 sleep 2
-expect log pc: bind.console = =
+expect log pc: bind.console = <
 press B
 sleep 1
 press B
@@ -143,9 +158,9 @@ sleep 0.2
 pckey key 96 0
 sleep 1
 count pc.console:.open 1
-pckey key 61 1
+pckey key 60 1
 sleep 0.2
-pckey key 61 0
+pckey key 60 0
 sleep 1
 count pc.console:.open 2
 pckey conkey close

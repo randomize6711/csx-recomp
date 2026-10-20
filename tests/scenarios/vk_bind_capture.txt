@@ -1,0 +1,185 @@
+# Press-a-key rebinding in the Vulkan window with real SDL events (FINDINGS.md "Press-a-key rebinding",
+# src/linux/window_input.cpp, src/game/pc_menu.cpp), Swedish key names given as the layout would give them:
+# - front end, Options > PC Controls by clicks: Enter on Move Forward waits (Enter itself is not taken), I is its key;
+#   a click on Jump's key name waits, the side button (Mouse 4) is its; a click on Crouch's key name then a double
+#   click's second press (not a key) and the wheel up (its key); Enter then Escape (cancelled, still on the screen);
+#   Enter, F1 (the window's: not bindable, still waiting), Escape; Walk takes the key right of P on a Swedish keyboard
+#   (Å, shown as Å); the wheel scrolls to Toggle Developer Console, Enter, F2; Accept on the help bar saves (Wheel Up
+#   stays Crouch's, Previous Weapon unbound); F2 opens the console, Escape closes it;
+# - a Single Player match (relaunched: the saved keys): I walks forward, Mouse 4 jumps, F2 opens the console; the pause
+#   menu's PC Controls: a click on Jump's key name, J; Space accepts; Return to Game clicked: J jumps at once.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), the Swedish names as
+#   --env "CSX_KEY_LABELS=[=Å\n;=Ö\n'=Ä\n`=§\n-=+\n<=<\n"
+wait log renderer: vulkan
+wait log open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+expect log pc mouse: screen SuperLauncher_MainScreen
+point 150 260
+sleep 0.5
+click 1
+sleep 3
+point 150 268
+sleep 0.5
+click 1
+sleep 3
+expect log pc mouse: screen SuperLauncher_PCControls, 28 rows from 83 108, 26 high
+key Return 0.4
+sleep 1
+expect log pc menu: Move Forward waits for a key
+windowshot waiting
+key I
+sleep 1
+expect log pc menu: Move Forward set to I
+expect nolog pc menu: .* set to Enter
+point 470 225
+sleep 0.5
+click 1
+sleep 1
+expect log pc menu: Jump waits for a key
+click 4
+sleep 1
+expect log pc menu: Jump set to Mouse 4
+point 470 251
+sleep 0.5
+click 1
+sleep 0.3
+click 11
+sleep 1
+expect log pc menu: Crouch waits for a key
+expect nolog pc menu: Crouch set to
+wheel 1
+sleep 1
+expect log pc menu: Crouch set to Wheel Up
+key Return
+sleep 1
+key Escape
+sleep 1.5
+expect count pc.menu:.key.capture.cancelled 1
+expect count pc.mouse:.screen.SuperLauncher_Options, 1
+key Return
+sleep 1
+key F1
+sleep 1
+expect log input: F1 cannot be bound
+expect count pc.menu:.key.capture.done 3
+key Escape
+sleep 1.5
+expect count pc.menu:.key.capture.cancelled 2
+key Down
+sleep 1
+key Return
+sleep 1
+expect log pc menu: Walk waits for a key
+key Å#[
+sleep 1
+expect log pc menu: Walk set to Å
+windowshot swedish
+wheel -8
+sleep 3
+wheel -8
+sleep 3
+wheel -5
+sleep 3
+key Return
+sleep 1
+expect log pc menu: Toggle Developer Console waits for a key
+key F2
+sleep 1
+expect log pc menu: Toggle Developer Console set to F2
+point 430 428
+sleep 0.5
+click 1
+sleep 2
+expect log pc: bind.forward = i
+expect log pc: bind.jump = MOUSE4
+expect log pc: bind.duck = MWHEELUP
+expect log pc: bind.walk = \[
+expect log pc menu: Wheel Up is already Crouch's, Previous Weapon is left unbound
+expect log pc: bind.console = F2
+expect log pc: settings saved
+key F2
+sleep 1
+expect log input: console open
+key Escape
+sleep 1
+expect log input: console closed
+click 3
+sleep 3
+point 150 160
+sleep 0.5
+click 1
+sleep 5
+key Space
+sleep 5
+key Space
+wait log open D:\\de_airstrip.sxwad
+sleep 25
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 20
+key Left_Ctrl
+sleep 15
+expect log input: mouse mode play \(captured\)
+state a
+key I 1.5
+sleep 1
+state b
+expect moved a b 100 1000
+expect heading a b 20
+sleep 1
+state c
+click 4 0.2
+sleep 0.3
+state d
+expect rose c d 20
+sleep 1.5
+key F2
+sleep 1
+expect count input:.console.open 2
+key Escape
+sleep 1
+key Escape
+sleep 2
+expect log input: mouse mode menu
+point 300 271
+sleep 0.5
+click 1
+sleep 2
+point 300 249
+sleep 0.5
+click 1
+sleep 2
+expect log pc mouse: screen InGame_PCControls
+point 450 225
+sleep 0.5
+click 1
+sleep 1
+expect count pc.menu:.Jump.waits.for.a.key 2
+key J
+sleep 1
+expect log pc menu: Jump set to J
+key Space
+sleep 2
+expect log pc: bind.jump = j
+click 3
+sleep 2
+point 300 141
+sleep 0.5
+click 1
+sleep 2
+state e
+key J 0.2
+sleep 0.3
+state f
+expect rose e f 20
+expect nolog guest trap
+expect nolog fatal error screen

@@ -199,14 +199,16 @@ Vulkan window with SDL mouse events: `point X Y` moves the pointer to a menu poi
 
 `python3 -I tools/run_window_tests.py [SCENARIO ...]` runs window scenarios in the Vulkan window build, each in its own
 `gamescope --backend headless` (nothing on the desktop; only the scenario's input reaches the title; no audio device),
-with the size and options its header gives, in build/wruns/<scenario>; the default list is the mouse and console
-scenarios. `vk_menu_pointer_*.txt` move the pointer to raw window pixels (`pointat WX WY`) and expect the menu
+with the size and options its header gives, in build/wruns/<scenario>; the default list is the mouse, binding and
+console scenarios. `vk_menu_pointer_*.txt` move the pointer to raw window pixels (`pointat WX WY`) and expect the menu
 point computed by hand for that window and aspect. `vk_menu_mouse_fe.txt` captures the audio (CSX_AUDIO_WAV) with
 every menu sound logged (CSX_LOG_MENU_SOUNDS=1) and checks the hover sound in it (`expect menuaudio`,
-tools/check_menu_audio.py). `key Å#[` sends the key a Swedish layout has at the [
-position.
+tools/check_menu_audio.py). `vk_bind_capture.txt` drives PC Controls' capture with SDL keys, buttons and the wheel;
+`key Å#[` sends the key a Swedish layout has at the [ position.
 
-## The profile name (headless)
+## Press-a-key rebinding and the profile name (headless)
 
+`regress_pc_bind_capture.txt` uses `pckey bindstart` (Enter on a row), `pckey bindkey KEYNUM` (the engine key the
+window would send) and `pckey bindcancel` (Escape), then relaunches into a match to check the saved keys.
 `regress_pc_profile_name.txt` uses `pckey name TEXT` (typed text) and `pckey namekey backspace|left|right|enter|escape`.
 `expect count REGEX N` checks an exact count (that a press did nothing).

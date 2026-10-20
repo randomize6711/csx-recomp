@@ -118,8 +118,9 @@ void SyncBindings(X86Context& ctx) {
 
 // "pckey" request file in the run folder (tests): lines "cmd TEXT" (console text), "key KEYNUM DOWN", and for the
 // developer console "con TEXT" (typed text) and "conkey NAME" (toggle close backspace enter up down tab pgup pgdn),
-// for the menus' mouse "pointer X Y" (menu pixels), "mclick BUTTON", "mwheel N", for the name field "name TEXT"
-// (typed text) and "namekey NAME" (backspace left right enter escape)
+// for the menus' mouse "pointer X Y" (menu pixels), "mclick BUTTON", "mwheel N", for PC Controls' key capture
+// "bindstart" (Enter on a row), "bindkey KEYNUM" (the key the window would send), "bindcancel" (Escape), for the
+// name field "name TEXT" (typed text) and "namekey NAME" (backspace left right enter escape)
 void PollRequests() {
     static auto next = std::chrono::steady_clock::now();
     auto now = std::chrono::steady_clock::now();
@@ -143,6 +144,12 @@ void PollRequests() {
             csx::MenuClick(std::atoi(l.c_str() + 7));
         } else if (l.rfind("mwheel ", 0) == 0) {
             csx::MenuWheel(std::atoi(l.c_str() + 7));
+        } else if (l == "bindstart") {
+            csx::BindStart();
+        } else if (l.rfind("bindkey ", 0) == 0) {
+            csx::BindInput(std::atoi(l.c_str() + 8));
+        } else if (l == "bindcancel") {
+            csx::BindInput(-1);
         } else if (l.rfind("name ", 0) == 0) {
             csx::QueueTextEntry(l.substr(5));
         } else if (l.rfind("namekey ", 0) == 0) {
@@ -169,12 +176,14 @@ void PollRequests() {
 
 void PcConsoleFrame(X86Context& ctx);  // pc_console.cpp
 void PcMouseFrame(X86Context& ctx);    // pc_mouse.cpp
+void PcMenuFrame(X86Context& ctx);     // pc_menu.cpp
 
 // [[hook]] at 0x3BB50 (config/game.toml): Cbuf_Execute's entry, on the game thread every frame
 void PcKeysFrame(X86Context& ctx, uint8_t*) {
     PollRequests();
     PcConsoleFrame(ctx);
     PcMouseFrame(ctx);
+    PcMenuFrame(ctx);
     uint32_t screen = R32(kCurrentScreen);
     if ((screen != 0) != g_menu) {
         g_menu = screen != 0;

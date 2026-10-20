@@ -47,6 +47,14 @@ enum class TextKey { Backspace, Left, Right, Enter, Escape };
 bool TextEntryOpen();
 void QueueTextEntry(const std::string& text);
 void QueueTextEntryKey(TextKey key);
+// press-a-key rebinding in PC Controls (src/game/pc_menu.cpp): whether such a screen is open with a binding row
+// selected (Enter starts a capture there), whether a row waits for its key (the window's next key, mouse button or
+// wheel notch goes there, nothing else); a capture started on the selected row; the key pressed (engine number,
+// keys.c), -1 cancelling
+bool BindRowSelected();
+bool BindCapturing();
+void BindStart();
+void BindInput(int key);
 // a menu screen of the game is open (keyboard and mouse act as the pad there; otherwise as engine keys)
 bool MenuOpen();
 // what GameInfo::loaded starts
