@@ -1,0 +1,56 @@
+# Spectating and the scoreboard with the PC mouse and keys, the Vulkan window with real SDL events (FINDINGS.md
+# "Spectator and scoreboard", src/game/pc_keys.cpp): the Spectator and Scoreboard screens pass the controls through to
+# the game (ControlPassThrough "1"; the controller's right stick turns the spectator's camera), so they are play for
+# the PC keys and mouse, not menus: the mouse stays captured and turns the view. Holding Tab shows the scoreboard
+# while W walks on; after dying (kill) the mouse turns the spectator's camera; Space, then the pause menu opened and
+# closed with Escape, and the mouse still turns it.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), with
+#   --launch tests/launch/de_airstrip_beginner
+wait log open D:\\de_airstrip.sxwad
+sleep 25
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 20
+key Left_Ctrl
+sleep 15
+expect log input: mouse mode play \(captured\)
+state a0
+key Tab 3
+sleep 0.5
+key W 1.5
+sleep 2
+state a1
+expect log pc keys: Scoreboard passes the controls through
+expect moved a0 a1 100 1000
+expect nolog pc keys: menu Scoreboard
+pckey cmd kill
+sleep 6
+expect log pc keys: Spectator passes the controls through
+state s0
+mouse 600 0
+sleep 1
+state s1
+expect yaw s0 s1 -39.6 6
+key Space 0.2
+sleep 2
+state s2
+mouse -600 0
+sleep 1
+state s3
+expect yaw s2 s3 39.6 6
+key Escape
+sleep 2
+expect log pc keys: menu InGame_Root.*
+key Escape
+sleep 2
+state s4
+mouse 0 -300
+sleep 0.2
+mouse 600 0
+sleep 1
+state s5
+expect yaw s4 s5 -39.6 6
+expect nolog guest trap

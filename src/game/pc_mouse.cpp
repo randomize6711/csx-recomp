@@ -72,6 +72,7 @@ struct ScreenUi {
     std::vector<std::string> legend;  // the help bar's buttons, rightmost first
     float edit[4] = {0, 0, 0, 0};     // the EditBox (the name field): x, y, width, height
     bool piece_moves = false;         // stick pieces move its table (CommandHighlight tableMoveUp / Down)
+    bool pass_through = false;        // ControlPassThrough: the controls stay the game's (Spectator, Scoreboard)
 };
 std::map<std::string, ScreenUi> g_screens;
 
@@ -353,6 +354,7 @@ void PcMouseLearnUi(const std::string& text) {
             size_t q0 = code.find('"'), q1 = q0 == std::string::npos ? q0 : code.find('"', q0 + 1);
             if (q1 != std::string::npos) value = code.substr(q0 + 1, q1 - q0 - 1);
             if (key == "MenuType") g_screens[screen].type = value;
+            if (key == "ControlPassThrough") g_screens[screen].pass_through = value == "1";
             if (key == "EditBox") {  // colours (8), then x y width height
                 std::istringstream v(value);
                 std::vector<float> n;
@@ -459,6 +461,15 @@ void QueueTextEntryKey(TextKey key) {
 
 namespace {
 bool ui_known(const std::string& name) { return g_screens.count(name) != 0; }
+}  // namespace
+
+// a screen whose ControlPassThrough leaves the controls to the game (pc_keys.cpp: playing for the PC keys and mouse)
+bool PcScreenPassThrough(const std::string& name) {
+    auto it = g_screens.find(name);
+    return it != g_screens.end() && it->second.pass_through;
+}
+
+namespace {
 }  // namespace
 
 // on the game thread every frame (pc_keys.cpp's PcKeysFrame)

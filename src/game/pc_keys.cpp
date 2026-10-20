@@ -199,6 +199,7 @@ void PcWeaponSlotFromHeld(X86Context& ctx, uint8_t*) {
     if (R32(kActiveSel) <= 1 && held > 1 && R32(held + 0x90) == ctx.eax) kernel::W32(kActiveSel, held);
 }
 
+bool PcScreenPassThrough(const std::string& name);  // pc_mouse.cpp
 void PcConsoleFrame(X86Context& ctx);  // pc_console.cpp
 void PcMouseFrame(X86Context& ctx);    // pc_mouse.cpp
 void PcMenuFrame(X86Context& ctx);     // pc_menu.cpp
@@ -209,12 +210,21 @@ void PcKeysFrame(X86Context& ctx, uint8_t*) {
     PcConsoleFrame(ctx);
     PcMouseFrame(ctx);
     PcMenuFrame(ctx);
+    // a menu takes the keyboard and mouse as the pad; a screen that passes the controls through (Spectator, the
+    // Scoreboard: ControlPassThrough, the right stick turns the spectator's camera) leaves them the game's, as playing
     uint32_t screen = R32(kCurrentScreen);
-    if ((screen != 0) != g_menu) {
-        g_menu = screen != 0;
-        LOGI("pc keys: %s%s", screen ? "menu " : "playing", screen ? GuestString(R32(screen)).c_str() : "");
+    std::string name = screen ? GuestString(R32(screen)) : std::string();
+    bool menu = screen && !PcScreenPassThrough(name);
+    if (menu != g_menu) {
+        g_menu = menu;
+        LOGI("pc keys: %s%s", menu ? "menu " : "playing", menu ? name.c_str() : "");
         // the client's cvar exists only once a match runs, and a map load may set it back: set on every return to play
-        if (!screen) AddText(ctx, "hud_fastswitch 1\n");
+        if (!menu) AddText(ctx, "hud_fastswitch 1\n");
+    }
+    static uint32_t through = 0;  // the pass-through screen last logged
+    if (uint32_t now = menu ? 0 : screen; now != through) {
+        through = now;
+        if (now) LOGI("pc keys: %s passes the controls through", name.c_str());
     }
     SyncBindings(ctx);
     std::deque<std::pair<int, bool>> keys;
