@@ -40,6 +40,13 @@ void MenuWheel(int notches);
 namespace input { struct Pad; }
 namespace csx {
 void MenuPad(int port, input::Pad& pad);
+// the profile name's text entry (src/game/pc_mouse.cpp): on after a click on the name field of a virtual keyboard
+// screen, until Enter, Escape, a click elsewhere or the screen closes; the window's typed text and editing keys go to
+// the game's own edit box through its virtual keyboard's functions
+enum class TextKey { Backspace, Left, Right, Enter, Escape };
+bool TextEntryOpen();
+void QueueTextEntry(const std::string& text);
+void QueueTextEntryKey(TextKey key);
 // a menu screen of the game is open (keyboard and mouse act as the pad there; otherwise as engine keys)
 bool MenuOpen();
 // what GameInfo::loaded starts

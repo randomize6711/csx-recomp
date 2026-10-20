@@ -1,0 +1,119 @@
+# Mouse in the front end's menus, the Vulkan window with real SDL events and the audio captured (FINDINGS.md "Mouse
+# in the menus", src/game/pc_mouse.cpp, src/linux/window_input.cpp): on Create a Profile the pointer selects a key
+# of the virtual keyboard and a click types it; a click on the name field, then typed text (SDL text input), Backspace
+# and Enter (Done) make the profile; on the main menu the pointer's moves select rows with the game's HighlightSound
+# and the keyboard's d-pad (the game's own moves) still plays it; the menu sound is found in the capture at every
+# mouse move (tools/check_menu_audio.py); Options and PC Options by clicks, an arrow, Reset and Accept on the help bar;
+# PC Controls by a click, the wheel, the right button back twice; the developer console over the menu takes clicks
+# away from it and Escape closes it.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), with
+#   --env CSX_LOG_MENU_SOUNDS=1 --env CSX_AUDIO_WAV=$PWD/build/wruns/vk_menu_mouse_fe/menu.wav
+wait log renderer: vulkan
+wait log open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+expect log pc mouse: screen SuperLauncher_CreateProfile
+point 266 211
+sleep 1
+expect log pc mouse: key row 1 column 5, highlight menu/buy_hover.wav
+click 1
+sleep 1
+point 300 125
+sleep 0.5
+click 1
+sleep 1
+expect log pc mouse: name typing on \(the name field clicked\), the name "b"
+type Åsa
+sleep 1
+key BackSpace
+sleep 0.5
+windowshot name
+key Return
+sleep 2
+expect log pc mouse: name typing off \(Enter\), the name "bÅs"
+sleep 6
+expect log pc mouse: screen SuperLauncher_MainScreen
+point 150 160
+sleep 1.1
+point 150 232
+sleep 1.7
+key Down
+sleep 1.3
+point 150 124
+sleep 2.1
+key Down
+sleep 1.2
+point 150 196
+sleep 1.6
+point 155 196
+sleep 1.4
+key Up
+sleep 1.9
+point 150 268
+sleep 1.3
+expect count pc.mouse:.highlight.menu/buy_hover.wav 5
+expect menuaudio
+click 1
+sleep 3
+expect log pc mouse: screen SuperLauncher_Options,
+point 150 232
+sleep 0.5
+click 1
+sleep 3
+expect log pc mouse: screen SuperLauncher_PCOptions,
+point 545 173
+sleep 0.5
+click 1
+sleep 1
+point 335 428
+sleep 0.5
+click 1
+sleep 1.5
+expect log pc menu: SuperLauncher_PCOptions shows its defaults
+point 545 173
+sleep 0.5
+click 1
+sleep 1
+point 430 428
+sleep 0.5
+click 1
+sleep 2
+expect log pc: fov = 95
+expect log pc: settings saved
+expect count pc.mouse:.screen.SuperLauncher_Options, 2
+point 150 268
+sleep 0.5
+click 1
+sleep 3
+expect log pc mouse: screen SuperLauncher_PCControls,
+wheel -3
+sleep 2
+windowshot controls_scrolled
+click 3
+sleep 3
+expect count pc.mouse:.screen.SuperLauncher_Options, 3
+click 3
+sleep 3
+expect count pc.mouse:.screen.SuperLauncher_MainScreen 2
+key `
+sleep 1
+expect log input: console open
+expect log input: mouse mode menu
+point 150 268
+sleep 0.5
+click 1
+sleep 2
+expect count pc.mouse:.screen.SuperLauncher_Options, 3
+key Escape
+sleep 1
+expect log input: console closed
+point 150 268
+sleep 0.5
+click 1
+sleep 3
+expect count pc.mouse:.screen.SuperLauncher_Options, 4
+expect nolog guest trap
+expect nolog fatal error screen

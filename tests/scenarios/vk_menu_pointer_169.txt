@@ -1,0 +1,31 @@
+# Cursor positioning, 16:9 in a 1440x810 window: the frame is 854x480 (pc_wide.cpp rounds 853.3 up; the menus' 640
+# columns in its middle, 107 on each side), shown 1440x809.4 from y 0.31; the pointer at window pixels (raw SDL
+# motion) lands on (x x 854 / 1440 - 107, (y - 0.31) x 480 / 809.4). 78, 456 is left of the menus' columns (-60.7,
+# 270): nothing selected, the click does nothing; 432, 456 is the Options row (149.2, 270), its click opens Options.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1600 -H 900), with
+#   --pc aspect=16:9
+wait log renderer: vulkan
+wait log open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+expect log pc mouse: screen SuperLauncher_MainScreen
+expect log window: size 1440x810
+pointat 78 456
+sleep 0.5
+click 1
+sleep 2
+expect log pc mouse: SuperLauncher_MainScreen at -61 270, selection 0
+expect count pc.mouse:.screen.SuperLauncher_Options, 0
+pointat 432 456
+sleep 0.5
+click 1
+sleep 3
+expect log pc mouse: SuperLauncher_MainScreen at 149 270, selection 4
+expect log pc mouse: screen SuperLauncher_Options,
+windowshot options
+expect nolog guest trap

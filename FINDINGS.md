@@ -910,20 +910,52 @@ The mouse (src/game/pc_mouse.cpp on the game thread, src/linux/window_input.cpp 
   shown; leaving them captures it again (unless F1 let it go while playing; a click in the window takes it back). A
   click that closes a menu is not a shot (the button went to the menu); menu pointer motion never turns the view.
 - Hover sound: the screen keeps its sounds' names at +0x8 EnterSound, +0xC SelectSound, +0x10 HighlightSound (parsed
-  by 0xD4740), played by 0xC5A00 (cdecl: name, 0). Only the main menus ("superlauncher", 66 screens) have a
-  HighlightSound; their stick pieces play it (0xCAC90) before running CommandHighlight (tableMoveUp/Down, 0xD8480 /
-  0xD8490 through the command table at 0x37A990), the virtual keyboard's d-pad plays it too (0xD42F0). The 26
-  generic table screens have none and move silently. A hover that moves the selection plays the screen's
-  HighlightSound the same way; the buy pies play theirs (0xD0398) from the stick the pointer drives. Heard in a
-  play-test of the window build (2026-10-20).
-- Not done: the profile name's virtual keyboard (typing with the keyboard works), the scoreboard's and spectator's
-  screens have nothing to click (right button closes like B).
+  by 0xD4740), played by 0xC5A00 (cdecl: name, 0). What plays the HighlightSound originally: the stick pieces that
+  move a table (Generic_4_x with CommandHighlight tableMoveUp / Down, 0xD8480 / 0xD8490 through the command table at
+  0x37A990) play it (0xCAC90) before their command: the main menus ("superlauncher": every front-end screen with a
+  selectable table, the pause menu's), team selection; the keyboard's d-pad on the main menu goes the same way (seen
+  in the log of every menu sound: CSX_LOG_MENU_SOUNDS=1, a hook at 0xC5A00's entry); the virtual keyboard's d-pad
+  plays it (0xD42F0), the buy pies from their stick (0xD0398). The generic screens (26 in the front end, 21 in game)
+  have no HighlightSound and only passive tables; Spectator has one but no pieces. A hover that moves the selection
+  plays the screen's HighlightSound only where the screen's own moves do (stick pieces moving its table, the virtual
+  keyboard); the buy pies keep theirs from the stick the pointer drives.
+- Audible, not only called: in the Vulkan window with the mixer captured (CSX_AUDIO_WAV, null device), the hover
+  sound's waveform learnt from the game's own d-pad plays (aligned, averaged, high-passed against the menu music) is
+  found at every mouse play: matched 7 to 28 times the level of quiet moments between plays (0.2 to 2.5 times), as
+  strong as the d-pad's own plays (13 to 35 times, each measured against the others' average); the music's beat (0.7
+  s) shows at control moments that fall on it (tools/check_menu_audio.py, drive.py `expect menuaudio`). Also heard
+  in a play-test of the window build (2026-10-20).
+- The virtual keyboard (SuperLauncher_CreateProfile's VirtualKeyboard, screen +0x38C): its grid's rectangle +0..+0xC
+  (floats; 70,151 to 570,351: 5 rows of 14 columns, 35.7 x 40), the cell of row r, column c at +0x3C + (r x 14 + c) x
+  0x14 (+0 its width in columns, +8 its UTF-16 label, only in a key's first column; +0xC its action: 0xD16C0 types
+  the label's character, 0xD1370 Done, 0xD13A0 Shift (one shot), 0xD13D0 Caps Lock, 0xD14D0 Symbols, 0xD15A0
+  Accents, 0xD1670 Space, 0xD1720 Backspace, 0xD1740 / 0xD1770 the cursor; +0x10 disabled), the selection +0xA38
+  (the cell), +0xA44 / +0xA4C its row, +0xA40 the column moved from, +0xA48 the key's first column (as its d-pad
+  moves, 0xD1040..., write them); the edit box +0xA5C (its text a std::wstring at +0x34: length +0x48, cursor +0x70;
+  0xD04A0, stdcall with the edit box in esi, inserts a UTF-16 character and refuses past 15). The A press (0xD40F0's
+  handler) calls the selected key's action and plays HighlightSound, or ErrorSound when refused.
+- The name with the mouse and the PC keyboard: the pointer selects the key under it (the selection fields as the
+  d-pad writes them, with the HighlightSound), a click presses it (the pad's A: the game's own key press); a click on
+  the name field (the screen's EditBox rectangle, 110,113 460x26) starts typing: SDL text input (the layout's
+  characters, Å and ö among them; the font has Latin-1) into 0xD04A0 with the key's sounds, Backspace and the arrows
+  through 0xD0510 / 0xD1740 / 0xD1770, Enter is START (the screen's Done: menuCreatePlayerProfile), Escape or a click
+  elsewhere ends typing; the keyboard is the pad's again then. The game's limit (15 characters) refuses the rest.
+- Not done: the scoreboard's and spectator's screens have nothing to click (right button closes like B).
+
+Window input details: a wheel event counts its whole notches (SDL's integer_y; a fast wheel or a fine one may give
+several); the window logs its size ("window: size WxH", logical pixels: what pointer coordinates are in).
 
 Checks: regress_pc_menu_mouse.txt (team selection, the pie: the Magnum bought, PC Options' arrow and double click,
-Return to Game), regress_pc_menu_mouse_fe.txt (main menu, PC Options' arrows, Reset and Accept on the help bar, PC
-Controls with the wheel, back); vk_menu_mouse.txt (the Vulkan window at 21:9 and 2560x1080 with SDL mouse events:
-the same through the window's mapping, capture changes, Return to Game clicked without a shot fired, the keyboard
-still navigating).
+Return to Game), regress_pc_menu_mouse_fe.txt (main menu with its hover sound, PC Options' arrows, Reset and Accept
+on the help bar, PC Controls with the wheel, back), regress_pc_profile_name.txt (the virtual keyboard: a key by
+pointer and click, the name field's typing, Backspace, the cursor, Escape, the 15 characters, Done); in the Vulkan
+window (tools/run_window_tests.py, each in a headless gamescope): vk_menu_mouse.txt (21:9 and 2560x1080: the same in
+game through the window's mapping, capture changes, Return to Game clicked without a shot fired, the keyboard still
+navigating), vk_menu_mouse_fe.txt (the front end with SDL mouse and text events: the virtual keyboard and the name,
+hover sounds found in the audio capture, PC Options and PC Controls, the right button, the console over the menu
+taking the clicks), vk_menu_pointer_43 / _169 / _219 / _43_full.txt (raw window pixels to menu points computed
+independently of the window's mapping: 4:3 and 16:9 windows, 21:9 letterboxed and 4:3 pillarboxed full screen,
+points in the bars and beside the menus' columns doing nothing).
 
 ## Developer console (2026-10-20)
 

@@ -9,6 +9,8 @@
 // keyboard is its alone: typed text (SDL text input, so the layout's characters), Backspace, Enter, Up / Down
 // (history), Tab (completion), Page Up / Down and the wheel (scrolling), Escape closing it; held game keys are let go,
 // and the mouse is released, captured again when it closes.
+// The name field of the profile's virtual keyboard (src/game/pc_mouse.cpp), once clicked: typed text (the layout's
+// characters), Backspace, the arrows, Enter (Done), Escape (typing ends) go to the game's edit box.
 // Mouse look: while the mouse is captured (relative mode, SDL's unaccelerated motion), each count turns the view by
 // 0.022 degrees x the sensitivity (CSX_MOUSE_SENS, else Options > PC Options, else 3: GoldSrc's m_yaw / m_pitch and
 // CS's default) through the title's look routine (src/game/mouse_look.cpp); CSX_MOUSE_INVERT=1 inverts the pitch.
@@ -275,6 +277,18 @@ void HandleEvent(const void* p) {
     std::lock_guard<std::mutex> lock(g_lock);
     switch (e.type) {
         case SDL_EVENT_KEY_DOWN:
+            if (csx::TextEntryOpen() && !g_console) {  // the name field: its editing keys; characters come as text
+                using T = csx::TextKey;
+                switch (e.key.key) {
+                    case SDLK_BACKSPACE: csx::QueueTextEntryKey(T::Backspace); break;
+                    case SDLK_LEFT: csx::QueueTextEntryKey(T::Left); break;
+                    case SDLK_RIGHT: csx::QueueTextEntryKey(T::Right); break;
+                    case SDLK_RETURN: case SDLK_KP_ENTER: if (!e.key.repeat) csx::QueueTextEntryKey(T::Enter); break;
+                    case SDLK_ESCAPE: if (!e.key.repeat) csx::QueueTextEntryKey(T::Escape); break;
+                    default: break;
+                }
+                break;
+            }
             if (EngineKey(e.key.key, e.key.scancode) == ConsoleKeyNumber() && ConsoleKeyNumber() >= 0) {
                 if (!e.key.repeat) {
                     csx::QueueConsoleKey(csx::ConsoleKey::Toggle);
@@ -296,6 +310,7 @@ void HandleEvent(const void* p) {
             break;
         case SDL_EVENT_TEXT_INPUT:
             if (g_console && !std::exchange(g_swallow_text, false)) csx::QueueConsoleText(e.text.text);
+            else if (!g_console && csx::TextEntryOpen()) csx::QueueTextEntry(e.text.text);
             break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
             if (g_console) break;
@@ -321,8 +336,8 @@ void HandleEvent(const void* p) {
         case SDL_EVENT_MOUSE_WHEEL:  // MWHEELUP / MWHEELDOWN, a press and a release per notch, as the engine expects
             if (g_console && e.wheel.y != 0) {
                 csx::QueueConsoleKey(e.wheel.y > 0 ? csx::ConsoleKey::PageUp : csx::ConsoleKey::PageDown);
-            } else if (MenuMouse() && e.wheel.y != 0) {
-                csx::MenuWheel(e.wheel.y > 0 ? 1 : -1);
+            } else if (MenuMouse() && e.wheel.y != 0) {  // whole notches (SDL adds up a fine wheel's steps)
+                if (e.wheel.integer_y) csx::MenuWheel(e.wheel.integer_y);
             } else if (!csx::MenuOpen() && e.wheel.y != 0) {
                 int key = e.wheel.y > 0 ? 240 : 239;
                 EngineKeyEvent(key, true);
@@ -387,14 +402,18 @@ void UpdateConsole() {
         if (open) {
             for (int k : std::set<int>(g_engine_held)) EngineKeyEvent(k, false);
             g_pad_held.clear();
-            g_keys.clear();
             g_mouse_buttons = 0;
-            SDL_StartTextInput(win);
-        } else {
-            SDL_StopTextInput(win);
-            g_keys.clear();
         }
+        g_keys.clear();
         LOGI("input: console %s", open ? "open" : "closed");
+    }
+    // text input (the layout's characters) while the console or the name field takes the keyboard
+    static bool text = false;
+    if (bool want_text = g_console || csx::TextEntryOpen(); want_text != text) {
+        text = want_text;
+        if (text) SDL_StartTextInput(win);
+        else SDL_StopTextInput(win);
+        g_keys.clear();
     }
     const bool free = g_console || csx::MenuOpen();
     const bool focused = (SDL_GetWindowFlags(win) & SDL_WINDOW_INPUT_FOCUS) != 0;

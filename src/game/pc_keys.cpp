@@ -118,7 +118,8 @@ void SyncBindings(X86Context& ctx) {
 
 // "pckey" request file in the run folder (tests): lines "cmd TEXT" (console text), "key KEYNUM DOWN", and for the
 // developer console "con TEXT" (typed text) and "conkey NAME" (toggle close backspace enter up down tab pgup pgdn),
-// for the menus' mouse "pointer X Y" (menu pixels), "mclick BUTTON", "mwheel N"
+// for the menus' mouse "pointer X Y" (menu pixels), "mclick BUTTON", "mwheel N", for the name field "name TEXT"
+// (typed text) and "namekey NAME" (backspace left right enter escape)
 void PollRequests() {
     static auto next = std::chrono::steady_clock::now();
     auto now = std::chrono::steady_clock::now();
@@ -142,6 +143,14 @@ void PollRequests() {
             csx::MenuClick(std::atoi(l.c_str() + 7));
         } else if (l.rfind("mwheel ", 0) == 0) {
             csx::MenuWheel(std::atoi(l.c_str() + 7));
+        } else if (l.rfind("name ", 0) == 0) {
+            csx::QueueTextEntry(l.substr(5));
+        } else if (l.rfind("namekey ", 0) == 0) {
+            using T = csx::TextKey;
+            static const std::map<std::string, T> names = {{"backspace", T::Backspace}, {"left", T::Left},
+                                                            {"right", T::Right},         {"enter", T::Enter},
+                                                            {"escape", T::Escape}};
+            if (auto it = names.find(l.substr(8)); it != names.end()) csx::QueueTextEntryKey(it->second);
         } else if (l.rfind("con ", 0) == 0) {
             csx::QueueConsoleText(l.substr(4));
         } else if (l.rfind("conkey ", 0) == 0) {

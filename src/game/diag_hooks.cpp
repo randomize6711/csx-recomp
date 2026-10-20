@@ -1,4 +1,6 @@
 // Diagnostic instruction hooks for bring-up, named by [[hook]] entries in config/game.toml.
+#include <cstdlib>
+
 #include "core/log.h"
 #include "cpu/x86_context.h"
 #include "kernel/kernel.h"
@@ -19,3 +21,11 @@ void LogFatalScreen(X86Context& ctx, uint8_t*) {
     void LogFatalSite_##a(X86Context& ctx, uint8_t*) { LOGE("fatal error screen from site %s, eax %08X", #a, ctx.eax); logx::Flush(); }
 CSX_FATAL_SITES(CSX_FATAL_SITE_HOOK)
 
+
+// 0xC5A00: the menus' sound player's entry (cdecl: the sound's name, 0), logged with CSX_LOG_MENU_SOUNDS=1, so a test
+// finds each menu sound the game plays (its own d-pad's HighlightSound as well as the mouse's) in an audio capture
+void LogMenuSound(X86Context& ctx, uint8_t*) {
+    static const bool on = std::getenv("CSX_LOG_MENU_SOUNDS") && *std::getenv("CSX_LOG_MENU_SOUNDS") == '1';
+    uint32_t name = kernel::R32(ctx.esp + 4);
+    if (on && name) LOGI("menu sound %s", static_cast<const char*>(kernel::HostPtr(name)));
+}

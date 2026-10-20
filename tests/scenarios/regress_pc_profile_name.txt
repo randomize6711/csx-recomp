@@ -1,0 +1,59 @@
+# The profile name's virtual keyboard with the mouse and the PC keyboard (FINDINGS.md "Mouse in the menus",
+# src/game/pc_mouse.cpp): on a fresh front end's Create a Profile screen the pointer selects the key under it (b: row
+# 1, column 5, with the screen's HighlightSound as its d-pad plays it) and a click presses it (the game types b); a
+# click on the name field starts typing: text goes through the keyboard's own insert (Å and ö accepted, the game's 15
+# characters kept: the rest refused), Backspace and the cursor keys through its keys' functions, Escape ends typing
+# and a click on the field starts it again; Enter is Done: the profile is made with the typed name and the main menu
+# opens.
+wait draws==1
+expect nolog fatal error screen
+sleep 6
+press START
+wait draws>=3
+sleep 3
+press A
+wait draws>=50
+sleep 3
+expect log pc mouse: screen SuperLauncher_CreateProfile
+pckey pointer 266 211
+sleep 1
+expect log pc mouse: key row 1 column 5, highlight menu/buy_hover.wav
+pckey mclick 1
+sleep 1
+pckey pointer 300 125
+sleep 0.5
+pckey mclick 1
+sleep 1
+expect log pc mouse: name typing on \(the name field clicked\), the name "b"
+pckey name Åsa
+sleep 1
+expect count pc.mouse:.typed.U\+ 3
+pckey namekey backspace
+sleep 0.5
+pckey namekey left
+sleep 0.5
+pckey name ö
+sleep 0.5
+pckey namekey right
+sleep 0.5
+pckey namekey escape
+sleep 1
+expect log pc mouse: name typing off \(Escape\), the name "bÅös"
+pckey name x
+sleep 1
+expect count pc.mouse:.typed.U\+ 4
+pckey mclick 1
+sleep 1
+pckey name Lindström
+sleep 0.5
+pckey name Johansson
+sleep 1
+expect log pc mouse: typed U\+006F$
+expect log pc mouse: typed U\+0068 \(refused\)
+pckey namekey enter
+sleep 1
+expect log pc mouse: name typing off \(Enter\), the name "bÅösLindströmJo"
+wait draws<=20
+sleep 4
+expect log pc mouse: screen SuperLauncher_MainScreen
+expect nolog guest trap

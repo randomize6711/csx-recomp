@@ -11,9 +11,16 @@
 //   is B (back, cancel); the wheel is the d-pad's up and down; a click on the help bar's buttons (the screen's
 //   0,411,640x69 BackgroundImage, its name listing them right to left: Cancel_Accept_Reset) is that button;
 // - the buy menus (MenuType "buymenu"): a pie the left stick picks from; the stick points from the pie's centre to
-//   the pointer while it is on the ring, a click is A with it, the ammo tabs above are the triggers.
+//   the pointer while it is on the ring, a click is A with it, the ammo tabs above are the triggers;
+// - the virtual keyboard (the profile name, screen +0x38C): the pointer selects the key under it as the d-pad would
+//   (the selection fields and the screen's HighlightSound, as its d-pad plays it), a click is A (the game presses
+//   the key: typing, Shift, Symbols, Done...); a click on the name field (the screen's EditBox) starts typing with
+//   the PC keyboard: the layout's characters go into the edit box through the keyboard's own insert (0xD04A0), with
+//   its limits and sounds, Backspace and the arrows through its keys' functions, Enter is START (Done), Escape or a
+//   click elsewhere ends it.
 // The presses go through the pad as the game reads it (GameInfo::pad), so sounds, transitions and commands are the
 // game's. Pointer movement only acts while it moves: keyboard and pad navigation keep their selection meanwhile.
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdio>
@@ -40,6 +47,15 @@ constexpr uint32_t kCurrentScreen = 0x5523D4;
 constexpr uint32_t kFontHeight = 0x37A81C;  // the UI font's line height in pixels (int)
 constexpr uint32_t kTableMove = 0xD8360;    // move the selection by [esp+4] rows, table in esi; cdecl
 constexpr uint32_t kMenuSound = 0xC5A00;    // play a menu sound (name, 0); cdecl
+// the virtual keyboard (screen +0x38C): its grid's rectangle at +0..+0xC (floats: left, top, right, bottom), rows
+// +0x34, columns +0x38 (14); the key cell at row r, column c at +0x3C + (r x 14 + c) x 0x14 (+0 its width in columns,
+// +8 its label (UTF-16, only in a key's first column), +0xC its action, +0x10 disabled); the selection: the cell
+// +0xA38, its row +0xA44 / +0xA4C, the column moved from +0xA40 and the key's first column +0xA48 (as its d-pad moves
+// write them, 0xD1040...); the edit box +0xA5C
+constexpr uint32_t kVkInsert = 0xD04A0;     // insert the UTF-16 character [esp+4] at the edit box's cursor, edit box
+                                            // in esi; stdcall; false when refused (full)
+constexpr uint32_t kVkBackspace = 0xD0510;  // the character before the cursor removed, edit box in esi
+constexpr uint32_t kVkCursorLeft = 0xD1740, kVkCursorRight = 0xD1770;  // the cursor moved, keyboard in ecx
 // the buy menus' pie, centre and ring in menu pixels (measured on the CT and T pies' art, all of them alike)
 constexpr float kPieX = 227, kPieY = 251, kPieInner = 42, kPieOuter = 160;
 
@@ -50,6 +66,8 @@ enum { kA = 0, kB = 1, kX = 2, kY = 3, kLT = 6, kRT = 7 };
 struct ScreenUi {
     std::string type;                 // MenuType
     std::vector<std::string> legend;  // the help bar's buttons, rightmost first
+    float edit[4] = {0, 0, 0, 0};     // the EditBox (the name field): x, y, width, height
+    bool piece_moves = false;         // stick pieces move its table (CommandHighlight tableMoveUp / Down)
 };
 std::map<std::string, ScreenUi> g_screens;
 
@@ -68,6 +86,10 @@ int g_press_frames = 0;  // > 0: the front press is held; < 0: released, frames 
 std::atomic<uint32_t> g_pad_buttons{0}, g_pad_analog{0xFF};  // what the pad filter adds this frame
 std::atomic<int32_t> g_stick{0};                            // lx << 16 | ly, the pie's stick
 std::atomic<bool> g_stick_on{false};
+// the name field's typing (csx::TextEntryOpen): on while the game thread says so; text and keys queued for it
+std::atomic<bool> g_typing{false};
+std::deque<std::string> g_typed;
+std::deque<csx::TextKey> g_typed_keys;
 
 std::string GuestString(uint32_t va) {
     std::string s;
@@ -127,10 +149,112 @@ bool RowIsList(uint32_t table, int i) {
 
 void Queue(Press p) { g_presses.push_back(p); }
 
-// a selection move through the table's own code, with the screen's HighlightSound (+0x10) when it moved: the main
-// menus ("superlauncher") have one and play it from their stick pieces (0xCAC90); the generic tables have none and
-// the d-pad moves them silently
-void Select(X86Context& ctx, uint32_t screen, uint32_t table, int row) {
+// the virtual keyboard's key under (x, y): its row, its first column and cell; row -1 for none
+struct VkKey {
+    int row = -1, col = 0;
+    uint32_t cell = 0;
+};
+VkKey VkHit(uint32_t vk, float x, float y) {
+    VkKey k;
+    float left = F(vk), top = F(vk + 4), right = F(vk + 8), bottom = F(vk + 0xC);
+    int rows = int(R32(vk + 0x34)), cols = int(R32(vk + 0x38));
+    if (rows <= 0 || cols <= 0 || cols > 14 || x < left || x >= right || y < top || y >= bottom) return k;
+    int r = int((y - top) / ((bottom - top) / float(rows))), c = int((x - left) / ((right - left) / float(cols)));
+    auto cell = [&](int col) { return vk + 0x3C + uint32_t(r * 14 + col) * 0x14; };
+    int first = c;
+    while (first > 0 && !R32(cell(first) + 8)) first--;
+    if (!R32(cell(first) + 8) || first + int(R32(cell(first))) <= c) return k;
+    k.row = r;
+    k.col = first;
+    k.cell = cell(first);
+    return k;
+}
+// the key under the pointer selected as the keyboard's d-pad selects, with its HighlightSound
+void VkSelect(X86Context& ctx, uint32_t screen, uint32_t vk, const VkKey& k, float x) {
+    if (k.row < 0 || R32(vk + 0xA38) == k.cell) return;
+    int cols = int(R32(vk + 0x38));
+    int col = int((x - F(vk)) / ((F(vk + 8) - F(vk)) / float(cols)));
+    kernel::W32(vk + 0xA38, k.cell);
+    kernel::W32(vk + 0xA44, uint32_t(k.row));
+    kernel::W32(vk + 0xA4C, uint32_t(k.row));
+    kernel::W32(vk + 0xA40, uint32_t(std::clamp(col, k.col, cols - 1)));
+    kernel::W32(vk + 0xA48, uint32_t(k.col));
+    uint32_t sound = R32(screen + 0x10);
+    if (sound) kernel::CallGuest(ctx, kMenuSound, {sound, 0});
+    LOGI("pc mouse: key row %d column %d%s%s", k.row, k.col, sound ? ", highlight " : "",
+         sound ? static_cast<const char*>(kernel::HostPtr(sound)) : "");
+}
+bool InEdit(const ScreenUi* ui, float x, float y) {
+    return ui && ui->edit[2] > 0 && x >= ui->edit[0] && x < ui->edit[0] + ui->edit[2] && y >= ui->edit[1] &&
+           y < ui->edit[1] + ui->edit[3];
+}
+// the edit box's text: a std::wstring at +0x34 (+0x38 up to 7 characters in place or from 8 on a pointer to them,
+// +0x48 the length, the cursor's position +0x70 counts in it), as UTF-8
+std::string EditText(uint32_t edit) {
+    uint32_t n = std::min(R32(edit + 0x48), 64u), at = R32(edit + 0x4C) >= 8 ? R32(edit + 0x38) : edit + 0x38;
+    std::string out;
+    for (uint32_t i = 0; i < n; i++) {
+        uint16_t c;
+        std::memcpy(&c, static_cast<const uint8_t*>(kernel::HostPtr(at)) + i * 2, 2);
+        if (c < 0x80) out += char(c);
+        else if (c < 0x800) out += {char(0xC0 | c >> 6), char(0x80 | (c & 0x3F))};
+        else out += {char(0xE0 | c >> 12), char(0x80 | ((c >> 6) & 0x3F)), char(0x80 | (c & 0x3F))};
+    }
+    return out;
+}
+void SetTyping(bool on, const char* why, uint32_t vk = 0) {
+    if (g_typing.exchange(on) == on) return;
+    std::string name = vk && R32(vk + 0xA5C) ? ", the name \"" + EditText(R32(vk + 0xA5C)) + "\"" : "";
+    LOGI("pc mouse: name typing %s (%s)%s", on ? "on" : "off", why, name.c_str());
+}
+// the typed text and keys into the edit box, through the virtual keyboard's own functions and sounds
+void TypeInto(X86Context& ctx, uint32_t screen, uint32_t vk, const std::deque<std::string>& texts,
+              const std::deque<csx::TextKey>& keys) {
+    uint32_t edit = R32(vk + 0xA5C);
+    if (!edit) return;
+    auto sound = [&](uint32_t at) {
+        if (uint32_t name = R32(screen + at)) kernel::CallGuest(ctx, kMenuSound, {name, 0});
+    };
+    uint32_t esi = ctx.esi, ecx = ctx.ecx;
+    for (const std::string& t : texts) {
+        // UTF-8 to the UTF-16 characters the keyboard's labels use
+        for (size_t i = 0; i < t.size();) {
+            unsigned char c = static_cast<unsigned char>(t[i]);
+            int n = c < 0x80 ? 1 : (c >> 5) == 6 ? 2 : (c >> 4) == 14 ? 3 : 4;
+            uint32_t cp = n == 1 ? c : n == 2 ? c & 0x1F : n == 3 ? c & 0x0F : c & 0x07;
+            for (int k = 1; k < n && i + size_t(k) < t.size(); k++) cp = cp << 6 | (uint32_t(t[i + size_t(k)]) & 0x3F);
+            i += size_t(n);
+            if (cp < 0x20 || cp > 0xFFFF) continue;
+            ctx.esi = edit;
+            bool ok = kernel::CallGuest(ctx, kVkInsert, {cp}) & 0xFF;
+            ctx.esi = esi;
+            sound(ok ? 0x10 : 0x14);  // as a pressed key: its HighlightSound, the ErrorSound when refused
+            LOGI("pc mouse: typed U+%04X%s", cp, ok ? "" : " (refused)");
+        }
+    }
+    for (csx::TextKey k : keys) {
+        if (k == csx::TextKey::Backspace) {
+            ctx.esi = edit;
+            kernel::CallGuest(ctx, kVkBackspace, {});
+            ctx.esi = esi;
+        } else if (k == csx::TextKey::Left || k == csx::TextKey::Right) {
+            ctx.ecx = vk;
+            kernel::CallGuest(ctx, k == csx::TextKey::Left ? kVkCursorLeft : kVkCursorRight, {});
+            ctx.ecx = ecx;
+        } else if (k == csx::TextKey::Enter) {
+            SetTyping(false, "Enter", vk);
+            Queue({16, -1});  // START: the screen's Done (menuCreatePlayerProfile)
+        } else {
+            SetTyping(false, "Escape", vk);
+        }
+    }
+}
+
+// a selection move through the table's own code, with the screen's HighlightSound (+0x10) when it moved and the
+// screen's own moves play it: the stick pieces that move a table (CommandHighlight tableMoveUp / Down: the main menus,
+// team selection) play it before their command (0xCAC90); other screens (the generic ones have no HighlightSound,
+// Spectator has one but no pieces) move silently
+void Select(X86Context& ctx, uint32_t screen, const ScreenUi* ui, uint32_t table, int row) {
     int sel = int(R32(table + 0x9C));
     if (row == sel || !RowEnabled(table, row)) return;
     uint32_t esi = ctx.esi;
@@ -138,12 +262,26 @@ void Select(X86Context& ctx, uint32_t screen, uint32_t table, int row) {
     kernel::CallGuest(ctx, kTableMove, {uint32_t(row - sel)});
     ctx.esi = esi;
     uint32_t sound = R32(screen + 0x10);
-    if (int(R32(table + 0x9C)) == sel || !sound) return;
+    if (int(R32(table + 0x9C)) == sel || !sound || !ui || !ui->piece_moves) return;
     kernel::CallGuest(ctx, kMenuSound, {sound, 0});
     LOGI("pc mouse: highlight %s", static_cast<const char*>(kernel::HostPtr(sound)));
 }
 
-void Click(X86Context& ctx, uint32_t screen, const ScreenUi* ui, float x, float y, bool twice) {
+void Click(X86Context& ctx, uint32_t screen, const std::string& name, const ScreenUi* ui, float x, float y,
+           bool twice) {
+    if (uint32_t vk = R32(screen + 0x38C)) {
+        if (InEdit(ui, x, y)) {
+            SetTyping(true, "the name field clicked", vk);
+            return;
+        }
+        SetTyping(false, "a click elsewhere", vk);
+        VkKey k = VkHit(vk, x, y);
+        if (k.row >= 0) {
+            VkSelect(ctx, screen, vk, k, x);
+            Queue({0, kA});
+            return;
+        }
+    }
     // the help bar
     if (ui && !ui->legend.empty() && y >= 412 && y < 446) {
         static const float slot[3][2] = {{488, 585}, {385, 482}, {292, 380}};
@@ -168,7 +306,7 @@ void Click(X86Context& ctx, uint32_t screen, const ScreenUi* ui, float x, float 
     if (!table) return;
     RowHit h = HitRow(table, x, y);
     if (h.row < 0 || !RowEnabled(table, h.row)) return;
-    Select(ctx, screen, table, h.row);
+    Select(ctx, screen, ui, table, h.row);
     if (RowIsList(table, h.row) && R32(table + 0x130)) {
         // the arrows at the ends of the highlight image
         float a0 = F(table + 0x2C) + F(table + 0x134), a1 = a0 + F(table + 0x13C);
@@ -199,6 +337,9 @@ void PcMouseLearnUi(const std::string& text) {
             if (a != std::string::npos && code[a] != '{' && code[a] != '}')
                 screen = code.substr(a, code.find_last_not_of(" \t") - a + 1);
         }
+        if (depth >= 1 && !screen.empty() && code.find("CommandHighlight") != std::string::npos &&
+            code.find("tableMove") != std::string::npos)
+            g_screens[screen].piece_moves = true;
         if (depth == 1 && !screen.empty()) {
             std::istringstream w(code);
             std::string key, value;
@@ -206,6 +347,12 @@ void PcMouseLearnUi(const std::string& text) {
             size_t q0 = code.find('"'), q1 = q0 == std::string::npos ? q0 : code.find('"', q0 + 1);
             if (q1 != std::string::npos) value = code.substr(q0 + 1, q1 - q0 - 1);
             if (key == "MenuType") g_screens[screen].type = value;
+            if (key == "EditBox") {  // colours (8), then x y width height
+                std::istringstream v(value);
+                std::vector<float> n;
+                for (float f; v >> f;) n.push_back(f);
+                if (n.size() >= 12) std::copy(n.begin() + 8, n.begin() + 12, g_screens[screen].edit);
+            }
             if (key == "BackgroundImage") {
                 std::istringstream v(value);
                 std::string name;
@@ -267,6 +414,18 @@ void MenuPad(int port, input::Pad& p) {
     }
 }
 
+bool TextEntryOpen() { return g_typing; }
+
+void QueueTextEntry(const std::string& text) {
+    std::lock_guard<std::mutex> lock(g_lock);
+    g_typed.push_back(text);
+}
+
+void QueueTextEntryKey(TextKey key) {
+    std::lock_guard<std::mutex> lock(g_lock);
+    g_typed_keys.push_back(key);
+}
+
 }  // namespace csx
 
 namespace {
@@ -293,15 +452,20 @@ void PcMouseFrame(X86Context& ctx) {
     float x, y;
     bool moved;
     std::deque<int> clicks;
+    std::deque<std::string> typed;
+    std::deque<csx::TextKey> typed_keys;
     {
         std::lock_guard<std::mutex> lock(g_lock);
         x = g_x;
         y = g_y;
         moved = std::exchange(g_moved, false);
         clicks.swap(g_clicks);
+        typed.swap(g_typed);
+        typed_keys.swap(g_typed_keys);
     }
     uint32_t screen = R32(kCurrentScreen);
     static std::string shown;  // the screen last logged, cleared in play
+    if (!screen || !R32(screen + 0x38C)) SetTyping(false, "the screen closed");
     if (!screen) {
         shown.clear();
         g_stick_on = false;
@@ -322,8 +486,11 @@ void PcMouseFrame(X86Context& ctx) {
     }
     auto it = g_screens.find(name);
     const ScreenUi* ui = it == g_screens.end() ? nullptr : &it->second;
-    uint32_t table = R32(screen + 0x380);
-    if (moved && x >= 0) {
+    uint32_t table = R32(screen + 0x380), vk = R32(screen + 0x38C);
+    if (vk && g_typing) TypeInto(ctx, screen, vk, typed, typed_keys);
+    if (moved && x >= 0 && vk) {
+        VkSelect(ctx, screen, vk, VkHit(vk, x, y), x);
+    } else if (moved && x >= 0) {
         if (ui && ui->type == "buymenu") {
             float dx = x - kPieX, dy = kPieY - y, r = std::sqrt(dx * dx + dy * dy);
             if (r >= kPieInner && r < kPieOuter) {
@@ -334,11 +501,11 @@ void PcMouseFrame(X86Context& ctx) {
             }
         } else if (table) {
             RowHit h = HitRow(table, x, y);
-            if (h.row >= 0) Select(ctx, screen, table, h.row);
+            if (h.row >= 0) Select(ctx, screen, ui, table, h.row);
         }
     }
     for (int c : clicks) {
-        if ((c == 1 || c == 11) && x >= 0) Click(ctx, screen, ui, x, y, c == 11);
+        if ((c == 1 || c == 11) && x >= 0) Click(ctx, screen, name, ui, x, y, c == 11);
         else if (c == 2) Queue({0, kB});
         else if (c == 101 || c == 99) Queue({c == 101 ? kUp : kDown, -1});
     }

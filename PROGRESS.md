@@ -285,3 +285,15 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
 - Hover plays the main menus' HighlightSound through the game's menu sound player, as their stick pieces do.
 - Tests: regress_pc_menu_mouse.txt, regress_pc_menu_mouse_fe.txt, vk_menu_mouse.txt; drive.py `point X Y`, pckey
   `pointer X Y`, `mclick N`, `mwheel N`.
+
+## 2026-10-20 — Mouse validation and the profile name
+
+- Mouse in the menus checked in the Vulkan window with real SDL events in a headless gamescope
+  (tools/run_window_tests.py): cursor positions at 4:3 and 16:9 windowed, 21:9 letterboxed and 4:3 pillarboxed full
+  screen from raw window pixels; hover sounds found in the audio capture as strongly as the game's own d-pad plays
+  (tools/check_menu_audio.py, a menu-sound log hook at 0xC5A00). Hover plays the HighlightSound only where the
+  screen's own moves do.
+- The profile name: the virtual keyboard by pointer and click, a click on the name field to type with the PC
+  keyboard into the game's edit box (its insert, limits and sounds; Å/Ä/Ö), Backspace, the cursor, Enter as Done.
+- Tests: regress_pc_profile_name.txt, vk_menu_mouse_fe.txt, vk_menu_pointer_*.txt; drive.py `pointat`,
+  `expect count`, `expect menuaudio`, keys as NAME#SCANCODE.

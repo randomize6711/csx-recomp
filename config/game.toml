@@ -418,6 +418,12 @@ call = "LogFatalScreen"
 at = 0x2FCB91
 call = "Audio3DProbe"
 
+# The menus' sound player (0xC5A00, cdecl: name, 0) logged with CSX_LOG_MENU_SOUNDS=1 (src/game/diag_hooks.cpp): tests
+# find the game's menu sounds in an audio capture
+[[hook]]
+at = 0xC5A00
+call = "LogMenuSound"
+
 # BEGIN fatal-site diagnostics (temporary)
 [[hook]]
 at = 0x001058FC

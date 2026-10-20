@@ -17,8 +17,10 @@ per line, executed in order:
     wait log REGEX          until a log line matches
     sleep S                 wait S seconds
     press BUTTONS [FRAMES]  press through the harness cmd file (buttons as in the pad script, joined by +)
-    key NAME [SECONDS]      window build: press an SDL key (SDL key name) through the window's keys file
+    key NAME [SECONDS]      window build: press an SDL key (SDL key name; NAME#SCANCODE: the key a layout puts at
+                            that position, e.g. Å#[ on a Swedish keyboard) through the window's keys file
     point X Y               window build: the mouse pointer to (X, Y) of the menus' 640x480, as SDL motion
+    pointat X Y             window build: the mouse pointer to (X, Y) of the window (logical pixels), as SDL motion
     type TEXT               window build: TEXT as SDL text input (what a keyboard layout types: the console's input)
     windowshot NAME         window build: save the window's output as RUN/shots/NAME.bmp
     pressuntil BUTTONS COND press, wait for two fresh draw measurements, repeat until COND holds (at most 15)
@@ -43,6 +45,9 @@ per line, executed in order:
     expect darkfrac NAME X0 Y0 X1 Y1 LUM MIN MAX  share of that box's pixels darker than LUM in [MIN, MAX]
     expect log REGEX        fail unless a log line matches
     expect nolog REGEX      fail if a log line matches
+    expect count REGEX N    fail unless exactly N log lines match (no spaces: write . for them)
+    expect menuaudio [SOUND]  the menu sound (menu/buy_hover.wav) audible at each mouse play in the run's capture
+                            (needs CSX_AUDIO_WAV and CSX_LOG_MENU_SOUNDS=1; tools/check_menu_audio.py)
     expect image NAME MIN   fail unless snaps/NAME_2.tga (or the window shot shots/NAME.bmp) has a luminance standard deviation of at least MIN
                             (a blank or flat frame fails; game pixels are never stored in the repository)
 Exit status 0 when every step passed, 1 otherwise. Prints one line per step.
@@ -237,6 +242,10 @@ def main():
             elif kind == 'type':
                 send_file('text', ' '.join(st[1:]))
                 good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'text')))
+            elif kind == 'pointat':
+                # pointat X Y: window build, the pointer to that window pixel (the test computes the menu point)
+                send_file('mouse', 'window ' + st[1] + ' ' + st[2])
+                good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'mouse')))
             elif kind == 'point':
                 # point X Y: window build, the pointer to that point of the menus' 640x480 (SDL motion through the window)
                 send_file('mouse', 'menu ' + st[1] + ' ' + st[2])
@@ -380,6 +389,27 @@ def main():
                     mean = ImageStat.Stat(Image.open(path).convert('L').crop(box)).mean[0]
                     print(f'     {st[2]} {box}: mean luminance {mean:.1f} (want {st[7]}..{st[8]})')
                     good = float(st[7]) <= mean <= float(st[8])
+            elif kind == 'expect' and st[1] == 'menuaudio':
+                # expect menuaudio [SOUND]: the menu sound audible at every mouse play in the run's audio capture
+                # (CSX_AUDIO_WAV, CSX_LOG_MENU_SOUNDS=1; tools/check_menu_audio.py)
+                time.sleep(1.5)
+                log.poll()
+                wav = env.get('CSX_AUDIO_WAV', '')
+                cmd = [sys.executable, '-I', os.path.join(ROOT, 'tools', 'check_menu_audio.py'), wav,
+                       os.path.join(RUN, 'run.out')] + (['--sound', st[2]] if len(st) > 2 else [])
+                r = subprocess.run(cmd, capture_output=True, text=True)
+                for l in (r.stdout + r.stderr).splitlines():
+                    print('     ' + l)
+                good = r.returncode == 0
+            elif kind == 'expect' and st[1] == 'count':
+                # expect count REGEX N: exactly N log lines match now (no spaces in REGEX: write . for them)
+                time.sleep(1.2)  # the log flushes every second
+                log.poll()
+                rx = re.compile(st[2])
+                have = sum(1 for l in log.lines if rx.search(l))
+                good = have == int(st[3])
+                if not good:
+                    print(f'     {have} lines match')
             elif kind == 'expect':
                 time.sleep(1.2)  # the log flushes every second
                 log.poll()

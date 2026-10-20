@@ -182,6 +182,7 @@ int main(int argc, char** argv) {
     SDL_Window* win = SDL_CreateWindow("Counter-Strike", win_w, win_h,
                                        SDL_WINDOW_RESIZABLE | (g_vulkan ? SDL_WINDOW_VULKAN : SDL_WindowFlags(0)));
     g_window = win;
+    if (win) LOGI("window: size %dx%d", win_w, win_h);
     // the display the window is on: its desktop mode and the modes it lists, for PC Options > Resolution
     // (src/game/pc_menu.cpp); the Vulkan renderer draws at the chosen size, the display mode itself is not changed
     if (SDL_DisplayID display = win ? SDL_GetDisplayForWindow(win) : 0) {
@@ -234,18 +235,21 @@ int main(int argc, char** argv) {
     const long shot_every = std::getenv("WINDOW_SHOT_EVERY") ? std::atol(std::getenv("WINDOW_SHOT_EVERY")) : 0;
     auto next_shot = last_flush + std::chrono::seconds(shot_every);
     int shots = 0;
-    // a file named keys in the run folder ("KEYNAME SECONDS", SDL key names) presses that key through SDL's own event
-    // queue, so tests drive the window's input path as a keyboard would
+    // a file named keys in the run folder ("KEYNAME SECONDS", SDL key names, "KEYNAME#SCANCODENAME" for a key at a
+    // layout's position) presses that key through SDL's own event queue, so tests drive the window's input path as a
+    // keyboard would
     struct Held {
         SDL_Keycode key;
         std::chrono::steady_clock::time_point until;
         uint8_t button = 0;  // a mouse button instead of a key
+        SDL_Scancode sc = SDL_SCANCODE_UNKNOWN;
     };
     std::vector<Held> held;
-    auto push_key = [&](SDL_Keycode k, bool down) {
+    auto push_key = [&](SDL_Keycode k, SDL_Scancode sc, bool down) {
         SDL_Event ev{};
         ev.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
         ev.key.key = k;
+        ev.key.scancode = sc;
         ev.key.down = down;
         ev.key.windowID = SDL_GetWindowID(win);
         ev.key.which = kInjectedKeyboard;
@@ -283,10 +287,14 @@ int main(int argc, char** argv) {
                 // SDL key names with spaces ("Left Ctrl") are written with underscores in the request file
                 for (char* c = name; *c; c++)
                     if (*c == '_') *c = ' ';
+                // "NAME#SCANCODE": the key a layout puts at that position (Swedish Å#[), else the system layout's
+                char* at = std::strchr(name, '#');
+                if (at) *at++ = 0;
                 SDL_Keycode k = SDL_GetKeyFromName(name);
+                SDL_Scancode sc = at ? SDL_GetScancodeFromName(at) : SDL_GetScancodeFromKey(k, nullptr);
                 if (k != SDLK_UNKNOWN) {
-                    push_key(k, true);
-                    held.push_back({k, tnow + std::chrono::milliseconds(long(secs * 1000))});
+                    push_key(k, sc, true);
+                    held.push_back({k, tnow + std::chrono::milliseconds(long(secs * 1000)), 0, sc});
                 } else {
                     LOGW("window: unknown key %s", name);
                 }
@@ -328,6 +336,17 @@ int main(int argc, char** argv) {
                 ev.wheel.y = float(n);
                 ev.wheel.integer_y = n;
                 SDL_PushEvent(&ev);
+            } else if (std::fseek(mf, at, SEEK_SET) == 0 && std::fscanf(mf, "window %f %f", &dx, &dy) == 2) {
+                // "window X Y": the pointer moved to that point of the window (logical pixels), as a real mouse
+                pointer_x = dx;
+                pointer_y = dy;
+                SDL_Event ev{};
+                ev.type = SDL_EVENT_MOUSE_MOTION;
+                ev.motion.windowID = SDL_GetWindowID(win);
+                ev.motion.which = window::kInjectedDevice;
+                ev.motion.x = dx;
+                ev.motion.y = dy;
+                SDL_PushEvent(&ev);
             } else if (std::fseek(mf, at, SEEK_SET) == 0 && std::fscanf(mf, "menu %f %f", &dx, &dy) == 2) {
                 // "menu X Y": the pointer moved to that point of the menus' 640x480, through the window's own mapping
                 int ww = 0, wh = 0;
@@ -362,7 +381,7 @@ int main(int argc, char** argv) {
         for (size_t i = 0; i < held.size();) {
             if (tnow >= held[i].until) {
                 if (held[i].button) push_button(held[i].button, false);
-                else push_key(held[i].key, false);
+                else push_key(held[i].key, held[i].sc, false);
                 held.erase(held.begin() + long(i));
             } else {
                 i++;
@@ -395,6 +414,8 @@ int main(int argc, char** argv) {
                 continue;
             }
             if (e.type == SDL_EVENT_WINDOW_FOCUS_LOST) SDL_SetWindowRelativeMouseMode(win, false);
+            if (e.type == SDL_EVENT_WINDOW_RESIZED)  // logical pixels, what the pointer's coordinates are in
+                LOGI("window: size %dx%d", int(e.window.data1), int(e.window.data2));
             // the free pointer's motion only matters to the menus
             if (e.type == SDL_EVENT_MOUSE_MOTION && !SDL_GetWindowRelativeMouseMode(win) &&
                 e.motion.which != window::kInjectedDevice && !window::MouseFree())
