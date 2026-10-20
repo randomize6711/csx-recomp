@@ -1649,8 +1649,22 @@ void VulkanBackend::Present(const Surface& front) {
     Span span{present_ns_};
     Target* t = EnsureTarget(front, false);
     if (!t) return;
-    // a shot request (the window's "shot" file): the presented target, as the reference renderer's captures are
+    // a shot request (the window's "shot" file): the presented target, as the reference renderer's captures are;
+    // "burst:NAME:N" saves the next N presented targets as NAME_0.. (what alternates from frame to frame)
     std::string shot = window::TakeShotRequest();
+    static std::string burst_name;
+    static int burst_left = 0, burst_index = 0;
+    if (shot.rfind("burst:", 0) == 0) {
+        size_t c = shot.find(':', 6);
+        burst_name = shot.substr(6, c == std::string::npos ? std::string::npos : c - 6);
+        burst_left = c == std::string::npos ? 30 : std::max(1, std::atoi(shot.c_str() + c + 1));
+        burst_index = 0;
+        shot.clear();
+    }
+    if (shot.empty() && burst_left > 0) {
+        burst_left--;
+        shot = burst_name + "_" + std::to_string(burst_index++);
+    }
     step_name_.clear();
     frame_draws_ = 0;
     // the frame buffer through the gamma ramp, then the overlay (the console mixes its video plane after the ramp)

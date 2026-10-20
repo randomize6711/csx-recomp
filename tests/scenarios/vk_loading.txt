@@ -1,0 +1,100 @@
+# Loading screens in the Vulkan window (FINDINGS.md "Loading screens flickering", the SDK's D3DDevice_Swap, patch
+# 0028): the title draws a loading screen once into its multisampled back buffer and presents it again and again; the
+# runtime rotated every buffer's memory at each Swap, so two pictures (the Counter-Terrorist and the Terrorist
+# briefing) were shown in turn every frame. A multisampled back buffer now stays put, as the console resolves it.
+# Bursts of presented frames show no picture coming back every other frame (expect steady) when: a match starts from
+# the front end; Change Map is confirmed (the confirmation's Yes row, under its header question, is clicked: its
+# highlight is where the pointer is); Restart Match is chosen; Quit returns to the main menu.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960)
+wait log renderer: vulkan
+wait log open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+key Down
+sleep 2
+key Space
+sleep 5
+key Space
+sleep 5
+key Space
+wait log relaunching into
+sleep 1.5
+windowburst start 60
+expect steady start 60
+wait log open D:\\de_airstrip.sxwad
+sleep 20
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 20
+key Left_Ctrl
+sleep 10
+key Escape
+sleep 2
+point 300 193
+sleep 0.5
+click 1
+sleep 3
+point 320 142
+sleep 0.5
+click 1
+sleep 2
+expect log pc mouse: screen InGame_ConfirmChangeMap
+point 320 273
+sleep 1
+windowshot confirm_yes
+expect darkfrac confirm_yes 489 524 518 568 30 0.6 1.0
+expect darkfrac confirm_yes 489 456 518 500 30 0 0.5
+click 1
+sleep 1
+windowburst map 60
+expect steady map 60
+wait log open D:\\de_aztec.sxwad
+sleep 25
+expect log pc mouse: screen TeamSelect_RootSinglePlayer
+point 318 249
+sleep 0.5
+click 1
+sleep 4
+key Left_Ctrl
+sleep 10
+key Escape
+sleep 2
+point 300 219
+sleep 0.5
+click 1
+sleep 2
+expect log pc mouse: screen InGame_ConfirmRestartMatch
+point 320 273
+sleep 0.5
+click 1
+sleep 0.5
+windowburst restart 60
+expect steady restart 60
+sleep 20
+key Escape
+sleep 2
+expect count pc.mouse:.screen.InGame_RootSinglePlayer 3
+point 300 297
+sleep 0.5
+click 1
+sleep 2
+expect log pc mouse: screen InGame_ConfirmQuit
+point 320 273
+sleep 0.5
+click 1
+sleep 0.5
+windowburst quit 90
+expect steady quit 90
+wait log relaunching into
+sleep 30
+expect log pc mouse: screen SuperLauncher_MainScreen
+windowshot back_in_menu
+expect nolog guest trap

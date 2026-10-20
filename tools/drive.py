@@ -24,6 +24,7 @@ per line, executed in order:
     pointat X Y             window build: the mouse pointer to (X, Y) of the window (logical pixels), as SDL motion
     type TEXT               window build: TEXT as SDL text input (what a keyboard layout types: the console's input)
     windowshot NAME         window build: save the window's output as RUN/shots/NAME.bmp
+    windowburst NAME N      Vulkan window: the next N presented frames as RUN/shots/NAME_0.bmp .. NAME_<N-1>.bmp
     pressuntil BUTTONS COND press, wait for two fresh draw measurements, repeat until COND holds (at most 15)
     dump NAME               guest memory dump to build/run/dumps/NAME.bin (src/common/memory_dump.cpp)
     state NAME              log the local player's state (src/game/state_probe.cpp) and keep it as NAME
@@ -33,6 +34,7 @@ per line, executed in order:
     expect turned A B MIN          yaw difference between states A and B (shortest way) at least MIN degrees
     expect shots A B N             the shot counter dropped by exactly N from A to B
     expect still A B               position and yaw equal in A and B
+    expect steady NAME N           the window burst NAME_0..N-1 has no frame showing the picture before last again (flicker)
     expect tracked NAME rose|moved MIN MAX  a track step's height risen or distance moved in [MIN, MAX]
     expect fps MIN MAX             presented frames per second (the renderer's frame lines) in [MIN, MAX]
     expect weapon A ID             the weapon in hand at A (17 Glock, 29 knife, 4 HE grenade, 25 flashbang, 9 smoke)
@@ -273,6 +275,11 @@ def main():
             elif kind == 'windowshot':
                 send_file('shot', st[1])
                 good = wait_until(lambda: log.match('window: shot .*' + re.escape(st[1]) + r'\.bmp'))
+            elif kind == 'windowburst':
+                # windowburst NAME N: Vulkan window, the next N presented frames as RUN/shots/NAME_0.bmp...
+                send_file('shot', 'burst:' + st[1] + ':' + st[2])
+                last = st[1] + '_' + str(int(st[2]) - 1)
+                good = wait_until(lambda: log.match('window: shot .*' + re.escape(last) + r'\.bmp'))
             elif kind == 'pressuntil':
                 m = re.match(r'draws(>=|==)(\d+)', st[2])
                 n = int(m.group(2))
@@ -416,6 +423,17 @@ def main():
                     mean = ImageStat.Stat(Image.open(path).convert('L').crop(box)).mean[0]
                     print(f'     {st[2]} {box}: mean luminance {mean:.1f} (want {st[7]}..{st[8]})')
                     good = float(st[7]) <= mean <= float(st[8])
+            elif kind == 'expect' and st[1] == 'steady':
+                # expect steady NAME N: the burst NAME_0..N-1 never flickers: no frame that differs from the one before
+                # it but matches the one before that (two pictures shown in turn)
+                from PIL import Image
+                import numpy as np
+                frames = [np.asarray(Image.open(os.path.join(RUN, 'shots', f'{st[2]}_{i}.bmp')).convert('L')
+                                     .resize((160, 120)), dtype=float) for i in range(int(st[3]))]
+                flips = [i for i in range(2, len(frames))
+                         if np.abs(frames[i] - frames[i - 1]).mean() > 3 and np.abs(frames[i] - frames[i - 2]).mean() < 1]
+                print(f'     {len(flips)} frames back to the picture before last' + (f' (first {flips[0]})' if flips else ''))
+                good = not flips
             elif kind == 'expect' and st[1] == 'tracked':
                 # expect tracked NAME rose|moved MIN MAX: a track step's result
                 v = tracks.get(st[2], {}).get(st[3])

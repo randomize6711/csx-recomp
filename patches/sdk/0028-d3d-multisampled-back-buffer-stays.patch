@@ -1,0 +1,61 @@
+diff -ru a/runtime/xdk/d3d8.cpp b/runtime/xdk/d3d8.cpp
+--- a/runtime/xdk/d3d8.cpp	2026-10-20 20:08:35.750589310 +0200
++++ b/runtime/xdk/d3d8.cpp	2026-10-20 20:08:35.761000799 +0200
+@@ -338,6 +338,12 @@
+          R32(pp + 0x28), R32(pp + 0x10));
+ }
+ 
++// a multisampled back buffer (larger than the display): resolved at Swap, it stays the render target's memory
++bool Multisampled() { return g_bb_scale[0] != 1.0f || g_bb_scale[1] != 1.0f; }
++
++// the buffer holding what was presented last: the front buffer, or the multisampled back buffer that is not rotated
++uint32_t ShownBuffer() { return Multisampled() ? g_buffers[1] : g_buffers[0]; }
++
+ // the front, back and automatic depth buffers a D3DPRESENT_PARAMETERS asks for; w and h get the size used
+ void NewFrameBuffers(uint32_t pp, uint32_t& w, uint32_t& h) {
+     w = R32(pp), h = R32(pp + 4);
+@@ -641,7 +647,7 @@
+ // fade from it at its first frames
+ HLE_STDCALL(D3DDevice_PersistDisplay, 0) {
+     std::lock_guard<std::recursive_mutex> lock(g_lock);
+-    uint32_t front = g_buffers[0], size = R32(front + 0x10);
++    uint32_t front = ShownBuffer(), size = R32(front + 0x10);
+     uint32_t pitch = ((size >> 24 & 0xFF) + 1) * 64, height = (size >> 12 & 0xFFF) + 1, bytes = pitch * height;
+     uint32_t data = mem::VirtualFromPhysical(R32(front + 4));
+     if (g_backend) g_backend->Sync(data, bytes);
+@@ -693,7 +699,7 @@
+ 
+ HLE_STDCALL(D3DDevice_GetBackBuffer2, 1) {
+     int32_t i = int32_t(a[0]);
+-    uint32_t s = i < 0 ? g_buffers[0] : g_buffers[std::min<uint32_t>(uint32_t(i) + 1, g_buffer_count - 1)];
++    uint32_t s = i < 0 ? ShownBuffer() : g_buffers[std::min<uint32_t>(uint32_t(i) + 1, g_buffer_count - 1)];
+     W32(s, R32(s) + 1);
+     return s;
+ }
+@@ -743,14 +749,19 @@
+         g_backend->Present(SurfaceOf(g_buffers[1]));
+     }
+     app::Pace();
+-    // like the XDK, the surfaces stay put and their memory rotates: titles keep back buffer pointers and copy its data
+-    uint32_t last = g_buffers[g_buffer_count - 1], data = R32(last + 4), lk = R32(last + 8);
+-    for (uint32_t i = g_buffer_count - 1; i > 0; i--) {
+-        W32(g_buffers[i] + 4, R32(g_buffers[i - 1] + 4));
+-        W32(g_buffers[i] + 8, R32(g_buffers[i - 1] + 8));
++    // like the XDK, the surfaces stay put and their memory rotates: titles keep back buffer pointers and copy its data.
++    // A multisampled back buffer does not rotate: the console resolves it into the display buffers at Swap and it
++    // keeps what was drawn (a title presenting again without drawing, CS's loading screen, shows the same picture;
++    // rotating showed the two buffers' older pictures in turn)
++    if (!Multisampled()) {
++        uint32_t last = g_buffers[g_buffer_count - 1], data = R32(last + 4), lk = R32(last + 8);
++        for (uint32_t i = g_buffer_count - 1; i > 0; i--) {
++            W32(g_buffers[i] + 4, R32(g_buffers[i - 1] + 4));
++            W32(g_buffers[i] + 8, R32(g_buffers[i - 1] + 8));
++        }
++        W32(g_buffers[0] + 4, data);
++        W32(g_buffers[0] + 8, lk);
+     }
+-    W32(g_buffers[0] + 4, data);
+-    W32(g_buffers[0] + 8, lk);
+     g_state.rt = SurfaceOf(Dev(kDevRenderTarget));
+     uint32_t n = Dev(kDevSwapCount) + 1;
+     SetDev(kDevSwapCount, n);
