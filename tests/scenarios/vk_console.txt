@@ -18,7 +18,8 @@ key F1
 sleep 1
 key `
 sleep 1
-expect log input: console open, mouse released
+expect log input: console open
+expect log input: mouse mode menu
 windowshot open
 state c0
 key W 1.5
@@ -42,6 +43,7 @@ windowshot typed
 key Escape
 sleep 1
 expect log input: console closed
+expect log input: mouse mode play
 key W 1.5
 sleep 1
 state c2

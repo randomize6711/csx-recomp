@@ -117,7 +117,8 @@ void SyncBindings(X86Context& ctx) {
 }
 
 // "pckey" request file in the run folder (tests): lines "cmd TEXT" (console text), "key KEYNUM DOWN", and for the
-// developer console "con TEXT" (typed text) and "conkey NAME" (toggle close backspace enter up down tab pgup pgdn)
+// developer console "con TEXT" (typed text) and "conkey NAME" (toggle close backspace enter up down tab pgup pgdn),
+// for the menus' mouse "pointer X Y" (menu pixels), "mclick BUTTON", "mwheel N"
 void PollRequests() {
     static auto next = std::chrono::steady_clock::now();
     auto now = std::chrono::steady_clock::now();
@@ -134,6 +135,13 @@ void PollRequests() {
         else if (l.rfind("key ", 0) == 0) {
             int key = 0, down = 0;
             if (std::sscanf(l.c_str() + 4, "%d %d", &key, &down) == 2) csx::QueueEngineKey(key, down != 0);
+        } else if (l.rfind("pointer ", 0) == 0) {
+            float x = 0, y = 0;
+            if (std::sscanf(l.c_str() + 8, "%f %f", &x, &y) == 2) csx::MenuPointer(x, y);
+        } else if (l.rfind("mclick ", 0) == 0) {
+            csx::MenuClick(std::atoi(l.c_str() + 7));
+        } else if (l.rfind("mwheel ", 0) == 0) {
+            csx::MenuWheel(std::atoi(l.c_str() + 7));
         } else if (l.rfind("con ", 0) == 0) {
             csx::QueueConsoleText(l.substr(4));
         } else if (l.rfind("conkey ", 0) == 0) {
@@ -151,11 +159,13 @@ void PollRequests() {
 }  // namespace
 
 void PcConsoleFrame(X86Context& ctx);  // pc_console.cpp
+void PcMouseFrame(X86Context& ctx);    // pc_mouse.cpp
 
 // [[hook]] at 0x3BB50 (config/game.toml): Cbuf_Execute's entry, on the game thread every frame
 void PcKeysFrame(X86Context& ctx, uint8_t*) {
     PollRequests();
     PcConsoleFrame(ctx);
+    PcMouseFrame(ctx);
     uint32_t screen = R32(kCurrentScreen);
     if ((screen != 0) != g_menu) {
         g_menu = screen != 0;

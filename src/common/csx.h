@@ -30,6 +30,16 @@ enum class ConsoleKey {
 void QueueConsoleKey(ConsoleKey key);
 void QueueConsoleText(const std::string& text);
 bool ConsoleOpen();
+// mouse navigation in the game's menus (src/game/pc_mouse.cpp): the pointer in the menus' 640x480 coordinates (-1 -1
+// outside the window), a click (1 left, 2 right, 11 a left double click), wheel notches (up positive); the pad
+// filter that turns them into the game's pad presses (GameInfo::pad)
+void MenuPointer(float x, float y);
+void MenuClick(int button);
+void MenuWheel(int notches);
+}  // namespace csx
+namespace input { struct Pad; }
+namespace csx {
+void MenuPad(int port, input::Pad& pad);
 // a menu screen of the game is open (keyboard and mouse act as the pad there; otherwise as engine keys)
 bool MenuOpen();
 // what GameInfo::loaded starts

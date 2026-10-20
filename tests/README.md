@@ -184,3 +184,13 @@ executable and its Windows code paths work under Wine.
 427x240 at 1280x360) and the presented shot's size, then changes Resolution in the pause menu and sees the next
 frame drawn at the new size. The window now reads the harness's `cmd` file, so `press` steps drive the pad in
 window scenarios too.
+
+## Mouse in the menus
+
+The headless scenarios send the pointer in the menus' 640x480 (`pckey pointer X Y`), clicks (`pckey mclick 1|2|11`:
+left, right, left double) and wheel notches (`pckey mwheel N`) to src/game/pc_mouse.cpp; it logs each screen with its
+rows ("pc mouse: screen NAME, 7 rows from 160 128, 26 high, 340 wide"), which gives the coordinates to point at.
+`regress_pc_menu_mouse.txt` (in game: team, buy pie, pause menu, PC Options) and `regress_pc_menu_mouse_fe.txt`
+(front end: main menu, PC Options with the help bar, PC Controls with the wheel). `vk_menu_mouse.txt` drives the
+Vulkan window with SDL mouse events: `point X Y` moves the pointer to a menu point through the window's own mapping,
+`click 1|3|11` clicks there.

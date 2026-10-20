@@ -396,6 +396,8 @@ void PcUiLoadSize(X86Context& ctx, uint8_t*) {
     ctx.ebp += kExtra;
 }
 
+void PcMouseLearnUi(const std::string& text);  // pc_mouse.cpp
+
 // [[hook]] at 0xCDB1A: read and closed, esi = the buffer (ebp + 1 bytes, the file's text first); the extended text
 // replaces it and ebp becomes its length (the size the caller is told)
 void PcUiLoadText(X86Context& ctx, uint8_t*) {
@@ -408,6 +410,7 @@ void PcUiLoadText(X86Context& ctx, uint8_t*) {
         std::ofstream(app::ExeDir() / "uidump" / name, std::ios::binary) << text;
     }
     std::string out = name.rfind("FrontEndUI", 0) == 0 ? ExtendFrontEnd(text) : ExtendInGame(text);
+    PcMouseLearnUi(out.empty() ? text : out);
     if (out.empty() || out.size() > room) {
         LOGW("pc menu: %s left as it is (%s)", name.c_str(), out.empty() ? "layout not recognised" : "no room");
         out = text;

@@ -276,3 +276,12 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   fallbacks for invalid or failing sizes (FINDINGS.md "Native resolution"). PC Options gained X Restore Defaults.
 - The window takes the harness's `cmd` pad presses (tests drive the pad in the Vulkan window as headless).
 - Tests: vk_resolution.txt (2560x1440 targets, a change from the pause menu).
+
+## 2026-10-20 — Mouse in the menus
+
+- The original menus driven by the mouse: hover selects through the table's own move, clicks and the wheel become
+  the game's pad presses, arrows on settings, double click accepting, the help bar's buttons, the buy pies by angle,
+  right button back; the mouse captured in play and free in menus and the console (FINDINGS.md "Mouse in the menus").
+- Hover plays the main menus' HighlightSound through the game's menu sound player, as their stick pieces do.
+- Tests: regress_pc_menu_mouse.txt, regress_pc_menu_mouse_fe.txt, vk_menu_mouse.txt; drive.py `point X Y`, pckey
+  `pointer X Y`, `mclick N`, `mwheel N`.

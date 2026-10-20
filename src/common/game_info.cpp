@@ -19,6 +19,6 @@ const app::GameInfo app::kGame = {
     .window = nullptr,                             // the game window is up
     .message = nullptr,                            // window messages first; true takes one
     .ui = nullptr,                                 // ImGui drawing each frame
-    .pad = nullptr,                                // changes a polled pad
+    .pad = csx::MenuPad,                           // changes a polled pad: mouse clicks in the menus
     .rumble = nullptr,                             // changes a rumble before it is set
 };

@@ -6,7 +6,7 @@
    and cs_italy.
 0. Developer console remainder: cursor movement inside the input line, a backdrop behind its lines; the PC Controls
    list stepping over the "-" key.
-0. Mouse navigation in the original menus (cursor, hover, click, wheel, pie menus).
+0. Mouse in the menus remainder: the profile name's virtual keyboard.
 0. Native resolution remainder: the software renderer at the internal resolution (CPU cost), fullscreen exclusive
    display modes (only the desktop's size is used; the rendering size is independent).
 0. Widescreen stage 3 (after stages 1-2 settle): move suitable HUD elements (health/armour/timer left, money/ammo

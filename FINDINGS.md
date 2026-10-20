@@ -869,6 +869,61 @@ movies (overlay), decals and lighting: the same walk to de_airstrip's B sign at 
 down, match to 40.8 dB (only edges differ). The Hor+ FOV and culling are unchanged (they are in guest units).
 Change from the pause menu: 2560x1440 to 2400x1350 at the next frame. Performance at 4K: 30 frames per second held.
 
+## Mouse in the menus (2026-10-20)
+
+What the menus are (CS 5659, the UI scripts FrontEndUI.txt / InGameUI.txt as loaded, CSX_UI_DUMP=1):
+- No mouse support survives in the Xbox menu system. The executable keeps VGUI's cursor class, vgui_emulatemouse and
+  the path valve/gfx/vgui/mouse.tga, but they belong to the VGUI panels (HUD), the texture is not on the disc, and
+  nothing in the menu code reads a pointer.
+- A screen (the open one at 0x5523D4) has an interactive table at +0x380 and a passive one at +0x384. A table keeps
+  its layout from the script: the rectangle +0x1C..+0x28 and the inner one +0x2C..+0x38 (TableLocation /
+  TableSize), row spacing +0x128, text scale +0x12C, the highlight image +0x130 (image, x, y, width, height; +0x144
+  the unselected one), column widths +0x70; rows +0x60..+0x64 (0x20 each: +4 bit 0 disabled, +0xC..+0x10 cells of
+  0x78, a list cell's choices at +0xC..+0x10 of 0x1C), the selection +0x9C, the first row shown +0x120 (scrolling),
+  wrap +0x124. The table draw (0xCD030) puts row i at x +0x2C, y +0x30 + (i - first) x (int(font height 0x37A81C x
+  text scale) + spacing); the screen draw is 0xCD230, a row's 0xCCD20, a cell's 0xCCA80.
+- The selection moves through 0xD8360 (cdecl step, the table in esi: the new row clamped or wrapped, disabled rows
+  stepped over, +0x120 scrolled to keep it shown); the input state machine (0xF7xxx-0xFAxxx) calls it for the d-pad
+  and runs the screens' commands for the buttons (OnButtonDownA, RowSelect...).
+- Other kinds: the buy menus (MenuType "buymenu") are pies of SelectBoxes chosen by the left stick's angle
+  (PieceOffsetDegrees), the main menus ("superlauncher") are tables with stick pieces running tableMoveUp/Down, the
+  profile name is a VirtualKeyboard. There are no sliders: volumes and the like are list cells with arrows. The help
+  bar is a texture across the bottom (BackgroundImage at 0,411 640x69) named after its buttons right to left
+  (Cancel_Accept_Reset: B rightmost, then A, then X); the in-game menus have none.
+
+The mouse (src/game/pc_mouse.cpp on the game thread, src/linux/window_input.cpp in the window):
+- The window maps the pointer into the menus' 640x480 (its letterbox at the frame's aspect, the menus' 640 columns
+  in the middle of a wide frame), so it is right at any aspect and internal resolution; the pointer is SDL's own
+  (the system arrow, as GoldSrc on a PC showed in its menus: the game has no cursor art).
+- Tables: moving onto an enabled row selects it through 0xD8360; a click is the pad's A (the game's activation); on
+  a setting's row a click on the arrows (the ends of the highlight image) is left / right, elsewhere it selects the
+  row, and a double click is A (accepting the screen: the in-game screens have no help bar to click); the wheel is
+  the d-pad's up / down (scrolling long lists, PC Controls); the right button is B. The help bar's buttons are
+  clicked in slots measured on the art (488-585, 385-482, 292-380 across, 412-446 down).
+- Buy pies: on the ring (42 to 160 pixels from the centre at 227,251, measured on the CT and T art) the left stick
+  points at the pointer, so the game highlights that piece with its own art; a click is A, the right button B; the
+  ammo tabs above are the triggers.
+- The presses go through the pad as polled (GameInfo::pad, both the window and the headless harness): held three
+  frames, two apart, so the game's sounds, transitions and commands run as for a controller. The pointer acts only
+  when it moves, so the keyboard and a pad keep their selection; a pad or keyboard stick takes the pie back.
+- Capture: playing, the mouse is captured (relative mode, the view); a menu or the console frees it with the pointer
+  shown; leaving them captures it again (unless F1 let it go while playing; a click in the window takes it back). A
+  click that closes a menu is not a shot (the button went to the menu); menu pointer motion never turns the view.
+- Hover sound: the screen keeps its sounds' names at +0x8 EnterSound, +0xC SelectSound, +0x10 HighlightSound (parsed
+  by 0xD4740), played by 0xC5A00 (cdecl: name, 0). Only the main menus ("superlauncher", 66 screens) have a
+  HighlightSound; their stick pieces play it (0xCAC90) before running CommandHighlight (tableMoveUp/Down, 0xD8480 /
+  0xD8490 through the command table at 0x37A990), the virtual keyboard's d-pad plays it too (0xD42F0). The 26
+  generic table screens have none and move silently. A hover that moves the selection plays the screen's
+  HighlightSound the same way; the buy pies play theirs (0xD0398) from the stick the pointer drives.
+- Not done: the profile name's virtual keyboard (typing with the keyboard works), the scoreboard's and spectator's
+  screens have nothing to click (right button closes like B).
+
+Checks: regress_pc_menu_mouse.txt (team selection, the pie: the Magnum bought, PC Options' arrow and double click,
+Return to Game), regress_pc_menu_mouse_fe.txt (main menu, PC Options' arrows, Reset and Accept on the help bar, PC
+Controls with the wheel, back); vk_menu_mouse.txt (the Vulkan window at 21:9 and 2560x1080 with SDL mouse events:
+the same through the window's mapping, capture changes, Return to Game clicked without a shot fired, the keyboard
+still navigating).
+
 ## Developer console (2026-10-20)
 
 What the Xbox build keeps of GoldSrc's console (CS 5659):

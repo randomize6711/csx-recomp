@@ -214,7 +214,29 @@ void ApplyScripted(const std::string& s, input::Pad& p, float& lx, float& ly, fl
 // event a toggle key's own press may still bring
 bool g_console = false;
 bool g_swallow_text = false;
-bool g_mouse_was_captured = false;
+bool g_capture_play = true;  // the mouse captured while playing (F1 lets it go, a click in the window takes it back)
+
+// the window's point (logical pixels) in the menus' 640x480: the frame letterboxed at its aspect, the menus' 640
+// columns in the middle of a wider frame (src/game/pc_wide.cpp)
+bool MenuPoint(float wx, float wy, float& mx, float& my) {
+    int ww = 0, wh = 0;
+    SDL_GetWindowSize(static_cast<SDL_Window*>(window::SdlWindow()), &ww, &wh);
+    if (ww <= 0 || wh <= 0) return false;
+    const float aspect = window::Latest().aspect;
+    float tw = float(ww), th = tw / aspect;
+    if (th > float(wh)) {
+        th = float(wh);
+        tw = th * aspect;
+    }
+    float fx = (wx - (float(ww) - tw) / 2) / tw, fy = (wy - (float(wh) - th) / 2) / th;
+    if (fx < 0 || fx >= 1 || fy < 0 || fy >= 1) return false;
+    const float frame_w = 480.0f * aspect;
+    mx = fx * frame_w - (frame_w - 640.0f) / 2;
+    my = fy * 480.0f;
+    return true;
+}
+// the menus take the mouse: a menu screen open and no console over it
+bool MenuMouse() { return csx::MenuOpen() && !g_console; }
 int ConsoleKeyNumber() {
     static unsigned seen = ~0u;
     static int key = -1;
@@ -277,6 +299,13 @@ void HandleEvent(const void* p) {
             break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
             if (g_console) break;
+            if (MenuMouse()) {  // the menus: the pointer clicks (src/game/pc_mouse.cpp), never the pad's triggers
+                float mx, my;
+                if (MenuPoint(e.button.x, e.button.y, mx, my)) csx::MenuPointer(mx, my);
+                if (e.button.button == SDL_BUTTON_LEFT) csx::MenuClick(e.button.clicks >= 2 ? 11 : 1);
+                if (e.button.button == SDL_BUTTON_RIGHT) csx::MenuClick(2);
+                break;
+            }
             if (int key = EngineMouseKey(e.button.button); !csx::MenuOpen() && key >= 0) {
                 if (unsigned pad = PadAction(key)) g_pad_held[key] = pad;
                 else EngineKeyEvent(key, true);
@@ -292,6 +321,8 @@ void HandleEvent(const void* p) {
         case SDL_EVENT_MOUSE_WHEEL:  // MWHEELUP / MWHEELDOWN, a press and a release per notch, as the engine expects
             if (g_console && e.wheel.y != 0) {
                 csx::QueueConsoleKey(e.wheel.y > 0 ? csx::ConsoleKey::PageUp : csx::ConsoleKey::PageDown);
+            } else if (MenuMouse() && e.wheel.y != 0) {
+                csx::MenuWheel(e.wheel.y > 0 ? 1 : -1);
             } else if (!csx::MenuOpen() && e.wheel.y != 0) {
                 int key = e.wheel.y > 0 ? 240 : 239;
                 EngineKeyEvent(key, true);
@@ -300,6 +331,12 @@ void HandleEvent(const void* p) {
             break;
         case SDL_EVENT_MOUSE_MOTION:
             if (g_console) break;  // the view stays put while the console is open
+            if (MenuMouse()) {     // the menus: the pointer, never the view
+                float mx, my;
+                if (MenuPoint(e.motion.x, e.motion.y, mx, my)) csx::MenuPointer(mx, my);
+                else csx::MenuPointer(-1, -1);
+                break;
+            }
             if (Mouse().stick) {
                 g_mouse_dx += e.motion.xrel;
                 g_mouse_dy += e.motion.yrel;
@@ -322,6 +359,9 @@ void HandleEvent(const void* p) {
                 g_pad = nullptr;
             }
             break;
+        case SDL_EVENT_WINDOW_MOUSE_LEAVE:
+            csx::MenuPointer(-1, -1);
+            break;
         case SDL_EVENT_WINDOW_FOCUS_LOST:
             g_keys.clear();
             g_mouse_buttons = 0;
@@ -334,33 +374,47 @@ void HandleEvent(const void* p) {
 
 void EndFrameInput() {}
 
-// the console opened or closed (once per window frame, the window thread): text input on while it is open, the keys
-// held for the game let go, the mouse released and captured again afterwards
+// once per window frame (the window thread): the console's text input on while it is open, the keys held for the
+// game let go when it opens; the mouse captured while playing and free over the menus and the console (its pointer
+// shown), captured again when play resumes
 void UpdateConsole() {
     bool open = csx::ConsoleOpen();
     std::lock_guard<std::mutex> lock(g_lock);
-    if (open == g_console) return;
-    g_console = open;
-    g_swallow_text = false;
     SDL_Window* win = static_cast<SDL_Window*>(SdlWindow());
-    if (open) {
-        for (int k : std::set<int>(g_engine_held)) EngineKeyEvent(k, false);
-        g_pad_held.clear();
-        g_keys.clear();
-        g_mouse_buttons = 0;
-        g_mouse_was_captured = SDL_GetWindowRelativeMouseMode(win);
-        SDL_SetWindowRelativeMouseMode(win, false);
-        SDL_StartTextInput(win);
-    } else {
-        SDL_StopTextInput(win);
-        g_keys.clear();
-        if (g_mouse_was_captured) SDL_SetWindowRelativeMouseMode(win, true);
+    if (open != g_console) {
+        g_console = open;
+        g_swallow_text = false;
+        if (open) {
+            for (int k : std::set<int>(g_engine_held)) EngineKeyEvent(k, false);
+            g_pad_held.clear();
+            g_keys.clear();
+            g_mouse_buttons = 0;
+            SDL_StartTextInput(win);
+        } else {
+            SDL_StopTextInput(win);
+            g_keys.clear();
+        }
+        LOGI("input: console %s", open ? "open" : "closed");
     }
-    if (open)
-        LOGI("input: console open, mouse released (%s before)", g_mouse_was_captured ? "captured" : "free");
-    else
-        LOGI("input: console closed, mouse %s", g_mouse_was_captured ? "captured again" : "left free");
+    const bool free = g_console || csx::MenuOpen();
+    const bool focused = (SDL_GetWindowFlags(win) & SDL_WINDOW_INPUT_FOCUS) != 0;
+    const bool want = !free && g_capture_play && focused;
+    if (want != SDL_GetWindowRelativeMouseMode(win)) {
+        SDL_SetWindowRelativeMouseMode(win, want);
+        LOGI("input: mouse %s", want ? "captured (playing)" : free ? "free (menu or console)" : "free");
+    }
+    static int mode = -1;  // what the log said last: 0 captured, 1 menu or console, 2 released by the player
+    int now = !free ? (g_capture_play ? 0 : 2) : 1;
+    if (now != mode) {
+        mode = now;
+        LOGI("input: mouse mode %s", now == 0 ? "play (captured)" : now == 1 ? "menu (pointer)" : "play (released, F1)");
+    }
 }
+
+// F1 while playing: the mouse let go or captured again; a click in the window while playing captures it
+void SetPlayCapture(bool on) { g_capture_play = on; }
+bool PlayCapture() { return g_capture_play; }
+bool MouseFree() { return g_console || csx::MenuOpen(); }
 
 bool ConsoleShown() { return g_console; }
 

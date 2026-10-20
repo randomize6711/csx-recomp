@@ -850,6 +850,7 @@ void VulkanBackend::EndRendering() {
 bool VulkanBackend::Init(uint32_t width, uint32_t height) {
     guest_w_ = width;
     guest_h_ = height;
+    if (width && height) window::Latest().aspect = float(width) / float(height);  // the menus' pointer mapping
     if (!CreateInstance() || !CreateDevice() || !CreateLayouts()) return false;
     CreateFrames();
     if (!CreateSwapchain()) return false;

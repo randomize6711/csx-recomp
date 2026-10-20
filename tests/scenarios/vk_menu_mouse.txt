@@ -1,0 +1,89 @@
+# Mouse navigation in the original menus, the Vulkan window with real SDL mouse events (FINDINGS.md "Mouse in the
+# menus", src/game/pc_mouse.cpp, src/linux/window_input.cpp), at 21:9 and 2560x1440 (the pointer goes through the
+# window's letterbox and the menus' centred 640 columns): team selection by pointing and clicking (Terrorist), the
+# mouse captured while playing and free over menus; the buy pie (Rifles, then the Magnum) by pointing and clicking;
+# the pause menu: Options > PC Options, Field of View's right arrow, a double click accepting; Return to Game clicked
+# without firing; the wheel and the keyboard keep working in the menus. Run with
+#   --exe build/window/CounterStrike --run build/wrun --env CSX_RENDERER=vulkan --env FPS=30 \
+#   --launch tests/launch/de_airstrip_beginner --pc aspect=21:9 --pc resolution=2560x1080
+wait log open D:\\de_airstrip.sxwad
+sleep 15
+expect log pc mouse: screen TeamSelect_RootSinglePlayer
+point 318 222
+sleep 0.5
+windowshot team
+click 1
+sleep 4
+expect log pc mouse: TeamSelect_RootSinglePlayer at 318 222, selection 2
+expect log pc mouse: screen T_BuyMenuRoot
+click 3
+count game:.World.triggered."Round_Start" 2
+sleep 2
+expect log input: mouse mode play
+key b 0.3
+sleep 1.5
+count pc.mouse:.screen.T_BuyMenuRoot 2
+point 330 270
+sleep 0.5
+click 1
+sleep 1.5
+expect log pc mouse: screen T_BuyMenuRifles
+point 160 180
+sleep 0.5
+windowshot magnum
+click 1
+sleep 2
+click 3
+sleep 1
+click 3
+sleep 2
+pckey cmd +attack2;wait;-attack2
+sleep 1.5
+expect log pc view: fov 40
+pckey cmd +attack2;wait;-attack2
+sleep 0.5
+pckey cmd +attack2;wait;-attack2
+sleep 1
+key Escape
+sleep 2
+expect log input: mouse mode menu
+point 300 271
+sleep 0.5
+click 1
+sleep 2
+expect log pc mouse: screen Options,
+point 300 223
+sleep 0.5
+click 1
+sleep 2
+expect log pc mouse: screen InGame_PCOptions
+point 545 173
+sleep 0.5
+click 1
+sleep 1
+windowshot pcoptions
+point 200 173
+sleep 0.5
+click 11
+sleep 2
+expect log pc: fov = 95
+expect log pc mouse: screen Options,
+click 3
+sleep 2
+wheel -1
+sleep 0.5
+wheel 1
+sleep 0.5
+key Down
+sleep 0.5
+key Up
+sleep 0.5
+state before
+point 300 141
+sleep 0.5
+click 1
+sleep 2
+state after
+expect shots before after 0
+expect log input: mouse mode play
+expect nolog guest trap

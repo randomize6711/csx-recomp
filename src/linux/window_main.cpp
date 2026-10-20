@@ -254,8 +254,13 @@ int main(int argc, char** argv) {
     const std::string keys_file = (app::ExeDir() / "keys").string();
     // "mouse" request: "DX DY" counts of relative motion, as a captured mouse gives them (tests of the mouse look),
     // "button N SECONDS" a mouse button (SDL numbering: 1 left, 2 middle, 3 right) held, "wheel N" wheel notches
+    float pointer_x = 0, pointer_y = 0;  // where the injected pointer is, window pixels
     auto push_button = [&](uint8_t b, bool down) {
         SDL_Event ev{};
+        ev.button.x = pointer_x;
+        ev.button.y = pointer_y;
+        ev.button.clicks = b == 11 ? 2 : 1;  // 11: a left double click
+        if (b == 11) b = SDL_BUTTON_LEFT;
         ev.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
         ev.button.button = b;
         ev.button.down = down;
@@ -323,6 +328,25 @@ int main(int argc, char** argv) {
                 ev.wheel.y = float(n);
                 ev.wheel.integer_y = n;
                 SDL_PushEvent(&ev);
+            } else if (std::fseek(mf, at, SEEK_SET) == 0 && std::fscanf(mf, "menu %f %f", &dx, &dy) == 2) {
+                // "menu X Y": the pointer moved to that point of the menus' 640x480, through the window's own mapping
+                int ww = 0, wh = 0;
+                SDL_GetWindowSize(win, &ww, &wh);
+                const float aspect = window::Latest().aspect, frame_w = 480.0f * aspect;
+                float tw = float(ww), th = tw / aspect;
+                if (th > float(wh)) {
+                    th = float(wh);
+                    tw = th * aspect;
+                }
+                pointer_x = (float(ww) - tw) / 2 + (dx + (frame_w - 640.0f) / 2) / frame_w * tw;
+                pointer_y = (float(wh) - th) / 2 + dy / 480.0f * th;
+                SDL_Event ev{};
+                ev.type = SDL_EVENT_MOUSE_MOTION;
+                ev.motion.windowID = SDL_GetWindowID(win);
+                ev.motion.which = window::kInjectedDevice;
+                ev.motion.x = pointer_x;
+                ev.motion.y = pointer_y;
+                SDL_PushEvent(&ev);
             } else if (std::fseek(mf, at, SEEK_SET) == 0 && std::fscanf(mf, "%f %f", &dx, &dy) == 2) {
                 SDL_Event ev{};
                 ev.type = SDL_EVENT_MOUSE_MOTION;
@@ -361,17 +385,19 @@ int main(int argc, char** argv) {
                     pc::Save();
                     continue;
                 }
-                if (e.key.key == SDLK_F1) SDL_SetWindowRelativeMouseMode(win, !SDL_GetWindowRelativeMouseMode(win));
+                if (e.key.key == SDLK_F1 && !window::MouseFree()) window::SetPlayCapture(!window::PlayCapture());
             }
-            // the mouse is captured by a click in the window and let go with F1 or when the window loses focus
+            // playing, the mouse is captured (window::UpdateConsole) and let go with F1 or when the window loses focus; a
+            // click in the window while it is let go captures it again (the click itself is not a shot)
             if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && !SDL_GetWindowRelativeMouseMode(win) &&
-                e.button.which != window::kInjectedDevice && !window::ConsoleShown()) {
-                SDL_SetWindowRelativeMouseMode(win, true);
+                e.button.which != window::kInjectedDevice && !window::MouseFree()) {
+                window::SetPlayCapture(true);
                 continue;
             }
             if (e.type == SDL_EVENT_WINDOW_FOCUS_LOST) SDL_SetWindowRelativeMouseMode(win, false);
+            // the free pointer's motion only matters to the menus
             if (e.type == SDL_EVENT_MOUSE_MOTION && !SDL_GetWindowRelativeMouseMode(win) &&
-                e.motion.which != window::kInjectedDevice)
+                e.motion.which != window::kInjectedDevice && !window::MouseFree())
                 continue;
             window::HandleEvent(&e);
         }

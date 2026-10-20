@@ -33,4 +33,5 @@
   2026-10-20
 - M7h — The original developer console reachable (PC Controls key, typing, history, completion) ✅ 2026-10-20
 - M7i — Native-resolution rendering (Vulkan) with the display's modes in PC Options ✅ 2026-10-20
+- M7j — Mouse navigation in the original menus (tables, settings, help bars, buy pies) ✅ 2026-10-20
 - M8 — PC feature set complete
