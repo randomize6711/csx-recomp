@@ -304,3 +304,14 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
 - Tests: regress_pc_profile_name.txt, regress_pc_bind_capture.txt (with the relaunch into a match),
   vk_menu_mouse_fe.txt, vk_menu_pointer_*.txt, vk_bind_capture.txt; drive.py `pointat`, `expect count`,
   `expect menuaudio`, keys as NAME#SCANCODE.
+
+## 2026-10-20 — Play-test bugs: walking right, grenades, the spectator's camera
+
+- Walking right: WASD were the pad's stick in the menus and PC Controls' stick pieces stepped the selected row's key
+  (D turned Move Right into E); on PC Controls the keyboard is no longer the stick. vk_movement.txt walks every
+  direction in the window, after the console and the pause menu.
+- Grenades: the client's slot selection left a slot with several grenades pending for a confirmation this build lacks;
+  with fast switch the choice is now selected at once and 4 steps through the grenades (regress_pc_grenades.txt; the
+  weapon in hand is in the state lines).
+- Spectator and scoreboard: screens with ControlPassThrough are play for the PC input, so the mouse turns the
+  spectator's camera and walking goes on while Tab holds the scoreboard (vk_spectator.txt).

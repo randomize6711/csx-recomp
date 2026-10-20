@@ -1012,6 +1012,58 @@ not taken itself, a side button, a double click's second press not taken, the wh
 as Å, the console's new key opening it; after the relaunch the keys walk and jump; a rebinding in the pause menu
 works at once on returning to the game).
 
+## Play-test bugs: walking right, grenades, the spectator's camera (2026-10-20)
+
+Walking right (reported: D did nothing):
+- The play-test's pc_settings.ini had bind.moveright = e and other keys the player never chose (Next Weapon Down Arrow,
+  Previous Weapon Left Arrow, Last Weapon Space): no capture was logged for them. In the menus the keyboard is the
+  pad, WASD the left stick; PC Controls (as PC Options) has the stick pieces of the game's Control Options screen,
+  whose right and left run tableIncreaseValue / tableDecreaseValue on the selected row. Holding D (or pushing the
+  controller's stick) on a row stepped its key unseen: on Move Right d became e, Accept saved it, and D was bound to
+  nothing in the match. Reproduced headless with the pad's stick on Move Right (d -> e).
+- Fix (src/linux/window_input.cpp): on a PC binding screen the keyboard is not the stick (its letters are keys a
+  player presses there to bind or try them); the controller's stick and d-pad keep the screen's original behaviour.
+- Missed because no test pressed movement keys on PC Controls or checked that bindings stay as they were.
+- Movement itself was right: W, S, A, D and W+D each walk along the view (W+D at -45 degrees), nothing moves once
+  the keys are let go, and after the console or the pause menu the keys walk again (a wall stands about 170 units
+  right of the de_airstrip spawn: a test walking right twice stops there).
+- The play-test's own pc_settings.ini keeps the changed keys until PC Controls' Reset (or the rows) puts them back.
+
+Grenades (reported: they could not be selected):
+- The client's weapon slots are GoldSrc's (CHudAmmo, gHUD.m_Ammo 0x5624D4): SelectSlot (0x1AC1A0; slot1..slot5, and
+  invnext 0x1AC940 / invprev, which in this build pick the next weapon's slot through it) selects at once with
+  hud_fastswitch only when the slot holds one item; with two or three grenades it leaves its choice pending
+  (gpActiveSel 0x548730) for a confirmation. This build has none: there is no attack confirmation (gpLastSel is only
+  written by cancelselect), and the ammo HUD's draw (0x1ACC70) clears the choice after a second (g_weaponselect
+  0x552C78, its timer 0x552C7C). The controller selects with cycle_grenade / cycle_weapon instead. So with one HE
+  grenade 4 worked, with an HE, a flashbang and a smoke grenade 4 showed the list and nothing came of it, and the
+  wheel stopped at the knife; Mouse 1 fired the pistol.
+- Fix (src/game/pc_keys.cpp, config/game.toml): at SelectSlot's store of the pending choice (0x1AC313) a fast-switch
+  choice is selected at once as its one-item path does (ServerCmd with the weapon's name, g_weaponselect, the
+  timer); at its entry (0x1AC1A0) a slot key steps on from the weapon in hand when it is in that slot, as invnext
+  does (0x1AC996). 4 selects the HE grenade, again the flashbang, the smoke grenade, the HE grenade; the wheel down
+  goes knife, HE, flashbang, smoke; the wheel up enters the slot at its first grenade (invprev goes by slots in this
+  build); BLACK (cycle_grenade) is unchanged. Each grenade is thrown with Mouse 1 and the pistol comes back.
+- The weapon in hand for tests: the client data of the engine's first frame record (0x74B3D8, static; all records
+  alike once a weapon is held a moment): 17 Glock, 29 knife, 4 HE, 25 flashbang, 9 smoke, 6 C4, 19 MP5; state lines
+  end with it (src/game/state_probe.cpp), drive.py `expect weapon`.
+- Missed because the binding tests used one-item slots (knife, C4) and never bought more than one grenade.
+
+The spectator's camera (reported: it could not be turned):
+- After dying the Spectator screen opens (0x5523D4 set), and the Scoreboard while Tab is held; both have
+  ControlPassThrough "1": the controls stay the game's (the controller's right stick turns the camera, its buttons
+  change target and mode). The PC input treated every open screen as a menu: the mouse was freed as a pointer and the
+  keys became the pad, so the mouse did not turn the camera, and holding Tab stopped walking and looking.
+- Fix (src/game/pc_keys.cpp, src/game/pc_mouse.cpp): a screen with ControlPassThrough (read from the menu text) is
+  play for the PC keys and mouse: the mouse stays captured and turns the view (the look hook works there), keys are
+  the game's ("pc keys: Spectator passes the controls through").
+- Missed because no window test died or held the scoreboard while moving the mouse.
+
+Checks: vk_movement.txt (the window: PC Controls left as it was with WASD held, every direction, after the console
+and the pause menu), regress_pc_grenades.txt (three grenades: 4, the wheel, BLACK, throws), vk_spectator.txt (the
+window: walking with the scoreboard held, the spectator's camera turned by the mouse in two modes and after the pause
+menu).
+
 ## Developer console (2026-10-20)
 
 What the Xbox build keeps of GoldSrc's console (CS 5659):
