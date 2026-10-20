@@ -31,6 +31,7 @@ per line, executed in order:
     expect turned A B MIN          yaw difference between states A and B (shortest way) at least MIN degrees
     expect shots A B N             the shot counter dropped by exactly N from A to B
     expect still A B               position and yaw equal in A and B
+    expect weapon A ID             the weapon in hand at A (17 Glock, 29 knife, 4 HE grenade, 25 flashbang, 9 smoke)
     expect rose A B MIN            the player rose at least MIN units from A to B (a jump)
     expect heading A B MAXDEG [OFF] the move from A to B points along A's yaw (+ OFF degrees: 90 left, -90 right, 180
                                    back, -45 forward right) within MAXDEG degrees
@@ -305,7 +306,7 @@ def main():
                 good = wait_until(lambda: log.match('poke: ' + st[1].upper().lstrip('0X').rjust(8, '0')))
             elif kind == 'state':
                 send_file('state', st[1])
-                rx = re.compile(r'state ' + re.escape(st[1]) + r' (\S+) (\S+) (\S+) (\S+) (-?\d+)(?: (\S+) (\S+))?')
+                rx = re.compile(r'state ' + re.escape(st[1]) + r' (\S+) (\S+) (\S+) (\S+) (-?\d+)(?: (\S+) (\S+))?(?: (-?\d+))?')
                 def got():
                     for l in log.lines:
                         m = rx.search(l)
@@ -316,6 +317,11 @@ def main():
                 good = wait_until(got)
                 if good:
                     print('     ' + st[1] + ' = ' + ' '.join(str(v) for v in states[st[1]]))
+            elif kind == 'expect' and st[1] == 'weapon':
+                # expect weapon A ID: the weapon in hand at state A (17 Glock, 29 knife, 4 HE, 25 flashbang, 9 smoke)
+                a = states.get(st[2])
+                good = a is not None and len(a) > 7 and int(a[7]) == int(st[3])
+                print(f'     weapon {int(a[7]) if a and len(a) > 7 else None}')
             elif kind == 'expect' and st[1] in ('moved', 'turned', 'shots', 'still', 'heading', 'yaw', 'pitch', 'rose'):
                 a, b = states.get(st[2]), states.get(st[3])
                 good = a is not None and b is not None

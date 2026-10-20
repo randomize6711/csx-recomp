@@ -1,6 +1,7 @@
 // Logs local player state on request, for control tests (tools/drive.py "state" steps).
 //
-// A file named state in the run folder holding a name asks for one line: "state <name> x y z yaw clip". The
+// A file named state in the run folder holding a name asks for one line: "state <name> x y z yaw clip view_yaw
+// view_pitch weapon". The
 // addresses were found by diffing memory dumps (FINDINGS.md, "Player control"): the float triple at 0x3AE3E0 moves by
 // the run speed while the left stick is held and stays put otherwise; 0x3AE3F0 holds the yaw in degrees (it matches
 // the 3D audio listener's forward vector at 0x3038C0); the int at 0x3A2988 drops by one per shot (20 for a full Glock).
@@ -19,6 +20,9 @@ namespace csx {
 
 namespace {
 constexpr uint32_t kPosition = 0x3AE3E0, kYaw = 0x3AE3F0, kClip = 0x3A2988, kViewYaw = 0x552C10, kViewPitch = 0x552C14;
+// the weapon in hand (17 Glock, 29 knife, 4 HE grenade, 25 flashbang, 9 smoke grenade, 6 C4...): the client data of
+// the engine's first frame record (static, 0x1B60 bytes each, all of them alike once the weapon has been held a moment)
+constexpr uint32_t kWeapon = 0x74B3D8;
 
 float F(uint32_t va) {
     float f;
@@ -54,9 +58,10 @@ void StartStateProbe() {
                 std::fclose(f);
             }
             fs::remove(req, ec);
-            // then the view yaw and pitch the look routine keeps (0x552C10 / 0x552C14, src/game/mouse_look.cpp)
-            LOGI("state %s %.3f %.3f %.3f %.3f %d %.3f %.3f", name, F(kPosition), F(kPosition + 4), F(kPosition + 8),
-                 F(kYaw), int32_t(kernel::R32(kClip)), F(kViewYaw), F(kViewPitch));
+            // then the view yaw and pitch the look routine keeps (0x552C10 / 0x552C14, src/game/mouse_look.cpp) and
+            // the weapon in hand
+            LOGI("state %s %.3f %.3f %.3f %.3f %d %.3f %.3f %d", name, F(kPosition), F(kPosition + 4), F(kPosition + 8),
+                 F(kYaw), int32_t(kernel::R32(kClip)), F(kViewYaw), F(kViewPitch), int32_t(kernel::R32(kWeapon)));
             logx::Flush();
         }
     }).detach();

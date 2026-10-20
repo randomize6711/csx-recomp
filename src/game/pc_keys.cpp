@@ -174,6 +174,31 @@ void PollRequests() {
 }
 }  // namespace
 
+// [[hook]] at 0x1AC313 (config/game.toml): the client's SelectSlot (0x1AC1A0; slot1..slot5, and invnext / invprev,
+// which pick the next weapon's slot through it) storing its choice as the pending selection (gpActiveSel 0x548730,
+// esi the weapon, bl hud_fastswitch). With fast switch it selects at once only a slot holding one item; with two or
+// three grenades it leaves the choice pending for a confirmation this build no longer has (the HUD's draw 0x1ACC70
+// only times it out after a second; the pad selects with cycle_grenade / cycle_weapon instead), so 4 and the wheel
+// never reached a grenade. With fast switch the pending choice is selected at once as the one-item path does
+// (ServerCmd with its name, g_weaponselect 0x552C78 and its timer 0x552C7C); pressing the key again steps on from it.
+void PcWeaponFastSelect(X86Context& ctx, uint8_t*) {
+    constexpr uint32_t kServerCmd = 0x543134, kWeaponSelect = 0x552C78, kSelectTimer = 0x552C7C;
+    uint32_t weapon = ctx.esi;
+    if (!(ctx.ebx & 0xFF) || weapon <= 1 || R32(kWeaponSelect) == R32(weapon + 0xA0)) return;
+    kernel::CallGuest(ctx, R32(kServerCmd), {weapon});
+    kernel::W32(kWeaponSelect, R32(weapon + 0xA0));
+    kernel::W32(kSelectTimer, 0x3F800000);  // 1.0
+}
+
+// [[hook]] at 0x1AC1A0, SelectSlot's entry (eax the slot): a slot key pressed while nothing is pending and the weapon
+// in hand (gHUD.m_Ammo 0x5624D4 + 0x1C) is in that slot steps on from it, as invnext does by making it the pending
+// choice first (0x1AC996): 4 again goes from the HE grenade to the flashbang, then the smoke grenade
+void PcWeaponSlotFromHeld(X86Context& ctx, uint8_t*) {
+    constexpr uint32_t kActiveSel = 0x548730, kHeld = 0x5624D4 + 0x1C;
+    uint32_t held = R32(kHeld);
+    if (R32(kActiveSel) <= 1 && held > 1 && R32(held + 0x90) == ctx.eax) kernel::W32(kActiveSel, held);
+}
+
 void PcConsoleFrame(X86Context& ctx);  // pc_console.cpp
 void PcMouseFrame(X86Context& ctx);    // pc_mouse.cpp
 void PcMenuFrame(X86Context& ctx);     // pc_menu.cpp

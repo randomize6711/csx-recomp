@@ -1,0 +1,163 @@
+# Grenades with the PC keys (FINDINGS.md "Grenades", src/game/pc_keys.cpp PcWeaponFastSelect / PcWeaponSlotFromHeld):
+# a Terrorist buys an HE grenade, a flashbang and a smoke grenade through the buy pie; 4 selects the HE grenade and,
+# pressed again, the flashbang and the smoke grenade (the client left a slot holding several items pending for a
+# confirmation this build lacks: 4 did nothing); the wheel goes on from the knife through the three grenades; the
+# pad's BLACK (cycle_grenade, the original controls) still selects them; each grenade is thrown with Mouse 1 and
+# leaves the hand. The weapon in hand is the state's last column (17 Glock, 29 knife, 4 HE, 25 flashbang, 9 smoke).
+#   --launch tests/launch/de_airstrip_beginner
+wait log open D:\\.*\.sxwad
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 12
+state g0
+expect weapon g0 17
+pckey cmd +buymenu
+sleep 0.2
+pckey cmd -buymenu
+sleep 1.5
+expect log pc mouse: screen T_BuyMenuRoot
+pckey pointer 227 351
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 297 321
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 227 351
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 157 321
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 227 351
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 127 251
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+snap bought
+pckey mclick 2
+sleep 1
+pckey mclick 2
+sleep 2
+pckey key 52 1
+sleep 0.1
+pckey key 52 0
+sleep 0.5
+state k1
+expect weapon k1 4
+pckey key 52 1
+sleep 0.1
+pckey key 52 0
+sleep 0.5
+state k2
+expect weapon k2 25
+pckey key 52 1
+sleep 0.1
+pckey key 52 0
+sleep 0.5
+state k3
+expect weapon k3 9
+pckey key 52 1
+sleep 0.1
+pckey key 52 0
+sleep 0.5
+state k4
+expect weapon k4 4
+pckey key 50 1
+sleep 0.1
+pckey key 50 0
+sleep 1.5
+state p1
+expect weapon p1 17
+pckey key 239 1
+pckey key 239 0
+sleep 0.6
+state w1
+expect weapon w1 29
+pckey key 239 1
+pckey key 239 0
+sleep 0.6
+state w2
+expect weapon w2 4
+pckey key 239 1
+pckey key 239 0
+sleep 0.6
+state w3
+expect weapon w3 25
+pckey key 239 1
+pckey key 239 0
+sleep 0.6
+state w4
+expect weapon w4 9
+pckey key 50 1
+sleep 0.1
+pckey key 50 0
+sleep 1.5
+state p2
+expect weapon p2 17
+press BLACK
+sleep 1.5
+state b1
+expect weapon b1 4
+pckey key 50 1
+sleep 0.1
+pckey key 50 0
+sleep 1.5
+state p3
+expect weapon p3 17
+pckey key 52 1
+sleep 0.1
+pckey key 52 0
+sleep 1.0
+state sel0
+expect weapon sel0 4
+pckey key 241 1
+sleep 0.3
+pckey key 241 0
+sleep 3
+state after0
+expect weapon after0 17
+pckey key 52 1
+sleep 0.1
+pckey key 52 0
+sleep 1.0
+state sel1
+expect weapon sel1 25
+pckey key 241 1
+sleep 0.3
+pckey key 241 0
+sleep 3
+state after1
+expect weapon after1 17
+pckey key 52 1
+sleep 0.1
+pckey key 52 0
+sleep 1.0
+state sel2
+expect weapon sel2 9
+pckey key 241 1
+sleep 0.3
+pckey key 241 0
+sleep 3
+state after2
+expect weapon after2 17
+pckey key 52 1
+sleep 0.1
+pckey key 52 0
+sleep 1.0
+state none
+expect weapon none 17
+expect nolog guest trap
