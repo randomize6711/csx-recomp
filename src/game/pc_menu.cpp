@@ -7,6 +7,7 @@
 // are console commands ("!name" in the text, as the game's own screens call theirs): pc_options_load <screen> on
 // entry fills the lists from pc_settings.ini, A runs pc_options_save <screen>, X (where offered) pc_options_defaults
 // <screen>, B leaves without saving. A hook in Cmd_ExecuteString serves them before the engine's own command lookup.
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -64,6 +65,28 @@ Setting Binding(const pc::Action& a) {
     return s;
 }
 
+// Resolution's choices: Native (the window's pixels, the display's in fullscreen), the display's modes as SDL3 lists
+// them (CSX_DISPLAY_MODES from the window, largest first, the desktop's in CSX_DESKTOP_MODE), a WxH saved by hand that
+// is not among them, and the title's own 480 lines. Headless there are no modes: Native draws at 480 lines there.
+std::vector<Choice> Resolutions() {
+    std::string desktop = std::getenv("CSX_DESKTOP_MODE") ? std::getenv("CSX_DESKTOP_MODE") : "";
+    std::vector<Choice> c = {{desktop.empty() ? "Native" : "Native (" + desktop + ")", "native"}};
+    std::string modes = std::getenv("CSX_DISPLAY_MODES") ? std::getenv("CSX_DISPLAY_MODES") : "";
+    for (size_t at = 0; at < modes.size();) {
+        size_t end = modes.find(',', at);
+        std::string m = modes.substr(at, end == std::string::npos ? std::string::npos : end - at);
+        if (!m.empty()) c.push_back({m, m});
+        at = end == std::string::npos ? modes.size() : end + 1;
+    }
+    std::string saved = pc::Get("resolution", "native");
+    unsigned w = 0, h = 0;
+    bool listed = false;
+    for (const Choice& x : c) listed = listed || x.value == saved;
+    if (!listed && std::sscanf(saved.c_str(), "%ux%u", &w, &h) == 2) c.push_back({saved + " (custom)", saved});
+    c.push_back({"Original (480 lines)", "original"});
+    return c;
+}
+
 const std::vector<PcScreen>& Screens() {
     static const std::vector<PcScreen> s = [] {
         std::vector<PcScreen> v;
@@ -96,6 +119,12 @@ const std::vector<PcScreen>& Screens() {
                           {{"Automatic", "auto"}, {"4:3 (Original)", "4:3"}, {"16:10", "16:10"}, {"16:9", "16:9"},
                            {"21:9", "21:9"}},
                           0},
+                         {"resolution",
+                          "Resolution",
+                          {"Set the size the game is drawn at; Native matches",
+                           "the screen. The menus keep their layout."},
+                          Resolutions(),
+                          0},
                          {"display_mode",
                           "Display Mode",
                           {"Play in a window or on the full screen.", "F11 also switches between them."},
@@ -107,7 +136,7 @@ const std::vector<PcScreen>& Screens() {
                           Numbers({"0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100"}),
                           10},
                      },
-                     false,
+                     true,
                      false});
         PcScreen controls{"Controls",
                           "PC Controls",

@@ -268,3 +268,11 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   game while it is open, mouse capture restored, the pad unchanged.
 - Tests: regress_pc_console.txt, regress_pc_console_wide.txt (21:9); vk_console.txt (Vulkan window); drive.py step
   `type TEXT`, pckey lines `con TEXT` / `conkey NAME`.
+
+## 2026-10-20 — Native resolution
+
+- PC Options > Resolution (Native, the display's modes from SDL3, a custom WxH, Original): the Vulkan renderer draws
+  every render target at the chosen size per axis, the game keeping its 640x480 layout; applied at the next frame,
+  fallbacks for invalid or failing sizes (FINDINGS.md "Native resolution"). PC Options gained X Restore Defaults.
+- The window takes the harness's `cmd` pad presses (tests drive the pad in the Vulkan window as headless).
+- Tests: vk_resolution.txt (2560x1440 targets, a change from the pause menu).

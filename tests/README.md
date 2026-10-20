@@ -177,3 +177,10 @@ vk_match_direct and vk_match on the Windows executable (`drive.py --wine`, prefi
 build/winrun, network namespace as for Linux runs). `--no-wine` skips the runs. Wine is not Windows: a pass shows the
 executable and its Windows code paths work under Wine.
 
+## Native resolution
+
+`vk_resolution.txt` (Vulkan window, not in the headless suite: the renderer is the Vulkan backend's) starts at 16:9 and
+2560x1440 and checks the render targets the backend logs ("colour target ... 854x960 drawn at 2560x1440", the glow's
+427x240 at 1280x360) and the presented shot's size, then changes Resolution in the pause menu and sees the next
+frame drawn at the new size. The window now reads the harness's `cmd` file, so `press` steps drive the pad in
+window scenarios too.

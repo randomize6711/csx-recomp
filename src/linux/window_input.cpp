@@ -17,6 +17,7 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <cstdlib>
 #include <cmath>
@@ -32,6 +33,7 @@
 #include "common/pc_bindings.h"
 #include "common/pc_settings.h"
 #include "core/log.h"
+#include "harness.h"
 #include "linux/window.h"
 
 namespace {
@@ -175,6 +177,38 @@ void EngineKeyEvent(int key, bool down) {
 }
 
 int16_t Stick(float v) { return int16_t(std::clamp(v, -32767.0f, 32767.0f)); }
+
+// tests: the run folder's "cmd" file ("BUTTONS [FRAMES]", buttons joined by +, as the headless harness's pad script
+// takes them: UP DOWN LEFT RIGHT START BACK A B X Y BLACK WHITE LT RT LTHUMB RTHUMB, LS LSD LSL LSR, RS RSD RSL RSR)
+// pressed on the pad for that many presented frames, so scenarios drive the pad in the window as headless
+struct ScriptedPress {
+    uint64_t until = 0;
+    std::string buttons;
+};
+ScriptedPress g_scripted;
+void ApplyScripted(const std::string& s, input::Pad& p, float& lx, float& ly, float& rx, float& ry) {
+    for (size_t at = 0; at <= s.size();) {
+        size_t e = s.find('+', at);
+        if (e == std::string::npos) e = s.size();
+        std::string b = s.substr(at, e - at);
+        at = e + 1;
+        static const std::map<std::string, uint16_t> digital = {{"UP", 1},     {"DOWN", 2},    {"LEFT", 4},
+                                                                 {"RIGHT", 8}, {"START", 16},  {"BACK", 32},
+                                                                 {"LTHUMB", 64}, {"RTHUMB", 128}};
+        static const std::map<std::string, int> analog = {{"A", 0}, {"B", 1}, {"X", 2},     {"Y", 3},
+                                                           {"BLACK", 4}, {"WHITE", 5}, {"LT", 6}, {"RT", 7}};
+        if (auto d = digital.find(b); d != digital.end()) p.buttons |= d->second;
+        else if (auto a = analog.find(b); a != analog.end()) p.analog[a->second] = 255;
+        else if (b == "LS") ly = 32767;
+        else if (b == "LSD") ly = -32767;
+        else if (b == "LSL") lx = -32767;
+        else if (b == "LSR") lx = 32767;
+        else if (b == "RS") ry = 32767;
+        else if (b == "RSD") ry = -32767;
+        else if (b == "RSL") rx = -32767;
+        else if (b == "RSR") rx = 32767;
+    }
+}
 
 // the developer console: the engine key that toggles it, whether it is shown (as the window last saw), and the text
 // event a toggle key's own press may still bring
@@ -396,6 +430,19 @@ Pad Poll(int port) {
             if (btn(analog[i])) p.analog[i] = 255;
         p.analog[6] = std::max<uint8_t>(p.analog[6], uint8_t(axis(SDL_GAMEPAD_AXIS_LEFT_TRIGGER) * 255 / 32767));
         p.analog[7] = std::max<uint8_t>(p.analog[7], uint8_t(axis(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) * 255 / 32767));
+    }
+    // a scripted press (tests)
+    {
+        const std::string cmd = (app::ExeDir() / "cmd").string();
+        if (FILE* f = std::fopen(cmd.c_str(), "r")) {
+            char b[64] = {};
+            double frames = 3;
+            if (std::fscanf(f, "%63s %lf", b, &frames) >= 1)
+                g_scripted = {harness::g_frames.load() + uint64_t(std::max(frames, 1.0)), b};
+            std::fclose(f);
+            std::remove(cmd.c_str());
+        }
+        if (harness::g_frames.load() <= g_scripted.until) ApplyScripted(g_scripted.buttons, p, lx, ly, rx, ry);
     }
     p.lx = Stick(lx);
     p.ly = Stick(ly);

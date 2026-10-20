@@ -23,6 +23,7 @@
 #include <deque>
 #include <mutex>
 #include <utility>
+#include <functional>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -181,6 +182,27 @@ int main(int argc, char** argv) {
     SDL_Window* win = SDL_CreateWindow("Counter-Strike", win_w, win_h,
                                        SDL_WINDOW_RESIZABLE | (g_vulkan ? SDL_WINDOW_VULKAN : SDL_WindowFlags(0)));
     g_window = win;
+    // the display the window is on: its desktop mode and the modes it lists, for PC Options > Resolution
+    // (src/game/pc_menu.cpp); the Vulkan renderer draws at the chosen size, the display mode itself is not changed
+    if (SDL_DisplayID display = win ? SDL_GetDisplayForWindow(win) : 0) {
+        if (const SDL_DisplayMode* dm = SDL_GetDesktopDisplayMode(display))
+            SetEnv("CSX_DESKTOP_MODE", (std::to_string(dm->w) + "x" + std::to_string(dm->h)).c_str(), false);
+        int count = 0;
+        std::string list;
+        if (SDL_DisplayMode** modes = SDL_GetFullscreenDisplayModes(display, &count)) {
+            std::vector<std::pair<int, int>> sizes;  // largest first, each size once whatever its refresh rates
+            for (int i = 0; i < count; i++)
+                if (modes[i]->w >= 640 && modes[i]->h >= 480) sizes.push_back({modes[i]->w, modes[i]->h});
+            std::sort(sizes.begin(), sizes.end(), std::greater<>());
+            sizes.erase(std::unique(sizes.begin(), sizes.end()), sizes.end());
+            for (size_t i = 0; i < sizes.size() && i < 16; i++)
+                list += (list.empty() ? "" : ",") + std::to_string(sizes[i].first) + "x" + std::to_string(sizes[i].second);
+            SDL_free(modes);
+        }
+        SetEnv("CSX_DISPLAY_MODES", list.c_str(), false);
+        LOGI("window: display %s, desktop %s, modes %s", SDL_GetDisplayName(display),
+             std::getenv("CSX_DESKTOP_MODE") ? std::getenv("CSX_DESKTOP_MODE") : "?", list.c_str());
+    }
     // the Vulkan backend presents by itself; the software path shows frames through an SDL renderer
     SDL_Renderer* ren = win && !g_vulkan ? SDL_CreateRenderer(win, nullptr) : nullptr;
     if (!win || (!g_vulkan && !ren)) {

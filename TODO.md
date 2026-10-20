@@ -6,7 +6,9 @@
    and cs_italy.
 0. Developer console remainder: cursor movement inside the input line, a backdrop behind its lines; the PC Controls
    list stepping over the "-" key.
-0. Native-resolution rendering (render targets above the original 640x960, the 2D layers kept in proportion).
+0. Mouse navigation in the original menus (cursor, hover, click, wheel, pie menus).
+0. Native resolution remainder: the software renderer at the internal resolution (CPU cost), fullscreen exclusive
+   display modes (only the desktop's size is used; the rendering size is independent).
 0. Widescreen stage 3 (after stages 1-2 settle): move suitable HUD elements (health/armour/timer left, money/ammo
    right, radar) towards the frame's edges, keeping their look; aspect change without a restart (device Reset).
 0. PC Options next: press-a-key capture in PC Controls (TrapKey_Event's trap mode), frame rate limit (SDK harness

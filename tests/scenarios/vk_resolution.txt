@@ -1,0 +1,60 @@
+# Native resolution in the Vulkan window (FINDINGS.md "Native resolution"): started at 16:9 and 2560x1440, every render
+# target is drawn at that scale (the 854x960 back buffer at 2560x1440, the glow chain's 427x240 at 1280x360), the
+# frame comes out 2560x1440 (the window shot is the presented target); the pause menu's PC Options then steps the
+# Resolution one to the right (the display's next smaller mode: which one depends on the display, the log names it)
+# and the next frame is drawn at the new size without a restart. Run with
+#   --exe build/window/CounterStrike --run build/wrun --env CSX_RENDERER=vulkan --env FPS=30 \
+#   --launch tests/launch/de_airstrip_beginner --pc aspect=16:9 --pc resolution=2560x1440
+wait log open D:\\de_airstrip.sxwad
+expect log vulkan: internal resolution 2560x1440 \(2560x1440\), back buffer 854x960
+sleep 15
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 6
+expect log vulkan: colour target [0-9A-F]+ 854x960 drawn at 2560x1440
+expect log vulkan: depth target [0-9A-F]+ 854x960 drawn at 2560x1440
+expect log vulkan: colour target [0-9A-F]+ 427x240 drawn at 1280x360
+windowshot hi
+expect image hi 20
+press START
+sleep 2
+press DOWN
+sleep 0.7
+press DOWN
+sleep 0.7
+press DOWN
+sleep 0.7
+press DOWN
+sleep 0.7
+press DOWN
+sleep 0.7
+press A
+sleep 2
+press DOWN
+sleep 0.7
+press DOWN
+sleep 0.7
+press A
+sleep 2
+press DOWN
+sleep 0.7
+press DOWN
+sleep 0.7
+press DOWN
+sleep 0.7
+press DOWN
+sleep 0.7
+press RIGHT
+sleep 0.7
+press A
+sleep 2
+expect log pc: resolution = [0-9]+x[0-9]+
+expect log vulkan: internal resolution [0-9]+x[0-9]+ \([0-9]+x[0-9]+\), back buffer 854x960
+windowshot changed
+expect nolog vulkan: target .* failed
+expect nolog guest trap

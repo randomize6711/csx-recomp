@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -27,6 +29,7 @@
 #include "harness.h"
 #include "kernel/kernel.h"
 #include "kernel/memory.h"
+#include "common/pc_settings.h"
 #include "linux/window.h"
 #include "vulkan/vk_shader.h"
 
@@ -166,8 +169,11 @@ struct Image {
     bool depth = false;
 };
 
+// a render target: the guest surface's pixels (gw x gh) drawn at the internal resolution's scale (w x h), see
+// VulkanBackend::UpdateResolution; the guest's coordinates (viewports, scissors, clear rects) are scaled by w / gw
 struct Target : Image {
     uint32_t data = 0;
+    uint32_t gw = 0, gh = 0;
     uint32_t pitch = 0;   // guest bytes per row, for writing results back (linear 32 bit surfaces)
     bool linear32 = false;
 };
@@ -263,6 +269,7 @@ private:
     };
     Alloc Upload(VkDeviceSize size, VkDeviceSize align);
     Target* EnsureTarget(const Surface& s, bool depth);
+    void UpdateResolution(const Surface& front);
     void BeginRendering(Target* rt, Target* ds);
     void EndRendering();
     Image* EnsureTexture(const State& s, int stage, Target* drawing, TexInfo& info, uint32_t& w, uint32_t& h);
@@ -334,6 +341,12 @@ private:
     bool rendering_ = false;
     uint64_t presents_ = 0;
     uint32_t guest_w_ = 640, guest_h_ = 480;
+    // render targets drawn at this many host pixels per guest pixel (the internal resolution over the back buffer's
+    // guest size); 1 while the Resolution setting is Original or a scaled target could not be made
+    float scale_x_ = 1, scale_y_ = 1;
+    bool scale_failed_ = false;
+    uint32_t max_image_ = 8192;
+    Target readback_;  // a scaled target brought to its guest size for a guest read
     std::chrono::steady_clock::time_point fps_t_ = std::chrono::steady_clock::now();
     unsigned long long draws_ = 0, dropped_[4] = {}, wraps_ = 0, peak_ = 0, frame_draws_ = 0;
     // performance: GPU time from timestamps, CPU time inside Clear / Draw (recording) and Present, per logged span
@@ -564,6 +577,7 @@ void VulkanBackend::CreateFrames() {
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(gpu_, &props);
     timestamp_ns_ = props.limits.timestampPeriod;
+    max_image_ = std::min<uint32_t>(props.limits.maxImageDimension2D, 8192);
     VkQueryPoolCreateInfo qi{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
     qi.queryType = VK_QUERY_TYPE_TIMESTAMP;
     qi.queryCount = 2 * kFrames;
@@ -751,18 +765,30 @@ Target* VulkanBackend::EnsureTarget(const Surface& s, bool depth) {
         VkImageUsageFlags usage = depth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
                                         : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
         usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-        if (!MakeImage(t, w, h, depth ? kDepthFormat : kColorFormat, 1, usage, depth)) {
+        uint32_t iw = std::clamp<uint32_t>(uint32_t(std::lround(w * scale_x_)), 1, max_image_);
+        uint32_t ih = std::clamp<uint32_t>(uint32_t(std::lround(h * scale_y_)), 1, max_image_);
+        bool made = MakeImage(t, iw, ih, depth ? kDepthFormat : kColorFormat, 1, usage, depth);
+        if (!made && (iw != w || ih != h)) {
+            // the scaled image did not fit (memory): the guest size, and Original from now on
+            LOGE("vulkan: target %ux%u at %ux%u failed, back to the guest size", w, h, iw, ih);
+            FreeImage(t);
+            scale_failed_ = true;
+            made = MakeImage(t, w, h, depth ? kDepthFormat : kColorFormat, 1, usage, depth);
+        }
+        if (!made) {
             LOGE("vulkan: target %ux%u failed", w, h);
             targets_.erase(key);
             return nullptr;
         }
         t.data = s.data;
+        t.gw = w;
+        t.gh = h;
         TextureDesc d;
         if (!depth && DescribeSurface(s, d) && d.linear && Format(d.format).bits == 32 && Format(d.format).host == Host::BGRA8) {
             t.linear32 = true;
             t.pitch = d.pitch ? d.pitch : w * 4;
         }
-        LOGI("vulkan: %s target %08X %ux%u", depth ? "depth" : "colour", s.data, w, h);
+        LOGI("vulkan: %s target %08X %ux%u drawn at %ux%u", depth ? "depth" : "colour", s.data, w, h, t.w, t.h);
         // a new target starts cleared, as fresh console memory reads; its guest contents are not loaded yet
         VkCommandBuffer cb = Cmd();
         EndRendering();
@@ -861,9 +887,14 @@ void VulkanBackend::Clear(const State& s, uint32_t count, const uint8_t* rects, 
         at[n].clearValue.depthStencil = {z, stencil & 0xFF};
         n++;
     }
-    Image* any = rendering_rt_ ? static_cast<Image*>(rendering_rt_) : rendering_ds_;
+    Target* any = rendering_rt_ ? rendering_rt_ : rendering_ds_;
+    const float kx = float(any->w) / float(std::max<uint32_t>(any->gw, 1)), ky = float(any->h) / float(std::max<uint32_t>(any->gh, 1));
     std::vector<VkClearRect> cr;
     auto add = [&](int x0, int y0, int x1, int y1) {
+        x0 = int(std::lround(x0 * kx));
+        x1 = int(std::lround(x1 * kx));
+        y0 = int(std::lround(y0 * ky));
+        y1 = int(std::lround(y1 * ky));
         x0 = std::clamp(x0, 0, int(any->w));
         x1 = std::clamp(x1, 0, int(any->w));
         y0 = std::clamp(y0, 0, int(any->h));
@@ -1328,7 +1359,7 @@ void VulkanBackend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t
     push_descriptors_(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, 10, w);
 
     // the whole target as viewport (the guest viewport is in the shaders), flipped to keep D3D's y up
-    Image* any = rt ? static_cast<Image*>(rt) : ds;
+    Target* any = rt ? rt : ds;
     VkViewport v{0, float(any->h), float(any->w), -float(any->h), 0, 1};
     vkCmdSetViewport(cb, 0, 1, &v);
     int x0 = int(s.viewport.x), y0 = int(s.viewport.y), x1 = int(s.viewport.x + s.viewport.w),
@@ -1338,6 +1369,14 @@ void VulkanBackend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t
         y0 = std::max(y0, int(s.scissors[1]));
         x1 = std::min(x1, int(s.scissors[2]));
         y1 = std::min(y1, int(s.scissors[3]));
+    }
+    // guest pixels to the target's (scaled) pixels
+    if (any->w != any->gw || any->h != any->gh) {
+        const float kx = float(any->w) / float(any->gw), ky = float(any->h) / float(any->gh);
+        x0 = int(std::lround(x0 * kx));
+        x1 = int(std::lround(x1 * kx));
+        y0 = int(std::lround(y0 * ky));
+        y1 = int(std::lround(y1 * ky));
     }
     x0 = std::clamp(x0, 0, int(any->w));
     x1 = std::clamp(x1, 0, int(any->w));
@@ -1376,20 +1415,39 @@ void VulkanBackend::Sync(uint32_t va, uint32_t size) {
         return;
     }
     EndRendering();
-    VkDeviceSize bytes = VkDeviceSize(t->w) * t->h * 4;
-    Alloc a = Upload(bytes, 16);
     Barrier(*t, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    Image* src = t;
+    if (t->w != t->gw || t->h != t->gh) {
+        // drawn at the internal resolution: brought to the guest size first (the guest reads its own surface)
+        if (readback_.image && (readback_.w != t->gw || readback_.h != t->gh)) FreeImage(readback_);
+        if (!readback_.image &&
+            !MakeImage(readback_, t->gw, t->gh, kColorFormat, 1,
+                       VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, false))
+            return;
+        Barrier(readback_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        VkImageBlit blit{};
+        blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        blit.srcOffsets[1] = {int(t->w), int(t->h), 1};
+        blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        blit.dstOffsets[1] = {int(t->gw), int(t->gh), 1};
+        vkCmdBlitImage(Cmd(), t->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback_.image,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+        Barrier(readback_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        src = &readback_;
+    }
+    VkDeviceSize bytes = VkDeviceSize(src->w) * src->h * 4;
+    Alloc a = Upload(bytes, 16);
     VkBufferImageCopy c{};
     c.bufferOffset = a.offset;
     c.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    c.imageExtent = {t->w, t->h, 1};
-    vkCmdCopyImageToBuffer(Cmd(), t->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, frames_[frame_ % kFrames].upload, 1, &c);
+    c.imageExtent = {src->w, src->h, 1};
+    vkCmdCopyImageToBuffer(Cmd(), src->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, frames_[frame_ % kFrames].upload, 1, &c);
     Submit(true);
-    uint32_t rows = std::min<uint32_t>(t->h, t->pitch ? size / t->pitch : 0);
+    uint32_t rows = std::min<uint32_t>(src->h, t->pitch ? size / t->pitch : 0);
     for (uint32_t y = 0; y < rows; y++)
-        std::memcpy(kernel::HostPtr(va + y * t->pitch), static_cast<const uint8_t*>(a.cpu) + size_t(y) * t->w * 4,
-                    t->w * 4);
-    LOG_FIRST(4, "vulkan: target %08X (%ux%u) written back for a guest read", t->data, t->w, t->h);
+        std::memcpy(kernel::HostPtr(va + y * t->pitch), static_cast<const uint8_t*>(a.cpu) + size_t(y) * src->w * 4,
+                    src->w * 4);
+    LOG_FIRST(4, "vulkan: target %08X (%ux%u) written back for a guest read", t->data, t->gw, t->gh);
 }
 
 void VulkanBackend::SaveShot(Image& t, const std::string& name) {
@@ -1539,6 +1597,53 @@ float4 main(float4 pos : SV_Position) : SV_Target {
     return &gamma_target_;
 }
 
+// the internal resolution (PC Options > Resolution, pc_settings.ini "resolution"): Native draws at the window's
+// pixel size (the display's in fullscreen), WxH at that size, Original at the title's own (scale 1). The frame keeps
+// its aspect (the title's display, 4:3 or PC widescreen's): the size is fitted inside, the rest is letterboxed at the
+// present. Every render target is drawn at internal / back buffer guest size per axis; a change frees the targets at
+// this frame boundary, so the next frame draws at the new size (no restart).
+void VulkanBackend::UpdateResolution(const Surface& front) {
+    uint32_t bw = 0, bh = 0;
+    SurfaceSize(front, bw, bh);
+    if (!bw || !bh) return;
+    std::string want = pc::Get("resolution", "native");
+    float W = float(swap_extent_.width), H = float(swap_extent_.height);
+    unsigned rw = 0, rh = 0;
+    if (want == "original" || scale_failed_) {
+        W = H = 0;
+    } else if (std::sscanf(want.c_str(), "%ux%u", &rw, &rh) == 2 && rw >= 320 && rh >= 240) {
+        W = float(rw);
+        H = float(rh);
+    }
+    float sx = 1, sy = 1;
+    if (W > 0 && H > 0) {
+        // the largest frame of the title's aspect inside the size and the device's image limit
+        const float aspect = float(guest_w_) / float(guest_h_);
+        W = std::min(W, float(max_image_));
+        H = std::min(H, float(max_image_));
+        float fw = W, fh = W / aspect;
+        if (fh > H) {
+            fh = H;
+            fw = H * aspect;
+        }
+        // a frame within half a percent of the size takes it whole (854x480 is 16:9 to 0.06%: 2560x1440, not 1439)
+        if (std::fabs(fw - W) < W * 0.005f) fw = W;
+        if (std::fabs(fh - H) < H * 0.005f) fh = H;
+        // never below the back buffer's own pixels (the 640x960 super sampled buffer keeps its 960 lines)
+        sx = std::max(1.0f, std::round(fw) / float(bw));
+        sy = std::max(1.0f, std::round(fh) / float(bh));
+    }
+    if (std::fabs(sx - scale_x_) < 1e-4f && std::fabs(sy - scale_y_) < 1e-4f) return;
+    EndRendering();
+    for (auto& [key, t] : targets_) FreeImage(t);
+    targets_.clear();
+    rendering_rt_ = rendering_ds_ = nullptr;
+    scale_x_ = sx;
+    scale_y_ = sy;
+    LOGI("vulkan: internal resolution %ux%u (%s), back buffer %ux%u drawn x%.3f x%.3f",
+         unsigned(std::lround(bw * sx)), unsigned(std::lround(bh * sy)), want.c_str(), bw, bh, sx, sy);
+}
+
 void VulkanBackend::Present(const Surface& front) {
     Span span{present_ns_};
     Target* t = EnsureTarget(front, false);
@@ -1658,6 +1763,7 @@ void VulkanBackend::Present(const Surface& front) {
         remake = w > 0 && h > 0 && (uint32_t(w) != swap_extent_.width || uint32_t(h) != swap_extent_.height);
     }
     if (remake) CreateSwapchain();
+    UpdateResolution(front);
     frame_++;
     presents_++;
     harness::g_frames++;  // frames shown, as the software window counts them (the window's relaunch handover)

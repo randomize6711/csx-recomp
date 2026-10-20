@@ -825,6 +825,50 @@ The 2D layers, all laid out in 640x480, kept unstretched in the middle 640 colum
 Checks: Vulkan against the reference renderer at the same moment, 16:9 26.9 dB PSNR and 21:9 27.7 dB (4:3 at FOV
 110: 25.9 dB); 4:3 runs unchanged (the whole suite, back buffer 640x960); 16:10 frame 768x480, 90 -> 100.4.
 
+## Native resolution (2026-10-20)
+
+How the frame is made (investigated before changing anything):
+- The title renders into a 640x960 back buffer (480 display lines, 1x2 super sampling; PC widescreen widens it to
+  854 / 768 / 1138) and its own 640x480 coordinate system for every 2D layer (see "Widescreen"). Render targets: the
+  back buffer and its depth, a second colour buffer the same size, the glow chain's four smaller targets (427x240,
+  427x120, 213x120, 53x60 at 16:9: they follow the back buffer), all drawn by the GPU; the guest reads a target back
+  only for its front buffer before a relaunch (PersistDisplay).
+- Viewports, scissors and clear rectangles arrive in guest pixels; the projection (3D) and the 2D orthographic
+  projection and XYZRHW positions are turned into clip space by the generated shaders (the guest viewport is in their
+  constants), so a target's size only enters through the Vulkan viewport, the scissor and the clears.
+- So the internal resolution is a host matter: draw each target at a scale while the game keeps its sizes. Enlarging
+  the guest's back buffer instead (as widescreen did for width) would have changed the layout the client reads (its
+  screen width, "%d_pain.spr"), the glow targets' memory and the 64 MB guest budget.
+
+The Vulkan renderer (src/vulkan/vk_backend.cpp):
+- Every render target is an image of guest size x scale (scale = internal resolution / back buffer guest size, per
+  axis, never below 1); the Vulkan viewport is the whole image (clip space is size independent), scissors and clear
+  rectangles are scaled from guest pixels. Textures the title draws from targets (the glow chain) are those images,
+  sampled with the title's filters; the glow's 427x240 target is drawn at 1280x360 at 1440p, so the post effect keeps
+  its proportions. A guest read of a scaled target gets it blitted down to the guest size first.
+- The scale comes from PC Options > Resolution (pc_settings.ini resolution): Native (the window's pixel size, the
+  display's in fullscreen), a size from the display's modes (SDL_GetFullscreenDisplayModes on the window's display,
+  largest first, each size once), a WxH typed into the file (listed as custom), or Original (the title's own size).
+  The size is fitted to the frame's aspect (4:3 or the widescreen aspect): a 4:3 frame at 2560x1440 is 1920x1440,
+  pillarboxed at the present, a 21:9 frame at 3440x1440 is 3414x1440; within 0.5% the requested size is taken whole
+  (854x480 is 16:9 to 0.06%).
+- Applied at the next frame boundary (the targets are freed and made at the new size as the next frame draws them),
+  so a change from the pause menu takes effect at once, no restart. The display mode itself is never changed (the
+  window or fullscreen desktop stays as it is), so no setting can leave the display unusable.
+- Fallbacks: an unparsable value is Native; a size past the device's limit (maxImageDimension2D, at most 8192) is
+  reduced keeping the aspect; a scaled target that cannot be allocated is made at the guest size and the renderer
+  stays at Original for the session (logged: "target ... failed, back to the guest size"). Native in a window
+  smaller than the title's frame keeps the title's size (never below 1x).
+- The software renderer draws on the CPU into the guest's own surfaces, at the title's size; Resolution does not
+  apply to it (the frame is scaled at the present as before).
+
+Checks (Vulkan window): 16:9 at 3840x2160 (back buffer 854x960 drawn x4.496 x2.25, frame 3840x2160), 4:3 at 2560x1440
+(1920x1440), 21:9 at 3440x1440 (3414x1440), 16:10 at 1920x1200, 16:9 at 1920x1080; HUD, team / buy / pause menus,
+spectator, the AWP's scope at 40 and 10 (crosshair at the centre, scope surround black to the edges), the intro
+movies (overlay), decals and lighting: the same walk to de_airstrip's B sign at Original and at 2560x1440, scaled
+down, match to 40.8 dB (only edges differ). The Hor+ FOV and culling are unchanged (they are in guest units).
+Change from the pause menu: 2560x1440 to 2400x1350 at the next frame. Performance at 4K: 30 frames per second held.
+
 ## Developer console (2026-10-20)
 
 What the Xbox build keeps of GoldSrc's console (CS 5659):
