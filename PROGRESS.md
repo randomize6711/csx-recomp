@@ -315,3 +315,15 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   weapon in hand is in the state lines).
 - Spectator and scoreboard: screens with ControlPassThrough are play for the PC input, so the mouse turns the
   spectator's camera and walking goes on while Tab holds the scoreboard (vk_spectator.txt).
+
+## 2026-10-20 — Play-test bugs: frame rate, PC Settings minimizing, menu pointer, loading screens
+
+- Frame rate: PC Options > Frame Rate Limit (30 Original to 240) sets the window's pacing and fps_max; the movement
+  command's dropped fraction of a millisecond is carried above 30, so speed (250 units/s) and jumps (45) are the same
+  at every rate (regress_pc_frame_rate.txt at 144; SDK patch 0027).
+- PC Settings no longer re-apply Display Mode on every save (a window made full screen by the compositor stayed full
+  screen; vk_display_mode.txt).
+- Menu pointer: tables with a header (team selection, the confirmations) are hit one row lower, as drawn
+  (vk_menu_pointer_pause.txt, pixel checks; the confirmations' Yes works by mouse).
+- Loading screens: a multisampled back buffer is no longer rotated at Swap (SDK patch 0028); vk_loading.txt checks
+  four loading transitions with bursts of frames.

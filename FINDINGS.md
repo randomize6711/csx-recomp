@@ -1012,6 +1012,74 @@ not taken itself, a side button, a double click's second press not taken, the wh
 as Å, the console's new key opening it; after the relaunch the keys walk and jump; a rebinding in the pause menu
 works at once on returning to the game).
 
+## Play-test bugs: frame rate, PC Settings minimizing, menu pointer, loading screens (2026-10-20)
+
+Frame rate (reported: capped at about 30):
+- The cap was ours: the window paces presented frames to FPS=30 (the console presented every second vertical blank,
+  presentation interval 0x80000002); the engine's own cap is fps_max (cvar 0x377D08, value 0x377D14, default 72),
+  read by Host_FilterTime (0x5CD6B), which also holds 30 while loading and 100 when the cvar at 0x377DCC is set.
+  `fps_max 1000` from the console did not change the value the engine reads (not traced); the value written
+  directly does.
+- Measured (headless, direct de_airstrip, Terrorist; drive.py `track`: the position every 5 ms): the game's clock
+  keeps real time at every rate (spawn to Round_Start 11.76-11.77 s at 30, 60 and 72; round end to the next start
+  17.2 s at 30 and 144); the Glock's shots for a run of presses are the same at 30, 60 and 144; bots buy, fight
+  and plant at 144 over three rounds. The movement is not: CL_Move (0x2AE..) stores cmd->msec = (int)(
+  host_frametime x 1000) (frame time double 0x6CE0E0, stored at 0x2AEDB) and the player moves by those milliseconds,
+  dropping the fraction every frame:
+
+  | Frames per second | Steady walk (units/s) | Why |
+  |---|---|---|
+  | 30 (the console's) | 247.5 | 33 of 33.3 ms |
+  | 60 | 240 | 16 of 16.7 ms |
+  | 72 | 234 | 13 of 13.9 ms |
+  | 144 (computed) | 216 | 6 of 6.9 ms |
+
+- Fix (src/game/pc_frame.cpp, config/game.toml, SDK patch 0027): PC Options > Frame Rate Limit (30 (Original), 60,
+  72, 100, 120, 144, 165, 240) sets the window's pacing (app::SetFrameRate) and fps_max; above 30 a hook at the msec
+  store carries the fraction to the next command, so the milliseconds add up to the time that passed. With it: 250
+  units/s and a 45-unit jump at 60, 100, 144 and 240 (220 presented headless, the CPU's limit); at 30 the title's own
+  rounding is kept (247.5, 45). Frame-keyed test presses ("press LS 60") last less real time at a higher rate.
+- Missed because every test ran at FPS=30 and none measured speed against real time.
+
+PC Settings minimizing (reported: entering or leaving PC Settings minimized the game):
+- In the play-test the compositor made the window full screen (2400x1350 at 6 s, not through F11: no setting was
+  written). Every save of PC Options (pc::Version changes) re-applied Display Mode: the setting said windowed, SDL's
+  flag said full screen, so the window was made windowed and fell back to its tile (1181x643, then 581x643 beside
+  another window), which looks minimized.
+- Fix (src/linux/window_main.cpp): Display Mode is applied at start only when it asks for full screen, and later only
+  when the setting itself changes (PC Options' row, F11); other saves leave the window alone. Each application is
+  logged ("window: Display Mode ... applied").
+- gamescope does not keep SDL's full screen flag, so vk_display_mode.txt checks the decision (no application on an
+  unrelated save, on entering and leaving the screen; one when Display Mode changes), not the compositor's answer: a
+  play-test on the desktop (Hyprland) is still needed.
+
+Menu pointer (reported: sometimes off):
+- Tables with a Header (team selection's blank header, the confirmations' question: InGame_ConfirmChangeMap,
+  InGame_ConfirmRestartMatch, InGame_ConfirmQuit) draw it first, one row high, and their rows below it; the hit test
+  took the first row at the table's top. The pointer was one row off on those screens: team selection pointed at
+  Counter-Terrorist chose Terrorist; a confirmation's Yes, pointed at, answered No (the click landed on the question
+  row, which the hit test called No). Tests had checked the hit test's own answer in the log.
+- Fix (src/game/pc_mouse.cpp): the screen's Table Header is read from the menu text; its rows start one row lower
+  ("pc mouse: screen ..., rows from X Y, ..., below a header").
+- The window's mapping itself was right: raw window pixels at 4:3, 16:9, 21:9 letterboxed, 4:3 pillarboxed, and in
+  the pause menu right after play land where expected, and the game's highlight is drawn there (pixel checks on the
+  screenshots: the highlight bar dark throughout, the row beside it not). Each menu click is logged with the window
+  point, size and frame aspect ("input: click at ...") for further reports.
+
+Loading screens flickering (reported: severe flicker):
+- Bursts of consecutive presented frames (the Vulkan window's "burst" shot request) during a match's loading showed
+  the Counter-Terrorist and the Terrorist briefing in turn every frame. The title draws the loading screen about once
+  per buffer (22 draws in its first two seconds) and presents again and again (Swap flags 0); its device is created
+  with BackBufferCount 1, DISCARD and multisample type 0x2012 (the 640x960 super-sampled back buffer). The runtime's
+  D3DDevice_Swap rotated every buffer's memory, so the back buffer the title drew into alternated between two
+  memories holding two different pictures. On the console a multisampled back buffer is resolved into the display
+  buffers at Swap and stays the render target, keeping what was drawn.
+- Fix (SDK patch 0028, runtime/xdk/d3d8.cpp): a multisampled back buffer does not rotate; PersistDisplay and
+  GetBackBuffer(-1) read it (it holds what was presented last). Both renderers take the frames from the same buffers.
+- vk_loading.txt: no picture comes back every other frame (drive.py `expect steady`) while a match starts from the
+  front end, after Change Map is confirmed, at Restart Match and at Quit back to the main menu.
+- Missed because every capture was a single frame.
+
 ## Play-test bugs: walking right, grenades, the spectator's camera (2026-10-20)
 
 Walking right (reported: D did nothing):

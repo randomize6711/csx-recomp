@@ -1,8 +1,8 @@
 # TODO (priority order)
 
 ## Now
-0. Play-test bugs still open (2026-10-20 report): the 30 frames per second limit, PC Settings minimizing the game,
-   mouse alignment sometimes wrong in menus, loading screens flickering.
+0. Play-test on the desktop (Hyprland): Display Mode with the compositor's own fullscreen key, the frame rate limit
+   at 144 and 240 with a real display, the menu pointer after the header fix, the loading screens.
 0. Weapons: the wheel up enters the grenade slot at its first grenade (this build's invprev goes by slots).
 0. Windows: run build/windows/dist on a real Windows 10/11 PC (startup, Vulkan driver, WASAPI, mouse capture,
    relaunch handover, a full round); then a GUI-subsystem exe (no console) if wanted. Then image comparisons on de_dust
