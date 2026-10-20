@@ -914,7 +914,8 @@ The mouse (src/game/pc_mouse.cpp on the game thread, src/linux/window_input.cpp 
   HighlightSound; their stick pieces play it (0xCAC90) before running CommandHighlight (tableMoveUp/Down, 0xD8480 /
   0xD8490 through the command table at 0x37A990), the virtual keyboard's d-pad plays it too (0xD42F0). The 26
   generic table screens have none and move silently. A hover that moves the selection plays the screen's
-  HighlightSound the same way; the buy pies play theirs (0xD0398) from the stick the pointer drives.
+  HighlightSound the same way; the buy pies play theirs (0xD0398) from the stick the pointer drives. Heard in a
+  play-test of the window build (2026-10-20).
 - Not done: the profile name's virtual keyboard (typing with the keyboard works), the scoreboard's and spectator's
   screens have nothing to click (right button closes like B).
 
