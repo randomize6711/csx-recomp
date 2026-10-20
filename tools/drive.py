@@ -20,6 +20,7 @@ per line, executed in order:
     key NAME [SECONDS]      window build: press an SDL key (SDL key name; NAME#SCANCODE: the key a layout puts at
                             that position, e.g. Å#[ on a Swedish keyboard) through the window's keys file
     point X Y               window build: the mouse pointer to (X, Y) of the menus' 640x480, as SDL motion
+    winctl fullscreen 1|0   window build: the window made full screen or windowed from outside (a compositor's key)
     pointat X Y             window build: the mouse pointer to (X, Y) of the window (logical pixels), as SDL motion
     type TEXT               window build: TEXT as SDL text input (what a keyboard layout types: the console's input)
     windowshot NAME         window build: save the window's output as RUN/shots/NAME.bmp
@@ -248,6 +249,10 @@ def main():
             elif kind == 'type':
                 send_file('text', ' '.join(st[1:]))
                 good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'text')))
+            elif kind == 'winctl':
+                # winctl fullscreen 1|0: window build, the window changed as a compositor would (settings untouched)
+                send_file('winctl', ' '.join(st[1:]))
+                good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'winctl')))
             elif kind == 'pointat':
                 # pointat X Y: window build, the pointer to that window pixel (the test computes the menu point)
                 send_file('mouse', 'window ' + st[1] + ' ' + st[2])

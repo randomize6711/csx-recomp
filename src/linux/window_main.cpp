@@ -77,10 +77,11 @@ void FinishHandover() {}
 
 // Options > PC Options: Display Mode, windowed or fullscreen (SDL's borderless desktop fullscreen). Applied once the
 // window shows its first frame: asked earlier (at creation or before the window is mapped) a tiling Wayland
-// compositor (Hyprland) leaves the window tiled.
+// compositor (Hyprland) leaves the window tiled. Only a change of the setting applies it later.
 bool WantFullscreen() { return pc::Get("display_mode", "windowed") == "fullscreen"; }
 void ApplyDisplaySettings(SDL_Window* win) {
     bool full = WantFullscreen();
+    LOGI("window: Display Mode %s applied", full ? "fullscreen" : "windowed");
     if (full == ((SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN) != 0)) return;
     SDL_SetWindowFullscreen(win, full);
     SDL_SyncWindow(win);  // the window manager's answer, for the log
@@ -217,6 +218,7 @@ int main(int argc, char** argv) {
     if (ren) SDL_SetRenderVSync(ren, 1);
     unsigned settings_seen = pc::Version();
     bool display_applied = false;
+    std::string mode_applied;  // the Display Mode last applied
     LOGI("window: SDL %d.%d.%d, %s", SDL_MAJOR_VERSION, SDL_MINOR_VERSION, SDL_MICRO_VERSION,
          g_vulkan ? "Vulkan renderer" : SDL_GetRendererName(ren));
 
@@ -278,6 +280,7 @@ int main(int argc, char** argv) {
     const std::string mouse_file = (app::ExeDir() / "mouse").string();
     // "text" request: its contents typed as SDL text input (what a keyboard layout gives while text input is on)
     const std::string text_file = (app::ExeDir() / "text").string();
+    const std::string winctl_file = (app::ExeDir() / "winctl").string();
     std::deque<std::string> typed;  // SDL keeps the pointer until the event is read
     const bool test_input_only = std::getenv("CSX_TEST_INPUT_ONLY") && *std::getenv("CSX_TEST_INPUT_ONLY") == '1';
     if (test_input_only) LOGI("window: test input only, host keyboard, mouse and gamepads ignored");
@@ -304,6 +307,17 @@ int main(int argc, char** argv) {
             }
             std::fclose(kf);
             std::remove(keys_file.c_str());
+        }
+        // "winctl" request (tests): "fullscreen 1|0" changes the window as a compositor's own key would (the settings
+        // untouched)
+        if (FILE* wf = std::fopen(winctl_file.c_str(), "r")) {
+            int on = 0;
+            if (std::fscanf(wf, "fullscreen %d", &on) == 1) {
+                SDL_SetWindowFullscreen(win, on != 0);
+                LOGI("window: made %s from outside (test)", on ? "full screen" : "windowed");
+            }
+            std::fclose(wf);
+            std::remove(winctl_file.c_str());
         }
         if (FILE* tf = std::fopen(text_file.c_str(), "r")) {
             char text[256] = {};
@@ -428,11 +442,15 @@ int main(int argc, char** argv) {
         window::EndFrameInput();
         window::UpdateConsole();
         FinishHandover();
-        // the display mode once the first frame is up, then whenever PC Options change (the game thread saves them)
+        // the display mode once the first frame is up (full screen only: a window is what there is), then when the
+        // Display Mode setting itself changes (PC Options, F11). Not on other saves: a window the compositor made full
+        // screen (Hyprland's fullscreen key) went back to its tile whenever PC Options were accepted
         if ((!display_applied && harness::g_frames > 0) || (display_applied && pc::Version() != settings_seen)) {
-            display_applied = true;
             settings_seen = pc::Version();
-            ApplyDisplaySettings(win);
+            std::string mode = pc::Get("display_mode", "windowed");
+            if (display_applied ? mode != mode_applied : mode == "fullscreen") ApplyDisplaySettings(win);
+            display_applied = true;
+            mode_applied = mode;
         }
         if (g_vulkan) {
             // the backend presents; shot requests go to it, the loop only handles events
