@@ -356,8 +356,13 @@ void HandleEvent(const void* p) {
                 break;
             }
             if (MenuMouse()) {  // the menus: the pointer clicks (src/game/pc_mouse.cpp), never the pad's triggers
-                float mx, my;
-                if (MenuPoint(e.button.x, e.button.y, mx, my)) csx::MenuPointer(mx, my);
+                float mx = -1, my = -1;
+                bool in = MenuPoint(e.button.x, e.button.y, mx, my);
+                if (in) csx::MenuPointer(mx, my);
+                int ww = 0, wh = 0;  // where a click lands, for reports of the pointer seeming off
+                SDL_GetWindowSize(static_cast<SDL_Window*>(window::SdlWindow()), &ww, &wh);
+                LOGI("input: click at %.0f %.0f of %dx%d (frame %.4f) -> menu %.0f %.0f", e.button.x, e.button.y, ww, wh,
+                     window::Latest().aspect, mx, my);
                 if (e.button.button == SDL_BUTTON_LEFT) csx::MenuClick(e.button.clicks >= 2 ? 11 : 1);
                 if (e.button.button == SDL_BUTTON_RIGHT) csx::MenuClick(2);
                 break;

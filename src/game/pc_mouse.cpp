@@ -73,6 +73,7 @@ struct ScreenUi {
     float edit[4] = {0, 0, 0, 0};     // the EditBox (the name field): x, y, width, height
     bool piece_moves = false;         // stick pieces move its table (CommandHighlight tableMoveUp / Down)
     bool pass_through = false;        // ControlPassThrough: the controls stay the game's (Spectator, Scoreboard)
+    bool header = false;              // its Table has a Header row, drawn above the rows
 };
 std::map<std::string, ScreenUi> g_screens;
 
@@ -111,12 +112,13 @@ float F(uint32_t va) {
     return f;
 }
 
-// the table's rows on screen: index of the row under (x, y), -1 for none; its rectangle in *rx0 etc.
+// the table's rows on screen: index of the row under (x, y), -1 for none; its rectangle in *rx0 etc. A table with a
+// Header (team selection, the confirmations: its question) draws it first, one row high, and its rows below it
 struct RowHit {
     int row = -1;
     float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
 };
-RowHit HitRow(uint32_t table, float x, float y) {
+RowHit HitRow(uint32_t table, float x, float y, bool header) {
     RowHit h;
     uint32_t rows = R32(table + 0x60), end = R32(table + 0x64);
     int count = rows ? int((end - rows) / 0x20) : 0;
@@ -125,6 +127,7 @@ RowHit HitRow(uint32_t table, float x, float y) {
     int height = int(float(font) * F(table + 0x12C)) + int(R32(table + 0x128));
     if (height <= 0) return h;
     float left = F(table + 0x2C), top = F(table + 0x30), right = F(table + 0x34), bottom = F(table + 0x38);
+    if (header) top += float(height);
     int first = int(R32(table + 0x120));
     int shown = int(bottom - top) / height;
     int last = std::min(first + shown, count - 1);
@@ -309,7 +312,7 @@ void Click(X86Context& ctx, uint32_t screen, const std::string& name, const Scre
     }
     uint32_t table = R32(screen + 0x380);
     if (!table) return;
-    RowHit h = HitRow(table, x, y);
+    RowHit h = HitRow(table, x, y, ui && ui->header);
     if (h.row < 0 || !RowEnabled(table, h.row)) return;
     Select(ctx, screen, ui, table, h.row);
     if (RowIsList(table, h.row) && R32(table + 0x130)) {
@@ -333,7 +336,7 @@ void Click(X86Context& ctx, uint32_t screen, const std::string& name, const Scre
 // the screens' menu types and help bars, from the menu text as it loads (pc_menu.cpp's PcUiLoadText)
 void PcMouseLearnUi(const std::string& text) {
     std::istringstream in(text);
-    std::string line, screen;
+    std::string line, screen, block;  // block: the screen's block being read (Table, PassiveTable, Row...)
     int depth = 0;
     while (std::getline(in, line)) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
@@ -347,10 +350,16 @@ void PcMouseLearnUi(const std::string& text) {
         if (depth >= 1 && !screen.empty() && code.find("CommandHighlight") != std::string::npos &&
             code.find("tableMove") != std::string::npos)
             g_screens[screen].piece_moves = true;
+        if (depth == 2 && !screen.empty() && block == "Table") {
+            std::istringstream w(code);
+            std::string key;
+            if (w >> key && key == "Header") g_screens[screen].header = true;
+        }
         if (depth == 1 && !screen.empty()) {
             std::istringstream w(code);
             std::string key, value;
             w >> key;
+            if (!key.empty() && key != "{" && key != "}") block = key;
             size_t q0 = code.find('"'), q1 = q0 == std::string::npos ? q0 : code.find('"', q0 + 1);
             if (q1 != std::string::npos) value = code.substr(q0 + 1, q1 - q0 - 1);
             if (key == "MenuType") g_screens[screen].type = value;
@@ -519,8 +528,11 @@ void PcMouseFrame(X86Context& ctx) {
         if (uint32_t t = R32(screen + 0x380)) {
             uint32_t r0 = R32(t + 0x60), r1 = R32(t + 0x64);
             int h = int(float(int(R32(kFontHeight))) * F(t + 0x12C)) + int(R32(t + 0x128));
-            std::snprintf(rows, sizeof rows, ", %d rows from %.0f %.0f, %d high, %.0f wide",
-                          r0 ? int((r1 - r0) / 0x20) : 0, F(t + 0x2C), F(t + 0x30), h, F(t + 0x34) - F(t + 0x2C));
+            auto known = g_screens.find(name);
+            bool header = known != g_screens.end() && known->second.header;
+            std::snprintf(rows, sizeof rows, ", %d rows from %.0f %.0f, %d high, %.0f wide%s",
+                          r0 ? int((r1 - r0) / 0x20) : 0, F(t + 0x2C), F(t + 0x30) + (header ? float(h) : 0.0f), h,
+                          F(t + 0x34) - F(t + 0x2C), header ? ", below a header" : "");
         }
         LOGI("pc mouse: screen %s%s%s", name.c_str(), ui_known(name) ? "" : " (no menu data)", rows);
     }
@@ -542,7 +554,7 @@ void PcMouseFrame(X86Context& ctx) {
                 g_stick_on = false;
             }
         } else if (table) {
-            RowHit h = HitRow(table, x, y);
+            RowHit h = HitRow(table, x, y, ui && ui->header);
             if (h.row >= 0) Select(ctx, screen, ui, table, h.row);
         }
     }

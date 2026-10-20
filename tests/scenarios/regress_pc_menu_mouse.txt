@@ -6,10 +6,10 @@
 wait log open D:\\.*\.sxwad
 wait draws>=150
 sleep 10
-expect log pc mouse: screen TeamSelect_RootSinglePlayer, 3 rows from 233 158, 26 high
-pckey pointer 318 222
+expect log pc mouse: screen TeamSelect_RootSinglePlayer, 3 rows from 233 184, 26 high, 270 wide, below a header
+pckey pointer 318 249
 sleep 0.5
-expect log pc mouse: TeamSelect_RootSinglePlayer at 318 222, selection 2
+expect log pc mouse: TeamSelect_RootSinglePlayer at 318 249, selection 2
 pckey mclick 1
 sleep 4
 pckey mclick 2
@@ -48,7 +48,7 @@ sleep 0.5
 pckey mclick 1
 sleep 2
 expect log pc mouse: screen Options,
-pckey pointer 300 223
+pckey pointer 300 249
 sleep 0.5
 pckey mclick 1
 sleep 2

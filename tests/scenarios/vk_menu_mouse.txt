@@ -9,12 +9,12 @@
 wait log open D:\\de_airstrip.sxwad
 sleep 15
 expect log pc mouse: screen TeamSelect_RootSinglePlayer
-point 318 222
+point 318 249
 sleep 0.5
 windowshot team
 click 1
 sleep 4
-expect log pc mouse: TeamSelect_RootSinglePlayer at 318 222, selection 2
+expect log pc mouse: TeamSelect_RootSinglePlayer at 318 249, selection 2
 expect log pc mouse: screen T_BuyMenuRoot
 click 3
 count game:.World.triggered."Round_Start" 2
@@ -52,7 +52,7 @@ sleep 0.5
 click 1
 sleep 2
 expect log pc mouse: screen Options,
-point 300 223
+point 300 249
 sleep 0.5
 click 1
 sleep 2
