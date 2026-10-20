@@ -825,6 +825,51 @@ The 2D layers, all laid out in 640x480, kept unstretched in the middle 640 colum
 Checks: Vulkan against the reference renderer at the same moment, 16:9 26.9 dB PSNR and 21:9 27.7 dB (4:3 at FOV
 110: 25.9 dB); 4:3 runs unchanged (the whole suite, back buffer 640x960); 16:10 frame 768x480, 90 -> 100.4.
 
+## Developer console (2026-10-20)
+
+What the Xbox build keeps of GoldSrc's console (CS 5659):
+- **Output**: Con_Printf (0x40790) adds one line per call, not per newline (echo prints each argument with a call
+  of its own, so each word gets a line), to a ring of 200 lines of 78 characters (0x744060; newest 0x55191C, shown
+  from 0x551918, wrapped 0x551914). condump and condebug (qconsole.log) exist.
+- **Drawing**: Con_Draw (0x40B20) draws ten lines from (30, 30), 18 apart, in the game's own font (the text renderer
+  0xBCBC0, colour 255 200 100), a ">>>" prompt at (30, 240) and the input line (0x743FE0, length byte 0x551920, up to
+  99 characters) at (80, 240), while the flag 0x551910 is set; no backdrop. SCR_UpdateScreen calls it (0x55F87) before
+  the game's menus (0x55F94), the VGUI paint (0xB4660) during play.
+- **Commands**: toggleconsole (0x40630, flips the flag), consoleup / consoledown (0x40920 / 0x40970, a line), and
+  consoleexecute (0x40A40: a newline appended, Cbuf_AddText, the line cleared). messagemode, messagemode2 and
+  condebug point at an empty function (0x1141E0). Unused leftovers of a pad-driven console: 0x40A90 (button bits:
+  1 executes, 0x10 closes) and 0x40AC0 (the stick scrolls), with no callers.
+- **Gone**: GoldSrc's line editor (Key_Console), its history and completion. Nothing writes the input line;
+  Key_Event (0x66510) knows key destinations game (0), chat (1: Key_Message 0x65B90) and menu, and its console-key
+  path (0x66743, the toggle for keys flagged in 0x6CB7E0 while 0x785458 is set) is dead, the table is never filled.
+
+Restored (src/game/pc_console.cpp, the window's input in src/linux/window_input.cpp), on the original console:
+- Options > PC Controls > Toggle Developer Console (both menus; pc_settings.ini bind.console, default ` "left of 1").
+  The key is bound to toggleconsole with the other actions; the window takes the key left of 1 by its position
+  (SDL_SCANCODE_GRAVE), so it is the console key on any layout (` US, § Swedish, ^ German).
+- While the console is open the window sends it the keyboard: SDL text input (the layout's characters, printable
+  ASCII kept), Backspace, Enter, Up / Down (history, 64 commands), Tab (completion of the first word from the engine's
+  command list 0x5518E4: next +0, name +4, and the cvar array 0x434A20 / count 0x551928; one match completes, several
+  extend to the common prefix and are listed), Page Up / Down and the wheel (consoleup / consoledown, three lines),
+  Escape (closes it; it does not open the game menu). Text goes into the game's own input line; Enter echoes "]line"
+  through Con_Printf as GoldSrc does and runs it through consoleexecute. Game keys held when it opens are released,
+  mouse buttons and motion are ignored, the mouse is let go and captured again on closing if it was captured.
+- The pad is not taken: it keeps playing or navigating the menus while the console is open, as the console never
+  took the pad (the pad-driven leftovers are not wired).
+- Over a menu (the pause menu, the front end) SCR_UpdateScreen's menus cover the console; a hook after them
+  (0x55F99) runs Con_Draw once more, so it is drawn above the menu (it has no backdrop: its lines can overlap the
+  menu's text). In play it is drawn once, as before.
+- At 16:9 / 21:9 it is centred with the rest of the 2D (it draws with the text renderer, see "Widescreen").
+- Limitations: no cursor movement inside the line (typing and Backspace at its end), no backdrop, ten lines shown
+  (Page Up / Down scroll through the 200 kept); the PC Controls list steps over the "-" key (the game's list control
+  skips that choice; the other keys are reachable).
+
+Checks: regress_pc_console.txt (4:3: default key, typing, echo, completion, history, a typed toggleconsole closing
+it, the pad jumping meanwhile, the pause menu's PC Controls rebinding it and only the new key opening it),
+regress_pc_console_wide.txt (21:9, F2 from pc_settings.ini, sv_gravity 600 set and read back, centred);
+vk_console.txt (Vulkan window at 16:9: the ` key, W and mouse motion not reaching the game, text input, Enter,
+Up, Backspace, Escape closing without the pause menu, mouse capture restored, the console over the pause menu).
+
 ## Assumptions / to verify
 
 - Third-party licenses (from prior knowledge, confirm before reusing any code): Half-Life SDK — Valve's restrictive

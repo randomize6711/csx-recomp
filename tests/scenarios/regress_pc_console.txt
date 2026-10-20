@@ -1,0 +1,153 @@
+# Developer console (FINDINGS.md "Developer console", src/game/pc_console.cpp): the game's own console, opened by its
+# default key (` : engine key 96, bound to toggleconsole), takes typed text into its input line; Enter runs it
+# (echo), Tab completes a variable (sv_gra -> sv_gravity), Up recalls the history, a typed toggleconsole closes it.
+# The pad still plays while it is open (A jumps): the console never took the pad. The pause menu's PC Controls
+# rebinds it (the last row, one step right: =; the list steps over -), saved, and only the new key opens it.
+#   --launch tests/launch/de_airstrip_beginner
+wait log open D:\\.*\.sxwad
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+count game:.World.triggered."Round_Start" 2
+sleep 3
+expect log pc keys: bindings set
+pckey key 96 1
+sleep 0.2
+pckey key 96 0
+sleep 1
+expect log pc console: open
+state p0
+press A 6
+sleep 0.15
+state p1
+expect rose p0 p1 20
+pckey con echo console works
+sleep 0.3
+pckey conkey enter
+sleep 1
+expect log pc console: \] echo console works
+pckey con sv_gra
+sleep 0.3
+pckey conkey tab
+sleep 0.5
+pckey conkey enter
+sleep 1
+expect log pc console: \] sv_gravity $
+snap console
+pckey conkey up
+sleep 0.3
+pckey conkey up
+sleep 0.3
+pckey conkey enter
+sleep 1
+count pc.console:.\].echo.console.works 2
+pckey con toggleconsole
+sleep 0.3
+pckey conkey enter
+sleep 1
+expect log pc console: closed
+press START
+sleep 2
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 2
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 2
+press DOWN
+sleep 0.6
+press DOWN
+sleep 0.6
+press DOWN
+sleep 0.6
+press DOWN
+sleep 0.6
+press DOWN
+sleep 0.6
+press DOWN
+sleep 0.6
+press DOWN
+sleep 0.6
+press DOWN
+sleep 0.6
+press DOWN
+sleep 0.6
+press DOWN
+sleep 0.6
+press DOWN
+sleep 0.6
+press DOWN
+sleep 0.6
+press DOWN
+sleep 0.6
+press DOWN
+sleep 0.6
+press DOWN
+sleep 0.6
+press DOWN
+sleep 0.6
+press DOWN
+sleep 0.6
+press DOWN
+sleep 0.6
+press DOWN
+sleep 0.6
+press DOWN
+sleep 0.6
+press DOWN
+sleep 0.6
+press DOWN
+sleep 0.6
+press DOWN
+sleep 0.6
+press DOWN
+sleep 0.6
+press DOWN
+sleep 0.6
+press DOWN
+sleep 0.6
+press DOWN
+sleep 0.6
+snap controls
+press RIGHT
+sleep 1
+press A
+sleep 2
+expect log pc: bind.console = =
+press B
+sleep 1
+press B
+sleep 2
+pckey key 96 1
+sleep 0.2
+pckey key 96 0
+sleep 1
+count pc.console:.open 1
+pckey key 61 1
+sleep 0.2
+pckey key 61 0
+sleep 1
+count pc.console:.open 2
+pckey conkey close
+sleep 1
+expect nolog guest trap

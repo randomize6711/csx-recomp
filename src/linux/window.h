@@ -22,6 +22,8 @@ Frame& Latest();
 // input the window thread gathers for input::Poll
 void HandleEvent(const void* sdl_event);  // an SDL_Event
 void EndFrameInput();                     // after a batch of events: mouse motion turns into this frame's look input
+void UpdateConsole();                     // once a frame: follow the developer console opening or closing
+bool ConsoleShown();                      // the console is open (the keyboard is its, the mouse not captured)
 
 // the SDL window (an SDL_Window*), and which renderer draws into it
 void* SdlWindow();

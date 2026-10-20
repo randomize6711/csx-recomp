@@ -20,6 +20,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <mutex>
 #include <utility>
 #include <filesystem>
@@ -241,6 +242,9 @@ int main(int argc, char** argv) {
         SDL_PushEvent(&ev);
     };
     const std::string mouse_file = (app::ExeDir() / "mouse").string();
+    // "text" request: its contents typed as SDL text input (what a keyboard layout gives while text input is on)
+    const std::string text_file = (app::ExeDir() / "text").string();
+    std::deque<std::string> typed;  // SDL keeps the pointer until the event is read
     const bool test_input_only = std::getenv("CSX_TEST_INPUT_ONLY") && *std::getenv("CSX_TEST_INPUT_ONLY") == '1';
     if (test_input_only) LOGI("window: test input only, host keyboard, mouse and gamepads ignored");
     for (bool quit = false; !quit;) {
@@ -262,6 +266,22 @@ int main(int argc, char** argv) {
             }
             std::fclose(kf);
             std::remove(keys_file.c_str());
+        }
+        if (FILE* tf = std::fopen(text_file.c_str(), "r")) {
+            char text[256] = {};
+            if (std::fgets(text, sizeof text, tf)) {
+                typed.emplace_back(text);
+                while (!typed.back().empty() && (typed.back().back() == '\n' || typed.back().back() == '\r'))
+                    typed.back().pop_back();
+                if (typed.size() > 16) typed.pop_front();
+                SDL_Event ev{};
+                ev.type = SDL_EVENT_TEXT_INPUT;
+                ev.text.windowID = SDL_GetWindowID(win);
+                ev.text.text = typed.back().c_str();
+                SDL_PushEvent(&ev);
+            }
+            std::fclose(tf);
+            std::remove(text_file.c_str());
         }
         if (FILE* mf = std::fopen(mouse_file.c_str(), "r")) {
             float dx = 0, dy = 0;
@@ -306,6 +326,10 @@ int main(int argc, char** argv) {
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_EVENT_QUIT) quit = true;
             if (test_input_only && HostInputEvent(e)) continue;
+            if (test_input_only && e.type == SDL_EVENT_TEXT_INPUT &&
+                std::none_of(typed.begin(), typed.end(),
+                             [&](const std::string& t) { return t.c_str() == e.text.text; }))
+                continue;  // the host keyboard's text, not a scenario's
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat) {
                 bool alt_enter = e.key.key == SDLK_RETURN && (e.key.mod & SDL_KMOD_ALT);
                 if (e.key.key == SDLK_F11 || alt_enter) {
@@ -319,7 +343,7 @@ int main(int argc, char** argv) {
             }
             // the mouse is captured by a click in the window and let go with F1 or when the window loses focus
             if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && !SDL_GetWindowRelativeMouseMode(win) &&
-                e.button.which != window::kInjectedDevice) {
+                e.button.which != window::kInjectedDevice && !window::ConsoleShown()) {
                 SDL_SetWindowRelativeMouseMode(win, true);
                 continue;
             }
@@ -330,6 +354,7 @@ int main(int argc, char** argv) {
             window::HandleEvent(&e);
         }
         window::EndFrameInput();
+        window::UpdateConsole();
         FinishHandover();
         // the display mode once the first frame is up, then whenever PC Options change (the game thread saves them)
         if ((!display_applied && harness::g_frames > 0) || (display_applied && pc::Version() != settings_seen)) {

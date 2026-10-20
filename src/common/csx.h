@@ -22,6 +22,14 @@ void AddLook(float right_degrees, float up_degrees);
 void QueueEngineKey(int key, bool down);
 void QueueEngineCommand(const std::string& text);
 std::string EngineBinding(int key);
+// the developer console (src/game/pc_console.cpp): keys and typed text for it, handled on the game thread; whether
+// it is shown (the window sends the keyboard there while it is)
+enum class ConsoleKey {
+    Toggle, Close, Text, Backspace, Enter, HistoryBack, HistoryForward, Complete, PageUp, PageDown
+};
+void QueueConsoleKey(ConsoleKey key);
+void QueueConsoleText(const std::string& text);
+bool ConsoleOpen();
 // a menu screen of the game is open (keyboard and mouse act as the pad there; otherwise as engine keys)
 bool MenuOpen();
 // what GameInfo::loaded starts

@@ -18,6 +18,7 @@ per line, executed in order:
     sleep S                 wait S seconds
     press BUTTONS [FRAMES]  press through the harness cmd file (buttons as in the pad script, joined by +)
     key NAME [SECONDS]      window build: press an SDL key (SDL key name) through the window's keys file
+    type TEXT               window build: TEXT as SDL text input (what a keyboard layout types: the console's input)
     windowshot NAME         window build: save the window's output as RUN/shots/NAME.bmp
     pressuntil BUTTONS COND press, wait for two fresh draw measurements, repeat until COND holds (at most 15)
     dump NAME               guest memory dump to build/run/dumps/NAME.bin (src/common/memory_dump.cpp)
@@ -232,6 +233,9 @@ def main():
             elif kind == 'key':
                 send_file('keys', st[1] + ' ' + (st[2] if len(st) > 2 else '0.12'))
                 good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'keys')))
+            elif kind == 'type':
+                send_file('text', ' '.join(st[1:]))
+                good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'text')))
             elif kind in ('click', 'wheel'):
                 # click BUTTON [SECONDS] (1 left, 2 middle, 3 right) / wheel N: window build, through SDL's event queue
                 send_file('mouse', ('button ' + st[1] + ' ' + (st[2] if len(st) > 2 else '0.12')) if kind == 'click'

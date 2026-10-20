@@ -135,6 +135,17 @@ backdrop reaching the edges (`expect region`). `regress_pc_widescreen_ultrawide.
 fov=110`) does the 1138x480 frame with the PC FOV (110 -> 137.0), the team menu's and the spectator's backdrops at
 both edges. Every other scenario runs at 4:3 (Automatic is 4:3 headless).
 
+## Developer console
+
+`regress_pc_console.txt` opens the game's console with its default key (engine key 96 through the binding), types
+through `pckey con TEXT` and edits with `pckey conkey NAME` (enter, tab, up, down, backspace, pgup, pgdn, toggle,
+close; src/game/pc_keys.cpp hands them to src/game/pc_console.cpp): echo runs ("pc console: ] echo ..." logged),
+sv_gra completes to sv_gravity, Up recalls the history, a typed toggleconsole closes it, the pad's A still jumps,
+and the pause menu's PC Controls rebinds it. `regress_pc_console_wide.txt` (`--pc aspect=21:9 --pc
+bind.console=F2`) opens it with the saved key only and sets sv_gravity. `vk_console.txt` (not in the suite: the
+Vulkan window, keyboard through SDL, `type TEXT` for SDL text input) checks that W and the mouse do not reach the
+game while it is open, Escape, the mouse capture and the console over the pause menu.
+
 ## Mouse look
 
 `regress_mouse_look.txt` (part of run_regression.sh, starts in the match through its `--launch` header line) turns

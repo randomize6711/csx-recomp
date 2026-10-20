@@ -590,3 +590,9 @@ call = "PcWideOverlay"
 [[hook]]
 at = 0x2902BA
 call = "PcWideOverlay"
+
+# the developer console (src/game/pc_console.cpp, FINDINGS.md "Developer console"): drawn once more after the game's
+# menus (SCR_UpdateScreen calls Con_Draw 0x40B20 at 0x55F87, then the menus at 0x55F94), so it shows over them
+[[hook]]
+at = 0x55F99
+call = "PcConsoleOverMenus"

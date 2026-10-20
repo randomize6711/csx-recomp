@@ -28,7 +28,7 @@ const std::vector<KeyInfo>& BindableKeys() {
             {"KP_DOWNARROW", 167, "Keypad 2"}, {"KP_PGDN", 168, "Keypad 3"}, {"KP_LEFTARROW", 163, "Keypad 4"},
             {"KP_5", 164, "Keypad 5"}, {"KP_RIGHTARROW", 165, "Keypad 6"}, {"KP_HOME", 160, "Keypad 7"},
             {"KP_UPARROW", 161, "Keypad 8"}, {"KP_PGUP", 162, "Keypad 9"}, {"KP_ENTER", 169, "Keypad Enter"},
-            {"KP_PLUS", 174, "Keypad +"}, {"KP_MINUS", 173, "Keypad -"}, {"`", '`', "`"}, {"-", '-', "-"},
+            {"KP_PLUS", 174, "Keypad +"}, {"KP_MINUS", 173, "Keypad -"}, {"`", '`', "` (left of 1)"}, {"-", '-', "-"},
             {"=", '=', "="}, {"[", '[', "["}, {"]", ']', "]"}, {"SEMICOLON", ';', ";"}, {",", ',', ","},
             {".", '.', "."}, {"/", '/', "/"}};
         for (const KeyInfo& r : rest) v.push_back(r);
@@ -72,6 +72,7 @@ const std::vector<Action>& Actions() {
         {"holdpos", "Radio: Hold Position", "holdpos", "x"},
         {"report", "Radio: Report In", "report", "c"},
         {"needhelp", "Radio: Need Backup", "needhelp", "v"},
+        {"console", "Toggle Developer Console", "toggleconsole", "`"},
     };
     return a;
 }

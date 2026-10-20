@@ -1,0 +1,40 @@
+# Developer console at 21:9 with its key rebound in pc_settings.ini (FINDINGS.md "Developer console"): the saved key
+# (F2, engine key 136) opens it and ` no longer does; its lines and input sit in the centred 4:3 area like the rest of
+# the original UI; a command typed there runs (sv_gravity 600 then sv_gravity), Escape's close works.
+#   --launch tests/launch/de_airstrip_beginner --pc aspect=21:9 --pc bind.console=F2
+wait log open D:\\.*\.sxwad
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+count game:.World.triggered."Round_Start" 2
+sleep 3
+expect log pc keys: bindings set
+pckey key 96 1
+sleep 0.2
+pckey key 96 0
+sleep 1
+expect nolog pc console: open
+pckey key 136 1
+sleep 0.2
+pckey key 136 0
+sleep 1
+expect log pc console: open
+pckey con sv_gravity 600
+pckey conkey enter
+sleep 0.5
+pckey con sv_gravity
+pckey conkey enter
+sleep 1
+expect log pc console: \] sv_gravity 600
+snap console
+expect image console 20
+pckey conkey close
+sleep 1
+expect log pc console: closed
+expect nolog guest trap

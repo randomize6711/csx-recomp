@@ -4,7 +4,9 @@
 0. Windows: run build/windows/dist on a real Windows 10/11 PC (startup, Vulkan driver, WASAPI, mouse capture,
    relaunch handover, a full round); then a GUI-subsystem exe (no console) if wanted. Then image comparisons on de_dust
    and cs_italy.
-0. Next milestone: Toggle Developer Console as a bindable action in PC Controls (separate from widescreen).
+0. Developer console remainder: cursor movement inside the input line, a backdrop behind its lines; the PC Controls
+   list stepping over the "-" key.
+0. Native-resolution rendering (render targets above the original 640x960, the 2D layers kept in proportion).
 0. Widescreen stage 3 (after stages 1-2 settle): move suitable HUD elements (health/armour/timer left, money/ammo
    right, radar) towards the frame's edges, keeping their look; aspect change without a restart (device Reset).
 0. PC Options next: press-a-key capture in PC Controls (TrapKey_Event's trap mode), frame rate limit (SDK harness

@@ -1,0 +1,56 @@
+# The developer console in the Vulkan window at 16:9 (FINDINGS.md "Developer console"): the ` key opens it and frees
+# the mouse; W and mouse motion do not reach the game while it is open; typed text (SDL text input), Enter, Up and
+# Backspace edit and run commands; Escape closes it without opening the pause menu, the mouse is captured again and W
+# moves; over the pause menu it opens and is drawn above the menu. Run with
+#   --exe build/window/CounterStrike --run build/wrun --env CSX_RENDERER=vulkan --env FPS=30 \
+#   --launch tests/launch/de_airstrip_beginner --pc aspect=16:9
+wait log open D:\\de_airstrip.sxwad
+sleep 15
+key Down
+sleep 2
+key Down
+sleep 2
+key Space
+sleep 6
+key Left_Ctrl
+sleep 8
+key F1
+sleep 1
+key `
+sleep 1
+expect log input: console open, mouse released
+windowshot open
+state c0
+key W 1.5
+mouse 300 0
+sleep 1
+state c1
+expect still c0 c1
+type echo typed in the window
+sleep 0.5
+key Return
+sleep 1
+expect log pc console: \] echo typed in the window
+key Up
+sleep 0.3
+key BackSpace
+sleep 0.3
+key Return
+sleep 1
+expect log pc console: \] echo typed in the windo$
+windowshot typed
+key Escape
+sleep 1
+expect log input: console closed
+key W 1.5
+sleep 1
+state c2
+expect moved c1 c2 20 1000
+key Escape
+sleep 2
+key `
+sleep 1
+windowshot pause_console
+key `
+sleep 1
+expect log pc console: closed

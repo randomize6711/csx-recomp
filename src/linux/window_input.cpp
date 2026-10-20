@@ -4,6 +4,11 @@
 //   right mouse left trigger, Enter / Escape START, Tab BACK, Left Shift left stick click, middle mouse right stick
 //   click. While playing they are the engine's own keys and run their bindings (Options > PC Controls), Escape
 //   staying START (the game menu). F1 releases or captures the mouse.
+// The developer console (src/game/pc_console.cpp): the key bound to Toggle Developer Console (PC Controls; by default
+// the key left of 1, whatever the layout prints on it) opens and closes it, playing or in a menu. While it is open the
+// keyboard is its alone: typed text (SDL text input, so the layout's characters), Backspace, Enter, Up / Down
+// (history), Tab (completion), Page Up / Down and the wheel (scrolling), Escape closing it; held game keys are let go,
+// and the mouse is released, captured again when it closes.
 // Mouse look: while the mouse is captured (relative mode, SDL's unaccelerated motion), each count turns the view by
 // 0.022 degrees x the sensitivity (CSX_MOUSE_SENS, else Options > PC Options, else 3: GoldSrc's m_yaw / m_pitch and
 // CS's default) through the title's look routine (src/game/mouse_look.cpp); CSX_MOUSE_INVERT=1 inverts the pitch.
@@ -18,6 +23,8 @@
 #include <mutex>
 #include <map>
 #include <set>
+#include <string>
+#include <utility>
 
 #include "app/app.h"
 #include "core/input.h"
@@ -83,8 +90,11 @@ bool Down(SDL_Keycode k) { return g_keys.count(k) != 0; }
 std::set<int> g_engine_held;  // engine keys down: their release goes to the engine whatever is open then
 bool g_was_menu = true;
 
-// SDL key -> engine key number (keys.c: letters, digits and punctuation as their characters, the rest from 127 up)
-int EngineKey(SDL_Keycode k) {
+// SDL key -> engine key number (keys.c: letters, digits and punctuation as their characters, the rest from 127 up).
+// The key left of 1 is ` by its position (SDL_SCANCODE_GRAVE), as PC games take the console key: it prints ` on a US
+// layout, § on a Swedish one, ^ on a German one
+int EngineKey(SDL_Keycode k, SDL_Scancode sc = SDL_SCANCODE_UNKNOWN) {
+    if (sc == SDL_SCANCODE_GRAVE) return '`';
     if ((k >= SDLK_A && k <= SDLK_Z) || (k >= SDLK_0 && k <= SDLK_9)) return int(k);
     switch (k) {
         case SDLK_SPACE: return 32;
@@ -166,6 +176,40 @@ void EngineKeyEvent(int key, bool down) {
 
 int16_t Stick(float v) { return int16_t(std::clamp(v, -32767.0f, 32767.0f)); }
 
+// the developer console: the engine key that toggles it, whether it is shown (as the window last saw), and the text
+// event a toggle key's own press may still bring
+bool g_console = false;
+bool g_swallow_text = false;
+bool g_mouse_was_captured = false;
+int ConsoleKeyNumber() {
+    static unsigned seen = ~0u;
+    static int key = -1;
+    if (pc::Version() != seen) {
+        seen = pc::Version();
+        key = -1;
+        for (const pc::Action& a : pc::Actions())
+            if (std::string(a.id) == "console")
+                if (const pc::KeyInfo* k = pc::FindKey(pc::BoundKey(a)); k) key = k->number;
+    }
+    return key;
+}
+
+// a key while the console is open: its editing keys; the rest only type (through text input)
+void ConsoleEditKey(SDL_Keycode k) {
+    using K = csx::ConsoleKey;
+    switch (k) {
+        case SDLK_ESCAPE: csx::QueueConsoleKey(K::Close); break;
+        case SDLK_RETURN: case SDLK_KP_ENTER: csx::QueueConsoleKey(K::Enter); break;
+        case SDLK_BACKSPACE: csx::QueueConsoleKey(K::Backspace); break;
+        case SDLK_UP: csx::QueueConsoleKey(K::HistoryBack); break;
+        case SDLK_DOWN: csx::QueueConsoleKey(K::HistoryForward); break;
+        case SDLK_TAB: csx::QueueConsoleKey(K::Complete); break;
+        case SDLK_PAGEUP: csx::QueueConsoleKey(K::PageUp); break;
+        case SDLK_PAGEDOWN: csx::QueueConsoleKey(K::PageDown); break;
+        default: break;
+    }
+}
+
 }  // namespace
 
 namespace window {
@@ -175,7 +219,14 @@ void HandleEvent(const void* p) {
     std::lock_guard<std::mutex> lock(g_lock);
     switch (e.type) {
         case SDL_EVENT_KEY_DOWN:
-            if (int key = EngineKey(e.key.key); !csx::MenuOpen() && key >= 0) {
+            if (EngineKey(e.key.key, e.key.scancode) == ConsoleKeyNumber() && ConsoleKeyNumber() >= 0) {
+                if (!e.key.repeat) {
+                    csx::QueueConsoleKey(csx::ConsoleKey::Toggle);
+                    g_swallow_text = g_console;  // closing: the key's character is not typed
+                }
+            } else if (g_console) {
+                ConsoleEditKey(e.key.key);
+            } else if (int key = EngineKey(e.key.key, e.key.scancode); !csx::MenuOpen() && key >= 0) {
                 if (unsigned pad = PadAction(key)) g_pad_held[key] = pad;
                 else EngineKeyEvent(key, true);
             } else {
@@ -183,11 +234,15 @@ void HandleEvent(const void* p) {
             }
             break;
         case SDL_EVENT_KEY_UP:
-            g_pad_held.erase(EngineKey(e.key.key));
-            EngineKeyEvent(EngineKey(e.key.key), false);
+            g_pad_held.erase(EngineKey(e.key.key, e.key.scancode));
+            EngineKeyEvent(EngineKey(e.key.key, e.key.scancode), false);
             g_keys.erase(e.key.key);
             break;
+        case SDL_EVENT_TEXT_INPUT:
+            if (g_console && !std::exchange(g_swallow_text, false)) csx::QueueConsoleText(e.text.text);
+            break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            if (g_console) break;
             if (int key = EngineMouseKey(e.button.button); !csx::MenuOpen() && key >= 0) {
                 if (unsigned pad = PadAction(key)) g_pad_held[key] = pad;
                 else EngineKeyEvent(key, true);
@@ -201,13 +256,16 @@ void HandleEvent(const void* p) {
             g_mouse_buttons &= ~(1u << e.button.button);
             break;
         case SDL_EVENT_MOUSE_WHEEL:  // MWHEELUP / MWHEELDOWN, a press and a release per notch, as the engine expects
-            if (!csx::MenuOpen() && e.wheel.y != 0) {
+            if (g_console && e.wheel.y != 0) {
+                csx::QueueConsoleKey(e.wheel.y > 0 ? csx::ConsoleKey::PageUp : csx::ConsoleKey::PageDown);
+            } else if (!csx::MenuOpen() && e.wheel.y != 0) {
                 int key = e.wheel.y > 0 ? 240 : 239;
                 EngineKeyEvent(key, true);
                 EngineKeyEvent(key, false);
             }
             break;
         case SDL_EVENT_MOUSE_MOTION:
+            if (g_console) break;  // the view stays put while the console is open
             if (Mouse().stick) {
                 g_mouse_dx += e.motion.xrel;
                 g_mouse_dy += e.motion.yrel;
@@ -241,6 +299,36 @@ void HandleEvent(const void* p) {
 }
 
 void EndFrameInput() {}
+
+// the console opened or closed (once per window frame, the window thread): text input on while it is open, the keys
+// held for the game let go, the mouse released and captured again afterwards
+void UpdateConsole() {
+    bool open = csx::ConsoleOpen();
+    std::lock_guard<std::mutex> lock(g_lock);
+    if (open == g_console) return;
+    g_console = open;
+    g_swallow_text = false;
+    SDL_Window* win = static_cast<SDL_Window*>(SdlWindow());
+    if (open) {
+        for (int k : std::set<int>(g_engine_held)) EngineKeyEvent(k, false);
+        g_pad_held.clear();
+        g_keys.clear();
+        g_mouse_buttons = 0;
+        g_mouse_was_captured = SDL_GetWindowRelativeMouseMode(win);
+        SDL_SetWindowRelativeMouseMode(win, false);
+        SDL_StartTextInput(win);
+    } else {
+        SDL_StopTextInput(win);
+        g_keys.clear();
+        if (g_mouse_was_captured) SDL_SetWindowRelativeMouseMode(win, true);
+    }
+    if (open)
+        LOGI("input: console open, mouse released (%s before)", g_mouse_was_captured ? "captured" : "free");
+    else
+        LOGI("input: console closed, mouse %s", g_mouse_was_captured ? "captured again" : "left free");
+}
+
+bool ConsoleShown() { return g_console; }
 
 }  // namespace window
 

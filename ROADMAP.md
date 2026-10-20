@@ -31,4 +31,5 @@
 - M7f — Keyboard and mouse bindings in the original menus (PC Controls) ✅ 2026-10-19
 - M7g — Field of view (PC Options) ✅ 2026-10-19; widescreen 16:10 / 16:9 / 21:9 with the original UI centred ✅
   2026-10-20
+- M7h — The original developer console reachable (PC Controls key, typing, history, completion) ✅ 2026-10-20
 - M8 — PC feature set complete

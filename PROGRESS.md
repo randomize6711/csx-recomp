@@ -259,3 +259,12 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   present at the frame's aspect. FINDINGS.md "Widescreen".
 - Tests: regress_pc_widescreen.txt (16:9), regress_pc_widescreen_ultrawide.txt (21:9, FOV 110).
 
+## 2026-10-20 — Developer console
+
+- The Xbox build's own console found intact for output (200 line ring, Con_Draw with the game's font, toggleconsole,
+  consoleup / consoledown, consoleexecute) but without its line editor, history and completion; restored on it:
+  typing, Enter, history, Tab completion, scrolling, Escape, drawn over menus too (FINDINGS.md "Developer console").
+- PC Controls > Toggle Developer Console (default the key left of 1 on any layout); keyboard and mouse kept from the
+  game while it is open, mouse capture restored, the pad unchanged.
+- Tests: regress_pc_console.txt, regress_pc_console_wide.txt (21:9); vk_console.txt (Vulkan window); drive.py step
+  `type TEXT`, pckey lines `con TEXT` / `conkey NAME`.
