@@ -776,6 +776,55 @@ Widescreen experiments (not kept):
 - So the 3D renderer accepts a wide view (with a Hor+ FOV and a matching frustum), but each 2D layer needs its own
   treatment; see PROGRESS.md for the options.
 
+## Widescreen (2026-10-20)
+
+Native widescreen (src/game/pc_wide.cpp, Options > PC Options > Aspect Ratio: Automatic, 4:3, 16:10, 16:9, 21:9;
+saved as aspect in pc_settings.ini, taken at start; Automatic is the display's aspect in the window, 4:3 headless).
+The frame stays 480 lines high and gets wider (768, 854, 1138 at 16:10, 16:9, 21:9; back buffer x960 as before),
+and both window renderers present it at that aspect, letterboxed. At 4:3 every hook leaves the game as it was.
+
+The 3D view:
+- Back buffer: the present parameters' width (0x553620) at 0xAF223, before Direct3D_CreateDevice. After it (0xAF255)
+  the width goes back to 640: the client reads 0x553620 as its screen width in about a hundred places (HUD layout,
+  the "%d_pain.spr" resolution sprites: at 854 it asked for sprites/854_pain.spr, which does not exist).
+- View: the window rectangle's right edge (0x6CE218, centre 0x6CE220) at the end of its setup (0xAF1DF).
+  GL_BeginRendering (0x56A10, every frame) makes the GL size (glwidth 0x6CE3C8, glheight 0x6CE274) and vid.width /
+  vid.conwidth (0x6CE2BC / 0x6CE2D8) from it, SCR_CalcRefdef (0x55850) the view rectangle (r_refdef.vrect 0x6E7A20..
+  0x6E7A2C). vid.width has to stay the frame's (kept at 640 in an experiment, the 3D view was 640 wide again).
+- Hor+: scr_fov_value is horizontal degrees for a 4:3 view; at R_SetupGL (0x4E118) and R_SetFrustum (0x4DAD6) it
+  becomes 2 atan(tan(fov / 2) x (w / h) x 3 / 4) for the view rectangle, which keeps the 4:3 vertical angle (73.7 at
+  90). 16:9: 90 -> 106.3, the AWP's 40 -> 51.8 and 10 -> 13.3 (the same magnification as at 4:3); 21:9: 90 -> 121.3,
+  FOV 110 -> 137.0. scr_fov_value itself stays the game's (the client and the zoom logic see the original values).
+- Culling: R_SetFrustum runs inside the VGUI paint (0xB4560), where the GL size is the 640x480 root panel's, so its
+  CalcFovY used 640x480 whatever the view: the side planes stayed 90 (logged from the planes: 90.00 x 73.74 at 21:9).
+  At 21:9 the sky and a fence at the right edge of de_airstrip were missing (black in the reference renderer, stale
+  in Vulkan). The hook gives R_SetFrustum the view rectangle's size and the Hor+ angle: 121.29 x 73.74, nothing
+  missing at the edges. (At 4:3 the panel and the view are both 640x480, so the original is unaffected.)
+- The first-person weapon uses the world's projection (no viewmodel FOV), so it keeps its 4:3 size on screen.
+
+The 2D layers, all laid out in 640x480, kept unstretched in the middle 640 columns:
+- GL_Set2D (0x58F70; hook at 0x58FA7, its glOrtho skipped): glViewport on the GL size, then glOrtho(0, glwidth,
+  glheight, 0). Two callers matter: the engine's 2D (GL size = the frame) and the VGUI paint (0xB4560: HUD, menus,
+  scoreboard, team and buy menus), which sets the GL size to its root panel (640x480) around its drawing. Both get
+  the whole frame as viewport and glOrtho(-side, 640 + side, 480, 0) with side = (width - 640) / 2.
+- Paths in screen pixels that no projection moves, shifted by side when the GL layer's viewport (device + 0xEE0) is
+  the frame: the GL layer's screen rectangle 0x6F080 (XYZRHW quads: the sniper scope's ring, sprites/ghostring,
+  drawn 0,0-640,480 by the client at 0x1ACBF5 below FOV 45, and its centre sprite; the menus' backdrops via 0xCC24D;
+  the loading screen via 0xC2B53); the text renderer 0xB9B20 (thiscall: x, y floats, colour, string, flags, width;
+  glyphs through its own vertex program: menus, HUD text, chat, centre messages); the video overlay's destination
+  (D3DDevice_UpdateOverlay calls 0xC71FA and 0x2902BA: the intro movies).
+- Full-screen screen rectangles (0,0-640,480) also cover the side columns, each from its texture's edge column: the
+  scope's surround is black to the edges, the menus' and the spectator's backdrops continue (their bands are
+  horizontal), so nothing of the 3D view shows beside a menu.
+- Already right without changes: R_PolyBlend's flashes and fades (0x4D940: its own viewport and glOrtho on the frame),
+  the glow pass (its targets follow the back buffer: 427x240, 427x120, 213x120 at 16:9; composite over the frame),
+  the crosshair (HUD, centred with it).
+- Not seen: an element the original places just outside 640x480 to hide it would now show in the side columns (the
+  viewport is the whole frame); none found in the menus, HUD, buy menu, scoreboard, spectator, scope or movies.
+
+Checks: Vulkan against the reference renderer at the same moment, 16:9 26.9 dB PSNR and 21:9 27.7 dB (4:3 at FOV
+110: 25.9 dB); 4:3 runs unchanged (the whole suite, back buffer 640x960); 16:10 frame 768x480, 90 -> 100.4.
+
 ## Assumptions / to verify
 
 - Third-party licenses (from prior knowledge, confirm before reusing any code): Half-Life SDK — Valve's restrictive

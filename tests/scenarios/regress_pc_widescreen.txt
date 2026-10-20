@@ -1,0 +1,60 @@
+# Widescreen at 16:9 (FINDINGS.md "Widescreen", src/game/pc_wide.cpp): an 854x480 frame (854x960 back buffer), the
+# view Hor+ (90 at 4:3 becomes 106.3 across, the same 73.7 down) with the culling planes on the same angle, an AWP's
+# zooms (40, 10) converted alike; the scope's ring centred with black sides, the pause menu centred with its backdrop
+# reaching the edges.
+#   --launch tests/launch/de_airstrip_beginner --pc aspect=16:9
+wait log open D:\\.*\.sxwad
+expect log pc wide: aspect 16:9 \(1.7778\), frame 854x480
+expect log back buffer 854x960 for a 854x480 display
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+count game:.World.triggered."Round_Start" 2
+sleep 3
+expect log pc wide: view fov 90 -> 106.3 \(854x480\)
+expect log pc wide: culling fov 90 -> 106.3 \(854x480\)
+pckey cmd +buymenu
+sleep 0.2
+pckey cmd -buymenu
+sleep 1.5
+press LSR 20
+press LSR+A 4
+sleep 1.5
+press LS+LSL 20
+press LS+LSL+A 4
+sleep 2
+press B
+sleep 2
+pckey cmd +attack2
+sleep 0.1
+pckey cmd -attack2
+sleep 1.5
+expect log pc wide: view fov 40 -> 51.8
+expect log pc wide: culling fov 40 -> 51.8
+snap scope
+expect darkfrac scope 0 0 100 960 16 0.97 1.0
+expect darkfrac scope 754 0 854 960 16 0.97 1.0
+pckey cmd +attack2
+sleep 0.1
+pckey cmd -attack2
+sleep 1.5
+expect log pc wide: view fov 10 -> 13.3
+expect log pc wide: culling fov 10 -> 13.3
+pckey cmd +attack2
+sleep 0.1
+pckey cmd -attack2
+sleep 1.5
+press START
+sleep 2
+snap pause
+expect region pause 0 0 100 960 15 200
+expect region pause 754 0 854 960 15 200
+expect image pause 10
+expect nolog sprites.854_
+expect nolog guest trap

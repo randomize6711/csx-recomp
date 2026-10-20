@@ -15,6 +15,7 @@
 #include <windows.h>
 #endif
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -124,12 +125,13 @@ bool HostInputEvent(const SDL_Event& e) {
     }
 }
 
-// the frame scaled to the window at the display's 4:3, whatever the surface's own size (640x960 for CS)
-SDL_FRect Letterbox(int ww, int wh) {
-    float w = float(ww), h = float(wh), tw = w, th = w * 3.0f / 4.0f;
+// the frame scaled to the window at the title's display aspect (4:3, or PC widescreen's), whatever the surface's own
+// size (640x960 for CS)
+SDL_FRect Letterbox(int ww, int wh, float aspect) {
+    float w = float(ww), h = float(wh), tw = w, th = w / aspect;
     if (th > h) {
         th = h;
-        tw = h * 4.0f / 3.0f;
+        tw = h * aspect;
     }
     return {(w - tw) * 0.5f, (h - th) * 0.5f, tw, th};
 }
@@ -161,7 +163,21 @@ int main(int argc, char** argv) {
         logx::Flush();
         return 1;
     }
-    SDL_Window* win = SDL_CreateWindow("Counter-Strike", 1280, 960,
+    // the display's aspect, for PC widescreen's "auto" (src/game/pc_wide.cpp), and a first window of the frame's shape
+    float aspect = 4.0f / 3.0f;
+    int win_w = 1280, win_h = 960;
+    if (const SDL_DisplayMode* dm = SDL_GetDesktopDisplayMode(SDL_GetPrimaryDisplay()); dm && dm->w > 0 && dm->h > 0) {
+        char text[32];
+        std::snprintf(text, sizeof text, "%.5f", double(dm->w) / dm->h);
+        SetEnv("CSX_DISPLAY_ASPECT", text, false);
+        std::string a = pc::Get("aspect", "auto");
+        aspect = a == "16:9" ? 16.0f / 9.0f : a == "16:10" ? 1.6f : a == "21:9" ? 64.0f / 27.0f
+               : a == "auto" ? float(dm->w) / dm->h : 4.0f / 3.0f;
+        aspect = std::clamp(aspect, 4.0f / 3.0f, 2.5f);
+        win_w = std::min(int(960 * aspect), dm->w * 9 / 10);
+        win_h = int(win_w / aspect);
+    }
+    SDL_Window* win = SDL_CreateWindow("Counter-Strike", win_w, win_h,
                                        SDL_WINDOW_RESIZABLE | (g_vulkan ? SDL_WINDOW_VULKAN : SDL_WindowFlags(0)));
     g_window = win;
     // the Vulkan backend presents by itself; the software path shows frames through an SDL renderer
@@ -364,7 +380,7 @@ int main(int argc, char** argv) {
         SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
         SDL_RenderClear(ren);
         if (tex) {
-            SDL_FRect dst = Letterbox(ww, wh);
+            SDL_FRect dst = Letterbox(ww, wh, window::Latest().aspect);
             SDL_RenderTexture(ren, tex, nullptr, &dst);
         }
         // a file named shot holding a name saves the window's output as shots/<name>.bmp, as WINDOW_SHOT_EVERY does

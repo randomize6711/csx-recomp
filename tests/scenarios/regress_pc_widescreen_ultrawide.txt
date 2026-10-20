@@ -1,0 +1,33 @@
+# Widescreen at 21:9 with the PC FOV (FINDINGS.md "Widescreen", src/game/pc_wide.cpp, pc_view.cpp): a 1138x480 frame,
+# FOV 110 (at 4:3) Hor+ to 137.0 across with the culling planes on the same angle (the planes were 4:3 before: the
+# sky and a fence at the right edge were missing); the team menu and the spectator's backdrop reach both edges.
+#   --launch tests/launch/de_airstrip_beginner --pc aspect=21:9 --pc fov=110
+wait log open D:\\.*\.sxwad
+expect log pc wide: aspect 21:9 \(2.3704\), frame 1138x480
+expect log back buffer 1138x960 for a 1138x480 display
+wait draws>=150
+sleep 10
+snap team
+expect region team 0 0 200 960 15 200
+expect region team 938 0 1138 960 15 200
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+count game:.World.triggered."Round_Start" 2
+sleep 3
+expect log pc view: fov 110
+expect log pc wide: view fov 110 -> 137.0 \(1138x480\)
+expect log pc wide: culling fov 110 -> 137.0 \(1138x480\)
+snap wide
+expect image wide 20
+pckey cmd kill
+sleep 4
+snap spec
+expect region spec 0 0 200 960 15 220
+expect region spec 938 0 1138 960 15 220
+expect nolog sprites.1138_
+expect nolog guest trap

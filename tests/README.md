@@ -126,6 +126,15 @@ BUTTON [SECONDS]` and `wheel N` send mouse buttons and wheel notches through SDL
 pie's directions), zooms to its 40 and 10 and back (the game's own FOVs, logged by src/game/pc_view.cpp as "pc view:
 fov N"), then sets 115 in the pause menu's PC Options and sees it applied.
 
+## Widescreen
+
+`regress_pc_widescreen.txt` (`--pc aspect=16:9`) checks the 854x480 frame (854x960 back buffer), the Hor+ angles that
+src/game/pc_wide.cpp logs for the projection and the culling planes ("pc wide: view fov 90 -> 106.3", "culling fov",
+also the AWP's 40 and 10), the scope's black sides (`expect darkfrac` on both side columns) and the pause menu's
+backdrop reaching the edges (`expect region`). `regress_pc_widescreen_ultrawide.txt` (`--pc aspect=21:9 --pc
+fov=110`) does the 1138x480 frame with the PC FOV (110 -> 137.0), the team menu's and the spectator's backdrops at
+both edges. Every other scenario runs at 4:3 (Automatic is 4:3 headless).
+
 ## Mouse look
 
 `regress_mouse_look.txt` (part of run_regression.sh, starts in the match through its `--launch` header line) turns

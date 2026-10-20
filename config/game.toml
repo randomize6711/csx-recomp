@@ -543,3 +543,50 @@ call = "PcKeysFrame"
 at = 0x1CD17
 call = "PcFovFrame"
 
+# Widescreen (src/game/pc_wide.cpp, FINDINGS.md "Widescreen"): the present parameters' width before
+# Direct3D_CreateDevice (0xAF250) and back to 640 after it (the client reads it as its screen width), the engine's
+# window rectangle at the end of its setup (0xAF170, from the game interface at 0xAF192), and the FOV made Hor+ where
+# R_SetupGL (0x4E112) and R_SetFrustum (0x4DAB9, its CalcFovY call 0x4DAD7) use scr_fov_value
+[[hook]]
+at = 0xAF223
+call = "PcWideDevice"
+
+[[hook]]
+at = 0xAF255
+call = "PcWideDeviceMade"
+
+[[hook]]
+at = 0xAF1DF
+call = "PcWideRect"
+
+[[hook]]
+at = 0x4E118
+call = "PcWideFovView"
+
+[[hook]]
+at = 0x4DAD6
+call = "PcWideFovFrustum"
+
+# the 2D layers centred on a wider frame: GL_Set2D's projection (0x58F70, its glOrtho call 0x58FC9 skipped), the GL
+# layer's screen rectangle (XYZRHW: the scope, the menus' backdrops, the loading screen), the text renderer (its own
+# vertex program in screen pixels) and the video overlay (the two D3DDevice_UpdateOverlay calls)
+[[hook]]
+at = 0x58FA7
+call = "PcWide2D"
+on_true = 0x58FEB
+
+[[hook]]
+at = 0x6F080
+call = "PcWideRect2D"
+
+[[hook]]
+at = 0xB9B20
+call = "PcWideText"
+
+[[hook]]
+at = 0xC71FA
+call = "PcWideOverlay"
+
+[[hook]]
+at = 0x2902BA
+call = "PcWideOverlay"

@@ -248,3 +248,14 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   FINDINGS.md "FOV and widescreen"). Options > PC Options > Field of View (90 original ... 120) replaces the unzoomed
   FOV; zoom unchanged; projection and culling together; both renderers. Test: regress_pc_fov.txt.
 
+## 2026-10-20 — Widescreen
+
+- Options > PC Options > Aspect Ratio (Automatic = the display's, 4:3, 16:10, 16:9, 21:9; at the next start): a wider
+  frame at 480 lines (back buffer, engine window rectangle), Hor+ FOV for the projection and the culling planes (the
+  planes were built on the VGUI panel's 640x480: edge geometry was culled at 21:9), zoom magnification as at 4:3.
+- The original UI unstretched in the middle 640 columns: the 2D projection (engine 2D, VGUI paint), the screen-pixel
+  paths (screen rectangles: scope, backdrops, loading screen; text renderer; video overlay), the client's screen width
+  kept at 640; full-screen backdrops continue to the edges, the scope's surround is black. Both window renderers
+  present at the frame's aspect. FINDINGS.md "Widescreen".
+- Tests: regress_pc_widescreen.txt (16:9), regress_pc_widescreen_ultrawide.txt (21:9, FOV 110).
+
