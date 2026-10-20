@@ -15,6 +15,7 @@ struct Frame {
     std::vector<uint8_t> pixels;
     uint32_t width = 0, height = 0;
     uint64_t serial = 0;  // bumped per presented frame
+    float aspect = 4.0f / 3.0f;  // the display the title renders for (its present parameters' width : height)
 };
 Frame& Latest();
 

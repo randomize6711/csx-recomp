@@ -1587,11 +1587,12 @@ void VulkanBackend::Present(const Surface& front) {
         VkClearColorValue black{};
         VkImageSubresourceRange r{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
         vkCmdClearColorImage(cb, swap_images_[index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &r);
-        // the target at the display's 4:3, letterboxed
-        float W = float(swap_extent_.width), H = float(swap_extent_.height), tw = W, th = W * 3 / 4;
+        // the target at the title's display aspect (4:3, or the wider frame of PC widescreen), letterboxed
+        const float aspect = float(guest_w_) / float(guest_h_);
+        float W = float(swap_extent_.width), H = float(swap_extent_.height), tw = W, th = W / aspect;
         if (th > H) {
             th = H;
-            tw = H * 4 / 3;
+            tw = H * aspect;
         }
         int dx = int((W - tw) / 2), dy = int((H - th) / 2);
         Barrier(*shown, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);

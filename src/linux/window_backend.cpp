@@ -28,6 +28,7 @@ class WindowBackend final : public Backend {
 public:
     bool Init(uint32_t w, uint32_t h) override {
         LOGI("renderer: window, reference renderer, %ux%u", w, h);
+        if (w && h) window::Latest().aspect = float(w) / float(h);
         reference::BeginFrame();
         return true;
     }
