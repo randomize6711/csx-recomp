@@ -18,7 +18,8 @@ expect log pc view: fov 110
 pckey cmd +buymenu
 sleep 0.2
 pckey cmd -buymenu
-sleep 1.5
+count pc.keys:.menu.T_BuyMenuRoot 2
+sleep 1
 press LSR 20
 press LSR+A 4
 sleep 1.5
@@ -27,19 +28,13 @@ press LS+LSL+A 4
 sleep 2
 press B
 sleep 2
-pckey cmd +attack2
-sleep 0.1
-pckey cmd -attack2
+pckey cmd +attack2;wait;-attack2
 sleep 1.5
-expect log pc view: fov 40 \(the game's zoom\)
-pckey cmd +attack2
-sleep 0.1
-pckey cmd -attack2
+count pc.view:.fov.40..the.game's.zoom 1
+pckey cmd +attack2;wait;-attack2
 sleep 1.5
-expect log pc view: fov 10 \(the game's zoom\)
-pckey cmd +attack2
-sleep 0.1
-pckey cmd -attack2
+count pc.view:.fov.10..the.game's.zoom 1
+pckey cmd +attack2;wait;-attack2
 sleep 1.5
 count pc.view:.fov.110$ 2
 press START
@@ -71,5 +66,5 @@ sleep 1
 press A
 sleep 2
 expect log pc: fov = 115
-expect log pc view: fov 115
+count pc.view:.fov.115 1
 expect nolog guest trap

@@ -22,7 +22,8 @@ expect log pc wide: culling fov 90 -> 106.3 \(854x480\)
 pckey cmd +buymenu
 sleep 0.2
 pckey cmd -buymenu
-sleep 1.5
+count pc.keys:.menu.T_BuyMenuRoot 2
+sleep 1
 press LSR 20
 press LSR+A 4
 sleep 1.5
@@ -31,24 +32,18 @@ press LS+LSL+A 4
 sleep 2
 press B
 sleep 2
-pckey cmd +attack2
-sleep 0.1
-pckey cmd -attack2
+pckey cmd +attack2;wait;-attack2
 sleep 1.5
-expect log pc wide: view fov 40 -> 51.8
-expect log pc wide: culling fov 40 -> 51.8
+count pc.wide:.view.fov.40.->.51.8 1
+count pc.wide:.culling.fov.40.->.51.8 1
 snap scope
 expect darkfrac scope 0 0 100 960 16 0.97 1.0
 expect darkfrac scope 754 0 854 960 16 0.97 1.0
-pckey cmd +attack2
-sleep 0.1
-pckey cmd -attack2
+pckey cmd +attack2;wait;-attack2
 sleep 1.5
-expect log pc wide: view fov 10 -> 13.3
-expect log pc wide: culling fov 10 -> 13.3
-pckey cmd +attack2
-sleep 0.1
-pckey cmd -attack2
+count pc.wide:.view.fov.10.->.13.3 1
+count pc.wide:.culling.fov.10.->.13.3 1
+pckey cmd +attack2;wait;-attack2
 sleep 1.5
 press START
 sleep 2
