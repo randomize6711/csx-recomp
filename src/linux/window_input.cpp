@@ -515,9 +515,11 @@ Pad Poll(int port) {
         g_mouse_buttons = 0;
     }
     g_was_menu = menu;
-    // keyboard and mouse
-    float lx = (Down(SDLK_D) ? 32767.0f : 0) - (Down(SDLK_A) ? 32767.0f : 0);
-    float ly = (Down(SDLK_W) ? 32767.0f : 0) - (Down(SDLK_S) ? 32767.0f : 0);
+    // keyboard and mouse; on PC Controls WASD are not the stick: its pieces step the selected row's key (D would make
+    // Move Right's key E unseen), and those are keys a player presses there to try them
+    const bool wasd = !csx::BindRowSelected();
+    float lx = wasd ? (Down(SDLK_D) ? 32767.0f : 0) - (Down(SDLK_A) ? 32767.0f : 0) : 0;
+    float ly = wasd ? (Down(SDLK_W) ? 32767.0f : 0) - (Down(SDLK_S) ? 32767.0f : 0) : 0;
     float rx = g_mouse_dx * kMouseScale, ry = -g_mouse_dy * kMouseScale;
     g_mouse_dx = g_mouse_dy = 0;
     for (auto& [key, buttons] : g_pad_held) p.buttons |= uint16_t(buttons);

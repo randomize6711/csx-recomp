@@ -1,0 +1,109 @@
+# Walking in every direction with the PC keys, the Vulkan window with real SDL events (FINDINGS.md "Walking right",
+# src/linux/window_input.cpp): in the pause menu's PC Controls with Move Right selected, holding D, A, W and S leaves
+# the bindings as they are (in the menus WASD were the pad's left stick, whose pieces stepped the selected row's key:
+# D made Move Right's key E, unseen, and D stopped walking right); Accept saves them unchanged. Playing: W forward, S
+# back, A left, D right, W and D together forward right, each along the view; nothing moves once they are let go;
+# after the console A walks left, after the pause menu D right (the legs alternate: a wall stands right of the
+# spawn).
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), with
+#   --launch tests/launch/de_airstrip_beginner
+wait log open D:\\de_airstrip.sxwad
+sleep 25
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 20
+key Left_Ctrl
+sleep 15
+expect log input: mouse mode play \(captured\)
+key Escape
+sleep 2
+point 300 271
+sleep 0.5
+click 1
+sleep 2
+point 300 249
+sleep 0.5
+click 1
+sleep 2
+expect log pc mouse: screen InGame_PCControls
+point 200 199
+sleep 0.5
+key D 0.6
+sleep 1
+key A 0.6
+sleep 1
+key W 0.6
+sleep 1
+key S 0.6
+sleep 1
+key Space
+sleep 2
+expect log pc: bind.forward = w
+expect log pc: bind.back = s
+expect log pc: bind.moveleft = a
+expect log pc: bind.moveright = d
+expect nolog pc menu: .* waits for a key
+click 3
+sleep 2
+point 300 141
+sleep 0.5
+click 1
+sleep 3
+expect count pc.keys:.playing 3
+state f0
+key W 1.2
+sleep 1.5
+state f1
+expect moved f0 f1 100 700
+expect heading f0 f1 20
+key S 1.2
+sleep 1.5
+state b1
+expect moved f1 b1 100 700
+expect heading f1 b1 20 180
+key A 1.2
+sleep 1.5
+state l1
+expect moved b1 l1 100 700
+expect heading b1 l1 20 90
+key D 1.2
+sleep 1.5
+state r1
+expect moved l1 r1 100 700
+expect heading l1 r1 20 -90
+key W 1.2
+key D 1.2
+sleep 1.5
+state d1
+expect moved r1 d1 100 700
+expect heading r1 d1 20 -45
+sleep 1
+state i0
+sleep 1.5
+state i1
+expect still i0 i1
+key `
+sleep 1
+expect log input: console open
+key Escape
+sleep 1
+state c0
+key A 1.2
+sleep 1.5
+state c1
+expect moved c0 c1 100 700
+expect heading c0 c1 20 90
+key Escape
+sleep 2
+key Escape
+sleep 2
+state p0
+key D 1.2
+sleep 1.5
+state p1
+expect moved p0 p1 100 700
+expect heading p0 p1 20 -90
+expect nolog guest trap

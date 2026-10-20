@@ -32,7 +32,8 @@ per line, executed in order:
     expect shots A B N             the shot counter dropped by exactly N from A to B
     expect still A B               position and yaw equal in A and B
     expect rose A B MIN            the player rose at least MIN units from A to B (a jump)
-    expect heading A B MAXDEG      the move from A to B points along A's yaw within MAXDEG degrees
+    expect heading A B MAXDEG [OFF] the move from A to B points along A's yaw (+ OFF degrees: 90 left, -90 right, 180
+                                   back, -45 forward right) within MAXDEG degrees
     mouse DX DY             (window build) relative mouse motion in counts, through the window's mouse look
     count REGEX N           until N log lines match REGEX (no spaces: write . for them)
     look RIGHT UP           turn the view by degrees through the mouse look hook (src/game/mouse_look.cpp)
@@ -344,7 +345,8 @@ def main():
                 elif good and st[1] == 'heading':
                     import math
                     move = math.degrees(math.atan2(b[1] - a[1], b[0] - a[0]))
-                    off = abs((move - a[3] + 180) % 360 - 180)
+                    want = a[3] + (float(st[5]) if len(st) > 5 else 0.0)  # OFFSET: 90 left, -90 right, 180 back
+                    off = abs((move - want + 180) % 360 - 180)
                     good = off <= float(st[4])
                     print(f'     moved toward {move:.1f}, yaw {a[3]:.1f}, off by {off:.1f} degrees')
             elif kind == 'snap':

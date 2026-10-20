@@ -48,9 +48,9 @@ bool TextEntryOpen();
 void QueueTextEntry(const std::string& text);
 void QueueTextEntryKey(TextKey key);
 // press-a-key rebinding in PC Controls (src/game/pc_menu.cpp): whether such a screen is open with a binding row
-// selected (Enter starts a capture there), whether a row waits for its key (the window's next key, mouse button or
-// wheel notch goes there, nothing else); a capture started on the selected row; the key pressed (engine number,
-// keys.c), -1 cancelling
+// selected (Enter starts a capture there; the keyboard is not the pad's stick there), whether a row waits for its
+// key (the window's next key, mouse button or wheel notch goes there, nothing else); a capture started on the
+// selected row; the key pressed (engine number, keys.c), -1 cancelling
 bool BindRowSelected();
 bool BindCapturing();
 void BindStart();
