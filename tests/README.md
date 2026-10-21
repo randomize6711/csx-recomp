@@ -91,6 +91,17 @@ a flashbang, PC Options' Auto Exposure Off and On by mouse), `vk_auto_exposure_r
 second: the same points, the rates held) and `regress_dynamic_gamma.txt` (headless: the reference renderer's 8 bit
 target, the setting). `CSX_DYNGAMMA_READBACK=0` leaves the read-back out (the earlier behaviour, for comparisons).
 
+## Flashbang
+
+The flashbang's white-out (FINDINGS.md "Flashbang"), with `CSX_LOG_FADE=1` (the title's screen fade: its start with
+the hold and fade ends it was sent with, its alpha ten times a second, its end with how long it lasted in client and
+real time; drive.py `fade NAME`, `expect fade`, `expect fadediff`): `vk_flashbang.txt` (Vulkan: white while it holds,
+the fade's timing, the exposure, picture and HUD back afterwards (`expect regiondiff`), with Auto Exposure On, Off and
+the brightness cvar at 1, the pause menu after it), `vk_flashbang_rates.txt` (30 and 60 frames per second with VSync,
+120, 144 and 240 without: the same timing, white at each) and `regress_flashbang.txt` (headless: the reference
+renderer's white-out and the fade's timing). The title opens the buy menu itself as the player spawns and closes it
+20 s later; the tests buy after that (`wait log pc keys: menu T_BuyMenuRoot`, then 24 s).
+
 ## Rounds
 
 `rounds_direct.txt` plays complete rounds from the direct start of any map fixture (`de_airstrip_beginner`,

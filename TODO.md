@@ -1,10 +1,11 @@
 # TODO (priority order)
 
 ## Now
-0. Graphics fidelity (FINDINGS.md "Graphics fidelity audit", "Dynamic gamma"): the flashbang's white screen fade is
-   not drawn in either renderer (the fade routine 0x4D860 runs at alpha 255; its GL-layer quad never shows): trace
-   it through the push buffer. Then de_aztec's cube texture (sampled through a 2D mode by the water's shader), with
-   the water in view for a comparison. Whether a map load sets cl_dynamicgamma back (Auto Exposure re-sends only on
+0. Graphics fidelity (FINDINGS.md "Graphics fidelity audit", "Dynamic gamma", "Flashbang"): de_aztec's cube texture
+   (sampled through a 2D mode by the water's shader), with the water in view for a comparison. Other screen-space
+   passes that now draw without the depth test (the ZEnable fix: 0xB9880, the glow passes) and GL-layer draws now
+   kept below depth 0 (the cull range fix): look for any that changed on a map. The Vulkan depth buffer is D32F:
+   fixed function fragments below depth 0 are not clamped (nothing seen there yet). Whether a map load sets cl_dynamicgamma back (Auto Exposure re-sends only on
    change); where the per-map dynamic gamma clamps come from. G3:
    GAUSSIANCUBIC filtering of the bloom's first downsample; the muzzle flash (drawn, not seen) and dynamic lights,
    frame-exact against the reference. G4: Xbox Graphical Effects in PC Options (cl_dynamicgamma, cl_hdrbloom).

@@ -1080,6 +1080,81 @@ Loading screens flickering (reported: severe flicker):
   front end, after Change Map is confirmed, at Restart Match and at Quit back to the main menu.
 - Missed because every capture was a single frame.
 
+## Flashbang (2026-10-21)
+
+The effect, from the title's code (the server and the client are both in default.xbe):
+- Server: RadiusFlash 0x155170, from the flashbang's detonation. Every entity within 1500 units (FindEntityInSphere)
+  that is a player, alive and taking damage; a grenade in water reaches only players in water, otherwise a player
+  with the head under water (waterlevel 3) is left out. Line of sight: a trace from the grenade (raised one unit) to
+  the player's body target must reach the player. Adjusted = damage - the distance to the trace's end x damage / 1500,
+  at least 0. Facing (the view's forward against grenade - eye, dot >= 0): fade = adjusted x 1.5, hold = adjusted x
+  0.667, alpha 255; facing away: x 0.75, x 0.5, alpha 200 (not PC CS 1.6's x 3 / 1.5 and x 1.75 / 3.5). Sent white
+  with flags 0x10 through UTIL_ScreenFade (build 0x14B160, write 0x14B1E0, the ScreenFade message id at 0x55297C);
+  bots are blinded through 0x17A140 instead.
+- Client: the ScreenFade handler 0xB6500 keeps the fade at 0x74A244 (speed), 0x74A248 (fade end), 0x74A250 (hold end),
+  0x74A254 (colour, alpha), 0x74A258 (flags), against the client time 0x74A290 (a double): FFADE_IN holds the alpha
+  until the hold end, then falls linearly to 0 at the fade end; 0xB6630 computes it each frame (it clears flag 0x10
+  the first time). Frame-rate independent by construction.
+- The view code 0x4EFC7 (when 0x6E7AAC, only client draw, is 0) calls 0x4D860 every frame, which draws it through
+  the title's GL layer (0x6FF60 glBegin, 0x70ED0 glEnd, 0x71D40 glVertex2f): alpha test off, blend on, depth test
+  off, glOrtho(0, 640, 480, 0, -99999, 99999), SRCALPHA / INVSRCALPHA (FFADE_MODULATE: ZERO / SRCCOLOR), untextured,
+  glBegin(GL_QUADS) with the four screen corners, then the state put back. One technique: a full-screen quad after
+  the world and before the HUD (the HUD stays readable over the white); no gamma ramp, no texture. The glow post pass
+  and the dynamic gamma's measurement come after it, so the measurement sees the white, as on the console.
+
+Why it was missing in both renderers (two causes in the shared runtime; the title's path ran, its quad reached the
+renderers with the right colour, blend and vertices):
+1. ZEnable set inline. glDisable(GL_DEPTH_TEST) (0x708E4) is the library's D3DDevice_SetRenderState_ZEnable copied
+   (its 0x30C / 0x1D78 push and the D3D_RenderState entry 0x317234), not a call, so the runtime kept depth testing
+   on. Four more copies: 0xB9A53 (in the full-screen pass 0xB9880), 0xBE476 (the dynamic gamma's 0xBE1D0), 0xC0FF5
+   and 0xC1313 (the glow passes of the post pass 0xC2160): those passes were depth tested too. SDK patch 0032:
+   SyncDeferred reads ZEnable from the table before every draw (every writer, the library's own and the copies,
+   keeps it).
+2. The near/far cull range. The GL layer turns glDepthRange(n, f) into MinZ = -(n+f)/(f-n), MaxZ = (2-n-f)/(f-n):
+   the 3D view's (0, 1) is MinZ -1, MaxZ 1, which the fade inherits (glViewport keeps the device's MinZ / MaxZ at
+   device+0xEE0, mirrored by the runtime), so glOrtho's z 0 lands at depth -1. The library's lazy state (0x304884)
+   sets NV097_SET_CLIP_MIN / MAX to MinZ and MaxZ times the Z scale for the fixed function (0 and the Z scale for
+   vertex programs and the W buffer), and D3DRS_DEPTHCLIPCONTROL (1 here, D3DDCC_CULLPRIMITIVE) culls outside it:
+   the console keeps the quad, both renderers culled it at 0 to 1. SDK patch 0033: FixedDepthCullRange gives the
+   console's range; the reference renderer clips and culls with it (the depth clamped to the buffer's for the test,
+   compared to within a millionth of the limit: the quad's vertices are on it exactly), the generated fixed function
+   vertex shaders move z into it (DrawConstants::zcull) and the Vulkan viewport's depth range takes it back
+   (VK_EXT_depth_range_unrestricted; without the extension the range stays 0 to 1).
+Found by: the push buffer the quad writes (its combiner setup, begin / end, four 2-float positions) and the draw as the
+runtime saw it (z enable 1); with that fixed, the reference renderer's pixel probe (no fragment from the quad) and
+its shaded vertices (depth -16777215, -zscale).
+
+Results (Vulkan, de_dust2, a flashbang at the feet while looking at it):
+- White during the hold (99.9 % of the playfield at 250 or above; the HUD over it), then a fade to the scene; the
+  fade lasted 7.233 s against the 7.225 s it was sent with, real time within 1 ms of client time. The measurement
+  saw the white (mean 0.974, the ramp's high point to 0.605) and the exposure came back (middle 0.193 -> 0.201, high
+  0.375 both); picture and HUD within 0.6 of their luminance before; Auto Exposure Off (identity ramp, no
+  measurement) and On with the brightness cvar at 1 alike; the pause menu right after a flash as before.
+- Frame rates (vk_flashbang_rates.txt; hold and length differ by where the grenade lands, the server's falloff):
+
+  | rate (VSync) | presented | hold s | length s | lasted s (client / real) | exposure middle before -> after |
+  |---|---|---|---|---|---|
+  | 30 (on) | 30.0 | 2.223 | 7.226 | 7.239 / 7.239 | 0.193 -> 0.198 |
+  | 60 (on) | 60.1 | 2.331 | 7.576 | 7.567 / 7.567 | 0.198 -> 0.202 |
+  | 120 (off) | 119.5 | 2.279 | 7.406 | 7.393 / 7.393 | 0.202 -> 0.203 |
+  | 144 (off) | 143.9 | 2.274 | 7.390 | 7.373 / 7.374 | 0.203 -> 0.202 |
+  | 240 (off) | 236.2 | 2.273 | 7.388 | 7.369 / 7.369 | 0.202 -> 0.205 |
+
+  Every fade ends within one frame of its end (the alpha truncates to 0 in its last 20 ms at the higher rates).
+- Reference renderer (regress_flashbang.txt): white during the hold, the scene after. Headless the exposure after a
+  flash looks dark for a while: the measurement samples the last snapped frame, which was the white one (a harness
+  artifact; the window measures every frame).
+- Regression: the headless suite (22 scenarios) and the window suite (20 tests) pass. vk_auto_exposure.txt, written
+  while the white was missing, failed once: its `exposure recovered` read the first white measurement, 12 s old,
+  because drive.py's `exposure` and `expect quiet` marked the log's end without reading it first (a sleep does not
+  read it); both read it now, and the test passes (middle 0.177 before the flash, 0.173 after).
+
+Remaining uncertainty: no console capture of the flash; the Vulkan depth buffer is D32F, so fixed function fragments
+between MinZ and 0 are tested and written below 0 instead of clamped as the console's integer buffer would (the fade
+draws with the depth test off; nothing else seen lands there); whether CLIP_MIN is inclusive on the NV2A (the quad's
+vertices are exactly on it and the title relies on it being drawn); D3DDCC values other than 1 and reversed ranges
+(MaxZ below MinZ) are left to 0 to 1 (not used by this title).
+
 ## Dynamic gamma (auto exposure, 2026-10-21)
 
 The title's algorithm (0xBDFC0 and below, read in full):
@@ -1154,7 +1229,8 @@ the client's screen fade (ScreenFade at 0xB6500: white, alpha 255, held then fad
 0x4D860 runs (alpha 255 at 0x4D86D, from the view code 0x4EFC7) and draws a full-screen quad through the GL layer
 (depth test off, SRCALPHA / INVSRCALPHA, glColor4ubv), yet the frame shows nothing: a 45-frame burst through the fade
 and a draw list of a frame inside it (no draw with the depth test off) in Vulkan, a reference snapshot at alpha 255.
-The cause is in the shared push-buffer path (not the gamma ramp, which the flash does not use); next to investigate.
+The cause is in the shared push-buffer path (not the gamma ramp, which the flash does not use). Fixed: "Flashbang"
+above (an inlined ZEnable and the fixed function's near/far cull range; it is held about 2 s, then fades over 5).
 
 Remaining uncertainty: the console's exact response (how fast and how far it adapts on hardware) is unverified
 without a capture; the per-map clamps' source; whether a LIN_L8 render target writes blue on the NV2A (the shader
@@ -1209,7 +1285,7 @@ Effects:
 | Character shadows (r_shadows, blob quads) | 1 | "Shadows and HUD colours"; no shadow maps exist (no depth textures used) |
 | Fog | 1 | hardware fog never enabled; de_airstrip's fog is sprite geometry, 25 dB against the reference |
 | Smoke, explosions, grenade effects | 1 | HE fireball, smoke cloud and the flashbang's burst in both renderers alike on de_dust2 |
-| Flashbang white-out (ScreenFade) | 3: missing in both renderers (found in G2) | "Dynamic gamma" below |
+| Flashbang white-out (ScreenFade) | 3: missing in both renderers (found in G2); fixed in G3 | "Flashbang" above |
 | Bullet impacts and decals | 1 | "Decals" (polygon offset); impact marks in both |
 | Transparency and blending | 1 | every blend factor and op in use is mapped; HUD, sprites, glass alike in both |
 | Texture filtering, mipmaps | 1 (GAUSSIANCUBIC 2) | full mip chains, anisotropy x4 honoured, LOD bias 0 |

@@ -38,6 +38,6 @@
 - M7k — Press-a-key rebinding in PC Controls (keys, mouse buttons, wheel, every keyboard layout) ✅ 2026-10-20
 - G1 — Graphics fidelity audit: the title's effects against both renderers, ranked (FINDINGS.md) ✅ 2026-10-21
 - G2 — Dynamic gamma (auto exposure) in Vulkan and in the reference renderer, Auto Exposure in PC Options ✅ 2026-10-21
-- G3 — remaining confirmed differences (the flashbang's white fade, de_aztec's water, GAUSSIANCUBIC); G4 — Xbox
-  Graphical Effects in PC Options; G5 — final validation
+- G3 — remaining confirmed differences: the flashbang's white fade ✅ 2026-10-21; de_aztec's water, GAUSSIANCUBIC;
+  G4 — Xbox Graphical Effects in PC Options; G5 — final validation
 - M8 — PC feature set complete

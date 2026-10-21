@@ -386,3 +386,19 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
 - Tests: vk_auto_exposure.txt, vk_auto_exposure_rates.txt, regress_dynamic_gamma.txt; drive.py exposure steps and
   `expect quiet`.
 - Found: the flashbang's white screen fade is not drawn in either renderer (next).
+
+## 2026-10-21 — Flashbang white-out (G3)
+
+- Traced the effect through the title: the server's RadiusFlash (distance falloff over 1500 units, line of sight,
+  facing: the Xbox's own multipliers) sends a white ScreenFade; the client holds and fades it by its clock and draws
+  it every frame as a full-screen quad through its GL layer (depth test off, glOrtho at GL depth -1).
+- Missing in both renderers for two runtime reasons: the GL layer sets ZEnable through an inlined copy of the
+  library's setter (the runtime kept depth testing on; SDK patch 0032 reads it from the library's table), and the
+  console culls the fixed function at the viewport's MinZ to MaxZ (-1 to 1 here) where both renderers culled at 0 to
+  1 (SDK patch 0033; Vulkan through VK_EXT_depth_range_unrestricted).
+- The white-out holds and fades for the time it was sent with at 30, 60, 120, 144 and 240 frames per second, VSync on
+  and off; the exposure comes back after it, Auto Exposure On or Off.
+- CSX_LOG_FADE=1 logs the fade (src/game/screen_fade.cpp). Tests: vk_flashbang.txt, vk_flashbang_rates.txt,
+  regress_flashbang.txt; drive.py fade steps and `expect regiondiff`.
+- Headless suite (22) and window suite (20) pass. drive.py's `exposure` and `expect quiet` now read the log before
+  marking its end (vk_auto_exposure.txt had read a 12 s old measurement after a sleep).
