@@ -140,6 +140,28 @@ bool HostInputEvent(const SDL_Event& e) {
     }
 }
 
+// "mouse" request "stream DX DY N HZ" (tests): N relative motions of DX DY counts pushed from an SDL timer thread at
+// HZ a second, so they reach the event queue as a mouse's do, whenever the window loop is between polls
+struct MouseStream {
+    std::atomic<int> left{0};
+    float dx = 0, dy = 0;
+    SDL_WindowID window = 0;
+    int total = 0;
+};
+MouseStream g_stream;
+Uint64 StreamTick(void*, SDL_TimerID, Uint64 interval) {
+    SDL_Event ev{};
+    ev.type = SDL_EVENT_MOUSE_MOTION;
+    ev.motion.windowID = g_stream.window;
+    ev.motion.which = window::kInjectedDevice;
+    ev.motion.xrel = g_stream.dx;
+    ev.motion.yrel = g_stream.dy;
+    SDL_PushEvent(&ev);
+    if (--g_stream.left > 0) return interval;
+    LOGI("window: mouse stream done, %d motions", g_stream.total);
+    return 0;
+}
+
 // the frame scaled to the window at the title's display aspect (4:3, or PC widescreen's), whatever the surface's own
 // size (640x960 for CS)
 SDL_FRect Letterbox(int ww, int wh, float aspect) {
@@ -303,7 +325,12 @@ int main(int argc, char** argv) {
     if (test_input_only) LOGI("window: test input only, host keyboard, mouse and gamepads ignored");
     for (bool quit = false; !quit;) {
         auto tnow = std::chrono::steady_clock::now();
-        if (FILE* kf = std::fopen(keys_file.c_str(), "r")) {
+        // the request files every 5 ms (the loop wakes for each mouse event)
+        static auto next_files = tnow;
+        const bool files = tnow >= next_files;
+        if (files) next_files = tnow + std::chrono::milliseconds(5);
+        auto request = [&](const std::string& path) { return files ? std::fopen(path.c_str(), "r") : nullptr; };
+        if (FILE* kf = request(keys_file)) {
             char name[64] = {};
             double secs = 0.1;
             if (std::fscanf(kf, "%63s %lf", name, &secs) >= 1) {
@@ -327,7 +354,7 @@ int main(int argc, char** argv) {
         }
         // "winctl" request (tests): "fullscreen 1|0" changes the window as a compositor's own key would (the settings
         // untouched)
-        if (FILE* wf = std::fopen(winctl_file.c_str(), "r")) {
+        if (FILE* wf = request(winctl_file)) {
             int on = 0;
             if (std::fscanf(wf, "fullscreen %d", &on) == 1) {
                 SDL_SetWindowFullscreen(win, on != 0);
@@ -336,7 +363,7 @@ int main(int argc, char** argv) {
             std::fclose(wf);
             std::remove(winctl_file.c_str());
         }
-        if (FILE* tf = std::fopen(text_file.c_str(), "r")) {
+        if (FILE* tf = request(text_file)) {
             char text[256] = {};
             if (std::fgets(text, sizeof text, tf)) {
                 typed.emplace_back(text);
@@ -352,13 +379,25 @@ int main(int argc, char** argv) {
             std::fclose(tf);
             std::remove(text_file.c_str());
         }
-        if (FILE* mf = std::fopen(mouse_file.c_str(), "r")) {
+        if (FILE* mf = request(mouse_file)) {
             float dx = 0, dy = 0;
             char word[16] = {};
             double secs = 0.1;
             int n = 0;
             long at = std::ftell(mf);
-            if (std::fscanf(mf, "button %d %lf", &n, &secs) >= 1 && n > 0) {
+            double hz = 0;
+            if (std::fscanf(mf, "stream %f %f %d %lf", &dx, &dy, &n, &hz) == 4 && n > 0 && hz > 0) {
+                if (g_stream.left == 0) {
+                    g_stream.dx = dx;
+                    g_stream.dy = dy;
+                    g_stream.total = n;
+                    g_stream.window = SDL_GetWindowID(win);
+                    g_stream.left = n;
+                    LOGI("window: mouse stream of %d motions of %g %g at %g a second", n, dx, dy, hz);
+                    SDL_AddTimerNS(Uint64(1e9 / hz), StreamTick, nullptr);
+                }
+            } else if (std::fseek(mf, at, SEEK_SET) == 0 && std::fscanf(mf, "button %d %lf", &n, &secs) >= 1 &&
+                       n > 0) {
                 push_button(uint8_t(n), true);
                 held.push_back({SDLK_UNKNOWN, tnow + std::chrono::milliseconds(long(secs * 1000)), uint8_t(n)});
             } else if (std::fseek(mf, at, SEEK_SET) == 0 && std::fscanf(mf, "%15s %d", word, &n) == 2 &&
@@ -481,13 +520,16 @@ int main(int argc, char** argv) {
         if (g_vulkan) {
             // the backend presents; shot requests go to it, the loop only handles events
             const std::string shot_file = (app::ExeDir() / "shot").string();
-            if (FILE* sf = std::fopen(shot_file.c_str(), "r")) {
+            if (FILE* sf = request(shot_file)) {
                 char name[64] = {};
                 if (std::fscanf(sf, "%63s", name) == 1) window::RequestShot(name);
                 std::fclose(sf);
                 std::remove(shot_file.c_str());
             }
-            SDL_Delay(5);
+            // until the next event, 5 ms at most: a mouse's motion is read as it comes, not in 5 ms batches (at frame
+            // rates past 200 a fixed sleep left some frames without the motion that came in and gave the next two
+            // batches: the view turned unevenly)
+            SDL_WaitEventTimeout(nullptr, 5);
             auto now = std::chrono::steady_clock::now();
             if (now - last_flush > std::chrono::seconds(1)) {
                 logx::Flush();

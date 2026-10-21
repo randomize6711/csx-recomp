@@ -2,7 +2,7 @@
 """Runs window scenarios (tests/scenarios/vk_*.txt) in the Vulkan window build, each in its own headless gamescope
 (nothing on the desktop, no host input: CSX_TEST_INPUT_ONLY as drive.py sets it), no audio device (CSX_AUDIO=null).
 
-Usage: python3 -I tools/run_window_tests.py [SCENARIO ...]   (default: the mouse, binding, console, movement, spectator, display, loading and VSync window tests)
+Usage: python3 -I tools/run_window_tests.py [SCENARIO ...]   (default: the mouse, binding, console, movement, spectator, display, loading, VSync and raw mouse window tests)
 
 Each scenario's header (its leading # lines) gives its gamescope size ("gamescope --backend headless -W W -H H") and
 its refresh rate when given ("... -H H -r HZ"), and its drive.py options (--env NAME=VALUE, --pc NAME=VALUE, --launch DIR); in values $PWD is the repository and \\n a
@@ -20,7 +20,7 @@ DEFAULT = ['vk_menu_pointer_43.txt', 'vk_menu_pointer_169.txt', 'vk_menu_pointer
            'vk_menu_pointer_43_full.txt', 'vk_menu_mouse_fe.txt', 'vk_menu_mouse.txt', 'vk_bind_capture.txt',
            'vk_console.txt', 'vk_movement.txt', 'vk_spectator.txt',
            'vk_display_mode.txt', 'vk_menu_pointer_pause.txt', 'vk_loading.txt', 'vk_vsync.txt',
-           'vk_vsync_play.txt']
+           'vk_vsync_play.txt', 'vk_mouse_raw.txt']
 
 
 def options(path):

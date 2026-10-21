@@ -61,6 +61,8 @@ press DOWN
 sleep 1
 press DOWN
 sleep 1
+press DOWN
+sleep 1
 press RIGHT
 sleep 1
 press A

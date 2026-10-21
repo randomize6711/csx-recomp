@@ -17,11 +17,16 @@
 // Keys by layout: letters are the letter the layout prints; the digit row and the punctuation keys are taken by their
 // position (US names: Swedish Å is [, Ö ;, Ä ', the key left of Z <), so every layout can bind them; the menus show
 // them as the layout prints them (CSX_KEY_LABELS, set here once the window is up).
-// Mouse look: while the mouse is captured (relative mode, SDL's unaccelerated motion), each count turns the view by
-// 0.022 degrees x the sensitivity (CSX_MOUSE_SENS, else Options > PC Options, else 3: GoldSrc's m_yaw / m_pitch and
+// Mouse look: while the mouse is captured (relative mode), each count turns the view by 0.022 degrees x the
+// sensitivity (CSX_MOUSE_SENS, else Options > PC Options, else 3: GoldSrc's m_yaw / m_pitch and
 // CS's default) through the title's look routine (src/game/mouse_look.cpp); CSX_MOUSE_INVERT=1 inverts the pitch.
 // CSX_MOUSE=stick feeds the right stick instead, as before (the title's stick response, acceleration and aim assist
 // apply then).
+// Raw Mouse Input (PC Options, pc_settings.ini "mouse_raw", on unless "0"): On, SDL's relative motion is the device's
+// own counts (Wayland's zwp_relative_pointer_v1 unaccelerated deltas, X11's XInput2 raw values), nothing applied to
+// them by the desktop; Off, the desktop's pointer motion instead (the compositor's or X server's acceleration and
+// speed, Wayland's pointer scale): SDL_HINT_MOUSE_RELATIVE_SYSTEM_SCALE, which SDL reads at every motion, so a change
+// applies at once. Either way the game adds no curve, smoothing or frame time to it.
 #include <SDL3/SDL.h>
 
 #include <algorithm>
@@ -437,10 +442,29 @@ void HandleEvent(const void* p) {
 
 void EndFrameInput() {}
 
+// Raw Mouse Input, applied when the setting changes (the window thread)
+void ApplyMouseSettings() {
+    static unsigned seen = ~0u;
+    if (pc::Version() == seen) return;
+    seen = pc::Version();
+    static int applied = -1;
+    const int raw = pc::Get("mouse_raw", "1") != "0";
+    if (raw == applied) return;
+    applied = raw;
+    SDL_SetHint(SDL_HINT_MOUSE_RELATIVE_SYSTEM_SCALE, raw ? "0" : "1");
+    const char* driver = SDL_GetCurrentVideoDriver();
+    const bool wayland = driver && !std::strcmp(driver, "wayland");
+    LOGI("input: Raw Mouse Input %s: %s (video driver %s)", raw ? "on" : "off",
+         raw ? (wayland ? "the relative pointer's unaccelerated deltas" : "XInput2 raw values")
+             : (wayland ? "the compositor's accelerated pointer deltas, scaled" : "the X server's accelerated motion"),
+         driver ? driver : "?");
+}
+
 // once per window frame (the window thread): the console's text input on while it is open, the keys held for the
 // game let go when it opens; the mouse captured while playing and free over the menus and the console (its pointer
 // shown), captured again when play resumes
 void UpdateConsole() {
+    ApplyMouseSettings();
     bool open = csx::ConsoleOpen();
     std::lock_guard<std::mutex> lock(g_lock);
     SDL_Window* win = static_cast<SDL_Window*>(SdlWindow());
@@ -466,10 +490,26 @@ void UpdateConsole() {
     const bool free = g_console || csx::MenuOpen();
     const bool focused = (SDL_GetWindowFlags(win) & SDL_WINDOW_INPUT_FOCUS) != 0;
     const bool want = !free && g_capture_play && focused;
-    if (want != SDL_GetWindowRelativeMouseMode(win)) {
-        SDL_SetWindowRelativeMouseMode(win, want);
-        LOGI("input: mouse %s", want ? "captured (playing)" : free ? "free (menu or console)" : "free");
+    static bool failed = false;  // relative mode refused (logged once; asked again only when wanted anew)
+    if (want != SDL_GetWindowRelativeMouseMode(win) && !(want && failed)) {
+        // SDL drops the motion still queued from before the switch: no turn from the menu's pointer, none left over
+        if (!SDL_SetWindowRelativeMouseMode(win, want)) {
+            failed = true;
+            LOGW("input: relative mouse mode refused: %s", SDL_GetError());
+        } else {
+            LOGI("input: mouse %s", want ? "captured (playing)" : free ? "free (menu or console)" : "free");
+            static bool logged = false;
+            if (want && !logged) {
+                logged = true;
+                const char* driver = SDL_GetCurrentVideoDriver();
+                LOGI("input: relative mouse mode on through %s", driver && !std::strcmp(driver, "wayland")
+                         ? "Wayland's relative pointer and pointer lock (native relative motion)"
+                         : driver && !std::strcmp(driver, "x11") ? "X11 XInput2 raw motion"
+                                                                 : driver ? driver : "?");
+            }
+        }
     }
+    if (!want) failed = false;
     static int mode = -1;  // what the log said last: 0 captured, 1 menu or console, 2 released by the player
     int now = !free ? (g_capture_play ? 0 : 2) : 1;
     if (now != mode) {

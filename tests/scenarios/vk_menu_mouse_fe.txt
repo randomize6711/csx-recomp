@@ -64,7 +64,7 @@ sleep 0.5
 click 1
 sleep 3
 expect log pc mouse: screen SuperLauncher_PCOptions,
-point 545 173
+point 545 199
 sleep 0.5
 click 1
 sleep 1
@@ -73,7 +73,7 @@ sleep 0.5
 click 1
 sleep 1.5
 expect log pc menu: SuperLauncher_PCOptions shows its defaults
-point 545 173
+point 545 199
 sleep 0.5
 click 1
 sleep 1

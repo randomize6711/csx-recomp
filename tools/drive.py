@@ -37,6 +37,8 @@ per line, executed in order:
     expect steady NAME N           the window burst NAME_0..N-1 has no frame showing the picture before last again (flicker)
     expect tracked NAME rose|moved MIN MAX  a track step's height risen or distance moved in [MIN, MAX]
     expect fps MIN MAX             presented frames per second (the renderer's frame lines) in [MIN, MAX]
+    expect mousespread MAX         the last whole seconds of a mouse stream (every look pass moved, src/game/
+                                   mouse_look.cpp) turned evenly: spread (deviation over mean per pass) at most MAX
     expect setting NAME VALUE      the run's pc_settings.ini holds NAME = VALUE (what PC Options saved)
     expect movetime MIN MAX        the movement commands' milliseconds per real second (the last two "pc frame" lines,
                                    src/game/pc_frame.cpp) in [MIN, MAX]: the game's movement keeps real time
@@ -45,6 +47,8 @@ per line, executed in order:
     expect heading A B MAXDEG [OFF] the move from A to B points along A's yaw (+ OFF degrees: 90 left, -90 right, 180
                                    back, -45 forward right) within MAXDEG degrees
     mouse DX DY             (window build) relative mouse motion in counts, through the window's mouse look
+    mousestream DX DY N HZ  (window build) N relative motions of DX DY counts at HZ a second from an SDL timer
+                            thread (they arrive between the window's polls, as a mouse's do); waits until all are sent
     count REGEX N           until N log lines match REGEX (no spaces: write . for them)
     look RIGHT UP           turn the view by degrees through the mouse look hook (src/game/mouse_look.cpp)
     pokefile FILE           every "VA FLOAT" line of FILE (relative to the repository) written at once
@@ -310,6 +314,10 @@ def main():
             elif kind == 'mouse':
                 send_file('mouse', st[1] + ' ' + st[2])
                 good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'mouse')))
+            elif kind == 'mousestream':
+                done = sum(1 for l in log.lines if 'mouse stream done' in l)
+                send_file('mouse', 'stream ' + ' '.join(st[1:5]))
+                good = wait_until(lambda: sum(1 for l in log.lines if 'mouse stream done' in l) > done)
             elif kind == 'count':
                 # count REGEX N: until N log lines match (the Nth round end, ...)
                 rx = re.compile(st[1])
@@ -457,6 +465,18 @@ def main():
                     rate = (f1 - f0) / (t1 - t0) if t1 > t0 and f1 > f0 else None
                 print(f'     presented {rate:.1f} frames per second' if rate else '     no frame count')
                 good = rate is not None and float(st[2]) <= rate <= float(st[3])
+            elif kind == 'expect' and st[1] == 'mousespread':
+                # expect mousespread MAX: "mouse look" lines where every pass moved (the stream's whole seconds)
+                time.sleep(1.2)
+                log.poll()
+                spreads = []
+                for l in log.lines[-400:]:
+                    m = re.search(r'mouse look: .*moved in (\d+) of (\d+) passes, .*spread ([0-9.]+)', l)
+                    if m and m.group(1) == m.group(2) and int(m.group(2)) > 0:
+                        spreads.append(float(m.group(3)))
+                spreads = spreads[-2:]
+                print('     spread %s' % ', '.join('%.2f' % v for v in spreads) if spreads else '     no whole second')
+                good = bool(spreads) and all(v <= float(st[2]) for v in spreads)
             elif kind == 'expect' and st[1] == 'setting':
                 # expect setting NAME VALUE: the saved pc_settings.ini line
                 saved = {}
