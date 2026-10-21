@@ -6,6 +6,8 @@
 # closed with Escape, and the mouse still turns it.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), with
 #   --launch tests/launch/de_airstrip_beginner
+# The bots stand still (bot_zombie): the round cannot end by their fight while the spectator is checked (it
+# once ended 0.2 s after the player's death and the next round's buy menu took the mouse).
 wait log open D:\\de_airstrip.sxwad
 sleep 25
 key Down
@@ -16,6 +18,7 @@ key Space
 sleep 20
 key Left_Ctrl
 sleep 15
+pckey cmd bot_zombie 1
 expect log input: mouse mode play \(captured\)
 state a0
 key Tab 3
