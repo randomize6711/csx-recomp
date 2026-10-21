@@ -1,0 +1,137 @@
+# Auto exposure (the title's dynamic gamma, cl_dynamicgamma) in the Vulkan window (FINDINGS.md "Dynamic gamma",
+# src/game/dynamic_gamma.cpp, src/vulkan/vk_backend.cpp DeliverLate / RecordLate): the title's 40x60 LIN_L8 luminance
+# measurement is copied back late (never waited for) and its histogram drives the gamma ramp. Checked on an empty
+# de_dust2 (no bots: nothing ends the round): the measurement reads the frame (mean above 0), the ramp's points settle
+# and stay (no drift over 10 s), looking at the floor and at the sky moves them and looking back returns them; the
+# pause menu shows the title's identity ramp and the ramp comes back after it; after a flashbang at the player's feet
+# the exposure settles on the changed scene (its white screen fade is not drawn by either renderer yet, FINDINGS.md); PC
+# Options > Auto Exposure Off (by mouse: the row's arrow, a double click accepting) saves "0", stops the measurement
+# and sets the identity ramp, On (as Accept does) starts it again.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), with
+#   --launch tests/launch/de_dust2_nobots --env CSX_VK_AUDIT=1 --env CSX_LOG_DYNGAMMA=1
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+expect log pc: Auto Exposure on
+sleep 25
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 20
+key Left_Ctrl
+sleep 15
+expect log vulkan: target .* \(40x60, 8 bit\) read late by the title
+exposure start
+expect exposure start mean 0.1 0.5
+expect exposure start dark 0.03 0.3
+expect exposure start high 0.37 0.40
+expect exposure start low 0.04 0.13
+expect exposuretrack start 0.035
+windowshot level
+sleep 10
+exposure level
+expect exposurediff start level low -0.02 0.02
+expect exposurediff start level high -0.02 0.02
+expect exposurediff start level middle -0.02 0.02
+mousestream 0 80 26 60
+sleep 8
+exposure floor
+windowshot floor
+expect exposurediff level floor mean -0.15 -0.015
+expect exposurediff level floor middle -0.15 -0.01
+expect exposuretrack floor 0.035
+mousestream 0 -80 26 60
+sleep 8
+exposure sky
+windowshot sky
+mousestream 0 40 26 60
+sleep 8
+exposure back
+expect exposurediff level back mean -0.02 0.02
+expect exposurediff level back middle -0.03 0.03
+expect exposurediff level back low -0.03 0.03
+key Escape
+sleep 2
+expect log pc mouse: screen InGame_Root
+expect log audit: gamma ramp 16 -> 16, 32 -> 32, 64 -> 64, 128 -> 128, 192 -> 192 at frame [0-9]+ \(change [0-9]+\), identity
+count audit:.gamma.ramp.16.->.16,.32.->.32,.64.->.64,.128.->.128,.192.->.192.*identity 2
+key Escape
+sleep 3
+exposure aftermenu
+expect exposurediff level aftermenu middle -0.03 0.03
+count audit:.gamma.ramp 4
+pckey cmd +buymenu
+sleep 0.2
+pckey cmd -buymenu
+sleep 1.5
+pckey pointer 227 351
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 157 321
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey mclick 2
+sleep 1
+pckey mclick 2
+sleep 2
+pckey key 52 1
+sleep 0.1
+pckey key 52 0
+sleep 1.5
+state fb
+expect weapon fb 25
+mousestream 0 40 10 60
+sleep 3
+exposure preflash
+windowshot preflash
+pckey cmd +attack
+sleep 0.3
+pckey cmd -attack
+sleep 1.7
+windowshot flash
+sleep 12
+exposure recovered
+windowshot recovered
+expect exposuretrack preflash 0.035
+expect exposuretrack recovered 0.035
+key Escape
+sleep 2
+point 300 271
+sleep 0.5
+click 1
+sleep 2
+point 300 249
+sleep 0.5
+click 1
+sleep 2
+expect log pc mouse: screen InGame_PCOptions, 11 rows
+point 545 329
+sleep 0.5
+click 1
+sleep 1
+point 200 329
+sleep 0.5
+click 11
+sleep 2
+expect log pc: auto_exposure = 0
+expect setting auto_exposure 0
+click 3
+sleep 2
+point 300 141
+sleep 0.5
+click 1
+sleep 3
+expect log pc: Auto Exposure off, the title's identity ramp set
+expect quiet dynamic.gamma: 4
+windowshot off
+pckey set auto_exposure 1
+sleep 1
+expect log pc: Auto Exposure on
+exposure on
+sleep 8
+exposure on8
+expect exposure on8 high 0.37 0.40
+expect exposure on8 low 0.04 0.13
+expect nolog vulkan: .* failed

@@ -176,8 +176,23 @@ struct Image {
 struct Target : Image {
     uint32_t data = 0;
     uint32_t gw = 0, gh = 0;
-    uint32_t pitch = 0;   // guest bytes per row, for writing results back (linear 32 bit surfaces)
+    uint32_t pitch = 0;   // guest bytes per row, for writing results back (linear 32 bit and 8 bit surfaces)
     bool linear32 = false;
+    bool linear8 = false;  // LIN_L8: one byte a pixel, the blue channel (the console's B8 surface format)
+    uint64_t drawn = 0;    // draws and clears into it, so a late copy is only made of new contents
+};
+
+// a target the CPU reads without waiting (SyncLate): copies made after the draws into two alternating host buffers,
+// the newest finished one written to guest memory at the next read
+struct LateCopy {
+    VkBuffer buf[2] = {};
+    VkDeviceMemory mem[2] = {};
+    uint8_t* map[2] = {};
+    uint64_t frame[2] = {};  // frame_ + 1 when recorded, 0 for none
+    uint64_t delivered = 0;  // the frame value last written to guest memory
+    uint64_t drawn = ~0ull;  // the target's draw count at the last copy
+    uint32_t w = 0, h = 0, next = 0;
+    Target down;             // the guest-sized copy of a target drawn at another scale
 };
 
 struct Texture : Image {
@@ -252,7 +267,12 @@ public:
     // the CPU is about to read a resource: a render target's GPU result written to its guest memory first (the title
     // reads its front buffer for PersistDisplay before a relaunch)
     void Sync(uint32_t va, uint32_t size) override;
-    void SyncLate(uint32_t) override {}
+    void SyncLate(uint32_t va) override {
+        DeliverLate(va);
+        RecordLate(va);
+    }
+    bool DeliverLate(uint32_t va) override;
+    void RecordLate(uint32_t va) override;
     void Flush() override { Submit(true); }
     // the title's gamma ramp (3 x 256 bytes), applied at the present as the console's display hardware does
     void SetGamma(const uint8_t* r) override {
@@ -264,11 +284,21 @@ public:
         static const bool audit = std::getenv("CSX_VK_AUDIT") != nullptr;
         static int last = -1;
         static uint64_t changes = 0;
+        // every change into an identity or white ramp (menus, Auto Exposure off, a flashbang), the first 40 others,
+        // then at most one a second
+        static auto logged = std::chrono::steady_clock::time_point{};
         int sum = 0;
-        for (int i = 0; i < 256; i++) sum = sum * 31 + r[i];
-        if (audit && sum != last && (changes++ < 40 || changes % 64 == 0))
-            LOGI("audit: gamma ramp 16 -> %u, 32 -> %u, 64 -> %u, 128 -> %u, 192 -> %u at frame %llu (change %llu)", r[16],
-                 r[32], r[64], r[128], r[192], (unsigned long long)presents_, (unsigned long long)changes);
+        bool white = true;
+        for (int i = 0; i < 256; i++) sum = sum * 31 + r[i], white = white && r[i] == 255;
+        auto now = std::chrono::steady_clock::now();
+        if (audit && sum != last &&
+            (gamma_identity_ || white || changes < 40 || now - logged >= std::chrono::seconds(1))) {
+            LOGI("audit: gamma ramp 16 -> %u, 32 -> %u, 64 -> %u, 128 -> %u, 192 -> %u at frame %llu (change %llu)%s", r[16],
+                 r[32], r[64], r[128], r[192], (unsigned long long)presents_, (unsigned long long)changes + 1,
+                 gamma_identity_ ? ", identity" : white ? ", white" : "");
+            logged = now;
+        }
+        if (sum != last) changes++;
         last = sum;
     }
 
@@ -375,6 +405,11 @@ private:
     bool scale_failed_ = false;
     uint32_t max_image_ = 8192;
     Target readback_;  // a scaled target brought to its guest size for a guest read
+    std::unordered_map<uint32_t, LateCopy> late_;  // by target data
+    Target* FindColourTarget(uint32_t va);
+    Image* GuestSized(Target& t, Target& down);
+    unsigned long long late_copies_ = 0, late_delivered_ = 0;
+    void WriteBack(const Target& t, uint32_t va, const uint8_t* bgra, uint32_t w, uint32_t h);
     std::chrono::steady_clock::time_point fps_t_ = std::chrono::steady_clock::now();
     uint32_t audit_additive_ = 0, audit_last_additive_ = 0;
     unsigned long long draws_ = 0, dropped_[4] = {}, wraps_ = 0, peak_ = 0, frame_draws_ = 0;
@@ -848,6 +883,9 @@ Target* VulkanBackend::EnsureTarget(const Surface& s, bool depth) {
         if (!depth && DescribeSurface(s, d) && d.linear && Format(d.format).bits == 32 && Format(d.format).host == Host::BGRA8) {
             t.linear32 = true;
             t.pitch = d.pitch ? d.pitch : w * 4;
+        } else if (!depth && d.linear && Format(d.format).bits == 8) {
+            t.linear8 = true;
+            t.pitch = d.pitch ? d.pitch : w;
         }
         LOGI("vulkan: %s target %08X %ux%u drawn at %ux%u", depth ? "depth" : "colour", s.data, w, h, t.w, t.h);
         // a new target starts cleared, as fresh console memory reads; its guest contents are not loaded yet
@@ -932,6 +970,7 @@ void VulkanBackend::Clear(const State& s, uint32_t count, const uint8_t* rects, 
     Target* rt = (flags & kClearTarget) ? EnsureTarget(s.rt, false) : nullptr;
     Target* ds = (flags & (kClearZ | kClearStencil)) ? EnsureTarget(s.zs, true) : nullptr;
     if (!rt && !ds) return;
+    if (rt) rt->drawn++;
     // the bound pair, so the clear runs inside the same rendering scope draws use
     BeginRendering(s.rt.header ? EnsureTarget(s.rt, false) : nullptr, s.zs.header ? EnsureTarget(s.zs, true) : nullptr);
     VkClearAttachment at[2];
@@ -1387,6 +1426,7 @@ void VulkanBackend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t
     Target* rt = s.rt.header ? EnsureTarget(s.rt, false) : nullptr;
     Target* ds = s.zs.header ? EnsureTarget(s.zs, true) : nullptr;
     if (!rt && !ds) return;
+    if (rt) rt->drawn++;
 
     // shaders, by the keys the HLSL is a function of (generating and hashing the source per draw cost most of the
     // recording time)
@@ -1587,40 +1627,60 @@ void VulkanBackend::Copy(const Surface& src, const Surface& dst, uint32_t, uint3
     LOG_FIRST(4, "vulkan: CopyRects is not done yet");
 }
 
+Target* VulkanBackend::FindColourTarget(uint32_t va) {
+    Target* t = nullptr;
+    for (auto& [key, other] : targets_)
+        if (!(key >> 63) && other.data == mem::PhysicalFromVirtual(va)) t = &other;
+    return t;
+}
+
+// the target at its guest size for a copy: itself, or shrunk into down when drawn at another scale (the guest reads
+// its own surface); recorded after the frame's draws so far
+Image* VulkanBackend::GuestSized(Target& t, Target& down) {
+    EndRendering();
+    Barrier(t, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    if (t.w == t.gw && t.h == t.gh) return &t;
+    if (down.image && (down.w != t.gw || down.h != t.gh)) FreeImage(down);
+    if (!down.image &&
+        !MakeImage(down, t.gw, t.gh, kColorFormat, 1, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, false))
+        return nullptr;
+    Barrier(down, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkImageBlit blit{};
+    blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    blit.srcOffsets[1] = {int(t.w), int(t.h), 1};
+    blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    blit.dstOffsets[1] = {int(t.gw), int(t.gh), 1};
+    vkCmdBlitImage(Cmd(), t.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, down.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                   &blit, VK_FILTER_LINEAR);
+    Barrier(down, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    return &down;
+}
+
+// rows of BGRA pixels (w x rows, tightly packed) into the guest surface: 32 bit as they are, LIN_L8 as the blue byte
+void VulkanBackend::WriteBack(const Target& t, uint32_t va, const uint8_t* bgra, uint32_t w, uint32_t rows) {
+    for (uint32_t y = 0; y < rows; y++) {
+        const uint8_t* row = bgra + size_t(y) * w * 4;
+        uint8_t* dst = static_cast<uint8_t*>(kernel::HostPtr(va + y * t.pitch));
+        if (t.linear8)
+            for (uint32_t x = 0; x < w; x++) dst[x] = row[x * 4];
+        else
+            std::memcpy(dst, row, size_t(w) * 4);
+    }
+}
+
 void VulkanBackend::Sync(uint32_t va, uint32_t size) {
     static const bool audit = std::getenv("CSX_VK_AUDIT") != nullptr;
     static uint64_t syncs = 0;
     uint64_t n = syncs++;
     if (audit && (n < 8 || n % 1024 == 0)) LOGI("audit: lock %08X size %u (%llu)", va, size, (unsigned long long)n + 1);
-    Target* t = nullptr;
-    for (auto& [key, other] : targets_)
-        if (!(key >> 63) && other.data == mem::PhysicalFromVirtual(va)) t = &other;
+    Target* t = FindColourTarget(va);
     if (!t) return;
-    if (!t->linear32) {
-        LOG_FIRST(4, "vulkan: a guest read of a swizzled or non 32 bit target is not written back");
+    if (!t->linear32 && !t->linear8) {
+        LOG_FIRST(4, "vulkan: a guest read of a swizzled target or of an unsupported format is not written back");
         return;
     }
-    EndRendering();
-    Barrier(*t, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-    Image* src = t;
-    if (t->w != t->gw || t->h != t->gh) {
-        // drawn at the internal resolution: brought to the guest size first (the guest reads its own surface)
-        if (readback_.image && (readback_.w != t->gw || readback_.h != t->gh)) FreeImage(readback_);
-        if (!readback_.image &&
-            !MakeImage(readback_, t->gw, t->gh, kColorFormat, 1,
-                       VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, false))
-            return;
-        Barrier(readback_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        VkImageBlit blit{};
-        blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-        blit.srcOffsets[1] = {int(t->w), int(t->h), 1};
-        blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-        blit.dstOffsets[1] = {int(t->gw), int(t->gh), 1};
-        vkCmdBlitImage(Cmd(), t->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback_.image,
-                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
-        Barrier(readback_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-        src = &readback_;
-    }
+    Image* src = GuestSized(*t, readback_);
+    if (!src) return;
     VkDeviceSize bytes = VkDeviceSize(src->w) * src->h * 4;
     Alloc a = Upload(bytes, 16);
     VkBufferImageCopy c{};
@@ -1629,11 +1689,97 @@ void VulkanBackend::Sync(uint32_t va, uint32_t size) {
     c.imageExtent = {src->w, src->h, 1};
     vkCmdCopyImageToBuffer(Cmd(), src->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, frames_[frame_ % kFrames].upload, 1, &c);
     Submit(true);
-    uint32_t rows = std::min<uint32_t>(src->h, t->pitch ? size / t->pitch : 0);
-    for (uint32_t y = 0; y < rows; y++)
-        std::memcpy(kernel::HostPtr(va + y * t->pitch), static_cast<const uint8_t*>(a.cpu) + size_t(y) * src->w * 4,
-                    src->w * 4);
+    WriteBack(*t, va, static_cast<const uint8_t*>(a.cpu), src->w, std::min<uint32_t>(src->h, t->pitch ? size / t->pitch : 0));
     LOG_FIRST(4, "vulkan: target %08X (%ux%u) written back for a guest read", t->data, t->gw, t->gh);
+}
+
+// SyncLate's halves (the title's thread, in order with its draws). DeliverLate writes the newest finished copy of the
+// target to guest memory, never waiting: until one has finished the guest reads its memory as it is, as on the
+// console. RecordLate copies the target after the draws so far, when it was drawn since the last copy.
+bool VulkanBackend::DeliverLate(uint32_t va) {
+    Target* t = FindColourTarget(va);
+    if (!t) return false;
+    auto it = late_.find(t->data);
+    if (it == late_.end()) return false;
+    LateCopy& l = it->second;
+    auto finished = [&](uint64_t f) {  // f is frame_ + 1 at the copy
+        if (!f || f - 1 >= frame_) return false;  // not recorded, or still in the open frame
+        return frame_ - (f - 1) >= kFrames || vkGetFenceStatus(dev_, frames_[(f - 1) % kFrames].fence) == VK_SUCCESS;
+    };
+    int best = -1;
+    for (int i = 0; i < 2; i++)
+        if (finished(l.frame[i]) && (best < 0 || l.frame[i] > l.frame[best])) best = i;
+    if (best < 0) return false;
+    if (l.frame[best] > l.delivered) {
+        WriteBack(*t, va, l.map[best], l.w, l.h);
+        l.delivered = l.frame[best];
+        late_delivered_++;
+    }
+    return true;
+}
+
+void VulkanBackend::RecordLate(uint32_t va) {
+    Target* t = FindColourTarget(va);
+    if (!t) return;
+    if (!t->linear32 && !t->linear8) {
+        LOG_FIRST(4, "vulkan: a late read of a swizzled target or of an unsupported format is not copied");
+        return;
+    }
+    LateCopy& l = late_[t->data];
+    if (l.drawn == t->drawn) return;  // nothing new since the last copy
+    if (l.w != t->gw || l.h != t->gh) {
+        for (int i = 0; i < 2; i++) {
+            if (!l.buf[i]) continue;
+            vkDeviceWaitIdle(dev_);  // a target of another size at this address: rare (a mode change)
+            vkDestroyBuffer(dev_, l.buf[i], nullptr);
+            vkFreeMemory(dev_, l.mem[i], nullptr);
+            l.buf[i] = VK_NULL_HANDLE;
+        }
+        l.w = t->gw;
+        l.h = t->gh;
+        l.frame[0] = l.frame[1] = 0;
+        for (int i = 0; i < 2; i++) {
+            VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+            bi.size = VkDeviceSize(l.w) * l.h * 4;
+            bi.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+            VKCHECK(vkCreateBuffer(dev_, &bi, nullptr, &l.buf[i]));
+            VkMemoryRequirements mr;
+            vkGetBufferMemoryRequirements(dev_, l.buf[i], &mr);
+            VkMemoryAllocateInfo ma{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+            ma.allocationSize = mr.size;
+            ma.memoryTypeIndex = MemoryType(mr.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                                                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+            VKCHECK(vkAllocateMemory(dev_, &ma, nullptr, &l.mem[i]));
+            VKCHECK(vkBindBufferMemory(dev_, l.buf[i], l.mem[i], 0));
+            VKCHECK(vkMapMemory(dev_, l.mem[i], 0, bi.size, 0, reinterpret_cast<void**>(&l.map[i])));
+        }
+        LOGI("vulkan: target %08X (%ux%u%s) read late by the title: copied after it is drawn", t->data, l.w, l.h,
+             t->linear8 ? ", 8 bit" : "");
+    }
+    Image* src = GuestSized(*t, l.down);
+    if (!src) return;
+    uint32_t slot = l.next;
+    VkBufferImageCopy c{};
+    c.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    c.imageExtent = {l.w, l.h, 1};
+    vkCmdCopyImageToBuffer(Cmd(), src->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, l.buf[slot], 1, &c);
+    // the host reads the buffer once the frame's fence has signalled
+    VkBufferMemoryBarrier2 b{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+    b.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+    b.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    b.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+    b.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
+    b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.buffer = l.buf[slot];
+    b.size = VK_WHOLE_SIZE;
+    VkDependencyInfo d{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    d.bufferMemoryBarrierCount = 1;
+    d.pBufferMemoryBarriers = &b;
+    vkCmdPipelineBarrier2(Cmd(), &d);
+    l.frame[slot] = frame_ + 1;
+    l.next = slot ^ 1;
+    l.drawn = t->drawn;
+    late_copies_++;
 }
 
 void VulkanBackend::SaveShot(Image& t, const std::string& name) {
@@ -1999,6 +2145,8 @@ void VulkanBackend::Present(const Surface& front) {
     presents_++;
     LogFrameTiming();
     harness::g_frames++;  // frames shown, as the software window counts them (the window's relaunch handover)
+    if (presents_ % 300 == 0 && late_copies_)
+        LOGI("vulkan: late reads: %llu copies made, %llu delivered to guest memory", late_copies_, late_delivered_);
     if (presents_ % 30 == 0) {
         auto now = std::chrono::steady_clock::now();
         double secs = std::chrono::duration<double>(now - fps_t_).count();

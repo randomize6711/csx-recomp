@@ -1,0 +1,33 @@
+D3D: ReadLate, a NOOVERWRITE read of a surface for host code
+
+Counter-Strike reads its dynamic gamma measurement through an inlined lock the runtime never sees; a hook at
+that read calls d3d::ReadLate, which goes to the backend's SyncLate as Lock2DSurface does for NOOVERWRITE.
+
+---
+--- a/runtime/xdk/d3d8.h	2026-10-21 13:10:22.192558442 +0200
++++ b/runtime/xdk/d3d8.h	2026-10-21 13:10:22.202556318 +0200
+@@ -7,5 +7,9 @@
+ 
+ gpu::State& State();
+ std::recursive_mutex& Lock();
++// a read of a surface the GPU draws, by code that locks it inline (no Lock2DSurface call the runtime sees): as a
++// NOOVERWRITE lock, the newest finished copy is written to guest memory and another one started, so the CPU reads a
++// result a frame or two old without waiting for the GPU
++void ReadLate(uint32_t surface);
+ 
+ }  // namespace d3d
+--- a/runtime/xdk/d3d8.cpp	2026-10-21 13:10:22.192633595 +0200
++++ b/runtime/xdk/d3d8.cpp	2026-10-21 13:10:22.202720971 +0200
+@@ -326,6 +326,12 @@
+ gpu::State& State() { return g_state; }
+ std::recursive_mutex& Lock() { return g_lock; }
+ 
++void ReadLate(uint32_t surface) {
++    if (!surface || !g_backend) return;
++    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    g_backend->SyncLate(mem::VirtualFromPhysical(R32(surface + 4)));
++}
++
+ }  // namespace d3d
+ 
+ using namespace d3d;

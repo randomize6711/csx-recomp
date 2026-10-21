@@ -28,6 +28,7 @@ per line, executed in order:
     pressuntil BUTTONS COND press, wait for two fresh draw measurements, repeat until COND holds (at most 15)
     dump NAME               guest memory dump to build/run/dumps/NAME.bin (src/common/memory_dump.cpp)
     state NAME              log the local player's state (src/game/state_probe.cpp) and keep it as NAME
+    exposure NAME           the next "dynamic gamma" log line (CSX_LOG_DYNGAMMA=1, src/game/dynamic_gamma.cpp), kept as NAME
     track NAME SECONDS      follow the player's position that long and log how high it rose and how far it moved
     expect moved A B MIN MAX       horizontal distance between states A and B in [MIN, MAX] game units
     expect yaw A B DEG TOL         view yaw (0x552C10) changed by DEG (+ left) within TOL; expect pitch likewise
@@ -39,6 +40,10 @@ per line, executed in order:
     expect fps MIN MAX             presented frames per second (the renderer's frame lines) in [MIN, MAX]
     expect mousespread MAX         the last whole seconds of a mouse stream (every look pass moved, src/game/
                                    mouse_look.cpp) turned evenly: spread (deviation over mean per pass) at most MAX
+    expect exposure NAME FIELD MIN MAX  an exposure step's FIELD (dark, light, mean: what the title measured, 0..1; low,
+                                   high, middle: its gamma ramp's points) in [MIN, MAX]
+    expect exposurediff A B FIELD MIN MAX  FIELD of exposure B less that of exposure A in [MIN, MAX]
+    expect exposuretrack NAME TOL  the ramp settled on what was measured: low within TOL of dark, middle of mean
     expect setting NAME VALUE      the run's pc_settings.ini holds NAME = VALUE (what PC Options saved)
     expect movetime MIN MAX        the movement commands' milliseconds per real second (the last two "pc frame" lines,
                                    src/game/pc_frame.cpp) in [MIN, MAX]: the game's movement keeps real time
@@ -60,6 +65,7 @@ per line, executed in order:
     expect region NAME X0 Y0 X1 Y1 MIN MAX  mean luminance of that box of snaps/NAME_2.tga (or shots/NAME.bmp) in [MIN, MAX]
     expect darkfrac NAME X0 Y0 X1 Y1 LUM MIN MAX  share of that box's pixels darker than LUM in [MIN, MAX]
     expect log REGEX        fail unless a log line matches
+    expect quiet REGEX S    wait S seconds; fail if a log line logged meanwhile matches (no spaces: write . for them)
     expect nolog REGEX      fail if a log line matches
     expect count REGEX N    fail unless exactly N log lines match (no spaces: write . for them)
     expect menuaudio [SOUND]  the menu sound (menu/buy_hover.wav) audible at each mouse play in the run's capture
@@ -208,6 +214,7 @@ def main():
     log, start, ok = Log(), time.time(), True
     states = {}
     tracks = {}  # track steps: NAME -> rose, moved
+    exposures = {}  # exposure steps: NAME -> dark, light, mean, low, high, middle
     exe_name = os.path.basename(EXE)
 
     def wine_alive():
@@ -355,6 +362,50 @@ def main():
                 good = wait_until(got)
                 if good:
                     print('     ' + st[1] + ' = ' + ' '.join(str(v) for v in states[st[1]]))
+            elif kind == 'exposure':
+                # exposure NAME: the first "dynamic gamma" line logged after this step began
+                first = len(log.lines)
+                num = r'(-?[0-9.]+)'
+                rx = re.compile(r'dynamic gamma: measured dark %s light %s mean %s, ramp low %s high %s middle %s' % ((num,) * 6))
+                def got():
+                    for l in log.lines[first:]:
+                        m = rx.search(l)
+                        if m:
+                            exposures[st[1]] = dict(zip(('dark', 'light', 'mean', 'low', 'high', 'middle'),
+                                                        (float(v) for v in m.groups())))
+                            return True
+                    return False
+                good = wait_until(got)
+                if good:
+                    print('     %s = %s' % (st[1], ' '.join('%s %.3f' % kv for kv in exposures[st[1]].items())))
+            elif kind == 'expect' and st[1] == 'quiet':
+                # expect quiet REGEX S: nothing matching for S seconds from now
+                first = len(log.lines)
+                time.sleep(float(st[3]))
+                log.poll()
+                rx = re.compile(st[2])
+                hits = [l for l in log.lines[first:] if rx.search(l)]
+                good = not hits
+                if hits:
+                    print('     ' + hits[0].rstrip())
+            elif kind == 'expect' and st[1] == 'exposuretrack':
+                # expect exposuretrack NAME TOL: low follows the dark percentile and middle the mean
+                e, tol = exposures.get(st[2]), float(st[3])
+                good = e is not None and abs(e['low'] - e['dark']) <= tol and abs(e['middle'] - e['mean']) <= tol
+                if e:
+                    print(f"     low {e['low']:.3f} for dark {e['dark']:.3f}, middle {e['middle']:.3f} for mean {e['mean']:.3f}")
+            elif kind == 'expect' and st[1] == 'exposurediff':
+                # expect exposurediff A B FIELD MIN MAX
+                a, b = exposures.get(st[2], {}).get(st[4]), exposures.get(st[3], {}).get(st[4])
+                good = a is not None and b is not None and float(st[5]) <= b - a <= float(st[6])
+                if a is not None and b is not None:
+                    print(f'     {st[4]} {a:.3f} -> {b:.3f} ({b - a:+.3f}, want {st[5]}..{st[6]})')
+            elif kind == 'expect' and st[1] == 'exposure':
+                # expect exposure NAME FIELD MIN MAX
+                v = exposures.get(st[2], {}).get(st[3])
+                good = v is not None and float(st[4]) <= v <= float(st[5])
+                if v is not None:
+                    print(f'     {st[2]} {st[3]} {v:.3f} (want {st[4]}..{st[5]})')
             elif kind == 'expect' and st[1] == 'weapon':
                 # expect weapon A ID: the weapon in hand at state A (17 Glock, 29 knife, 4 HE, 25 flashbang, 9 smoke)
                 a = states.get(st[2])

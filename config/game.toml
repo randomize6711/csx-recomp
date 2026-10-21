@@ -399,6 +399,18 @@ D3DDevice_Reset = ["ebx"]
 at = 0x19E4EB
 call = "MouseLookApply"
 
+# The dynamic gamma's measurement (src/game/dynamic_gamma.cpp): 0xBE760 (thiscall-like, this at [esp+4] in ebp from
+# 0xBE765) locks the 40x60 LIN_L8 surface at this+0x410 inline (0xBE777 loads it, 0xBE7AA computes its address) and
+# reads its bytes for the histogram; the hook hands the surface to the renderer as a NOOVERWRITE read first
+[[hook]]
+at = 0xBE777
+call = "DynamicGammaRead"
+
+# its adjustment 0xBE960 (ecx = this, the frame time at [esp+4]): CSX_LOG_DYNGAMMA=1 logs the measurement and the ramp
+[[hook]]
+at = 0xBE960
+call = "DynamicGammaLog"
+
 # The game's server log lines (src/game/game_log.cpp): UTIL_LogPrintf at 0x14BC80 — cdecl (format, ...): the format
 # at [esp+4] and the va_list at esp+8 go to vsprintf into 0x5C9230 (0x14BC89..0x14BC98), the result to the engine's
 # alert function [0x527B94] with level 5 (0x14BCA7); callers pass the log formats, e.g. 0x147B1D 'World triggered
