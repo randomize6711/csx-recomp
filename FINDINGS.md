@@ -1080,6 +1080,27 @@ Loading screens flickering (reported: severe flicker):
   front end, after Change Map is confirmed, at Restart Match and at Quit back to the main menu.
 - Missed because every capture was a single frame.
 
+## High pixel density (2026-10-21)
+
+- On the desktop (Hyprland, 3840x2160 at scale 1.6) the window was made without SDL_WINDOW_HIGH_PIXEL_DENSITY, so its
+  Wayland surface had its logical size: full screen 2400x1350, the swapchain 2400x1350, and Hyprland scaled the
+  picture up 1.6x. The 3D was drawn at the Resolution setting (3840x2160), shrunk into the 2400x1350 swapchain and
+  enlarged again by the compositor (soft). SDL's desktop mode was the logical 2400x1350 too, so Native meant that.
+- Now the window asks for high pixel density: the surface has the display's pixels (full screen 3840x2160, a 581x643
+  window 930x1029), the swapchain and Native follow them, and the desktop mode and the Resolution list are given in
+  pixels (mode x pixel density). Window sizes, the pointer and the menus' mapping stay in logical units, as SDL's
+  events give them: menu clicks land as before. The window logs both ("window: size 581x643 (930x1029 pixels,
+  density 1.60, display scale 1.60)"). CSX_HIDPI=0 asks for the old logical surface.
+- The software renderer's output takes the pixels the same way (SDL_GetRenderOutputSize).
+- gamescope has no fractional scale, so the window tests (scale 1) are unchanged; desk_hidpi.txt is the desktop check
+  (run on the scaled desktop: PC Options by clicks, the full-screen swapchain at 3840x2160).
+- Unexplained once: in one full window-test run vk_vsync_play's game process ended at 109.6 s in a match (VSync off,
+  240) with no core dump, no journal entry, no error and no exit line; two reruns and the next full run passed. Only a
+  default SIGPIPE ends a process that silently; the window now reports SIGPIPE (and carries on), SIGTERM / SIGHUP /
+  SIGINT and a plain exit in run.out, so a recurrence says how it ended. (A different crash, SIGSEGV in the
+  runtime's socket table lookup under the network code, sub_ED5B0, is in a core from 2026-10-20 20:43: not seen
+  since, not investigated yet.)
+
 ## Raw mouse input (2026-10-21)
 
 Reported: at up to 240 frames per second (VSync off) aiming felt as if mouse acceleration were on.

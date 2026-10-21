@@ -352,3 +352,9 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   desktop's pointer motion (SDL_HINT_MOUSE_RELATIVE_SYSTEM_SCALE), applied at once; the input path is logged.
 - vk_mouse_raw.txt: motion streams from an SDL timer thread at several rates and frame rates, sensitivity, invert,
   full screen, menus and console, the setting from PC Options.
+
+## 2026-10-21 — High pixel density
+
+- The window asks SDL for high pixel density: on the 1.6x-scaled desktop the swapchain is the display's 3840x2160
+  in full screen (it was the logical 2400x1350, enlarged by Hyprland), Native and the Resolution list are in pixels,
+  the pointer and menus stay in logical units (desk_hidpi.txt on the desktop; window tests unchanged).

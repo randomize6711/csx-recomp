@@ -4,6 +4,9 @@
 0. Play-test on the desktop (Hyprland): Display Mode with the compositor's own fullscreen key, VSync Off at a 240
    limit (frame rate past 120, whether IMMEDIATE tears in full screen: it should not without allow_tearing), the
    menu pointer after the header fix, the loading screens.
+0. Stability: an unexplained silent exit of the window build in vk_vsync_play (once; SIGPIPE and exits are now
+   logged) and a SIGSEGV in the runtime's socket table (core of 2026-10-20 20:43, sub_ED5B0): investigate if seen
+   again.
 0. Mouse play-test with a physical mouse on the desktop: Raw Mouse Input On (aim feel at 240, VSync off) and Off
    (speed with the pointer scale at 1.6x); the software renderer still reads the mouse once per refresh.
 0. Frame rate past ~190 in matches: the game thread is CPU-bound (renderer recording about 2.7 ms of 5.5, the rest
