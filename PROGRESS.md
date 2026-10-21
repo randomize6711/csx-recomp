@@ -340,3 +340,15 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
 - Frame Rate Limit and VSync combine as expected; movement, jumps, firing, bot rounds and round timing checked at
   the new combinations and at 240 (vk_vsync.txt, vk_vsync_play.txt). No Unlimited choice (nothing above 240 can be
   verified in a match here).
+
+## 2026-10-21 — Raw mouse input
+
+- Traced the mouse path: SDL3 on Hyprland runs native Wayland, relative mode uses the relative pointer protocol and
+  SDL takes its unaccelerated deltas; the game adds counts x 0.022 x sensitivity to the view with no curve or frame
+  time (exact turns at 30-240 frames per second). The one defect: the Vulkan window loop read events every 5 ms, so
+  at 190-240 frames per second the turn per frame wavered up to twice its mean; the loop now waits on events (spread
+  0.25 -> 0.10).
+- PC Options > Raw Mouse Input (On by default, pc_settings.ini "mouse_raw"): On the device's counts, Off the
+  desktop's pointer motion (SDL_HINT_MOUSE_RELATIVE_SYSTEM_SCALE), applied at once; the input path is logged.
+- vk_mouse_raw.txt: motion streams from an SDL timer thread at several rates and frame rates, sensitivity, invert,
+  full screen, menus and console, the setting from PC Options.

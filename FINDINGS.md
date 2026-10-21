@@ -1080,6 +1080,58 @@ Loading screens flickering (reported: severe flicker):
   front end, after Change Map is confirmed, at Restart Match and at Quit back to the main menu.
 - Missed because every capture was a single frame.
 
+## Raw mouse input (2026-10-21)
+
+Reported: at up to 240 frames per second (VSync off) aiming felt as if mouse acceleration were on.
+
+The path, traced:
+- SDL3 3.4.18 on the desktop runs the native Wayland driver (Hyprland offers wp_fifo_v1, so SDL prefers Wayland);
+  relative mode, on while playing, goes through zwp_relative_pointer_v1 with zwp_pointer_constraints_v1 (a lock):
+  SDL refuses relative mode without both, so there is no warp emulation (now logged: "input: relative mouse mode on
+  through ..."; a refusal is logged with SDL's error). Under gamescope (the window tests) it is X11 with XInput2 raw
+  motion.
+- SDL's motion (SDL3 source read, 3.5.0's, the same logic as the installed 3.4.18 is assumed): Wayland sends the
+  protocol's dx_unaccel / dy_unaccel, X11 the XInput2 raw values, unless SDL_HINT_MOUSE_RELATIVE_SYSTEM_SCALE is set
+  (then the compositor's accelerated deltas times the window's pointer scale, or the X server's valuators); the
+  relative speed scale hint is unset. Switching relative mode drops motion still queued and puts the pointer back
+  where it was. Hyprland's own acceleration is off anyway (input:accel_profile flat, sensitivity 0).
+- The game: a captured motion becomes degrees (counts x 0.022 x the sensitivity, Invert flipping the pitch) added
+  after the title's stick look in its look routine (0x19E160; hook at 0x19E4EB, "Mouse look"); the stick term
+  there is the stick's alone (squared stick x factors x frame time), and only spawn and setangle copy the engine's
+  angles back (0x30BB7, 0xCA172). No curve, smoothing, filtering or frame time touches the mouse: the same counts
+  turned 9.9 / 165 / 132 degrees exactly at 240, and 75.9 at 144, 120, 60 and 30 frames per second.
+- What was uneven: the Vulkan window loop read events after a fixed 5 ms sleep. At 190-240 frames per second (4-5 ms
+  frames) a frame got one batch, none or two: with a steady 1000 Hz stream the turn per look pass varied up to twice
+  its mean (spread, the deviation over the mean, 0.25-0.30; at 30 frames per second 0.08). Nothing was lost (the
+  totals were exact), but the speed on screen wavered from frame to frame, which reads as acceleration. Now the loop
+  waits for the next event (SDL_WaitEventTimeout, 5 ms at most) and reads the mouse as it comes: spread 0.08-0.11 at
+  190-240 (the rest is the frame time's own variation), at most 0.46 degrees in a pass for 0.34 on average (was 0.66),
+  0.02 at 30. The test request files are read every 5 ms, not at every wake.
+- This is the one defect measured; whether it was all of what was felt needs the play-test. At 215 frames per second
+  on the 120 Hz display (IMMEDIATE, the compositor showing the latest frame) the frames shown are also unevenly
+  spaced in game time.
+
+Raw Mouse Input (PC Options, after Invert Mouse; pc_settings.ini "mouse_raw", On without a line):
+- On: the hint off, SDL's relative motion is the device's own counts (Wayland's unaccelerated deltas, X11's raw
+  values): no desktop acceleration, no display scale or DPI in it (1.6x fractional scaling does not enter the counts).
+  This is what the game already used; the setting makes it explicit and logged ("input: Raw Mouse Input on: ...").
+- Off: the hint on, the desktop's pointer motion (the compositor's acceleration and speed, and on Wayland the
+  window's pointer scale; the X server's on X11). With Hyprland's flat profile that is the same speed apart from the
+  pointer scale, not verified with a physical mouse. The game adds nothing either way.
+- Applied at once (SDL reads the hint at every motion), from the window thread when the setting changes.
+- Menus, PC Options, PC Controls, the profile name, buy menus, the pause menu and the console keep the pointer:
+  relative mode is off there and motion goes to the menu pointer or nowhere; the spectator's camera turns through
+  the same look path (vk_spectator.txt).
+- Software renderer: its window loop is paced by its SDL renderer's present (VSync), so it still reads the mouse once
+  per display refresh; the Vulkan renderer (the one played) waits on events.
+
+Checks: vk_mouse_raw.txt (Raw Mouse Input on by default and the native path logged; motions pushed from an SDL timer
+thread at 500-2000 a second, arriving between the window's polls as a mouse's do: slow, medium and fast streams turning
+exactly at 240, 144, 120, 60 and 30, the turn spread at 240 at most 0.18, sensitivity 1.5, Invert Mouse, full screen,
+no turn from motion over the pause menu and the open console or after them, Off from the pause menu's PC Options
+saved and applied, On again); regress_pc_options.txt (the row saved at its default); the PC Options tests moved one
+row down. A physical mouse on the desktop is still needed for the Wayland backend's deltas and for Off.
+
 ## VSync and the 120 frames per second limit (2026-10-21)
 
 Reported: with Frame Rate Limit 240 the game stayed at about 120.
