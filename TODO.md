@@ -1,10 +1,11 @@
 # TODO (priority order)
 
 ## Now
-0. Graphics fidelity (FINDINGS.md "Graphics fidelity audit"), G2: the dynamic gamma in Vulkan (write back the
-   40x60 LIN_L8 measurement the title reads through its inlined lock, 0xBE7AA; check the ramp follows the scene on
-   several maps); the reference renderer's ramp sinking to black (frame times or its L8 contents). Then de_aztec's
-   cube texture (sampled through a 2D mode by the water's shader), with the water in view for a comparison. G3:
+0. Graphics fidelity (FINDINGS.md "Graphics fidelity audit", "Dynamic gamma"): the flashbang's white screen fade is
+   not drawn in either renderer (the fade routine 0x4D860 runs at alpha 255; its GL-layer quad never shows): trace
+   it through the push buffer. Then de_aztec's cube texture (sampled through a 2D mode by the water's shader), with
+   the water in view for a comparison. Whether a map load sets cl_dynamicgamma back (Auto Exposure re-sends only on
+   change); where the per-map dynamic gamma clamps come from. G3:
    GAUSSIANCUBIC filtering of the bloom's first downsample; the muzzle flash (drawn, not seen) and dynamic lights,
    frame-exact against the reference. G4: Xbox Graphical Effects in PC Options (cl_dynamicgamma, cl_hdrbloom).
 0. The spectator screen (Free Look after dying): one status line in garbled characters, the menu backdrop over the

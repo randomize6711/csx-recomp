@@ -372,3 +372,17 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   to black in the reference renderer; de_aztec's water reads a cube texture Vulkan does not bind; the bloom's
   GAUSSIANCUBIC downsample is drawn linear. Muzzle flash and dynamic lights uncertain. Order and toggles in
   FINDINGS.md; G2 starts with the dynamic gamma.
+
+## 2026-10-21 — Dynamic gamma (G2)
+
+- The reference renderer's ramp sank to black because it stored the title's 8 bit luminance target as RGB565 (noise
+  to the histogram) and, headless, measured a cleared target on frames it does not draw: fixed (SDK patch 0030); it
+  now agrees with Vulkan.
+- Vulkan reads the measurement back late, as a NOOVERWRITE lock: a hook where the title reads it (0xBE777) calls
+  d3d::ReadLate (SDK patch 0031), the backend copies the target after it is drawn into a small host buffer and writes
+  the newest finished copy to guest memory, never waiting. The ramp follows the scene, settles and stays, at 30, 120
+  and 240 frames per second, at no measurable cost; de_dust2 and de_inferno are no longer flat and washed out.
+- PC Options > Auto Exposure (On by default) is the title's cl_dynamicgamma; Off shows its identity ramp.
+- Tests: vk_auto_exposure.txt, vk_auto_exposure_rates.txt, regress_dynamic_gamma.txt; drive.py exposure steps and
+  `expect quiet`.
+- Found: the flashbang's white screen fade is not drawn in either renderer (next).

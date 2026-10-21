@@ -82,6 +82,15 @@ fidelity audit"):
     python3 -I tools/drive.py tests/scenarios/audit_effects.txt --run build/wruns/audit_effects --env FPS=30 \
         --launch tests/launch/de_dust2_nobots
 
+## Auto exposure
+
+The title's dynamic gamma (FINDINGS.md "Dynamic gamma"), with `CSX_LOG_DYNGAMMA=1` (its measurement and ramp points
+once a second; drive.py `exposure NAME`, `expect exposure`, `expect exposurediff`, `expect exposuretrack`):
+`vk_auto_exposure.txt` (Vulkan: the late read-back, settling, floor / sky / back, the pause menu's identity ramp, after
+a flashbang, PC Options' Auto Exposure Off and On by mouse), `vk_auto_exposure_rates.txt` (30, 120 and 240 frames per
+second: the same points, the rates held) and `regress_dynamic_gamma.txt` (headless: the reference renderer's 8 bit
+target, the setting). `CSX_DYNGAMMA_READBACK=0` leaves the read-back out (the earlier behaviour, for comparisons).
+
 ## Rounds
 
 `rounds_direct.txt` plays complete rounds from the direct start of any map fixture (`de_airstrip_beginner`,

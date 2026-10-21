@@ -1080,6 +1080,86 @@ Loading screens flickering (reported: severe flicker):
   front end, after Change Map is confirmed, at Restart Match and at Quit back to the main menu.
 - Missed because every capture was a single frame.
 
+## Dynamic gamma (auto exposure, 2026-10-21)
+
+The title's algorithm (0xBDFC0 and below, read in full):
+- 0xBE1D0 makes a 40x60 LIN_L8 surface at this+0x410 (the back buffer's size over 16, format 0x13, contiguous
+  memory) and a CPU buffer at this+0x414, and draws the back buffer into the surface through the luminance pixel
+  shader (0.30 / 0.59 / 0.11, blue to alpha). A state at 0x5BD990 draws one frame in three: 0 draw, 1 wait for
+  D3DResource_IsBusy, 2 rest.
+- Every frame (any state) 0xBE760 locks the surface inline, copies its bytes and builds a 256-bin histogram: the dark
+  percentile against cl_dynamicgamma_darkthreshold (this+0x404), the light one against _lightthreshold (+0x408), the
+  mean (+0x40C), all 0..1. The title is built to read a result a frame or more old.
+- 0xBE960 moves the ramp's low (+0x424), high (+0x428) and middle (+0x42C) points towards dark, light and mean by
+  _darkadjustdt / _lightadjustdt / _contrastadjustdt per second times the frame time, then clamps: low in
+  [0, _lightclamp], high in [_darkclamp, 1], middle between them. 0xBEB70 writes the ramp (low -> 0, high -> 255, the
+  middle with _bias) into the device's ramp slot, flagged for the next Swap; when the flag at this+0x430 is not 1 or
+  the game is in a menu (0x551854, 0x5523F0) 0xBE15A writes the identity ramp instead (the pause menu shows it).
+- The clamps and bias are not the cvar defaults: they differ per map (de_dust2 high floor 0.375; de_inferno 0.200,
+  low ceiling 0.150, bias 0.750), so on these maps the high point rests on its floor and the low and middle points
+  follow the scene. Where the per-map values come from was not found (no code reads the names; the map packs are not
+  searchable as text).
+- cl_dynamicgamma 0 skips 0xBDFC0: nothing moves the ramp, which stays as last set; the title's own non-adaptive ramp
+  is the identity (0xBF030, set through 0xBF0E0 on its ways out of a match), the back buffer shown as drawn: about
+  half bright (de_dust2 at the spawn 44 mean luminance against 73 adapted).
+
+Why the reference renderer sank to black (all three in the renderer, none in the title or its timing):
+- Its surface planes had two cases, 32 bit and "16 bit RGB565": an 8 bit target got a 565 value written over two
+  bytes at each pixel. The bytes the title read were the 565 values' low bytes (blue plus the low green bits shifted
+  up): for a grey picture noise over 0..255, so the dark percentile came out high, the low point rose to its ceiling
+  and the high point stayed up: everything below 15-40 % of the back buffer black.
+- The headless backend rasterises only snapshot frames (and REF=N ones); clears run on every frame, so on all others
+  the title measured a cleared (black) target.
+- Snapshot frames take about a second: the title's frame-time steps are large then (the "gamma fade after a long
+  frame" of "Rendering accuracy").
+- SDK patch 0030: an 8 bit plane stores the blue channel (the console's B8 surface) and loads it as grey; draws into
+  8 bit linear targets run on every headless frame (cheap: 2400 pixels), sampling what the last drawn frame left in
+  guest memory. After the first drawn frame the headless measurement agrees with Vulkan's (de_dust2 spawn: mean 0.216
+  against 0.214, ramp 0.092 / 0.375 / 0.210 against 0.080 / 0.375 / 0.219).
+
+The Vulkan read-back:
+- The title's lock is inlined (Lock2DSurface, D3D_BlockOnResource are 0 in config/game.toml), so a [[hook]] at
+  0xBE777 (where 0xBE760 loads the surface; src/game/dynamic_gamma.cpp) calls d3d::ReadLate (SDK patch 0031), which
+  goes to the backend's SyncLate as a NOOVERWRITE Lock2DSurface does. Only that surface is read; no other target is
+  copied.
+- SyncLate = DeliverLate + RecordLate (src/vulkan/vk_backend.cpp). RecordLate copies the target, when it was drawn
+  or cleared since the last copy (Target::drawn), after the frame's draws so far: shrunk to its guest size (it is drawn
+  at 72x60 at the internal resolution) and copied into one of two small host-visible buffers per target, with a
+  barrier for the host. DeliverLate writes the newest copy whose frame's fence has signalled into guest memory (LIN_L8:
+  the blue byte of each pixel; 32 bit targets: rows as they are), never waiting; until one has finished the title
+  reads memory as it is, as on the console.
+- Measured: a copy per measurement draw (every third frame) and each delivered once (4183 copies, 4182 delivered over
+  a run); no synchronous read-back. Frame times with and without it (vk_auto_exposure_rates.txt, readback switched
+  off with CSX_DYNGAMMA_READBACK=0): limit 30: 30.00 / 30.00 frames/s; 120 (VSync): 120.0 / 119.9; 240 (VSync off):
+  237.7 / 238.9 (run to run noise); GPU 0.54-0.58 ms and recording 2.6-2.7 ms per frame alike.
+
+Results (Vulkan):
+- The measurement reads the frame (de_dust2 spawn: dark 0.086, light 0.294, mean 0.214) and the ramp settles on it
+  (low 0.080, middle 0.219, high on the map's floor 0.375) and stays there over time (no change in 10 s; the same view
+  comes back to the same points through a 2.5 minute run: middle 0.219, 0.218, 0.226 at its three rates). Looking at the floor: mean 0.178, middle follows to 0.171; the sky: 0.218 / 0.221; back
+  level: within 0.02 of before. The pause menu shows the identity ramp and the adapted one returns after it.
+- Frame-rate independent: at 30, 120 and 237 frames per second the points settle within 0.013 of each other and track
+  the measurement at each rate.
+- Before / after (vk_audit_effects.txt shots, 4:3): de_dust2's spawn views from mean luminance 145-171 (flat,
+  washed out: the ramp frozen at its brightest) to 102-135, contrast (deviation) 39-60 -> 47-80; de_inferno (night)
+  from 89-99 to 61-69, contrast up 2-5.
+- PC Options > Auto Exposure (On by default, pc_settings.ini "auto_exposure"): the title's own cl_dynamicgamma, set
+  through the console's command when the setting changes (and once at the start, sent again until the cvar holds it);
+  a console change stands until the setting changes again. Going Off sets the title's identity ramp (0xBF030) once.
+  Note: cl_dynamicgamma 0 on the match's command line (releasemap) did not stop it; changelevel did not reload a map
+  in these tests, so whether a map load sets cl_dynamicgamma back is not known (the setting re-sends only on change).
+
+Found on the way: the flashbang's white-out is not drawn in either renderer. A flashbang that blinds the player sets
+the client's screen fade (ScreenFade at 0xB6500: white, alpha 255, held then faded over about 4 s); the fade routine
+0x4D860 runs (alpha 255 at 0x4D86D, from the view code 0x4EFC7) and draws a full-screen quad through the GL layer
+(depth test off, SRCALPHA / INVSRCALPHA, glColor4ubv), yet the frame shows nothing: a 45-frame burst through the fade
+and a draw list of a frame inside it (no draw with the depth test off) in Vulkan, a reference snapshot at alpha 255.
+The cause is in the shared push-buffer path (not the gamma ramp, which the flash does not use); next to investigate.
+
+Remaining uncertainty: the console's exact response (how fast and how far it adapts on hardware) is unverified
+without a capture; the per-map clamps' source; whether a LIN_L8 render target writes blue on the NV2A (the shader
+writes the same value to every channel here, so it does not matter for this title).
+
 ## Graphics fidelity audit (2026-10-21)
 
 Question: which of the console's graphical effects are missing or wrong in the Vulkan renderer. No console capture
@@ -1128,7 +1208,8 @@ Effects:
 | Lamp glows, light sprites | 1 | "Lamp glows and bright areas" (current colour fix) |
 | Character shadows (r_shadows, blob quads) | 1 | "Shadows and HUD colours"; no shadow maps exist (no depth textures used) |
 | Fog | 1 | hardware fog never enabled; de_airstrip's fog is sprite geometry, 25 dB against the reference |
-| Smoke, explosions, grenade effects | 1 | HE fireball, smoke cloud, flashbang (a white gamma ramp) in both renderers alike on de_dust2 |
+| Smoke, explosions, grenade effects | 1 | HE fireball, smoke cloud and the flashbang's burst in both renderers alike on de_dust2 |
+| Flashbang white-out (ScreenFade) | 3: missing in both renderers (found in G2) | "Dynamic gamma" below |
 | Bullet impacts and decals | 1 | "Decals" (polygon offset); impact marks in both |
 | Transparency and blending | 1 | every blend factor and op in use is mapped; HUD, sprites, glass alike in both |
 | Texture filtering, mipmaps | 1 (GAUSSIANCUBIC 2) | full mip chains, anisotropy x4 honoured, LOD bias 0 |
@@ -1146,7 +1227,7 @@ the CPU reads the target:
 - Vulkan: the target lives only on the GPU (drawn as BGRA8) and is never written back (Sync writes back linear 32
   bit targets only, and is not called for it: CSX_VK_AUDIT logged no lock). The title reads untouched guest memory;
   the ramp is set once, at team join, to its brightest (16 -> 79, 32 -> 159, 64 -> 255 on de_inferno) and never
-  changes again: 4 ramp changes in a whole match, the last one the flashbang. The picture is flat and washed out,
+  changes again: 4 ramp changes in a whole match (the last one the join, not a flashbang as first read). The picture is flat and washed out,
   the HUD too (it is drawn before the ramp). Changing cl_dynamicgamma 0 / 1 in the console changes nothing.
 - Experiment (not kept): the 40x60 target written back to guest memory at every present (its blue channel per byte).
   The ramp then follows the scene (16 -> 38, 32 -> 128 on de_inferno, further steps as the view changes) and the
