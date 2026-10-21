@@ -69,6 +69,19 @@ same moments of a direct de_airstrip start at FPS=30, `in_match` and `in_match_l
 `python3 -I tools/compare_images.py build/run/snaps/in_match_late_2.tga build/wrun/shots/in_match_late.bmp OUT.png`.
 Both include the title's gamma ramp. Expect about 25 dB PSNR: smoke, rain and bots move between runs.
 
+## Graphics fidelity audit
+
+`vk_audit_effects.txt` (Vulkan window, `CSX_VK_AUDIT=1`, 4:3) and its headless twin `audit_effects.txt` (reference
+renderer, FPS=30) take the same shots in an empty match (`tests/launch/de_dust2_nobots`; also `de_aztec_nobots`,
+`de_inferno_nobots`): four views at the spawn, a pistol shot (a burst of frames in the window), the three grenades
+from the buy pie. Not a pass/fail check: compare the shots side by side and read the window's `audit:` log lines
+(every render state, texture kind, small-target pass, additive draw and gamma ramp change; FINDINGS.md "Graphics
+fidelity audit"):
+
+    python3 -I tools/run_window_tests.py vk_audit_effects.txt
+    python3 -I tools/drive.py tests/scenarios/audit_effects.txt --run build/wruns/audit_effects --env FPS=30 \
+        --launch tests/launch/de_dust2_nobots
+
 ## Rounds
 
 `rounds_direct.txt` plays complete rounds from the direct start of any map fixture (`de_airstrip_beginner`,

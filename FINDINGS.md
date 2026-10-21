@@ -1080,6 +1080,127 @@ Loading screens flickering (reported: severe flicker):
   front end, after Change Map is confirmed, at Restart Match and at Quit back to the main menu.
 - Missed because every capture was a single frame.
 
+## Graphics fidelity audit (2026-10-21)
+
+Question: which of the console's graphical effects are missing or wrong in the Vulkan renderer. No console capture
+or emulator footage is available here (reviews of the time only say the lighting and shadows were reworked for the
+Xbox), so "original" is established from the title's own code and data: its render cvars and the passes it
+submits, read at the API level, with the reference renderer (CPU, harness) as a second, independent reading of the
+same submissions. Where both renderers agree and the code shows no other path the effect is classed as correct;
+where only hardware could tell, uncertain.
+
+Method:
+- CSX_VK_AUDIT=1 (src/vulkan/vk_backend.cpp Audit): every simple / deferred render state value, texture stage state,
+  primitive and texture kind / format / size logged the first time a draw uses it; the passes into small targets
+  (glow chain, measurement) with their pixel shader words; each frame's additive draw count when it changes;
+  texture re-uploads; gamma ramp changes; the small targets saved every 600 frames.
+- 8 maps (de_aztec, cs_office, de_inferno, de_vostok, de_chateau, de_dust2, de_tides, cs_havana) plus de_airstrip
+  through the front end and directly, in both renderers with the same console-driven steps: four views at the
+  spawn, a pistol shot, an HE grenade, a flashbang and a smoke grenade bought from the buy pie and thrown
+  (tests/scenarios/vk_audit_effects.txt and its headless twin audit_effects.txt; empty matches,
+  tests/launch/*_nobots). Console variables changed at run time with `pckey cmd` (cl_hdrbloom, cl_hdrblur,
+  cl_dynamicgamma). noclip does not work in this build (sv_cheats 1 on the command line too): the camera stays
+  where the spawn and the spectator's free look reach.
+- The title's render cvars and their defaults, from the cvar records in the XBE (name, string, flags, value):
+  cl_hdrbloom 0.6, cl_hdrblur 1, cl_dynamicgamma 1 (with _bias 0.8, _darkclamp 0.3, _lightclamp 0.4,
+  _darkadjustdt 0.15, _lightadjustdt 0.07, _contrastadjustdt 0.04, _darkthreshold 0.03, _lightthreshold 0.06),
+  r_shadows 1, r_dynamic 1, r_detailtextures 0, gl_overbright 1, gl_envmapsize 256, r_glowshellfreq 2.2. The
+  per-frame post pass (0xC2160) runs the bloom (0xC06D0, 0xC1FA0, 0xC0D00) when cl_hdrbloom is not 0 and the
+  dynamic gamma (0xBDFC0) when cl_dynamicgamma is not 0.
+
+What CS submits (all maps): triangles, strips, fans, quads, quad strips and polygons (no points or lines);
+programmable vertex shaders and pixel shaders (texture modes project2d, bumpenvmap, dependent AR / GB); fixed
+function lighting and hardware fog never enabled (D3DRS_LIGHTING 0, FOGENABLE 0 on every map); blends SRCALPHA /
+INVSRCALPHA and ONE / ONE with ADD; alpha test; polygon offset; anisotropic filtering x4 and GAUSSIANCUBIC;
+textures DXT1/3/5, R8G8B8A8, X8R8G8B8, V8U8, render targets LIN_A8R8G8B8 and LIN_L8; one cube texture (de_aztec).
+No point sprites, CopyRects, volume or depth textures, or draws reading their own target: none of the backend's
+unsupported paths is reached except the cube texture, and no draw is dropped.
+
+Effects:
+
+| Effect | Class | Evidence |
+|---|---|---|
+| Dynamic gamma (auto exposure, cl_dynamicgamma) | 2: incorrect in Vulkan (and in the reference renderer) | below |
+| de_aztec water | 2: an input missing in Vulkan; picture not yet seen | below |
+| HDR bloom and blur (cl_hdrbloom, cl_hdrblur) | 1, a filter detail 2 | below |
+| Muzzle flash | 4: drawn, not seen in captures | below |
+| Dynamic lights (r_dynamic) | 4 | below |
+| Lamp glows, light sprites | 1 | "Lamp glows and bright areas" (current colour fix) |
+| Character shadows (r_shadows, blob quads) | 1 | "Shadows and HUD colours"; no shadow maps exist (no depth textures used) |
+| Fog | 1 | hardware fog never enabled; de_airstrip's fog is sprite geometry, 25 dB against the reference |
+| Smoke, explosions, grenade effects | 1 | HE fireball, smoke cloud, flashbang (a white gamma ramp) in both renderers alike on de_dust2 |
+| Bullet impacts and decals | 1 | "Decals" (polygon offset); impact marks in both |
+| Transparency and blending | 1 | every blend factor and op in use is mapped; HUD, sprites, glass alike in both |
+| Texture filtering, mipmaps | 1 (GAUSSIANCUBIC 2) | full mip chains, anisotropy x4 honoured, LOD bias 0 |
+| Rain, surface bump water (V8U8, dependent reads) | 1 | all maps' 64x64 V8U8 pass alike in both |
+| DXT1 noise (D3DRS_DXT1NOISEENABLE 1) | 4 | a hardware dither of DXT1 decoding, not emulated by either renderer |
+| Multisampling (2x vertical back buffer) | by design | replaced by the internal resolution (native-resolution work), not an effect |
+
+**Dynamic gamma.** Every frame the title draws the back buffer through a luminance pixel shader (c0 = 0x004D961C,
+the 0.30 / 0.59 / 0.11 weights, AB dot product, blue to alpha) into a 40x60 LIN_L8 target, waits for it
+(D3DResource_IsBusy at 0xBE048), locks it (0xBE7AA) and builds a 256-bin histogram (0xBE760): dark and light
+percentiles against cl_dynamicgamma_darkthreshold / _lightthreshold and the mean, from which 0xBE960 / 0xBEB70 move
+the gamma ramp (written into the device's ramp slot and flagged pending, 0xBE15A, picked up at the next Swap). The
+lock is inlined (Lock2DSurface and D3D_BlockOnResource are 0 in config/game.toml), so no HLE call tells a renderer
+the CPU reads the target:
+- Vulkan: the target lives only on the GPU (drawn as BGRA8) and is never written back (Sync writes back linear 32
+  bit targets only, and is not called for it: CSX_VK_AUDIT logged no lock). The title reads untouched guest memory;
+  the ramp is set once, at team join, to its brightest (16 -> 79, 32 -> 159, 64 -> 255 on de_inferno) and never
+  changes again: 4 ramp changes in a whole match, the last one the flashbang. The picture is flat and washed out,
+  the HUD too (it is drawn before the ramp). Changing cl_dynamicgamma 0 / 1 in the console changes nothing.
+- Experiment (not kept): the 40x60 target written back to guest memory at every present (its blue channel per byte).
+  The ramp then follows the scene (16 -> 38, 32 -> 128 on de_inferno, further steps as the view changes) and the
+  night map turns darker and more contrasted (mean luminance 99 -> 67).
+- The reference renderer draws into guest memory, so the title reads real values there, but its ramp sinks towards
+  black within a minute on all 8 maps (de_inferno 102 -> 3 mean, de_dust2 155 -> 52; it was also the "gamma fade
+  after a long frame" of "Rendering accuracy"), with speckle noise at lamps. Cause not found yet: the reference's
+  slow frames (large frame times in the adjustment), its L8 target contents, or both.
+- Classed incorrect in both; the highest visual impact of the audit (the brightness and contrast of every frame).
+
+**de_aztec water.** Its water pixel shader (texture modes 0x1821: stage 0 project2d, stage 1 project2d, stage 2
+bump env map) samples stage 0 as a 2D texture while a 32x32 X8R8G8B8 cube texture is bound there, takes
+dot(expand(v0), expand(t0)) into r1 (combiner 0, RGB output 0x20D0) and makes the water's alpha from r1 (alpha
+combiner 1, 0x0DD1D22D), its colour from the bump-mapped stage 2. Vulkan binds no cube texture (a placeholder takes
+its place), so the alpha term is wrong; the reference renderer samples the cube's first face. Only de_aztec of the
+9 maps binds it (de_aztec also has a 128x128 V8U8 bump map of 3 levels). How the console samples a cube texture
+through a 2D texture mode is unverified (the reference's first-face reading is an assumption); the water is not in
+view from the spawns, so its picture is still to be compared.
+
+**HDR bloom.** The chain runs in Vulkan as on the reference: the back buffer into 320x240 through 2 x t0 - 1 (the
+bright pass: only back buffer values above 0.5 survive; the title keeps the back buffer around half brightness and
+the ramp brings it up), two blur passes with weights 1/3 and 1/6 at offsets 1 and 3 texels (320x120, 160x120;
+cl_hdrblur scales the offsets), added back with ONE / ONE and the blend colour cl_hdrbloom. At the spawns the bright
+pass is near black (means under 3 of 255 on de_dust2 with the sky in view), so the bloom adds little:
+cl_hdrbloom 0, 0.6 and 3 differ in under 0.1 % of pixels. That is the title's design given what it draws, and both
+renderers agree. One detail: the first downsample samples the back buffer with GAUSSIANCUBIC (D3DTEXF 5), which the
+Vulkan sampler draws as linear (the console's wider kernel is not emulated).
+
+**Muzzle flash.** On each shot the frame gains additive quads: a 32x32 DXT1 sprite for 2 frames and an 8x8 one for
+about 10 (MODULATE by the current colour, depth tested, no depth writes). Frame bursts taken during them show no
+bright flash at the pistol; whether the sprite is dim by design (its colour is the engine's) or wrongly coloured
+needs a frame-exact comparison with the reference renderer, which the snapshot timing does not give.
+
+**Dynamic lights.** Firing and explosions change no lightmap (no texture is uploaded again after its first upload,
+apart from a V8U8 map) and add no world pass. The world is the push buffer recorded at load ("In-game rendering"),
+which is never recorded again. Whether the console lights the world with r_dynamic's lights at all is unknown
+without a capture; both renderers agree.
+
+Other observations:
+- The spectator screen (after dying, Free Look) draws the menu's backdrop art over the view and one status line in
+  garbled characters (where "Enemy: name" was); not a graphics effect (the UI's text), noted in TODO.md.
+
+Recommended order: (1) dynamic gamma in Vulkan (a write-back of the LIN_L8 measurement for the title's inlined lock,
+then checking the adaptation on several maps; the reference's collapse alongside); (2) de_aztec's cube texture
+(bind cube textures; sample a cube through a 2D mode as the reference does, once verified against the console's
+behaviour or documentation); (3) GAUSSIANCUBIC; (4) the muzzle flash comparison and dynamic lights, only with
+evidence of a difference.
+
+Toggles: the title's own cvars switch the optional effects cleanly and are the right layer for them:
+cl_dynamicgamma 0 (the static ramp from the brightness settings) and cl_hdrbloom 0 (the bloom passes skipped).
+Shadows (r_shadows) are basic legibility and the water's terms are part of its shader: neither should be switched
+off. A master "Xbox Graphical Effects" setting can set both cvars; separate "Bloom" and "Auto Exposure" settings are
+justified only once the dynamic gamma works in Vulkan (today switching it does nothing visible).
+
 ## High pixel density (2026-10-21)
 
 - On the desktop (Hyprland, 3840x2160 at scale 1.6) the window was made without SDL_WINDOW_HIGH_PIXEL_DENSITY, so its

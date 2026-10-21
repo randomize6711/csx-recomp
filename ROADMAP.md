@@ -36,4 +36,7 @@
 - M7j — Mouse navigation in the original menus (tables, settings, help bars, buy pies) ✅ 2026-10-20; checked in the
   window at every aspect with audible hover sounds, the profile name's keyboard ✅ 2026-10-20
 - M7k — Press-a-key rebinding in PC Controls (keys, mouse buttons, wheel, every keyboard layout) ✅ 2026-10-20
+- G1 — Graphics fidelity audit: the title's effects against both renderers, ranked (FINDINGS.md) ✅ 2026-10-21
+- G2 — Dynamic gamma and de_aztec's water in Vulkan; G3 — remaining confirmed differences; G4 — Xbox Graphical
+  Effects in PC Options; G5 — final validation
 - M8 — PC feature set complete

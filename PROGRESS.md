@@ -358,3 +358,17 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
 - The window asks SDL for high pixel density: on the 1.6x-scaled desktop the swapchain is the display's 3840x2160
   in full screen (it was the logical 2400x1350, enlarged by Hyprland), Native and the Resolution list are in pixels,
   the pointer and menus stay in logical units (desk_hidpi.txt on the desktop; window tests unchanged).
+
+## 2026-10-21 — Graphics fidelity audit (G1)
+
+- CSX_VK_AUDIT in the Vulkan backend logs what the title draws with (states, textures, passes into small targets,
+  additive draws, gamma ramp changes) and saves the glow and measurement targets; vk_audit_effects.txt and its
+  headless twin take the same shots in empty matches (new no-bot launch fixtures for de_dust2, de_aztec, de_inferno).
+- 9 maps in both renderers: fog, shadows, glows, decals, smoke, explosions, flashbang, blending, filtering and the
+  bloom chain agree; the bloom adds little at the spawns by the title's design (its bright pass keeps back buffer
+  values above 0.5).
+- Found: the dynamic gamma never adapts in Vulkan (its 40x60 LIN_L8 measurement is read by the CPU through an
+  inlined lock and never written back: the ramp freezes at its brightest at team join, the picture flat), and sinks
+  to black in the reference renderer; de_aztec's water reads a cube texture Vulkan does not bind; the bloom's
+  GAUSSIANCUBIC downsample is drawn linear. Muzzle flash and dynamic lights uncertain. Order and toggles in
+  FINDINGS.md; G2 starts with the dynamic gamma.

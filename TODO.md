@@ -1,6 +1,14 @@
 # TODO (priority order)
 
 ## Now
+0. Graphics fidelity (FINDINGS.md "Graphics fidelity audit"), G2: the dynamic gamma in Vulkan (write back the
+   40x60 LIN_L8 measurement the title reads through its inlined lock, 0xBE7AA; check the ramp follows the scene on
+   several maps); the reference renderer's ramp sinking to black (frame times or its L8 contents). Then de_aztec's
+   cube texture (sampled through a 2D mode by the water's shader), with the water in view for a comparison. G3:
+   GAUSSIANCUBIC filtering of the bloom's first downsample; the muzzle flash (drawn, not seen) and dynamic lights,
+   frame-exact against the reference. G4: Xbox Graphical Effects in PC Options (cl_dynamicgamma, cl_hdrbloom).
+0. The spectator screen (Free Look after dying): one status line in garbled characters, the menu backdrop over the
+   view.
 0. Play-test on the desktop (Hyprland): Display Mode with the compositor's own fullscreen key, VSync Off at a 240
    limit (frame rate past 120, whether IMMEDIATE tears in full screen: it should not without allow_tearing), the
    menu pointer after the header fix, the loading screens.
@@ -31,7 +39,7 @@
 1. Vulkan remainder: point sprites and CopyRects (unused by CS so far, logged on first use), feedback copies;
    occasional frame dips with ~1150 draws. Install vulkan-validation-layers for CSX_VK_VALIDATION=1 runs. The upload
    ring's overflow path re-uses offsets a draw already took (never reached: peak 9 MB of 64 MB).
-1b. Identify what starts the title's gamma fade after a long frame (FINDINGS.md "Rendering accuracy").
+1b. The gamma fade after a long frame is the dynamic gamma (FINDINGS.md "Graphics fidelity audit"): see G2 above.
 1c. Player-driven objectives (defuse, plant) with scripted movement per map.
 2. Compare in-game rendering with xemu (dark sky/wall area on de_airstrip, lightmaps, fog, rain, colours).
 4. Prove the 8 register-convention D3D functions and the 12 unproven ones (analysis/missing_symbols_5659.md).
