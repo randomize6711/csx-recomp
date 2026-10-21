@@ -1080,6 +1080,70 @@ Loading screens flickering (reported: severe flicker):
   front end, after Change Map is confirmed, at Restart Match and at Quit back to the main menu.
 - Missed because every capture was a single frame.
 
+## VSync and the 120 frames per second limit (2026-10-21)
+
+Reported: with Frame Rate Limit 240 the game stayed at about 120.
+
+Measured (the Vulkan window's "frame timing" line every second: frames the title presented, successful swapchain
+presents, frame intervals, time blocked acquiring and presenting, the limiter's sleep (app::PacedNanoseconds, SDK
+patch 0029), the present mode, the display's refresh from SDL; "pc frame" every second: movement commands and their
+milliseconds; per-thread CPU from top):
+- The display: HDMI-A-1 3840x2160 at 120.00 Hz (Hyprland 0.56.2, misc:vrr 1, general:allow_tearing false); SDL
+  reports 120.00 Hz for the window's display. The RX 9070 XT (RADV) offers IMMEDIATE, MAILBOX, FIFO and FIFO_RELAXED
+  on the Wayland surface; gamescope's WSI layer offers MAILBOX and FIFO.
+- The swapchain always used FIFO (vsync). On the desktop at a 240 limit: 120.0 frames/s, 120.0 presented, intervals
+  8.33 ms (99% under 8.41), 2.2-2.4 ms of every frame blocked in vkAcquireNextImageKHR, the limiter 0 ms. The play-test's
+  own log (cs_miami, internal 3840x2160): 120.0 for 998 of 1005 seconds, about 3 ms a frame blocked in the present.
+  The 120 was VSync at the display's refresh, not the game: nothing else waited.
+- VSync off on the same desktop and match spawn (de_airstrip, eight bots): IMMEDIATE 178-179, MAILBOX 174-185
+  frames/s, nothing blocked (acquire 0.03 ms, present 0.02, limiter 0), one guest thread at 98.5% CPU. With the limit at
+  1000 the same: 170-190. So the game is CPU-bound on its one game thread, about 5.3-5.8 ms a frame here: the
+  renderer's recording 2.6-2.7 ms (about 1,100 draws), the GPU 0.8-0.9 ms (it overlaps), the title's own code (client,
+  listen server, bot AI) the rest. In other views and with idle bots up to 232-235; headless (no window) 240 at the
+  start and a median of 191 through three rounds of fighting. The title's own limits (fps_max, Host_FilterTime, the
+  emulated 60 Hz vertical blank, which CS does not wait on) do not hold it below the limit.
+- 240 can be reached where a frame costs under 4.2 ms (menus, light views); during a match with bots on this machine
+  it is about 170-235. Above 120 it needs VSync off.
+
+VSync (src/vulkan/vk_backend.cpp, src/game/pc_menu.cpp, src/linux/window_main.cpp):
+- PC Options > VSync (On / Off, pc_settings.ini "vsync" 1 / 0; no line is On, as before). The present modes the
+  surface offers are queried once and logged ("vulkan: present modes offered"). On: FIFO. Off: IMMEDIATE when offered,
+  else MAILBOX, else FIFO. Each swapchain logs its mode ("vulkan: swapchain WxH, N images, present mode M (VSync
+  on|off)"). CSX_VK_PRESENT=immediate|mailbox|fifo|fifo_relaxed still forces a mode for measurements.
+- IMMEDIATE never waits; a frame replaces the shown one at once and may tear where the compositor allows it. MAILBOX
+  never waits and never tears: the newest frame is shown at the next refresh and older ones are dropped. On Hyprland
+  without allow_tearing and an immediate window rule the compositor shows the latest frame at its own refresh, so
+  IMMEDIATE should not tear there and should look like MAILBOX (frames past 120 rendered, 120 a second reaching the
+  display): Hyprland's documented behaviour, not measured on the screen. The game's frame rate, input and movement
+  run at the higher rate either way.
+- A change takes effect at the next present: the backend sees the settings version change and makes the swapchain
+  again from the old one (oldSwapchain), nothing else. The SDL window is not touched: size, full screen, focus and
+  mouse capture stay, and it is not minimized (now logged: "window: minimized" / "restored").
+- The Frame Rate Limit is independent: the limiter paces first, then FIFO caps at the refresh. VSync On + 240 is
+  the display's rate; VSync Off + 144 is 144; Off or On + 60 is 60 (measured at 120 Hz).
+- Software renderer: the title renders on its own threads and the window loop shows the latest frame through an
+  SDL renderer; VSync sets that renderer's vsync (SDL_SetRenderVSync, applied on change), which paces only the
+  window's presents, never the game, so its frame rate is the limit's alone. With VSync off the loop sleeps 1 ms when
+  no new frame came.
+
+No Unlimited choice: in a match the game is CPU-bound below 240 here, so an Unlimited setting gives no more than
+240 there, while menus would run at the engine's own fps_max ceiling with nothing verified above 240 (GoldSrc
+movement at under 4 ms a command, frame-keyed code). The list stays 30 (Original) to 240.
+
+Gameplay at the new combinations (the msec carry of "Frame rate" above unchanged): movement 1000 ms a second at
+every rate, two seconds of walking 500 units and a 45-unit jump at VSync On + 240 (120), Off + 240, Off + 144,
+Off + 60 and On + 60 (vk_vsync_play.txt); headless at 240: the Glock fires 6 shots for 30 presses as at 30 and 144,
+three bot rounds with kills and a time-out win (300 s), 17.2 s from each round's end to the next start as at 30 and
+144, the movement milliseconds equal to the engine's frame time in every second.
+
+Missed before because there was no VSync setting to test, every window test ran at FPS=30 (below any refresh) and
+the renderer's log reported only the frame rate, not where a frame's time went.
+
+Checks: vk_vsync.txt (front end at 60 Hz: modes listed, a saved vsync = 0 starting with MAILBOX past 60, On and Off
+from PC Options saved to pc_settings.ini, the swapchain made again, 60 / 240, full screen kept, not minimized, no
+Display Mode applied), vk_vsync_play.txt (in a match at 120 Hz: FIFO by default at 120, Off from the pause menu's PC
+Options, the mouse captured again, the combinations above with movement, jumps and the window untouched).
+
 ## Play-test bugs: walking right, grenades, the spectator's camera (2026-10-20)
 
 Walking right (reported: D did nothing):

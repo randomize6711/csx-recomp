@@ -327,3 +327,16 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   (vk_menu_pointer_pause.txt, pixel checks; the confirmations' Yes works by mouse).
 - Loading screens: a multisampled back buffer is no longer rotated at Swap (SDK patch 0028); vk_loading.txt checks
   four loading transitions with bursts of frames.
+
+## 2026-10-21 — VSync, the 120 frames per second limit
+
+- The 120 was VSync: the swapchain always presented with FIFO and the display runs at 120 Hz; every frame waited
+  2-3 ms for it (now measured by the window's "frame timing" line: frames, presents, intervals, time blocked, the
+  limiter's sleep (SDK patch 0029), present mode, refresh). Without VSync a match runs at 170-235 frames per second
+  on this machine: CPU-bound on the one game thread (renderer recording, client, server, bots), not the GPU.
+- PC Options > VSync (On by default, pc_settings.ini "vsync"): FIFO, or IMMEDIATE (MAILBOX when not offered) for Off;
+  a change makes the swapchain again at the next present, the window untouched. The software renderer sets its SDL
+  renderer's vsync (only the window's presents).
+- Frame Rate Limit and VSync combine as expected; movement, jumps, firing, bot rounds and round timing checked at
+  the new combinations and at 240 (vk_vsync.txt, vk_vsync_play.txt). No Unlimited choice (nothing above 240 can be
+  verified in a match here).

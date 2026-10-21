@@ -1,8 +1,12 @@
 # TODO (priority order)
 
 ## Now
-0. Play-test on the desktop (Hyprland): Display Mode with the compositor's own fullscreen key, the frame rate limit
-   at 144 and 240 with a real display, the menu pointer after the header fix, the loading screens.
+0. Play-test on the desktop (Hyprland): Display Mode with the compositor's own fullscreen key, VSync Off at a 240
+   limit (frame rate past 120, whether IMMEDIATE tears in full screen: it should not without allow_tearing), the
+   menu pointer after the header fix, the loading screens.
+0. Frame rate past ~190 in matches: the game thread is CPU-bound (renderer recording about 2.7 ms of 5.5, the rest
+   the title's code with bots); profile it (no perf on this machine) before any optimisation. An Unlimited limit
+   only once rates above 240 can be checked in a match.
 0. Weapons: the wheel up enters the grenade slot at its first grenade (this build's invprev goes by slots).
 0. Windows: run build/windows/dist on a real Windows 10/11 PC (startup, Vulkan driver, WASAPI, mouse capture,
    relaunch handover, a full round); then a GUI-subsystem exe (no console) if wanted. Then image comparisons on de_dust
@@ -12,7 +16,7 @@
    display modes (only the desktop's size is used; the rendering size is independent).
 0. Widescreen stage 3 (after stages 1-2 settle): move suitable HUD elements (health/armour/timer left, money/ammo
    right, radar) towards the frame's edges, keeping their look; aspect change without a restart (device Reset).
-0. PC Options next: frame rate limit (SDK harness pacing read at run time), audio output device; Window Size where
+0. PC Options next: audio output device; Window Size where
    the compositor honours it. PC Controls: a key taken from another row could clear that row at once (now the save
    keeps it with the first row in the list, as before).
 0a. Linux play-test follow-up: compare the gamma ramp (x1.67) and glow pass with a console capture; current vertex
