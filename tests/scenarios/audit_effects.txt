@@ -1,0 +1,111 @@
+# Headless twin of vk_audit_effects.txt (the reference renderer, FPS=30): the same steps, "snap" for "windowshot",
+# "look 90 0" for the mouse's quarter turn, one snap for the window's burst of frames.
+#   --env FPS=30 --launch tests/launch/de_dust2_nobots
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 12
+snap y0
+look 90 0
+sleep 3
+snap y90
+look 90 0
+sleep 3
+snap y180
+look 90 0
+sleep 3
+snap y270
+look 90 0
+sleep 2
+pckey cmd +buymenu
+sleep 0.2
+pckey cmd -buymenu
+sleep 1.5
+pckey pointer 227 351
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 297 321
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 227 351
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 157 321
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 227 351
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 127 251
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey mclick 2
+sleep 1
+pckey mclick 2
+sleep 2
+snap g0
+pckey cmd +attack
+snap fireb
+pckey cmd -attack
+sleep 1
+snap fired
+pckey key 52 1
+sleep 0.1
+pckey key 52 0
+sleep 1.5
+state k1
+pckey cmd +attack
+sleep 0.3
+pckey cmd -attack
+sleep 1.6
+snap he1
+sleep 0.2
+snap he2
+sleep 0.5
+snap he3
+sleep 2
+pckey key 52 1
+sleep 0.1
+pckey key 52 0
+sleep 1.5
+state k2
+pckey cmd +attack
+sleep 0.3
+pckey cmd -attack
+sleep 1.4
+snap g2a
+sleep 0.3
+snap g2b
+sleep 1.5
+snap g2c
+sleep 3
+snap g2d
+pckey key 52 1
+sleep 0.1
+pckey key 52 0
+sleep 1.5
+state k3
+pckey cmd +attack
+sleep 0.3
+pckey cmd -attack
+sleep 1.4
+snap g3a
+sleep 0.3
+snap g3b
+sleep 1.5
+snap g3c
+sleep 3
+snap g3d

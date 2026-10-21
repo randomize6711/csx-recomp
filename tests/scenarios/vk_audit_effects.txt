@@ -1,0 +1,117 @@
+# Graphics fidelity audit, Vulkan window (FINDINGS.md "Graphics fidelity audit", src/vulkan/vk_backend.cpp Audit):
+# with CSX_VK_AUDIT every render state value, texture kind, small-target pass, additive draw and gamma ramp change
+# is logged the first time a draw uses it, and the glow and measurement targets are saved every 600 frames. An
+# empty match (no bots: nothing ends the round), at 4:3 to line up with the headless twin audit_effects.txt (the
+# reference renderer, the same steps): four views at the spawn, a pistol shot, the three grenades bought from the
+# buy pie and thrown, shots at fixed delays. Not a pass/fail check: compare the shots side by side and read the log.
+# Another map: --launch tests/launch/de_aztec_nobots (its water, the cube texture) or de_inferno_nobots (night).
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), with
+#   --launch tests/launch/de_dust2_nobots --env CSX_VK_AUDIT=1 --pc aspect=4:3
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+sleep 45
+key Down
+sleep 6
+key Down
+sleep 6
+key Space
+sleep 30
+key Left_Ctrl
+sleep 30
+windowshot y0
+mousestream 44 0 31 60
+sleep 3
+windowshot y90
+mousestream 44 0 31 60
+sleep 3
+windowshot y180
+mousestream 44 0 31 60
+sleep 3
+windowshot y270
+mousestream 44 0 31 60
+sleep 2
+pckey cmd +buymenu
+sleep 0.2
+pckey cmd -buymenu
+sleep 1.5
+pckey pointer 227 351
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 297 321
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 227 351
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 157 321
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 227 351
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 127 251
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey mclick 2
+sleep 1
+pckey mclick 2
+sleep 2
+windowshot g0
+pckey cmd +attack
+windowburst fireb 6
+pckey cmd -attack
+sleep 1
+windowshot fired
+pckey key 52 1
+sleep 0.1
+pckey key 52 0
+sleep 1.5
+state k1
+pckey cmd +attack
+sleep 0.3
+pckey cmd -attack
+sleep 1.6
+windowshot he1
+sleep 0.2
+windowshot he2
+sleep 0.5
+windowshot he3
+sleep 2
+pckey key 52 1
+sleep 0.1
+pckey key 52 0
+sleep 1.5
+state k2
+pckey cmd +attack
+sleep 0.3
+pckey cmd -attack
+sleep 1.4
+windowshot g2a
+sleep 0.3
+windowshot g2b
+sleep 1.5
+windowshot g2c
+sleep 3
+windowshot g2d
+pckey key 52 1
+sleep 0.1
+pckey key 52 0
+sleep 1.5
+state k3
+pckey cmd +attack
+sleep 0.3
+pckey cmd -attack
+sleep 1.4
+windowshot g3a
+sleep 0.3
+windowshot g3b
+sleep 1.5
+windowshot g3c
+sleep 3
+windowshot g3d
+expect nolog vulkan: .* failed

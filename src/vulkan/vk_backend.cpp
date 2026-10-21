@@ -241,6 +241,7 @@ public:
     void Clear(const State& s, uint32_t count, const uint8_t* rects, uint32_t flags, uint32_t color, float z,
                uint32_t stencil) override;
     void Draw(const State& s, uint32_t prim, uint32_t start, uint32_t count, const uint8_t* indices) override;
+    void Audit(const State& s, uint32_t prim);
     void Copy(const Surface& src, const Surface& dst, uint32_t count, uint32_t src_rects, uint32_t dst_points) override;
     void SetOverlay(const OverlayImage& o) override {
         overlay_ = o;
@@ -260,6 +261,15 @@ public:
         for (int c = 0; c < 3; c++)
             for (int i = 0; i < 256; i++) gamma_identity_ = gamma_identity_ && r[c * 256 + i] == i;
         gamma_dirty_ = true;
+        static const bool audit = std::getenv("CSX_VK_AUDIT") != nullptr;
+        static int last = -1;
+        static uint64_t changes = 0;
+        int sum = 0;
+        for (int i = 0; i < 256; i++) sum = sum * 31 + r[i];
+        if (audit && sum != last && (changes++ < 40 || changes % 64 == 0))
+            LOGI("audit: gamma ramp 16 -> %u, 32 -> %u, 64 -> %u, 128 -> %u, 192 -> %u at frame %llu (change %llu)", r[16],
+                 r[32], r[64], r[128], r[192], (unsigned long long)presents_, (unsigned long long)changes);
+        last = sum;
     }
 
 private:
@@ -366,6 +376,7 @@ private:
     uint32_t max_image_ = 8192;
     Target readback_;  // a scaled target brought to its guest size for a guest read
     std::chrono::steady_clock::time_point fps_t_ = std::chrono::steady_clock::now();
+    uint32_t audit_additive_ = 0, audit_last_additive_ = 0;
     unsigned long long draws_ = 0, dropped_[4] = {}, wraps_ = 0, peak_ = 0, frame_draws_ = 0;
     // performance: GPU time from timestamps, CPU time inside Clear / Draw (recording) and Present, per logged span
     VkQueryPool timestamps_ = VK_NULL_HANDLE;
@@ -1050,6 +1061,19 @@ Image* VulkanBackend::EnsureTexture(const State& s, int stage, Target* drawing, 
         t.palette = phash;
         uint64_t sig = Signature(d.data, TotalSize(d)) ^ DirtyEpoch(d.data) ^ phash;
         if (sig != t.sig) {
+            static const bool audit = std::getenv("CSX_VK_AUDIT") != nullptr;
+            static uint64_t uploads = 0, frame = 0;
+            if (audit && t.sig) {  // a texture changed after its first upload: dynamic lightmaps, animated textures
+                if (presents_ != frame) {
+                    if (uploads >= 1) LOGI("audit: %llu texture re-uploads in frame %llu", (unsigned long long)uploads,
+                                           (unsigned long long)frame);
+                    uploads = 0;
+                    frame = presents_;
+                }
+                if (uploads++ < 3)
+                    LOGI("audit: re-upload %s %ux%u at %08X in frame %llu", Format(d.format).name, d.width, d.height, d.data,
+                         (unsigned long long)presents_);
+            }
             t.sig = sig;
             EndRendering();
             Barrier(t, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
@@ -1226,6 +1250,112 @@ VkPipeline VulkanBackend::EnsurePipeline(const PipelineKey& k, const std::vector
     return p;
 }
 
+// CSX_VK_AUDIT=1: every state value, texture kind and primitive the title draws with, logged the first time a draw uses
+// it (the graphics fidelity audit, FINDINGS.md): which console features CS reaches and which this backend skips
+void VulkanBackend::Audit(const State& s, uint32_t prim) {
+    static const bool on = std::getenv("CSX_VK_AUDIT") != nullptr;
+    if (!on) return;
+    struct Seen {
+        uint32_t n = 0;
+        uint32_t v[8] = {};
+        bool Add(uint32_t x) {
+            for (uint32_t i = 0; i < n; i++)
+                if (v[i] == x) return false;
+            if (n == 8) return false;
+            v[n++] = x;
+            return true;
+        }
+    };
+    static Seen simple[0x800], rs[kRsMax], tss[4][kTssCount], prims;
+    static std::unordered_map<uint64_t, bool> texs;
+    auto where = [&] { return std::to_string(presents_) + ":" + std::to_string(frame_draws_ - 1); };
+    if (prims.Add(prim)) LOGI("audit: prim %u at %s", prim, where().c_str());
+    if (s.simple[kMBlendEnable / 4] && s.simple[kMDestBlend / 4] == 1) {
+        audit_additive_++;
+        static uint64_t n = 0;
+        TextureDesc d{};
+        if (prim != 9 && s.textures[0] && Describe(s.textures[0], d) && n++ < 200)
+            LOGI("audit: additive draw at %s: prim %u src %X tex %s %ux%u at %08X, ps %d, colorop %u %u %u, z %u zw %u",
+                 where().c_str(), prim, s.simple[kMSrcBlend / 4], Format(d.format).name, d.width, d.height, d.data,
+                 int(s.ps != nullptr), s.tss[0][kTssColorOp], s.tss[0][kTssColorArg1], s.tss[0][kTssColorArg2],
+                 s.rs[kRsZEnable], s.simple[kMZWriteEnable / 4]);
+    }
+    // the passes into small targets (glow chain, measurement): their pixel shaders and stage 0 once each
+    if (s.rt.header) {
+        uint32_t w = 0, h = 0;
+        SurfaceSize(s.rt, w, h);
+        static std::unordered_map<uint64_t, bool> passes;
+        uint64_t k = s.ps ? Hash(s.ps->def, sizeof(s.ps->def)) : s.tss[0][kTssColorOp];
+        k ^= uint64_t(w) << 48 ^ uint64_t(h) << 32 ^ uint64_t(s.simple[kMSrcBlend / 4]) << 8 ^ s.simple[kMDestBlend / 4];
+        if (w <= 320 && passes.emplace(k, true).second) {
+            std::string def;
+            char b[12];
+            if (s.ps)
+                for (uint32_t x : s.ps->def) std::snprintf(b, sizeof b, " %08X", x), def += b;
+            TextureDesc d{}, rd{};
+            if (s.textures[0]) Describe(s.textures[0], d);
+            if (DescribeSurface(s.rt, rd))
+                LOGI("audit: target %08X is %s%s, pitch %u", s.rt.data, Format(rd.format).name, rd.linear ? " linear" : "",
+                     rd.pitch);
+            LOGI("audit: pass into %ux%u (%08X) at %s: prim %u, blend %u %X %X op %X, tfactor %08X, stage 0 %ux%u filters "
+                 "%u %u, colorop %u %u %u, ps%s",
+                 w, h, s.rt.data, where().c_str(), prim, s.simple[kMBlendEnable / 4], s.simple[kMSrcBlend / 4],
+                 s.simple[kMDestBlend / 4], s.simple[kMBlendOp / 4], s.rs[kRsTextureFactor], d.width, d.height,
+                 s.tss[0][kTssMagFilter], s.tss[0][kTssMinFilter], s.tss[0][kTssColorOp], s.tss[0][kTssColorArg1],
+                 s.tss[0][kTssColorArg2], def.c_str());
+        }
+    }
+    for (uint32_t i = 0; i < 0x800; i++)
+        if (s.simple[i] && simple[i].Add(s.simple[i]))
+            LOGI("audit: method %04X = %08X at %s", i * 4, s.simple[i], where().c_str());
+    for (uint32_t i = kRsDeferredFirst; i < kRsMax; i++)
+        if (rs[i].Add(s.rs[i])) LOGI("audit: rs %u = %08X at %s", i, s.rs[i], where().c_str());
+    for (int st = 0; st < 4; st++) {
+        if (!s.textures[size_t(st)] && s.tss[size_t(st)][kTssColorOp] <= 1) continue;
+        for (uint32_t i = 0; i < kTssCount; i++)
+            if (tss[st][i].Add(s.tss[size_t(st)][i]))
+                LOGI("audit: stage %d tss %u = %08X at %s", st, i, s.tss[size_t(st)][i], where().c_str());
+        TextureDesc d;
+        if (!s.textures[size_t(st)] || !Describe(s.textures[size_t(st)], d)) continue;
+        const FormatInfo& fi = Format(d.format);
+        bool target = FindTarget(mem::PhysicalFromVirtual(d.data), d.width, d.height) != nullptr;
+        uint64_t key = uint64_t(d.format) << 40 ^ uint64_t(d.width) << 28 ^ uint64_t(d.height) << 16 ^
+                       uint64_t(d.depth) << 4 ^ (d.cube ? 1 : 0) ^ (target ? 2 : 0) ^ uint64_t(st) << 56;
+        // draws with a texture this backend does not bind (cube, volume, depth): counted whether or not the stage is
+        // sampled (a texture left on an unused stage counts too), the first few described with their pixel shader
+        if (d.cube || d.depth > 1 || fi.depth) {
+            static uint64_t gaps = 0, last = 0;
+            static uint64_t logged = 0;
+            gaps++;
+            if (logged < 6) {
+                logged++;
+                LOGI("audit: gap draw at %s: prim %u stage %d vs %08X ps %d tex modes %08X texcoord %08X colorop %u "
+                     "args %u %u alphaop %u blend %u %X %X z %u zw %u",
+                     where().c_str(), prim, st, s.vs_handle, int(s.ps != nullptr), s.rs[kRsPsTextureModes],
+                     s.tss[size_t(st)][kTssTexCoordIndex], s.tss[size_t(st)][kTssColorOp],
+                     s.tss[size_t(st)][kTssColorArg1], s.tss[size_t(st)][kTssColorArg2], s.tss[size_t(st)][kTssAlphaOp],
+                     s.simple[kMBlendEnable / 4], s.simple[kMSrcBlend / 4], s.simple[kMDestBlend / 4], s.rs[kRsZEnable],
+                     s.simple[kMZWriteEnable / 4]);
+                if (s.ps) {
+                    std::string def;
+                    char b[12];
+                    for (uint32_t w : s.ps->def) std::snprintf(b, sizeof b, " %08X", w), def += b;
+                    LOGI("audit: gap draw's pixel shader:%s", def.c_str());
+                }
+            }
+            if (presents_ >= last + 300) {
+                last = presents_;
+                LOGI("audit: %llu draws with cube, volume or depth textures by frame %llu", (unsigned long long)gaps,
+                     (unsigned long long)presents_);
+            }
+        }
+        if (texs.emplace(key, true).second)
+            LOGI("audit: stage %d texture %s %ux%ux%u%s%s%s%s levels %u at %08X, %s", st, fi.name, d.width, d.height,
+                 d.depth, d.cube ? " cube" : "", d.depth > 1 ? " volume" : "", fi.depth ? " depth" : "",
+                 target ? " target" : "", d.levels, d.data, where().c_str());
+    }
+}
+
 void VulkanBackend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t count, const uint8_t* indices) {
     Span span{record_ns_};
     // CSX_VK_STEPSHOTS=NAME:N: in the frame after shot NAME, the target saved before every Nth draw (finding the draw
@@ -1242,6 +1372,7 @@ void VulkanBackend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t
         }
     }
     frame_draws_++;
+    Audit(s, prim);
     Assembled a;
     draws_++;
     if (!Assemble(s, prim, start, count, indices, a)) {
@@ -1457,6 +1588,10 @@ void VulkanBackend::Copy(const Surface& src, const Surface& dst, uint32_t, uint3
 }
 
 void VulkanBackend::Sync(uint32_t va, uint32_t size) {
+    static const bool audit = std::getenv("CSX_VK_AUDIT") != nullptr;
+    static uint64_t syncs = 0;
+    uint64_t n = syncs++;
+    if (audit && (n < 8 || n % 1024 == 0)) LOGI("audit: lock %08X size %u (%llu)", va, size, (unsigned long long)n + 1);
     Target* t = nullptr;
     for (auto& [key, other] : targets_)
         if (!(key >> 63) && other.data == mem::PhysicalFromVirtual(va)) t = &other;
@@ -1696,6 +1831,22 @@ void VulkanBackend::UpdateResolution(const Surface& front) {
 }
 
 void VulkanBackend::Present(const Surface& front) {
+    static const bool audit = std::getenv("CSX_VK_AUDIT") != nullptr;
+    if (audit) {
+        if (audit_additive_ != audit_last_additive_)
+            LOGI("audit: frame %llu has %u additive draws (%llu draws)", (unsigned long long)presents_, audit_additive_,
+                 frame_draws_);
+        audit_last_additive_ = audit_additive_;
+        audit_additive_ = 0;
+    }
+    // CSX_VK_AUDIT: the small targets (glow chain, measurement) as they stand at the present, every 600 frames
+    if (audit && presents_ % 600 == 300)
+        for (auto& [key, t] : targets_)
+            if (!(key >> 63) && t.gw <= 320 && t.image) {
+                char name[64];
+                std::snprintf(name, sizeof name, "audit_%08X_%ux%u_%llu", t.data, t.gw, t.gh, (unsigned long long)presents_);
+                SaveShot(t, name);
+            }
     Span span{present_ns_};
     Target* t = EnsureTarget(front, false);
     if (!t) return;
