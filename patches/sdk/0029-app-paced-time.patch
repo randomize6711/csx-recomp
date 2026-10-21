@@ -1,0 +1,61 @@
+diff -ru a/harness/app_headless.cpp b/harness/app_headless.cpp
+--- a/harness/app_headless.cpp	2026-10-21 02:26:16.717831361 +0200
++++ b/harness/app_headless.cpp	2026-10-21 02:26:37.079817238 +0200
+@@ -61,6 +61,9 @@
+ // a title's own setting replaces FPS from then on
+ void SetFrameRate(unsigned fps) { FrameRate() = long(fps); }
+ 
++std::atomic<uint64_t> g_paced_ns{0};
++uint64_t PacedNanoseconds() { return g_paced_ns; }
++
+ void Pace() {
+     const long fps = FrameRate();
+     if (fps <= 0) return;
+@@ -71,6 +74,7 @@
+     next += period;
+     if (next < now - period) next = now;
+     std::this_thread::sleep_until(next);
++    g_paced_ns += uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(clock::now() - now).count());
+ }
+ 
+ }  // namespace app
+diff -ru a/runtime/app/app.h b/runtime/app/app.h
+--- a/runtime/app/app.h	2026-10-21 02:26:16.718670696 +0200
++++ b/runtime/app/app.h	2026-10-21 02:26:37.080615324 +0200
+@@ -97,5 +97,7 @@
+ void Pace();
+ // the fps cap Pace keeps from now on (0: none), for a title's own setting
+ void SetFrameRate(unsigned fps);
++// the time Pace has slept in all, for frame timing diagnostics (what of a frame the cap waits out)
++uint64_t PacedNanoseconds();
+ 
+ }  // namespace app
+diff -ru a/runtime/app/main.cpp b/runtime/app/main.cpp
+--- a/runtime/app/main.cpp	2026-10-21 02:26:16.718718877 +0200
++++ b/runtime/app/main.cpp	2026-10-21 02:26:37.080656493 +0200
+@@ -10,6 +10,7 @@
+ #include <timeapi.h>
+ 
+ #include <algorithm>
++#include <atomic>
+ #include <chrono>
+ #include <csignal>
+ #include <cwchar>
+@@ -199,6 +200,9 @@
+ 
+ void SetFrameRate(unsigned fps) { Get().fps_cap = fps; }
+ 
++std::atomic<uint64_t> g_paced_ns{0};
++uint64_t PacedNanoseconds() { return g_paced_ns; }
++
+ void Pace() {
+     using clock = std::chrono::steady_clock;
+     static clock::time_point next = clock::now();
+@@ -213,6 +217,7 @@
+     if (next < now - period) next = now;
+     while (clock::now() + std::chrono::milliseconds(2) < next) Sleep(1);
+     while (clock::now() < next) std::this_thread::yield();
++    g_paced_ns += uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(clock::now() - now).count());
+ }
+ 
+ }  // namespace app

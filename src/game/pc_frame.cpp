@@ -8,6 +8,7 @@
 // Above the original 30 the fraction is carried to the next frame, so the milliseconds add up to the time that passed
 // and the speed is the same at every rate; at 30 the title's own rounding is kept.
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -25,6 +26,10 @@ constexpr uint32_t kFrameTime = 0x6CE0E0;  // host_frametime (double, seconds)
 
 unsigned g_rate = 0;   // the chosen limit, 0 while none is set (FPS from the environment, fps_max the game's)
 double g_carry = 0;    // the fraction of a millisecond the last movement command left out
+// the simulation's rate, logged every second while a match runs: movement commands (one a client frame), their
+// milliseconds and the engine's frame time (both 1000 a second when the game's clock keeps real time)
+unsigned g_commands = 0;
+double g_command_ms = 0, g_frame_ms = 0;
 
 float F(uint32_t va) {
     float f;
@@ -51,16 +56,32 @@ void PcFrameRateFrame(X86Context&) {
         float v = float(g_rate);
         std::memcpy(kernel::HostPtr(kFpsMax), &v, 4);
     }
+    using clock = std::chrono::steady_clock;
+    static clock::time_point start = clock::now();
+    double secs = std::chrono::duration<double>(clock::now() - start).count();
+    if (secs < 1.0) return;
+    if (g_commands)
+        LOGI("pc frame: %.1f movement commands/s, %.0f ms of movement and %.0f ms of frame time a second", g_commands / secs,
+             g_command_ms / secs, g_frame_ms / secs);
+    g_commands = 0;
+    g_command_ms = g_frame_ms = 0;
+    start = clock::now();
 }
 
 // [[hook]] at 0x2AEDB (config/game.toml): CL_Move storing the movement command's msec (al, after the clamp to 255);
 // above 30 frames per second the fraction of a millisecond is carried to the next command
 void PcMoveMsec(X86Context& ctx, uint8_t*) {
-    if (g_rate <= 30) return;
     double ms;
     std::memcpy(&ms, kernel::HostPtr(kFrameTime), 8);
+    g_commands++;
+    g_frame_ms += ms * 1000.0;
+    if (g_rate <= 30) {
+        g_command_ms += double(ctx.eax & 0xFF);
+        return;
+    }
     double exact = std::clamp(ms * 1000.0 + g_carry, 0.0, 255.0);
     uint32_t msec = uint32_t(exact);
     g_carry = exact - double(msec);
+    g_command_ms += double(msec);
     ctx.eax = (ctx.eax & ~0xFFu) | msec;
 }

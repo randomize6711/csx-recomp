@@ -37,6 +37,9 @@ per line, executed in order:
     expect steady NAME N           the window burst NAME_0..N-1 has no frame showing the picture before last again (flicker)
     expect tracked NAME rose|moved MIN MAX  a track step's height risen or distance moved in [MIN, MAX]
     expect fps MIN MAX             presented frames per second (the renderer's frame lines) in [MIN, MAX]
+    expect setting NAME VALUE      the run's pc_settings.ini holds NAME = VALUE (what PC Options saved)
+    expect movetime MIN MAX        the movement commands' milliseconds per real second (the last two "pc frame" lines,
+                                   src/game/pc_frame.cpp) in [MIN, MAX]: the game's movement keeps real time
     expect weapon A ID             the weapon in hand at A (17 Glock, 29 knife, 4 HE grenade, 25 flashbang, 9 smoke)
     expect rose A B MIN            the player rose at least MIN units from A to B (a jump)
     expect heading A B MAXDEG [OFF] the move from A to B points along A's yaw (+ OFF degrees: 90 left, -90 right, 180
@@ -47,7 +50,8 @@ per line, executed in order:
     pokefile FILE           every "VA FLOAT" line of FILE (relative to the repository) written at once
     poke VA FLOAT           write FLOAT to guest address VA (hex) once, src/common/memory_dump.cpp (diagnostics)
     click BUTTON [SECONDS]  (window build) a mouse button (1 left, 2 middle, 3 right) through SDL; wheel N: wheel notches
-    pckey cmd TEXT          console text through Cbuf_AddText; pckey key KEYNUM DOWN: an engine key event (pc_keys.cpp)
+    pckey cmd TEXT          console text through Cbuf_AddText; pckey key KEYNUM DOWN: an engine key event (pc_keys.cpp);
+                            pckey set NAME VALUE: a PC setting changed and saved, as PC Options' Accept does
     snap NAME               draw the next two frames and keep them as build/run/snaps/NAME_1.tga / NAME_2.tga
     expect region NAME X0 Y0 X1 Y1 MIN MAX  mean luminance of that box of snaps/NAME_2.tga (or shots/NAME.bmp) in [MIN, MAX]
     expect darkfrac NAME X0 Y0 X1 Y1 LUM MIN MAX  share of that box's pixels darker than LUM in [MIN, MAX]
@@ -453,6 +457,25 @@ def main():
                     rate = (f1 - f0) / (t1 - t0) if t1 > t0 and f1 > f0 else None
                 print(f'     presented {rate:.1f} frames per second' if rate else '     no frame count')
                 good = rate is not None and float(st[2]) <= rate <= float(st[3])
+            elif kind == 'expect' and st[1] == 'setting':
+                # expect setting NAME VALUE: the saved pc_settings.ini line
+                saved = {}
+                if os.path.exists(settings):
+                    for l in open(settings, encoding='utf-8'):
+                        if '=' in l and not l.lstrip().startswith('#'):
+                            k, v = l.split('=', 1)
+                            saved[k.strip()] = v.strip()
+                print('     %s = %s' % (st[2], saved.get(st[2], '(none)')))
+                good = saved.get(st[2]) == ' '.join(st[3:])
+            elif kind == 'expect' and st[1] == 'movetime':
+                # expect movetime MIN MAX: milliseconds of movement a second over the last two "pc frame" lines
+                time.sleep(2.2)
+                log.poll()
+                vals = [float(m.group(1)) for m in
+                        (re.search(r'pc frame: [0-9.]+ movement commands/s, ([0-9.]+) ms of movement', l)
+                         for l in log.lines) if m][-2:]
+                print('     movement %s ms a second' % ', '.join('%.0f' % v for v in vals) if vals else '     no frame line')
+                good = len(vals) == 2 and all(float(st[2]) <= v <= float(st[3]) for v in vals)
             elif kind == 'expect' and st[1] == 'menuaudio':
                 # expect menuaudio [SOUND]: the menu sound audible at every mouse play in the run's audio capture
                 # (CSX_AUDIO_WAV, CSX_LOG_MENU_SOUNDS=1; tools/check_menu_audio.py)

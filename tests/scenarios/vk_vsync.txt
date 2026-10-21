@@ -1,0 +1,71 @@
+# VSync in the front end's PC Options, the Vulkan window with real SDL events (FINDINGS.md "VSync", src/vulkan/
+# vk_backend.cpp, src/game/pc_menu.cpp). The surface's present modes are listed. Started with a saved vsync = 0 the
+# swapchain takes a present mode that does not wait (IMMEDIATE, else MAILBOX: gamescope offers MAILBOX and FIFO) and
+# the menus pass the display's 60 Hz under a 240 limit; VSync On from PC Options (the row's right arrow, Accept)
+# saves vsync = 1 and makes the swapchain again with FIFO (60), Off again goes back. The window is left alone: it
+# stays full screen at its size (a compositor's full screen, as on Hyprland), is not minimized, and Display Mode is
+# not applied. With no setting VSync is on: vk_vsync_play.txt.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1600 -H 900 -r 60), with
+#   --pc frame_rate=240 --pc vsync=0
+wait log renderer: vulkan
+expect log vulkan: present modes offered: .*mailbox
+expect log vulkan: swapchain .* present mode (immediate|mailbox) \(VSync off\)
+wait log open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+expect log pc mouse: screen SuperLauncher_MainScreen
+winctl fullscreen 1
+sleep 2
+expect log window: size 1600x900
+expect fps 120 260
+point 150 268
+sleep 0.5
+click 1
+sleep 3
+point 150 232
+sleep 0.5
+click 1
+sleep 3
+expect log pc mouse: screen SuperLauncher_PCOptions, 9 rows
+point 545 277
+sleep 0.5
+click 1
+sleep 1
+point 430 428
+sleep 0.5
+click 1
+sleep 3
+expect log pc: vsync = 1
+expect log pc: settings saved
+expect setting vsync 1
+expect log vulkan: VSync on, the swapchain is made again
+expect log vulkan: swapchain 1600x900, .* present mode fifo \(VSync on\)
+sleep 2
+expect fps 55 63
+point 150 232
+sleep 0.5
+click 1
+sleep 3
+point 545 277
+sleep 0.5
+click 1
+sleep 1
+point 430 428
+sleep 0.5
+click 1
+sleep 3
+expect log pc: vsync = 0
+expect setting vsync 0
+expect count vulkan:.VSync.off,.the.swapchain.is.made.again 1
+expect count vulkan:.VSync.on,.the.swapchain.is.made.again 1
+sleep 2
+expect fps 120 260
+expect count window:.size 2
+expect nolog window: minimized
+expect nolog window: Display Mode .* applied
+expect nolog guest trap

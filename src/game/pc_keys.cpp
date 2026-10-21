@@ -120,7 +120,8 @@ void SyncBindings(X86Context& ctx) {
 // developer console "con TEXT" (typed text) and "conkey NAME" (toggle close backspace enter up down tab pgup pgdn),
 // for the menus' mouse "pointer X Y" (menu pixels), "mclick BUTTON", "mwheel N", for PC Controls' key capture
 // "bindstart" (Enter on a row), "bindkey KEYNUM" (the key the window would send), "bindcancel" (Escape), for the
-// name field "name TEXT" (typed text) and "namekey NAME" (backspace left right enter escape)
+// name field "name TEXT" (typed text) and "namekey NAME" (backspace left right enter escape), "set NAME VALUE" a PC
+// setting changed and saved as PC Options' Accept does (tests of settings applied while playing)
 void PollRequests() {
     static auto next = std::chrono::steady_clock::now();
     auto now = std::chrono::steady_clock::now();
@@ -160,6 +161,12 @@ void PollRequests() {
             if (auto it = names.find(l.substr(8)); it != names.end()) csx::QueueTextEntryKey(it->second);
         } else if (l.rfind("con ", 0) == 0) {
             csx::QueueConsoleText(l.substr(4));
+        } else if (l.rfind("set ", 0) == 0) {
+            size_t sp = l.find(' ', 4);
+            if (sp != std::string::npos) {
+                pc::Set(l.substr(4, sp - 4), l.substr(sp + 1));
+                pc::Save();
+            }
         } else if (l.rfind("conkey ", 0) == 0) {
             using K = csx::ConsoleKey;
             static const std::map<std::string, K> names = {

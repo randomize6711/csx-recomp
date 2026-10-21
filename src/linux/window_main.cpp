@@ -16,6 +16,7 @@
 #endif
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -42,6 +43,16 @@ namespace {
 
 SDL_Window* g_window = nullptr;
 bool g_vulkan = false;
+std::atomic<float> g_refresh{0};
+
+// the refresh rate of the window's display, logged when it changes (start, the window moved, the mode changed)
+void UpdateRefresh(SDL_Window* win) {
+    const SDL_DisplayMode* dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(win));
+    float hz = dm ? dm->refresh_rate : 0.0f;
+    if (hz == g_refresh) return;
+    g_refresh = hz;
+    LOGI("window: display refresh %.2f Hz%s", hz, dm ? "" : " (unknown)");
+}
 std::mutex g_shot_lock;
 std::string g_shot;
 
@@ -96,6 +107,7 @@ void ApplyDisplaySettings(SDL_Window* win) {
 namespace window {
 void* SdlWindow() { return g_window; }
 bool UseVulkan() { return g_vulkan; }
+float DisplayRefresh() { return g_refresh; }
 std::string TakeShotRequest() {
     std::lock_guard<std::mutex> lock(g_shot_lock);
     return std::exchange(g_shot, {});
@@ -215,7 +227,12 @@ int main(int argc, char** argv) {
         logx::Flush();
         return 1;
     }
-    if (ren) SDL_SetRenderVSync(ren, 1);
+    // VSync (PC Options) for the software renderer: the window's own presents of the latest frame wait for the
+    // display's blank or not; the title renders on its threads either way, so its frame rate is the limit's alone
+    bool vsync = pc::Get("vsync", "1") != "0";
+    if (ren) SDL_SetRenderVSync(ren, vsync ? 1 : SDL_RENDERER_VSYNC_DISABLED);
+    if (ren) LOGI("window: VSync %s", vsync ? "on" : "off");
+    UpdateRefresh(win);
     unsigned settings_seen = pc::Version();
     bool display_applied = false;
     std::string mode_applied;  // the Display Mode last applied
@@ -431,6 +448,10 @@ int main(int argc, char** argv) {
                 continue;
             }
             if (e.type == SDL_EVENT_WINDOW_FOCUS_LOST) SDL_SetWindowRelativeMouseMode(win, false);
+            if (e.type == SDL_EVENT_WINDOW_DISPLAY_CHANGED || e.type == SDL_EVENT_DISPLAY_CURRENT_MODE_CHANGED)
+                UpdateRefresh(win);
+            if (e.type == SDL_EVENT_WINDOW_MINIMIZED) LOGI("window: minimized");
+            if (e.type == SDL_EVENT_WINDOW_RESTORED) LOGI("window: restored");
             if (e.type == SDL_EVENT_WINDOW_RESIZED)  // logical pixels, what the pointer's coordinates are in
                 LOGI("window: size %dx%d", int(e.window.data1), int(e.window.data2));
             // the free pointer's motion only matters to the menus
@@ -451,6 +472,11 @@ int main(int argc, char** argv) {
             if (display_applied ? mode != mode_applied : mode == "fullscreen") ApplyDisplaySettings(win);
             display_applied = true;
             mode_applied = mode;
+            if (bool v = pc::Get("vsync", "1") != "0"; ren && v != vsync) {
+                vsync = v;
+                SDL_SetRenderVSync(ren, vsync ? 1 : SDL_RENDERER_VSYNC_DISABLED);
+                LOGI("window: VSync %s", vsync ? "on" : "off");
+            }
         }
         if (g_vulkan) {
             // the backend presents; shot requests go to it, the loop only handles events
@@ -479,6 +505,10 @@ int main(int argc, char** argv) {
                 w = fr.width;
                 h = fr.height;
             }
+        }
+        if (!vsync && !w) {
+            SDL_Delay(1);  // no new frame and no blank to wait for: the latest one is still shown
+            continue;
         }
         if (w && h) {
             if (!tex || w != tw || h != th) {

@@ -1,0 +1,113 @@
+# VSync and Frame Rate Limit while playing, the Vulkan window with real SDL events at a 120 Hz display (FINDINGS.md
+# "VSync", src/vulkan/vk_backend.cpp, src/game/pc_frame.cpp). VSync On with a 240 limit runs at the display's 120
+# (FIFO); VSync Off from the pause menu's PC Options (the right arrow, a double click accepting, Return to Game) makes
+# the swapchain again, the mouse is captured again on returning, and the frame rate passes 120 (the CPU's limit in a
+# match, about 170-190 here, not 240); then settings changed while playing (as Accept saves them): Off with 144, Off
+# with 60, On with 60, On with 240. At every one the movement keeps real time (1000 ms of movement a second), a jump
+# rises 45 units and two seconds of walking cover 500 units; the window is not minimized or resized. The bots
+# stand still (bot_zombie) so the round lasts the test.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960 -r 120), with
+#   --launch tests/launch/de_airstrip_beginner --pc frame_rate=240
+wait log open D:\\de_airstrip.sxwad
+expect log vulkan: swapchain .* present mode fifo \(VSync on\)
+sleep 25
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 20
+key Left_Ctrl
+sleep 15
+pckey cmd bot_zombie 1
+expect count input:.mouse.mode.play.\(captured\) 3
+expect fps 115 122
+expect movetime 990 1010
+key W 3.3
+sleep 1
+track on240 2
+sleep 1
+expect tracked on240 moved 490 510
+key Escape
+sleep 2
+point 300 271
+sleep 0.5
+click 1
+sleep 2
+point 300 249
+sleep 0.5
+click 1
+sleep 2
+expect log pc mouse: screen InGame_PCOptions, 9 rows
+point 545 277
+sleep 0.5
+click 1
+sleep 1
+point 200 277
+sleep 0.5
+click 11
+sleep 2
+expect log pc: vsync = 0
+expect log vulkan: VSync off, the swapchain is made again
+expect log vulkan: swapchain 1152x864, .* present mode (immediate|mailbox) \(VSync off\)
+click 3
+sleep 2
+point 300 141
+sleep 0.5
+click 1
+sleep 3
+expect count input:.mouse.mode.play.\(captured\) 4
+sleep 2
+expect fps 140 250
+expect movetime 990 1010
+key S 3.3
+sleep 1
+track off240 2
+sleep 1
+expect tracked off240 moved 490 510
+key Space
+track jump240 1.2
+expect tracked jump240 rose 43 47
+pckey set frame_rate 144
+sleep 3
+expect fps 135 150
+expect movetime 990 1010
+key W 3.3
+sleep 1
+track off144 2
+sleep 1
+expect tracked off144 moved 490 510
+pckey set frame_rate 60
+sleep 3
+expect fps 57 62
+expect movetime 990 1010
+key S 3.3
+sleep 1
+track off60 2
+sleep 1
+expect tracked off60 moved 490 510
+key Space
+track jump60 1.2
+expect tracked jump60 rose 43 47
+pckey set vsync 1
+sleep 3
+expect count vulkan:.VSync.on,.the.swapchain.is.made.again 1
+expect fps 57 62
+expect movetime 990 1010
+key W 3.3
+sleep 1
+track on60 2
+sleep 1
+expect tracked on60 moved 490 510
+pckey set frame_rate 240
+sleep 3
+expect fps 115 122
+key S 3.3
+sleep 1
+track on240b 2
+sleep 1
+expect tracked on240b moved 490 510
+expect count input:.mouse.mode.play.\(captured\) 4
+expect nolog window: minimized
+expect count window:.size 1
+expect nolog guest trap

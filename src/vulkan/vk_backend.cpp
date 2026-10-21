@@ -18,6 +18,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include <strings.h>
+
 #include "app/app.h"
 #include "core/log.h"
 #include "dxgiformat.h"
@@ -215,6 +217,16 @@ struct Frame {
 // pixel shader keys share the shader map with vertex shader keys; the salt keeps them apart (as in the D3D12 renderer)
 constexpr uint64_t kPixelKeySalt = 0x9E3779B97F4A7C15ull;
 
+const char* PresentModeName(VkPresentModeKHR m) {
+    switch (m) {
+        case VK_PRESENT_MODE_IMMEDIATE_KHR: return "immediate";
+        case VK_PRESENT_MODE_MAILBOX_KHR: return "mailbox";
+        case VK_PRESENT_MODE_FIFO_KHR: return "fifo";
+        case VK_PRESENT_MODE_FIFO_RELAXED_KHR: return "fifo_relaxed";
+        default: return "other";
+    }
+}
+
 // adds the time to the end of the scope to a total, in nanoseconds
 struct Span {
     double& total;
@@ -255,6 +267,8 @@ private:
     bool CreateDevice();
     bool CreateSwapchain();
     void DestroySwapchain();
+    VkPresentModeKHR WantedPresentMode();
+    void LogFrameTiming();
     bool CreateLayouts();
     void CreateFrames();
     uint32_t MemoryType(uint32_t bits, VkMemoryPropertyFlags want) const;
@@ -310,6 +324,10 @@ private:
     std::vector<VkImage> swap_images_;
     std::vector<VkSemaphore> swap_ready_;  // per swapchain image: rendering done, present may run
     VkExtent2D swap_extent_{};
+    std::vector<VkPresentModeKHR> present_modes_;  // what the surface offers (asked once)
+    VkPresentModeKHR present_mode_ = VK_PRESENT_MODE_FIFO_KHR;
+    unsigned vsync_seen_ = ~0u;  // the settings version the VSync setting was last read at
+    bool vsync_ = true;
 
     VkCommandPool pool_ = VK_NULL_HANDLE;
     std::array<Frame, kFrames> frames_{};
@@ -355,6 +373,15 @@ private:
     bool frame_open_ = false;
     double gpu_ns_ = 0, record_ns_ = 0, present_ns_ = 0;
     unsigned gpu_frames_ = 0;
+    // frame timing, logged every second (LogFrameTiming): frames the title presented, presents the swapchain took,
+    // the time blocked acquiring an image and presenting (the display's pacing), the intervals between frames
+    struct Timing {
+        std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now(), last{};
+        unsigned frames = 0, shown = 0;
+        double acquire_ns = 0, queue_ns = 0, max_ms = 0;
+        uint64_t paced_ns = 0;  // app::PacedNanoseconds at the start
+        std::vector<float> intervals;
+    } timing_;
     std::string step_name_;  // totals since start: draws, and draws not recorded by cause
 };
 
@@ -501,20 +528,7 @@ bool VulkanBackend::CreateSwapchain() {
     ci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     ci.preTransform = caps.currentTransform;
     ci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    // FIFO (vsync, always available); CSX_VK_PRESENT=immediate or mailbox when the surface offers it, for measuring
-    // what the renderer sustains past the display's rate (the title's own pacing still applies, FPS=0 lifts it)
-    ci.presentMode = VK_PRESENT_MODE_FIFO_KHR;
-    if (const char* want = std::getenv("CSX_VK_PRESENT")) {
-        VkPresentModeKHR mode = std::strcmp(want, "immediate") == 0 ? VK_PRESENT_MODE_IMMEDIATE_KHR
-                                : std::strcmp(want, "mailbox") == 0 ? VK_PRESENT_MODE_MAILBOX_KHR
-                                                                    : VK_PRESENT_MODE_FIFO_KHR;
-        uint32_t n = 0;
-        vkGetPhysicalDeviceSurfacePresentModesKHR(gpu_, surface_, &n, nullptr);
-        std::vector<VkPresentModeKHR> modes(n);
-        vkGetPhysicalDeviceSurfacePresentModesKHR(gpu_, surface_, &n, modes.data());
-        if (std::find(modes.begin(), modes.end(), mode) != modes.end()) ci.presentMode = mode;
-        LOG_FIRST(1, "vulkan: present mode %s %s", want, ci.presentMode == mode ? "in use" : "not offered, FIFO");
-    }
+    ci.presentMode = WantedPresentMode();
     ci.clipped = VK_TRUE;
     ci.oldSwapchain = swapchain_;
     VkSwapchainKHR sc = VK_NULL_HANDLE;
@@ -534,8 +548,44 @@ bool VulkanBackend::CreateSwapchain() {
         VkSemaphoreCreateInfo si{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
         vkCreateSemaphore(dev_, &si, nullptr, &s);
     }
-    LOGI("vulkan: swapchain %ux%u, %u images", ext.width, ext.height, n);
+    present_mode_ = ci.presentMode;
+    LOGI("vulkan: swapchain %ux%u, %u images, present mode %s (VSync %s)", ext.width, ext.height, n,
+         PresentModeName(present_mode_), vsync_ ? "on" : "off");
     return true;
+}
+
+// VSync (PC Options, pc_settings.ini "vsync", on unless "0"): On presents with FIFO, each frame waits for a vertical
+// blank of the display, so the frame rate stops at the display's refresh (FIFO is always offered). Off asks for
+// IMMEDIATE (no wait: a frame replaces the shown one as it comes, which may tear where the compositor lets it),
+// MAILBOX when the surface lacks it (no wait and no tearing: the newest frame waits for the next blank, older ones are
+// dropped), FIFO when it has neither. CSX_VK_PRESENT=immediate|mailbox|fifo|fifo_relaxed asks for a mode whatever
+// the setting (measurements).
+VkPresentModeKHR VulkanBackend::WantedPresentMode() {
+    if (present_modes_.empty()) {
+        uint32_t n = 0;
+        vkGetPhysicalDeviceSurfacePresentModesKHR(gpu_, surface_, &n, nullptr);
+        present_modes_.resize(n);
+        vkGetPhysicalDeviceSurfacePresentModesKHR(gpu_, surface_, &n, present_modes_.data());
+        std::string list;
+        for (VkPresentModeKHR m : present_modes_) list += std::string(list.empty() ? "" : ", ") + PresentModeName(m);
+        LOGI("vulkan: present modes offered: %s", list.c_str());
+    }
+    vsync_seen_ = pc::Version();
+    vsync_ = pc::Get("vsync", "1") != "0";
+    auto offered = [&](VkPresentModeKHR m) {
+        return std::find(present_modes_.begin(), present_modes_.end(), m) != present_modes_.end();
+    };
+    if (const char* want = std::getenv("CSX_VK_PRESENT")) {
+        for (VkPresentModeKHR m : {VK_PRESENT_MODE_IMMEDIATE_KHR, VK_PRESENT_MODE_MAILBOX_KHR, VK_PRESENT_MODE_FIFO_KHR,
+                                   VK_PRESENT_MODE_FIFO_RELAXED_KHR})
+            if (!strcasecmp(want, PresentModeName(m)) && offered(m)) return m;
+        LOG_FIRST(1, "vulkan: present mode %s not offered, the VSync setting's", want);
+    }
+    if (!vsync_) {
+        if (offered(VK_PRESENT_MODE_IMMEDIATE_KHR)) return VK_PRESENT_MODE_IMMEDIATE_KHR;
+        if (offered(VK_PRESENT_MODE_MAILBOX_KHR)) return VK_PRESENT_MODE_MAILBOX_KHR;
+    }
+    return VK_PRESENT_MODE_FIFO_KHR;
 }
 
 void VulkanBackend::DestroySwapchain() {
@@ -1688,8 +1738,18 @@ void VulkanBackend::Present(const Surface& front) {
     VkCommandBuffer cb = Cmd();
     Frame& f = frames_[frame_ % kFrames];
     uint32_t index = 0;
-    VkResult ar = swapchain_ ? vkAcquireNextImageKHR(dev_, swapchain_, UINT64_MAX, f.acquired, VK_NULL_HANDLE, &index)
-                             : VK_ERROR_OUT_OF_DATE_KHR;
+    // the VSync setting changed (PC Options): a swapchain in the other present mode, from the old one (the window
+    // itself is not touched: its size, full screen, focus and mouse capture stay)
+    if (swapchain_ && pc::Version() != vsync_seen_ && WantedPresentMode() != present_mode_) {
+        LOGI("vulkan: VSync %s, the swapchain is made again", vsync_ ? "on" : "off");
+        CreateSwapchain();
+    }
+    VkResult ar;
+    {
+        Span acquire{timing_.acquire_ns};
+        ar = swapchain_ ? vkAcquireNextImageKHR(dev_, swapchain_, UINT64_MAX, f.acquired, VK_NULL_HANDLE, &index)
+                        : VK_ERROR_OUT_OF_DATE_KHR;
+    }
     bool have_image = ar == VK_SUCCESS || ar == VK_SUBOPTIMAL_KHR;
     if (have_image) {
         VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
@@ -1767,7 +1827,12 @@ void VulkanBackend::Present(const Surface& front) {
         pi.swapchainCount = 1;
         pi.pSwapchains = &swapchain_;
         pi.pImageIndices = &index;
-        VkResult pr = vkQueuePresentKHR(queue_, &pi);
+        VkResult pr;
+        {
+            Span queue{timing_.queue_ns};
+            pr = vkQueuePresentKHR(queue_, &pi);
+        }
+        if (pr == VK_SUCCESS || pr == VK_SUBOPTIMAL_KHR) timing_.shown++;
         remake = pr == VK_ERROR_OUT_OF_DATE_KHR || pr == VK_SUBOPTIMAL_KHR || ar == VK_SUBOPTIMAL_KHR;
     }
     if (!remake) {
@@ -1781,6 +1846,7 @@ void VulkanBackend::Present(const Surface& front) {
     UpdateResolution(front);
     frame_++;
     presents_++;
+    LogFrameTiming();
     harness::g_frames++;  // frames shown, as the software window counts them (the window's relaunch handover)
     if (presents_ % 30 == 0) {
         auto now = std::chrono::steady_clock::now();
@@ -1795,6 +1861,44 @@ void VulkanBackend::Present(const Surface& front) {
         gpu_frames_ = 0;
         fps_t_ = now;
     }
+}
+
+// once a second: "frame timing: F frames/s, P presented, interval A ms on average, M at most, 99% under Q; per frame
+// acquire, present, limiter, GPU; present mode, display refresh". Frames are the title's presents (what it rendered),
+// presented the swapchain's successful presents. Waits in acquire and present are the display's pacing (FIFO at the
+// refresh), the limiter's the Frame Rate Limit's; a frame rate short of both with neither waiting is the title's or
+// the renderer's own cost.
+void VulkanBackend::LogFrameTiming() {
+    Timing& t = timing_;
+    auto now = std::chrono::steady_clock::now();
+    if (t.frames == 0 && t.paced_ns == 0) t.paced_ns = app::PacedNanoseconds();
+    if (t.last != std::chrono::steady_clock::time_point{}) {
+        float ms = std::chrono::duration<float, std::milli>(now - t.last).count();
+        t.intervals.push_back(ms);
+        t.max_ms = std::max(t.max_ms, double(ms));
+    }
+    t.last = now;
+    t.frames++;
+    double secs = std::chrono::duration<double>(now - t.start).count();
+    if (secs < 1.0) return;
+    double avg = 0;
+    for (float v : t.intervals) avg += v;
+    avg = t.intervals.empty() ? 0 : avg / double(t.intervals.size());
+    float p99 = 0;
+    if (!t.intervals.empty()) {
+        size_t k = std::min(t.intervals.size() - 1, size_t(double(t.intervals.size()) * 0.99));
+        std::nth_element(t.intervals.begin(), t.intervals.begin() + long(k), t.intervals.end());
+        p99 = t.intervals[k];
+    }
+    double paced = double(app::PacedNanoseconds() - t.paced_ns);
+    LOGI("frame timing: %.1f frames/s, %.1f presented, interval %.2f ms on average, %.2f at most, 99%% under %.2f; "
+         "per frame: acquire %.3f ms, present %.3f ms, limiter %.3f ms; %s, display %.2f Hz",
+         t.frames / secs, t.shown / secs, avg, t.max_ms, p99, t.acquire_ns / t.frames / 1e6,
+         t.queue_ns / t.frames / 1e6, paced / t.frames / 1e6, PresentModeName(present_mode_), window::DisplayRefresh());
+    t = Timing{};
+    t.last = now;
+    t.start = now;
+    t.paced_ns = app::PacedNanoseconds();
 }
 
 }  // namespace
