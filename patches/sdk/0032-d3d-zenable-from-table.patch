@@ -1,0 +1,20 @@
+D3D: ZEnable read from the library's table at each draw
+
+Counter-Strike sets ZEnable inline: its GL layer's glDisable(GL_DEPTH_TEST) (0x708E4) and four other sites copy
+the library's D3DDevice_SetRenderState_ZEnable (its 0x30C / 0x1D78 push and its D3D_RenderState entry) instead
+of calling it, so the runtime kept depth testing on for the screen fade quad (the flashbang white-out) and other
+screen-space passes that turn it off. SyncDeferred reads the entry with the deferred states.
+
+---
+--- a/runtime/xdk/d3d8.cpp
++++ b/runtime/xdk/d3d8.cpp
+@@ -232,6 +232,9 @@
+ void SyncDeferred() {
+     // deferred states live in the title's memory, the inline SetRenderState and SetTextureStageState write them
+     for (uint32_t i = gpu::kRsDeferredFirst; i < gpu::kRsComplexFirst; i++) g_state.rs[i] = R32(kRenderState + i * 4);
++    // and ZEnable, which titles also set inline (the library's SetRenderState_ZEnable copied: its push and its table
++    // entry), so its table entry is the state whichever way it was set
++    g_state.rs[gpu::kRsZEnable] = R32(kRenderState + gpu::kRsZEnable * 4);
+     for (int s = 0; s < 4; s++)
+         for (uint32_t i = 0; i < gpu::kTssBumpEnvMat00; i++) g_state.tss[s][i] = R32(kTextureState + (s * kStageStates + i) * 4);
+ }

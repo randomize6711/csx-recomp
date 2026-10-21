@@ -29,6 +29,9 @@ per line, executed in order:
     dump NAME               guest memory dump to build/run/dumps/NAME.bin (src/common/memory_dump.cpp)
     state NAME              log the local player's state (src/game/state_probe.cpp) and keep it as NAME
     exposure NAME           the next "dynamic gamma" log line (CSX_LOG_DYNGAMMA=1, src/game/dynamic_gamma.cpp), kept as NAME
+    fade NAME               the last screen fade once it has ended (CSX_LOG_FADE=1, src/game/screen_fade.cpp), kept as NAME:
+                            alpha, hold and length (planned, from its start), lasted and real (as it ran: client, real s),
+                            overrun (lasted - length) and drift (real - lasted)
     track NAME SECONDS      follow the player's position that long and log how high it rose and how far it moved
     expect moved A B MIN MAX       horizontal distance between states A and B in [MIN, MAX] game units
     expect yaw A B DEG TOL         view yaw (0x552C10) changed by DEG (+ left) within TOL; expect pitch likewise
@@ -44,6 +47,8 @@ per line, executed in order:
                                    high, middle: its gamma ramp's points) in [MIN, MAX]
     expect exposurediff A B FIELD MIN MAX  FIELD of exposure B less that of exposure A in [MIN, MAX]
     expect exposuretrack NAME TOL  the ramp settled on what was measured: low within TOL of dark, middle of mean
+    expect fade NAME FIELD MIN MAX  a fade step's FIELD in [MIN, MAX]
+    expect fadediff A B FIELD MIN MAX  FIELD of fade B less that of fade A in [MIN, MAX]
     expect setting NAME VALUE      the run's pc_settings.ini holds NAME = VALUE (what PC Options saved)
     expect movetime MIN MAX        the movement commands' milliseconds per real second (the last two "pc frame" lines,
                                    src/game/pc_frame.cpp) in [MIN, MAX]: the game's movement keeps real time
@@ -64,6 +69,7 @@ per line, executed in order:
     snap NAME               draw the next two frames and keep them as build/run/snaps/NAME_1.tga / NAME_2.tga
     expect region NAME X0 Y0 X1 Y1 MIN MAX  mean luminance of that box of snaps/NAME_2.tga (or shots/NAME.bmp) in [MIN, MAX]
     expect darkfrac NAME X0 Y0 X1 Y1 LUM MIN MAX  share of that box's pixels darker than LUM in [MIN, MAX]
+    expect regiondiff A B X0 Y0 X1 Y1 MIN MAX  mean luminance of that box in B less that in A (snaps or window shots)
     expect log REGEX        fail unless a log line matches
     expect quiet REGEX S    wait S seconds; fail if a log line logged meanwhile matches (no spaces: write . for them)
     expect nolog REGEX      fail if a log line matches
@@ -215,6 +221,7 @@ def main():
     states = {}
     tracks = {}  # track steps: NAME -> rose, moved
     exposures = {}  # exposure steps: NAME -> dark, light, mean, low, high, middle
+    fades = {}  # fade steps: NAME -> alpha, hold, length, lasted, real
     exe_name = os.path.basename(EXE)
 
     def wine_alive():
@@ -363,7 +370,9 @@ def main():
                 if good:
                     print('     ' + st[1] + ' = ' + ' '.join(str(v) for v in states[st[1]]))
             elif kind == 'exposure':
-                # exposure NAME: the first "dynamic gamma" line logged after this step began
+                # exposure NAME: the first "dynamic gamma" line logged after this step began (the log read up to now
+                # first: sleeps do not read it)
+                log.poll()
                 first = len(log.lines)
                 num = r'(-?[0-9.]+)'
                 rx = re.compile(r'dynamic gamma: measured dark %s light %s mean %s, ramp low %s high %s middle %s' % ((num,) * 6))
@@ -378,8 +387,43 @@ def main():
                 good = wait_until(got)
                 if good:
                     print('     %s = %s' % (st[1], ' '.join('%s %.3f' % kv for kv in exposures[st[1]].items())))
+            elif kind == 'fade':
+                # fade NAME: the last "screen fade: started" line and the "ended" line after it
+                num = r'(-?[0-9.]+)'
+                begin = re.compile(r'screen fade: started at %s s, colour \w+ alpha (\d+), flags \w+, held until %s s, '
+                                   r'ends at %s s' % (num, num, num))
+                end = re.compile(r'screen fade: ended, lasted %s s \(%s s real\)' % (num, num))
+                def got():
+                    at = max((i for i, l in enumerate(log.lines) if begin.search(l)), default=None)
+                    if at is None:
+                        return False
+                    e = next((end.search(l) for l in log.lines[at:] if end.search(l)), None)
+                    if not e:
+                        return False
+                    b = begin.search(log.lines[at])
+                    t0 = float(b.group(1))
+                    f = {'alpha': float(b.group(2)), 'hold': float(b.group(3)) - t0, 'length': float(b.group(4)) - t0,
+                         'lasted': float(e.group(1)), 'real': float(e.group(2))}
+                    f['overrun'] = f['lasted'] - f['length']  # ran past the end it was sent with (client time)
+                    f['drift'] = f['real'] - f['lasted']  # real time against client time
+                    fades[st[1]] = f
+                    return True
+                good = wait_until(got)
+                if good:
+                    print('     %s = %s' % (st[1], ' '.join('%s %.3f' % kv for kv in fades[st[1]].items())))
+            elif kind == 'expect' and st[1] in ('fade', 'fadediff'):
+                # expect fade NAME FIELD MIN MAX, expect fadediff A B FIELD MIN MAX
+                if st[1] == 'fade':
+                    v, field, lo, hi = fades.get(st[2], {}).get(st[3]), st[3], st[4], st[5]
+                else:
+                    a, b = fades.get(st[2], {}).get(st[4]), fades.get(st[3], {}).get(st[4])
+                    v, field, lo, hi = (b - a if a is not None and b is not None else None), st[4], st[5], st[6]
+                good = v is not None and float(lo) <= v <= float(hi)
+                if v is not None:
+                    print(f'     {field} {v:+.3f} (want {lo}..{hi})')
             elif kind == 'expect' and st[1] == 'quiet':
                 # expect quiet REGEX S: nothing matching for S seconds from now
+                log.poll()
                 first = len(log.lines)
                 time.sleep(float(st[3]))
                 log.poll()
@@ -486,6 +530,20 @@ def main():
                     mean = ImageStat.Stat(Image.open(path).convert('L').crop(box)).mean[0]
                     print(f'     {st[2]} {box}: mean luminance {mean:.1f} (want {st[7]}..{st[8]})')
                     good = float(st[7]) <= mean <= float(st[8])
+            elif kind == 'expect' and st[1] == 'regiondiff':
+                # expect regiondiff A B X0 Y0 X1 Y1 MIN MAX: the box's mean luminance in B less that in A
+                from PIL import Image, ImageStat
+                box = tuple(int(v) for v in st[4:8])
+                means = []
+                for name in st[2:4]:
+                    path = os.path.join(RUN, 'snaps', name + '_2.tga')
+                    if not os.path.exists(path):
+                        path = os.path.join(RUN, 'shots', name + '.bmp')
+                    if os.path.exists(path):
+                        means.append(ImageStat.Stat(Image.open(path).convert('L').crop(box)).mean[0])
+                good = len(means) == 2 and float(st[8]) <= means[1] - means[0] <= float(st[9])
+                if len(means) == 2:
+                    print(f'     {box}: {means[0]:.1f} -> {means[1]:.1f} ({means[1] - means[0]:+.1f}, want {st[8]}..{st[9]})')
             elif kind == 'expect' and st[1] == 'steady':
                 # expect steady NAME N: the burst NAME_0..N-1 never flickers: no frame that differs from the one before
                 # it but matches the one before that (two pictures shown in turn)

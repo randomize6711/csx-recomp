@@ -20,7 +20,8 @@ DEFAULT = ['vk_menu_pointer_43.txt', 'vk_menu_pointer_169.txt', 'vk_menu_pointer
            'vk_menu_pointer_43_full.txt', 'vk_menu_mouse_fe.txt', 'vk_menu_mouse.txt', 'vk_bind_capture.txt',
            'vk_console.txt', 'vk_movement.txt', 'vk_spectator.txt',
            'vk_display_mode.txt', 'vk_menu_pointer_pause.txt', 'vk_loading.txt', 'vk_vsync.txt',
-           'vk_vsync_play.txt', 'vk_mouse_raw.txt', 'vk_auto_exposure.txt', 'vk_auto_exposure_rates.txt']
+           'vk_vsync_play.txt', 'vk_mouse_raw.txt', 'vk_auto_exposure.txt', 'vk_auto_exposure_rates.txt',
+           'vk_flashbang.txt', 'vk_flashbang_rates.txt']
 
 
 def options(path):

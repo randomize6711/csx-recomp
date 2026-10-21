@@ -1,0 +1,168 @@
+# The flashbang's white-out (FINDINGS.md "Flashbang", src/game/screen_fade.cpp, SDK patches 0032 and 0033) in the
+# Vulkan window, on an empty de_dust2 (no bots): a flashbang thrown at the player's feet while looking down at it
+# whites out the screen (the title's screen fade, a full-screen quad its GL layer draws with depth testing off at
+# GL depth -1), holds and fades back within the times the fade was sent with (client and real time); afterwards the
+# picture, the HUD and the exposure are back to what they were. Three flashes: Auto Exposure On (its measurement sees
+# the white and the ramp comes back), Off (the title's identity ramp, no measurement), On again with the brightness
+# cvar at 1. The pause menu right after a flash shows the title's identity ramp and comes back to the match. The
+# title opens the buy menu itself as the player spawns and closes it 20 s later: the test buys after that.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), with
+#   --launch tests/launch/de_dust2_nobots --env CSX_LOG_FADE=1 --env CSX_LOG_DYNGAMMA=1 --env CSX_VK_AUDIT=1
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+expect log pc: Auto Exposure on
+expect log vulkan: fixed function near/far cull at the viewport's MinZ to MaxZ
+sleep 25
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 20
+key Left_Ctrl
+wait log pc keys: menu T_BuyMenuRoot
+sleep 24
+pckey cmd mp_buytime 60
+sleep 1
+pckey cmd +buymenu
+sleep 0.2
+pckey cmd -buymenu
+sleep 1.5
+pckey pointer 227 351
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 157 321
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey mclick 2
+sleep 1
+pckey mclick 2
+sleep 2
+pckey key 52 1
+sleep 0.1
+pckey key 52 0
+sleep 1.5
+state fb1
+expect weapon fb1 25
+mousestream 0 40 10 60
+sleep 6
+exposure pre1
+windowshot pre1
+pckey cmd +attack
+sleep 0.3
+pckey cmd -attack
+sleep 2.2
+windowshot white1
+expect darkfrac white1 240 120 900 720 250 0 0.03
+expect log screen fade: started at [0-9.]+ s, colour FFFFFF alpha 255,
+fade f1
+expect fade f1 hold 0.5 6
+expect fade f1 length 1 12
+expect fade f1 overrun -0.05 0.1
+expect fade f1 drift -0.15 0.15
+sleep 8
+exposure post1
+windowshot post1
+expect exposurediff pre1 post1 middle -0.03 0.03
+expect exposurediff pre1 post1 high -0.02 0.02
+expect exposuretrack post1 0.035
+expect darkfrac post1 0 0 1280 960 250 0.95 1
+expect regiondiff pre1 post1 0 0 1280 960 -6 6
+expect regiondiff pre1 post1 0 820 1280 960 -6 6
+key Escape
+sleep 2
+expect log pc mouse: screen InGame_Root
+windowshot menu1
+expect image menu1 10
+key Escape
+sleep 3
+exposure back1
+expect exposurediff pre1 back1 middle -0.03 0.03
+pckey set auto_exposure 0
+sleep 2
+expect log pc: Auto Exposure off, the title's identity ramp set
+sleep 1
+pckey cmd +buymenu
+sleep 0.2
+pckey cmd -buymenu
+sleep 1.5
+pckey pointer 227 351
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 157 321
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey mclick 2
+sleep 1
+pckey mclick 2
+sleep 2
+pckey key 52 1
+sleep 0.1
+pckey key 52 0
+sleep 1.5
+state fb2
+expect weapon fb2 25
+sleep 2
+windowshot pre2
+pckey cmd +attack
+sleep 0.3
+pckey cmd -attack
+sleep 2.2
+windowshot white2
+expect darkfrac white2 240 120 900 720 250 0 0.03
+fade f2
+expect fade f2 hold 0.5 6
+expect fade f2 overrun -0.05 0.1
+expect quiet dynamic.gamma: 2
+sleep 6
+windowshot post2
+expect regiondiff pre2 post2 0 0 1280 960 -6 6
+expect darkfrac post2 0 0 1280 960 250 0.95 1
+pckey set auto_exposure 1
+sleep 1
+expect log pc: Auto Exposure on
+pckey cmd brightness 1
+sleep 1
+pckey cmd +buymenu
+sleep 0.2
+pckey cmd -buymenu
+sleep 1.5
+pckey pointer 227 351
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 157 321
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey mclick 2
+sleep 1
+pckey mclick 2
+sleep 2
+pckey key 52 1
+sleep 0.1
+pckey key 52 0
+sleep 1.5
+state fb3
+expect weapon fb3 25
+sleep 8
+exposure pre3
+windowshot pre3
+pckey cmd +attack
+sleep 0.3
+pckey cmd -attack
+sleep 2.2
+windowshot white3
+expect darkfrac white3 240 120 900 720 250 0 0.03
+fade f3
+expect fade f3 overrun -0.05 0.1
+sleep 8
+exposure post3
+windowshot post3
+expect exposurediff pre3 post3 middle -0.03 0.03
+expect regiondiff pre3 post3 0 0 1280 960 -6 6
+pckey cmd brightness 0
+expect nolog vulkan: .* failed

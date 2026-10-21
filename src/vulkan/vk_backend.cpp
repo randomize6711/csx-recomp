@@ -359,6 +359,9 @@ private:
     PFN_vkCmdPushDescriptorSetKHR push_descriptors_ = nullptr;
     // VK_EXT_depth_bias_control with a float representation: a depth bias added as it is, in normalised depth
     bool bias_float_ = false;
+    // VK_EXT_depth_range_unrestricted: a viewport depth range outside 0 to 1, for the console's fixed function cull range
+    // (FixedDepthCullRange: a GL style MinZ of -1 keeps what lands below 0)
+    bool depth_unrestricted_ = false;
 
     VkSwapchainKHR swapchain_ = VK_NULL_HANDLE;
     std::vector<VkImage> swap_images_;
@@ -516,12 +519,14 @@ bool VulkanBackend::CreateDevice() {
         vkEnumerateDeviceExtensionProperties(gpu_, nullptr, &n, nullptr);
         std::vector<VkExtensionProperties> props(n);
         vkEnumerateDeviceExtensionProperties(gpu_, nullptr, &n, props.data());
-        for (const auto& e : props)
+        for (const auto& e : props) {
             if (!std::strcmp(e.extensionName, VK_EXT_DEPTH_BIAS_CONTROL_EXTENSION_NAME)) {
                 VkPhysicalDeviceFeatures2 q{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &bias_have};
                 vkGetPhysicalDeviceFeatures2(gpu_, &q);
                 bias_float_ = bias_have.depthBiasControl && bias_have.floatRepresentation && bias_have.depthBiasExact;
             }
+            if (!std::strcmp(e.extensionName, VK_EXT_DEPTH_RANGE_UNRESTRICTED_EXTENSION_NAME)) depth_unrestricted_ = true;
+        }
     }
     VkPhysicalDeviceDepthBiasControlFeaturesEXT bias_on{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_BIAS_CONTROL_FEATURES_EXT};
     bias_on.depthBiasControl = bias_on.floatRepresentation = bias_on.depthBiasExact = VK_TRUE;
@@ -530,6 +535,9 @@ bool VulkanBackend::CreateDevice() {
                                                    : "approximated in 24 bit units (no VK_EXT_depth_bias_control)");
     std::vector<const char*> ext = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME};
     if (bias_float_) ext.push_back(VK_EXT_DEPTH_BIAS_CONTROL_EXTENSION_NAME);
+    if (depth_unrestricted_) ext.push_back(VK_EXT_DEPTH_RANGE_UNRESTRICTED_EXTENSION_NAME);
+    LOGI("vulkan: fixed function near/far cull %s", depth_unrestricted_ ? "at the viewport's MinZ to MaxZ (VK_EXT_depth_range_unrestricted)"
+                                                                       : "at 0 to 1 (no VK_EXT_depth_range_unrestricted)");
     float prio = 1.0f;
     VkDeviceQueueCreateInfo qci{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
     qci.queueFamilyIndex = qfamily_;
@@ -1532,9 +1540,16 @@ void VulkanBackend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t
         c.bumpl[i][0] = Bits(t[kTssBumpEnvLScale]);
         c.bumpl[i][1] = Bits(t[kTssBumpEnvLOffset]);
     }
+    float zlo = 0, zhi = 1;  // the viewport's depth range, normalised
     if (sh.fixed_transform) {
         FillTransformConstants(s, size, c);
         FillLightConstants(s, sh.fk, c);
+        if (depth_unrestricted_ && FixedDepthCullRange(s, zlo, zhi)) {
+            zlo /= s.zscale;
+            zhi /= s.zscale;
+            c.zcull[0] = zlo;
+            c.zcull[1] = zhi - zlo;
+        }
     }
     Alloc vc = Upload(sizeof(s.vsc), 256);
     std::memcpy(vc.cpu, s.vsc.data(), sizeof(s.vsc));
@@ -1580,9 +1595,10 @@ void VulkanBackend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t
     }
     push_descriptors_(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, 10, w);
 
-    // the whole target as viewport (the guest viewport is in the shaders), flipped to keep D3D's y up
+    // the whole target as viewport (the guest viewport is in the shaders), flipped to keep D3D's y up; its depth range
+    // takes a fixed function cull range's z back to the depth the shader computed
     Target* any = rt ? rt : ds;
-    VkViewport v{0, float(any->h), float(any->w), -float(any->h), 0, 1};
+    VkViewport v{0, float(any->h), float(any->w), -float(any->h), zlo, zhi};
     vkCmdSetViewport(cb, 0, 1, &v);
     int x0 = int(s.viewport.x), y0 = int(s.viewport.y), x1 = int(s.viewport.x + s.viewport.w),
         y1 = int(s.viewport.y + s.viewport.h);

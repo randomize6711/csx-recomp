@@ -1,0 +1,125 @@
+GPU: the fixed function's near/far cull range from the viewport's MinZ and MaxZ
+
+The XDK's lazy state setup (5659 0x304884) programs NV097_SET_CLIP_MIN / MAX as MinZ and MaxZ times the Z scale
+for fixed function draws on untransformed vertices (0 to the Z scale for vertex programs and the W buffer), and
+D3DRS_DEPTHCLIPCONTROL's D3DDCC_CULLPRIMITIVE culls outside it. The renderers culled every draw at 0 to the Z
+scale. Counter-Strike's GL layer maps glDepthRange(0, 1) to MinZ -1 and MaxZ 1, so its screen fade (the
+flashbang white-out), drawn by glOrtho at z 0, lands at depth -1: inside the console's range, outside ours.
+
+FixedDepthCullRange gives the range; the reference renderer clips and culls with it (and clamps the depth to
+the buffer's), the generated fixed function vertex shaders move z into it when DrawConstants::zcull is set so a
+backend can take it back through the viewport's depth range.
+
+---
+--- a/runtime/gpu/draw.h
++++ b/runtime/gpu/draw.h
+@@ -39,6 +39,10 @@
+ void FillSurfaceConstants(const State& s, GuestExtent size, DrawConstants& c);
+ void FillCombinerConstants(const State& s, DrawConstants& c);
+ void FillTransformConstants(const State& s, GuestExtent size, DrawConstants& c);
++// the console's near/far cull range for a fixed function draw on untransformed vertices, in depth buffer units: the
++// library programs it from the viewport's MinZ and MaxZ (not 0 to zscale, as for vertex programs), so a title that
++// maps a GL style depth range into MinZ -1 draws what lands below 0. False when it is 0 to zscale.
++bool FixedDepthCullRange(const State& s, float& lo, float& hi);
+ void FillLightConstants(const State& s, const FixedKey& fk, DrawConstants& c);
+ 
+ // the overlay over a BGRA image of w x h pixels (rows pitch pixels apart) showing the display_w x display_h video mode:
+--- a/runtime/gpu/draw.cpp
++++ b/runtime/gpu/draw.cpp
+@@ -214,6 +214,19 @@
+     for (int t = 0; t < 4; t++) Transpose(s.transforms[kTsTexture0 + size_t(t)].data(), c.tm[t]);
+ }
+ 
++// the lazy state setup (5659 0x304884) sets NV097_SET_CLIP_MIN / MAX to MinZ and MaxZ times the Z scale for the fixed
++// function, 0 and the Z scale for vertex programs and the W buffer (ZEnable 2); D3DRS_DEPTHCLIPCONTROL's
++// D3DDCC_CULLPRIMITIVE (bit 0) culls outside it. A reversed range (MaxZ below MinZ) is left to 0 to zscale.
++bool FixedDepthCullRange(const State& s, float& lo, float& hi) {
++    constexpr uint32_t kWBuffer = 2, kCullPrimitive = 1;
++    const auto& v = s.viewport;
++    if (s.rs[kRsZEnable] == kWBuffer || !(SimpleState(s, kMDepthClipControl) & kCullPrimitive)) return false;
++    if (!(v.min_z < v.max_z) || (v.min_z == 0 && v.max_z == 1)) return false;
++    lo = v.min_z * s.zscale;
++    hi = v.max_z * s.zscale;
++    return true;
++}
++
+ void FillLightConstants(const State& s, const FixedKey& fk, DrawConstants& c) {
+     std::memcpy(c.mat, s.material.data(), sizeof(float) * 16);
+     c.mat[4][0] = s.material[16];
+--- a/runtime/gpu/shaders.h
++++ b/runtime/gpu/shaders.h
+@@ -101,6 +101,9 @@
+     float lt[8][7][4];   // per light: diffuse, specular, ambient, position range, direction falloff, attenuation, cos theta/2 phi/2
+     float rtshift[4];    // per kTexTarget stage: host pixels its reads move along x and y, negative up and left
+     float ss[4];         // super sample scale x, y of the target (State::ss)
++    // fixed function: the console's near/far cull range in normalised depth, MinZ and MaxZ - MinZ (FixedDepthCullRange),
++    // when it is not 0 to 1: z is moved into it for the clip and the viewport's depth range moves it back. 0: as drawn
++    float zcull[4];
+ };
+ 
+ }  // namespace gpu
+--- a/runtime/gpu/shaders.cpp
++++ b/runtime/gpu/shaders.cpp
+@@ -55,6 +55,7 @@
+     float4 lt[56];
+     float4 rtshift;
+     float4 ss;
++    float4 zcull;
+ };
+ )";
+ 
+@@ -808,6 +809,7 @@
+     if (surf.w == 0 && abs(sp.x - (surf.x - 0.5)) < 1e-3) cp.x = cp.w;
+     if (surf.w == 0 && abs(sp.y - (surf.y - 0.5)) < 1e-3) cp.y = -cp.w;
+     o.pos = cp;
++    if (zcull.y != 0) o.pos.z = (cp.z - zcull.x * cp.w) / zcull.y;
+     o.d0 = saturate(oD0);
+     o.d1 = saturate(oD1);
+     o.b0 = o.d0;
+--- a/harness/reference_renderer.cpp
++++ b/harness/reference_renderer.cpp
+@@ -1203,6 +1203,12 @@
+     // below the smallest w a vertex program leaves (MagClamp, 2^-64): screen space programs that write only oPos.xy
+     // (w 0, clamped to 2^-64) are drawn as the D3D12 path and the console draw them, not clipped away
+     const float near_w = 1e-30f;
++    // near and far: the console's cull range (0 to zscale, or the fixed function's MinZ to MaxZ), then the depth buffer's
++    float zlo = 0, zhi = s.zscale;
++    // (a range moved off 0 to zscale has primitives on its limits, as the screen fade at MinZ: their vertices are on
++    // it exactly, the interpolated depth is not, so it is compared to within a millionth of the limit)
++    float ztol = 0;
++    if (!program && !as.pretransformed && FixedDepthCullRange(s, zlo, zhi)) ztol = std::max(std::fabs(zlo), std::fabs(zhi)) * 1e-6f;
+     for (size_t ti = 0; ti + 2 < as.indices.size(); ti += 3) {
+         Clip tri[3];
+         for (int i = 0; i < 3; i++) {
+@@ -1214,7 +1220,7 @@
+         // flat shading takes the first vertex's colours
+         const Vec* provoking = tri[0].attr;
+         Vec flat_colour[4] = {provoking[kD0], provoking[kD1], provoking[kB0], provoking[kB1]};
+-        // clipped against w > near_w and D3D's near plane z >= 0 (clip space: before the divide, so a triangle that
++        // clipped against w > near_w and the near plane z >= zlo (clip space: before the divide, so a triangle that
+         // reaches behind the eye does not project to huge coordinates and fail the area test): at most five corners
+         Clip poly[5], half[4];
+         int corners = 0, nh = 0;
+@@ -1231,9 +1237,10 @@
+         }
+         for (int i = 0; i < nh; i++) {
+             const Clip &p = half[i], &q = half[(i + 1) % nh];
+-            bool p_in = p.h[2] >= 0, q_in = q.h[2] >= 0;
++            float dp = p.h[2] - zlo * p.h[3], dq = q.h[2] - zlo * q.h[3];
++            bool p_in = dp >= 0, q_in = dq >= 0;
+             if (p_in) poly[corners++] = p;
+-            if (p_in != q_in) lerp(p, q, p.h[2] / (p.h[2] - q.h[2]), poly[corners++]);
++            if (p_in != q_in) lerp(p, q, dp / (dp - dq), poly[corners++]);
+         }
+         if (corners < 3) continue;
+         Screen sv[5];
+@@ -1273,7 +1280,8 @@
+                     float b2 = 1 - b0 - b1;
+                     if (b0 < 0 || b1 < 0 || b2 < 0) continue;
+                     float z = b0 * p0.z + b1 * p1.z + b2 * p2.z;
+-                    if (z < 0 || z > s.zscale) continue;
++                    if (z < zlo - ztol || z > zhi + ztol) continue;
++                    z = std::clamp(z, 0.0f, s.zscale);
+                     float iw = b0 * p0.iw + b1 * p1.iw + b2 * p2.iw;
+                     Vec attr[kAttrs];
+                     for (int a = 0; a < kAttrs; a++)

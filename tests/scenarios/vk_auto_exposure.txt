@@ -4,7 +4,7 @@
 # de_dust2 (no bots: nothing ends the round): the measurement reads the frame (mean above 0), the ramp's points settle
 # and stay (no drift over 10 s), looking at the floor and at the sky moves them and looking back returns them; the
 # pause menu shows the title's identity ramp and the ramp comes back after it; after a flashbang at the player's feet
-# the exposure settles on the changed scene (its white screen fade is not drawn by either renderer yet, FINDINGS.md); PC
+# the exposure settles back on the scene once its white screen fade is over (FINDINGS.md "Flashbang"); PC
 # Options > Auto Exposure Off (by mouse: the row's arrow, a double click accepting) saves "0", stops the measurement
 # and sets the identity ramp, On (as Accept does) starts it again.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), with
