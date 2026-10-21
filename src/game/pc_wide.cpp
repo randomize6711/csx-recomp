@@ -14,7 +14,8 @@
 // - the 2D projection (GL_Set2D: the engine's 2D and the VGUI paint with the HUD, menus and scoreboard);
 // - the paths in screen pixels, which no projection moves: the GL layer's screen rectangle (the sniper scope, the
 //   menus' backdrops, the loading screen), the text renderer and the video overlay (movies).
-// Full-screen backdrops reach the frame's edges from their own edge columns (the scope's surround stays black).
+// Full-screen backdrops reach the frame's edges from their own edge columns (the scope's surround stays black), and
+// the screen fade (the flashbang's white-out), drawn over the GL size inside the VGUI paint, covers the whole frame.
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -39,6 +40,8 @@ constexpr uint32_t kGlX = 0x6CE528, kGlY = 0x6CE27C;
 constexpr uint32_t kD3dDevicePtr = 0x316FE8, kDevGlViewport = 0xEE0;  // D3D device, its viewport
 constexpr uint32_t kGlScreenRect = 0x6F080;  // the GL layer's screen rectangle
 constexpr uint32_t kViewWidth = 0x6E7A28, kViewHeight = 0x6E7A2C;  // r_refdef.vrect width, height
+
+bool fade_widened = false;  // PcWideFade changed the GL width
 
 // the frame's width at 480 lines, chosen once (the window rectangle's setup runs before the device's)
 uint32_t FrameWidth() {
@@ -150,6 +153,27 @@ bool PcWide2D(X86Context& ctx, uint8_t*) {
 bool DrawingToFrame() {
     uint32_t vp = R32(kD3dDevicePtr) + kDevGlViewport;
     return FrameWidth() != 640 && R32(vp) == 0 && R32(vp + 8) == FrameWidth();
+}
+
+// [[hook]] at 0x4D877 (R_PolyBlend 0x4D860 with a fade to draw, FINDINGS.md "Flashbang") and 0x4DAA7 (its return).
+// It draws the screen fade (the flashbang's white-out) over the GL size: glViewport(glx, gly, glwidth, glheight),
+// glOrtho(0, glwidth, glheight, 0) and a quad from 0, 0 to glwidth, glheight. It runs inside the VGUI paint (0xB4560),
+// where the GL size is the 640x480 root panel's, so on a wider frame it covered the left 640 columns only. While it
+// draws, the GL width is the frame's (the whole screen, as 640 is at 4:3), and 640 again when it returns.
+void PcWideFade(X86Context&, uint8_t*) {
+    static bool shown = false;
+    if (FrameWidth() == 640 || R32(kGlWidth) != 640 || R32(kGlHeight) != 480 || R32(kGlX) != 0) return;
+    fade_widened = true;
+    W32(kGlWidth, FrameWidth());
+    if (!shown) {
+        shown = true;
+        LOGI("pc wide: screen fade over the %ux480 frame (drawn inside the 640x480 VGUI paint)", FrameWidth());
+    }
+}
+void PcWideFadeDone(X86Context&, uint8_t*) {
+    if (!fade_widened) return;
+    fade_widened = false;
+    W32(kGlWidth, 640);
 }
 
 // [[hook]] at 0x6F080: the GL layer's screen rectangle (x0, y0, x1, y1, s0, t0, s1, t1 floats in display pixels,

@@ -1,0 +1,67 @@
+# The flashbang's white-out headless at 21:9 (FINDINGS.md "Flashbang", SDK patches 0032 and 0033): the reference
+# renderer draws the title's screen fade, the full-screen quad its GL layer draws with depth testing off at GL depth
+# -1 (the console culls the fixed function at the viewport's MinZ to MaxZ, -1 to 1 there), so the frame is white while
+# the fade holds and fades back; the fade runs for the time it was sent with. A flashbang bought on an empty de_dust2
+# and thrown at the player's feet, at 21:9: the frame is 1138x480 and the title draws its fade inside the VGUI paint
+# over the GL size, the paint's 640x480 root panel, so it covered the left 640 columns only (src/game/pc_wide.cpp
+# PcWideFade gives it the frame's width while it draws): the white and the fade reach the whole frame (nine patches
+# touching its edges, the opacity against the same view once the fade is over). (Auto Exposure off, so the frames
+# compare directly.)
+#   --env FPS=30 --env CSX_LOG_FADE=1 --pc auto_exposure=0 --launch tests/launch/de_dust2_nobots --pc aspect=21:9
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+expect log pc wide: aspect 21:9 \([0-9.]+\), frame 1138x480
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 12
+wait log pc keys: menu T_BuyMenuRoot
+sleep 24
+pckey cmd +buymenu
+sleep 0.2
+pckey cmd -buymenu
+sleep 1.5
+pckey pointer 227 351
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 157 321
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey mclick 2
+sleep 1
+pckey mclick 2
+sleep 2
+pckey key 52 1
+sleep 0.1
+pckey key 52 0
+sleep 1.5
+state fb
+expect weapon fb 25
+look 0 -70
+sleep 3
+snap aim
+pckey cmd +attack
+sleep 0.3
+pckey cmd -attack
+sleep 1.5
+snap white
+expect log screen fade: started at [0-9.]+ s, colour FFFFFF alpha 255,
+sleep 2.5
+snap fading
+fade f
+expect fade f alpha 255 255
+expect fade f hold 0.5 6
+expect fade f overrun -0.05 1.5
+snap after
+expect coverage after white 0.97 0.03
+expect coverage after fading 0.3 0.3
+expect darkfrac after 0 0 1138 960 250 0.95 1
+expect log pc wide: screen fade over the 1138x480 frame
+expect nolog guest trap

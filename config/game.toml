@@ -417,6 +417,16 @@ call = "DynamicGammaLog"
 at = 0x4D86D
 call = "ScreenFadeLog"
 
+# ... and drawn over the whole frame on a wider one (src/game/pc_wide.cpp PcWideFade): it takes the GL size, which is
+# the VGUI paint's 640x480 root panel where it runs; the frame's width while it draws (0x4D877), 640 on its return
+[[hook]]
+at = 0x4D877
+call = "PcWideFade"
+
+[[hook]]
+at = 0x4DAA7
+call = "PcWideFadeDone"
+
 # The game's server log lines (src/game/game_log.cpp): UTIL_LogPrintf at 0x14BC80 — cdecl (format, ...): the format
 # at [esp+4] and the va_list at esp+8 go to vsprintf into 0x5C9230 (0x14BC89..0x14BC98), the result to the engine's
 # alert function [0x527B94] with level 5 (0x14BCA7); callers pass the log formats, e.g. 0x147B1D 'World triggered

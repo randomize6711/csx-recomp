@@ -70,6 +70,10 @@ per line, executed in order:
     expect region NAME X0 Y0 X1 Y1 MIN MAX  mean luminance of that box of snaps/NAME_2.tga (or shots/NAME.bmp) in [MIN, MAX]
     expect darkfrac NAME X0 Y0 X1 Y1 LUM MIN MAX  share of that box's pixels darker than LUM in [MIN, MAX]
     expect regiondiff A B X0 Y0 X1 Y1 MIN MAX  mean luminance of that box in B less that in A (snaps or window shots)
+    expect coverage PRE SHOT MIN SPREAD  a white full-screen fade reaches the whole frame evenly: in nine patches touching
+                            its edges (centre, the four edges' middles, the four corners; 2% of the frame's height
+                            square, medians) the fade's opacity (SHOT - PRE) / (255 - PRE) is at least MIN, and within
+                            SPREAD of each other; a patch already near white in PRE (HUD) only has to stay as bright
     expect log REGEX        fail unless a log line matches
     expect quiet REGEX S    wait S seconds; fail if a log line logged meanwhile matches (no spaces: write . for them)
     expect nolog REGEX      fail if a log line matches
@@ -544,6 +548,42 @@ def main():
                 good = len(means) == 2 and float(st[8]) <= means[1] - means[0] <= float(st[9])
                 if len(means) == 2:
                     print(f'     {box}: {means[0]:.1f} -> {means[1]:.1f} ({means[1] - means[0]:+.1f}, want {st[8]}..{st[9]})')
+            elif kind == 'expect' and st[1] == 'coverage':
+                # expect coverage PRE SHOT MIN SPREAD: the white fade's opacity in nine edge-touching patches
+                from PIL import Image
+                ims = []
+                for name in st[2:4]:
+                    path = os.path.join(RUN, 'snaps', name + '_2.tga')
+                    if not os.path.exists(path):
+                        path = os.path.join(RUN, 'shots', name + '.bmp')
+                    if os.path.exists(path):
+                        ims.append(Image.open(path).convert('L'))
+                good = len(ims) == 2 and ims[0].size == ims[1].size
+                if good:
+                    w, h = ims[1].size
+                    n = max(4, h // 50)
+                    xs, ys = {'left': 0, 'centre': (w - n) // 2, 'right': w - n}, {'top': 0, 'middle': (h - n) // 2, 'bottom': h - n}
+                    print(f'     {w}x{h}, patches {n}x{n}: {st[2]} -> {st[3]}, opacity (want {st[4]} or more, spread {st[5]})')
+                    alphas = []
+                    for yn, y in ys.items():
+                        row = []
+                        for xn, x in xs.items():
+                            pre, shot = [sorted(im.crop((x, y, x + n, y + n)).getdata())[n * n // 2] for im in ims]
+                            if 255 - pre < 60:  # already near white (a HUD element): it only has to stay as bright
+                                ok = shot >= pre - 5
+                                row.append(f'{xn} {pre:3d} -> {shot:3d} bright')
+                            else:
+                                a = (shot - pre) / (255 - pre)
+                                alphas.append(a)
+                                ok = a >= float(st[4])
+                                row.append(f'{xn} {pre:3d} -> {shot:3d} {a:.2f}')
+                            if not ok:
+                                row[-1] += ' FAIL'
+                            good = good and ok
+                        print(f'       {yn:6s}  ' + ', '.join(row))
+                    spread = max(alphas) - min(alphas) if alphas else 0.0
+                    print(f'       opacity {min(alphas, default=0):.2f}..{max(alphas, default=0):.2f}, spread {spread:.2f}')
+                    good = good and len(alphas) >= 5 and spread <= float(st[5])
             elif kind == 'expect' and st[1] == 'steady':
                 # expect steady NAME N: the burst NAME_0..N-1 never flickers: no frame that differs from the one before
                 # it but matches the one before that (two pictures shown in turn)
