@@ -402,3 +402,15 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   regress_flashbang.txt; drive.py fade steps and `expect regiondiff`.
 - Headless suite (22) and window suite (20) pass. drive.py's `exposure` and `expect quiet` now read the log before
   marking its end (vk_auto_exposure.txt had read a 12 s old measurement after a sleep).
+
+## 2026-10-21 — Flashbang over the whole screen (G3)
+
+- Play-test at 16:9 (3840x2160 fullscreen): the white-out left the right quarter of the screen uncovered. R_PolyBlend
+  draws the fade over the GL size inside the VGUI paint, whose 640x480 root panel it is; on a wider frame that is the
+  left 640 columns. PcWideFade (src/game/pc_wide.cpp) gives it the frame's width while it draws; 4:3 unchanged.
+- Checked in Vulkan at 4:3, 16:10, 16:9 (fullscreen, 4K internal) and 21:9 and in the reference renderer at 4:3, 16:9
+  and 21:9: drive.py `expect coverage` (nine patches touching the frame's edges, full in the hold, even in the fade).
+- Headless suite 24 of 24 (regress_flashbang_wide, _ultrawide added), window suite 24 of 24 (vk_flashbang_cover_43,
+  _1610, _169, _219 added; vk_flashbang_rates passed on a rerun after a buy that did not open).
+- Found: the bloom's last pass keeps a scissor at the top left (TODO.md, for the bloom work).
+

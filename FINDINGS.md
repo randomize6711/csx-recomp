@@ -815,9 +815,10 @@ The 2D layers, all laid out in 640x480, kept unstretched in the middle 640 colum
 - Full-screen screen rectangles (0,0-640,480) also cover the side columns, each from its texture's edge column: the
   scope's surround is black to the edges, the menus' and the spectator's backdrops continue (their bands are
   horizontal), so nothing of the 3D view shows beside a menu.
-- Already right without changes: R_PolyBlend's flashes and fades (0x4D940: its own viewport and glOrtho on the frame),
-  the glow pass (its targets follow the back buffer: 427x240, 427x120, 213x120 at 16:9; composite over the frame),
-  the crosshair (HUD, centred with it).
+- Already right without changes: the glow pass (its targets follow the back buffer: 427x240, 427x120, 213x120 at
+  16:9), the crosshair (HUD, centred with it). (This said R_PolyBlend's fades were right too: they were not drawn at
+  all then; drawn, the screen fade covered the left 640 columns, fixed by PcWideFade, "Flashbang". And the glow's
+  composite is not over the whole frame: it keeps a scissor, see "Flashbang".)
 - Not seen: an element the original places just outside 640x480 to hide it would now show in the side columns (the
   viewport is the whole frame); none found in the menus, HUD, buy menu, scoreboard, spectator, scope or movies.
 
@@ -1095,10 +1096,12 @@ The effect, from the title's code (the server and the client are both in default
   0x74A254 (colour, alpha), 0x74A258 (flags), against the client time 0x74A290 (a double): FFADE_IN holds the alpha
   until the hold end, then falls linearly to 0 at the fade end; 0xB6630 computes it each frame (it clears flag 0x10
   the first time). Frame-rate independent by construction.
-- The view code 0x4EFC7 (when 0x6E7AAC, only client draw, is 0) calls 0x4D860 every frame, which draws it through
-  the title's GL layer (0x6FF60 glBegin, 0x70ED0 glEnd, 0x71D40 glVertex2f): alpha test off, blend on, depth test
-  off, glOrtho(0, 640, 480, 0, -99999, 99999), SRCALPHA / INVSRCALPHA (FFADE_MODULATE: ZERO / SRCCOLOR), untextured,
-  glBegin(GL_QUADS) with the four screen corners, then the state put back. One technique: a full-screen quad after
+- The view code 0x4EFC7 (when 0x6E7AAC, only client draw, is 0) calls 0x4D860 (GoldSrc's R_PolyBlend; 0xB6630 is
+  V_FadeAlpha) every frame, which draws it through the title's GL layer (0x6FF60 glBegin, 0x70ED0 glEnd, 0x71D40
+  glVertex2f): alpha test off, blend on, depth test off, glViewport(glx, gly, glwidth, glheight) and glOrtho(0,
+  glwidth, glheight, 0, -99999, 99999) from the GL size (0x6CE528, 0x6CE27C, 0x6CE3C8, 0x6CE274), SRCALPHA /
+  INVSRCALPHA (FFADE_MODULATE: ZERO / SRCCOLOR), untextured, glBegin(GL_QUADS) with the corners 0, 0 to glwidth,
+  glheight, then the state put back. One technique: a full-screen quad after
   the world and before the HUD (the HUD stays readable over the white); no gamma ramp, no texture. The glow post pass
   and the dynamic gamma's measurement come after it, so the measurement sees the white, as on the console.
 
@@ -1148,6 +1151,38 @@ Results (Vulkan, de_dust2, a flashbang at the feet while looking at it):
   while the white was missing, failed once: its `exposure recovered` read the first white measurement, 12 s old,
   because drive.py's `exposure` and `expect quiet` marked the log's end without reading it first (a sleep does not
   read it); both read it now, and the test passes (middle 0.177 before the flash, 0.173 after).
+
+Full-screen coverage (play-test, 16:9 at 3840x2160 fullscreen: the white did not cover the whole screen):
+- Cause: the PC widescreen frame, not the renderers. R_PolyBlend runs inside the VGUI paint (0xB4560), which sets the
+  GL size to its 640x480 root panel around its drawing (as found for R_SetFrustum, "Widescreen"); the fade takes its
+  viewport, projection and quad from the GL size, so on an 854x480 frame it drew 640 columns from the left edge, not
+  centred and not stretched: at 1706x960 the white ended at column 1277 (640 / 854 of the width), the right quarter
+  uncovered; at 21:9 the right 44 %. At 4:3 the panel is the whole screen, so the original was never affected. The
+  viewport, scissor, render target, swapchain, internal resolution, fullscreen and windowed scaling were as for
+  every other draw (the shot is the game's frame; the present's letterbox is outside it).
+- Fix (src/game/pc_wide.cpp PcWideFade, hooks at 0x4D877 and the function's return 0x4DAA7): while R_PolyBlend draws a
+  fade on a wider frame inside the paint (GL size 640x480 at 0, 0), the GL width is the frame's, and 640 again when it
+  returns: its own glViewport, glOrtho and quad then span the frame, the same colour, alpha, blend, timing and order.
+  Nothing else reads the GL size in between; nothing changes at 4:3 or with no fade. The other users of the GL size
+  were checked: R_SetFrustum (already given the view's size), GL_Set2D (PcWide2D), R_SetupGL (a bounds compare),
+  0x47940 (a centred picture) and SCR_CalcRefdef: no other full-screen effect takes it (the glow and the dynamic
+  gamma's measurement use their own targets, which follow the back buffer). HUD and menus are untouched.
+- Checked (drive.py `expect coverage`: nine patches touching the frame's edges, centre, edge middles, corners, their
+  medians; the fade's opacity (shot - base) / (255 - base) against the same view once the fade is over, Auto Exposure
+  off so the frames compare directly): Vulkan 4:3 windowed 1152x960, 16:10 1536x960, 16:9 fullscreen at 3840x2160 and
+  21:9 2275x960, reference renderer 4:3, 16:9 (854x960) and 21:9 (1138x960): opacity 1.00 in every patch in the hold,
+  0.5 to 0.9 in the fade, every patch covered (a missing strip reads about 0).
+  Hold 2.223 s and overruns -0.02 to +0.01 s as before. Headless suite 24 of 24 and the window suite 24 of 24 (the
+  four coverage tests added; vk_flashbang_rates failed once on its 120 fps buy, the title's buy menu not opening, and
+  passed on its own).
+- Found on the way (not changed, it is the bloom): the bloom's last pass, an additive full-screen triangle drawn after
+  the fade (draw 1183 at 4:3), keeps the scissor its earlier passes set for the small targets (SetScissors at 0xC15F7
+  / 0xC1E8E, inclusive): only SetScissors programs the surface clip (method 0x200) and only SetViewport resets it
+  (0x306428); SetRenderTarget does neither, and the title sets no viewport before that pass. Both renderers keep it,
+  the reference renderer probed (bounds 0, 0 to 160, 60 of the 640x960 back buffer; a quarter of the width at 16:9 and
+  21:9), Vulkan from the same state (vk_backend.cpp's scissor). Its input is near black in normal play; under the fade
+  it adds the white's glow to that corner, which is brighter during the fade (0.85 against 0.5 opacity headless). Whether
+  the console clips it the same way needs a console capture; left for the bloom work.
 
 Remaining uncertainty: no console capture of the flash; the Vulkan depth buffer is D32F, so fixed function fragments
 between MinZ and 0 are tested and written below 0 instead of clamped as the console's integer buffer would (the fade

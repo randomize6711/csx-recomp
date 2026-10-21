@@ -102,6 +102,13 @@ the brightness cvar at 1, the pause menu after it), `vk_flashbang_rates.txt` (30
 renderer's white-out and the fade's timing). The title opens the buy menu itself as the player spawns and closes it
 20 s later; the tests buy after that (`wait log pc keys: menu T_BuyMenuRoot`, then 24 s).
 
+Full-screen coverage (`expect coverage BASE SHOT MIN SPREAD`: in nine patches touching the frame's edges, the centre,
+the edges' middles and the corners, the fade's opacity against the same view once the fade is over, full in the hold
+and even part way through the fade; Auto Exposure off so the frames compare directly): `vk_flashbang_cover_43.txt`,
+`_1610.txt`, `_169.txt` (fullscreen at an internal 3840x2160) and `_219.txt` in the Vulkan window, and
+`regress_flashbang.txt`, `regress_flashbang_wide.txt` (16:9) and `regress_flashbang_ultrawide.txt` (21:9) headless.
+The window shots and snaps are the game's frame, so the present's letterbox is not part of them.
+
 ## Rounds
 
 `rounds_direct.txt` plays complete rounds from the direct start of any map fixture (`de_airstrip_beginner`,

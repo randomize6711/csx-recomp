@@ -7,7 +7,9 @@
    kept below depth 0 (the cull range fix): look for any that changed on a map. The Vulkan depth buffer is D32F:
    fixed function fragments below depth 0 are not clamped (nothing seen there yet). Whether a map load sets cl_dynamicgamma back (Auto Exposure re-sends only on
    change); where the per-map dynamic gamma clamps come from. G3:
-   GAUSSIANCUBIC filtering of the bloom's first downsample; the muzzle flash (drawn, not seen) and dynamic lights,
+   GAUSSIANCUBIC filtering of the bloom's first downsample; the bloom's last pass keeps the scissor of its small
+   targets (a quarter of the width by 60 back buffer lines, top left: FINDINGS.md "Flashbang", seen as a brighter
+   corner during a flashbang's fade), against a console capture; the muzzle flash (drawn, not seen) and dynamic lights,
    frame-exact against the reference. G4: Xbox Graphical Effects in PC Options (cl_dynamicgamma, cl_hdrbloom).
 0. The spectator screen (Free Look after dying): one status line in garbled characters, the menu backdrop over the
    view.
