@@ -5,6 +5,7 @@
 // FPS (default 30, the console's rate for CS) paces presented frames; F11 or Alt+Enter toggles fullscreen; a click
 // captures the mouse, F1 or leaving the window releases it.
 #include <SDL3/SDL.h>
+#include <csignal>
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -13,12 +14,15 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#else
+#include <unistd.h>
 #endif
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
@@ -65,6 +69,34 @@ void SetEnv(const char* name, const char* value, bool overwrite = true) {
     setenv(name, value, 1);
 #endif
 }
+
+#ifndef _WIN32
+// How the process ends, for an exit that left nothing else (a window test once ended with no core, no error and no
+// log line): SIGPIPE (a write to a closed socket or pipe, the X connection or the network's) is reported and survived
+// (the write fails instead), SIGTERM / SIGHUP / SIGINT reported before their default action, a plain exit() logged.
+// Written with write(2) to stderr (run.out), safe in a handler.
+void SignalNote(int sig) {
+    const char* text = sig == SIGPIPE ? "window: SIGPIPE (write to a closed socket or pipe), carried on\n"
+                       : sig == SIGTERM ? "window: SIGTERM, ending\n"
+                       : sig == SIGHUP  ? "window: SIGHUP, ending\n"
+                                        : "window: SIGINT, ending\n";
+    ssize_t n = write(2, text, std::strlen(text));
+    (void)n;
+    if (sig != SIGPIPE) {
+        std::signal(sig, SIG_DFL);
+        std::raise(sig);
+    }
+}
+void WatchExit() {
+    for (int sig : {SIGPIPE, SIGTERM, SIGHUP, SIGINT}) std::signal(sig, SignalNote);
+    std::atexit([] {
+        LOGI("window: process exit");
+        logx::Flush();
+    });
+}
+#else
+void WatchExit() {}
+#endif
 
 #ifdef _WIN32
 // A title relaunch on Windows starts a new process (kernel::Relaunch, CreateProcess with " --relaunched") and keeps the
@@ -193,6 +225,7 @@ int main(int argc, char** argv) {
         return 2;
     }
     logx::Init((app::ExeDir() / "logs").string(), app::kGame.log);
+    WatchExit();
     OpenHandover();
 
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD | SDL_INIT_EVENTS)) {
@@ -214,21 +247,38 @@ int main(int argc, char** argv) {
         win_w = std::min(int(960 * aspect), dm->w * 9 / 10);
         win_h = int(win_w / aspect);
     }
+    // high pixel density: on a scaled desktop (Hyprland at 1.6) the surface has the display's own pixels (3840x2160,
+    // not the 2400x1350 of its logical size, which the compositor scaled up); window sizes and pointer positions stay
+    // logical, the swapchain and the software renderer's output take the pixels. CSX_HIDPI=0 asks for the logical size
+    const bool hidpi = !(std::getenv("CSX_HIDPI") && *std::getenv("CSX_HIDPI") == '0');
     SDL_Window* win = SDL_CreateWindow("Counter-Strike", win_w, win_h,
-                                       SDL_WINDOW_RESIZABLE | (g_vulkan ? SDL_WINDOW_VULKAN : SDL_WindowFlags(0)));
+                                       SDL_WINDOW_RESIZABLE | (hidpi ? SDL_WINDOW_HIGH_PIXEL_DENSITY : SDL_WindowFlags(0)) |
+                                           (g_vulkan ? SDL_WINDOW_VULKAN : SDL_WindowFlags(0)));
     g_window = win;
-    if (win) LOGI("window: size %dx%d", win_w, win_h);
+    if (win) {
+        int pw = 0, ph = 0;
+        SDL_GetWindowSizeInPixels(win, &pw, &ph);
+        LOGI("window: size %dx%d (%dx%d pixels, density %.2f, display scale %.2f%s)", win_w, win_h, pw, ph,
+             SDL_GetWindowPixelDensity(win), SDL_GetWindowDisplayScale(win), hidpi ? "" : ", CSX_HIDPI=0");
+    }
     // the display the window is on: its desktop mode and the modes it lists, for PC Options > Resolution
     // (src/game/pc_menu.cpp); the Vulkan renderer draws at the chosen size, the display mode itself is not changed
     if (SDL_DisplayID display = win ? SDL_GetDisplayForWindow(win) : 0) {
-        if (const SDL_DisplayMode* dm = SDL_GetDesktopDisplayMode(display))
-            SetEnv("CSX_DESKTOP_MODE", (std::to_string(dm->w) + "x" + std::to_string(dm->h)).c_str(), false);
+        // in the display's pixels (a scaled desktop's mode is given in logical units with its pixel density)
+        auto pixels = [](const SDL_DisplayMode* m) {
+            float d = m->pixel_density > 0 ? m->pixel_density : 1.0f;
+            return std::make_pair(int(std::lround(m->w * d)), int(std::lround(m->h * d)));
+        };
+        if (const SDL_DisplayMode* dm = SDL_GetDesktopDisplayMode(display)) {
+            auto [w, h] = pixels(dm);
+            SetEnv("CSX_DESKTOP_MODE", (std::to_string(w) + "x" + std::to_string(h)).c_str(), false);
+        }
         int count = 0;
         std::string list;
         if (SDL_DisplayMode** modes = SDL_GetFullscreenDisplayModes(display, &count)) {
             std::vector<std::pair<int, int>> sizes;  // largest first, each size once whatever its refresh rates
             for (int i = 0; i < count; i++)
-                if (modes[i]->w >= 640 && modes[i]->h >= 480) sizes.push_back({modes[i]->w, modes[i]->h});
+                if (auto p = pixels(modes[i]); p.first >= 640 && p.second >= 480) sizes.push_back(p);
             std::sort(sizes.begin(), sizes.end(), std::greater<>());
             sizes.erase(std::unique(sizes.begin(), sizes.end()), sizes.end());
             for (size_t i = 0; i < sizes.size() && i < 16; i++)
@@ -491,8 +541,11 @@ int main(int argc, char** argv) {
                 UpdateRefresh(win);
             if (e.type == SDL_EVENT_WINDOW_MINIMIZED) LOGI("window: minimized");
             if (e.type == SDL_EVENT_WINDOW_RESTORED) LOGI("window: restored");
-            if (e.type == SDL_EVENT_WINDOW_RESIZED)  // logical pixels, what the pointer's coordinates are in
-                LOGI("window: size %dx%d", int(e.window.data1), int(e.window.data2));
+            if (e.type == SDL_EVENT_WINDOW_RESIZED) {  // logical size (the pointer's units), then the pixels
+                int pw = 0, ph = 0;
+                SDL_GetWindowSizeInPixels(win, &pw, &ph);
+                LOGI("window: size %dx%d (%dx%d pixels)", int(e.window.data1), int(e.window.data2), pw, ph);
+            }
             // the free pointer's motion only matters to the menus
             if (e.type == SDL_EVENT_MOUSE_MOTION && !SDL_GetWindowRelativeMouseMode(win) &&
                 e.motion.which != window::kInjectedDevice && !window::MouseFree())
