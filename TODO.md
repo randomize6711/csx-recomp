@@ -6,12 +6,14 @@
    renderer, unknown on the console). Other screen-space
    passes that now draw without the depth test (the ZEnable fix: 0xB9880, the glow passes) and GL-layer draws now
    kept below depth 0 (the cull range fix): look for any that changed on a map. The Vulkan depth buffer is D32F:
-   fixed function fragments below depth 0 are not clamped (nothing seen there yet). Whether a map load sets cl_dynamicgamma back (Auto Exposure re-sends only on
-   change); where the per-map dynamic gamma clamps come from. G3:
-   GAUSSIANCUBIC filtering of the bloom's first downsample; the bloom's last pass keeps the scissor of its small
-   targets (a quarter of the width by 60 back buffer lines, top left: FINDINGS.md "Flashbang", seen as a brighter
-   corner during a flashbang's fade), against a console capture; the muzzle flash (drawn, not seen) and dynamic lights,
-   frame-exact against the reference. G4: Xbox Graphical Effects in PC Options (cl_dynamicgamma, cl_hdrbloom).
+   fixed function fragments below depth 0 are not clamped (nothing seen there yet). Where the per-map dynamic gamma clamps come from (each map's
+   "<map>-light.cfg", FINDINGS.md "Bloom", is the likely source). The bloom's GAUSSIANCUBIC kernel (xemu's model)
+   against a console capture; the muzzle flash (drawn, not seen) and dynamic lights, frame-exact against the
+   reference.
+0. Auto Exposure Off chosen before the start is only in force from the first change of a setting (FINDINGS.md
+   "Bloom"): PcAutoExposureFrame takes cl_dynamicgamma's 0 before registration as done. Fix as pc_bloom.cpp does
+   (wait for registration or the map's light config), then re-check the tests started with auto_exposure=0, whose
+   frames were taken under the running ramp.
 0. Vulkan validation messages older than G4 (FINDINGS.md "Water"): VkSwapchainPresentModeInfoKHR with
    swapchainCount 0, VK_EXT_surface_maintenance1 missing on the instance, the DemoteToHelperInvocation feature
    not enabled, a view of a transfer-only image, the blit after a clear without a barrier.

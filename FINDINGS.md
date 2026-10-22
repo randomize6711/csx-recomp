@@ -818,7 +818,7 @@ The 2D layers, all laid out in 640x480, kept unstretched in the middle 640 colum
 - Already right without changes: the glow pass (its targets follow the back buffer: 427x240, 427x120, 213x120 at
   16:9), the crosshair (HUD, centred with it). (This said R_PolyBlend's fades were right too: they were not drawn at
   all then; drawn, the screen fade covered the left 640 columns, fixed by PcWideFade, "Flashbang". And the glow's
-  composite is not over the whole frame: it keeps a scissor, see "Flashbang".)
+  composite was not over the whole frame: it kept a scissor, fixed in G5, "Bloom".)
 - Not seen: an element the original places just outside 640x480 to hide it would now show in the side columns (the
   viewport is the whole frame); none found in the menus, HUD, buy menu, scoreboard, spectator, scope or movies.
 
@@ -1178,7 +1178,8 @@ Full-screen coverage (play-test, 16:9 at 3840x2160 fullscreen: the white did not
 - Found on the way (not changed, it is the bloom): the bloom's last pass, an additive full-screen triangle drawn after
   the fade (draw 1183 at 4:3), keeps the scissor its earlier passes set for the small targets (SetScissors at 0xC15F7
   / 0xC1E8E, inclusive): only SetScissors programs the surface clip (method 0x200) and only SetViewport resets it
-  (0x306428); SetRenderTarget does neither, and the title sets no viewport before that pass. Both renderers keep it,
+  (0x306428); SetRenderTarget does neither (wrong: its tail jump ends in SetViewport, so it clears them; fixed in
+  G5, "Bloom"), and the title sets no viewport before that pass. Both renderers keep it,
   the reference renderer probed (bounds 0, 0 to 160, 60 of the 640x960 back buffer; a quarter of the width at 16:9 and
   21:9), Vulkan from the same state (vk_backend.cpp's scissor). Its input is near black in normal play; under the fade
   it adds the white's glow to that corner, which is brighter during the fade (0.85 against 0.5 opacity headless). Whether
@@ -1367,7 +1368,8 @@ cl_hdrblur scales the offsets), added back with ONE / ONE and the blend colour c
 pass is near black (means under 3 of 255 on de_dust2 with the sky in view), so the bloom adds little:
 cl_hdrbloom 0, 0.6 and 3 differ in under 0.1 % of pixels. That is the title's design given what it draws, and both
 renderers agree. One detail: the first downsample samples the back buffer with GAUSSIANCUBIC (D3DTEXF 5), which the
-Vulkan sampler draws as linear (the console's wider kernel is not emulated).
+Vulkan sampler draws as linear (the console's wider kernel is not emulated). (G5, "Bloom": now the convolution's 3x3
+Gaussian in both renderers; the composite's leaked scissor fixed.)
 
 **Muzzle flash.** On each shot the frame gains additive quads: a 32x32 DXT1 sprite for 2 frames and an 8x8 one for
 about 10 (MODULATE by the current colour, depth tested, no depth writes). Frame bursts taken during them show no
@@ -1485,6 +1487,82 @@ Checked:
   texel's quantisation. Both renderers take the texel as an 8 bit unsigned value expanded with 2x - 1, as the
   register combiners do; the console's colour interpolation of d0 (0.5 as 127 or 128) moves r by under 0.004. No
   console capture of the water.
+
+## Bloom (2026-10-22)
+
+- The pipeline, traced in a de_dust2 frame (Vulkan, every draw's state) and in the title. The per-frame post pass
+  0xC2160 runs the bloom while cl_hdrbloom (value 0x37A594) is not 0: 0xC06D0 saves the state, 0xC1FA0 draws the
+  passes, 0xC0D00(1) the composite, 0xC0870 restores; then the dynamic gamma (0xBDFC0). At 4:3 (back buffer 640x960,
+  vertical supersampling):
+  1. bright pass into a 320x240 target (scissor 0,0 to 160,120 of it): the back buffer on stage 0 with min and mag
+     GAUSSIANCUBIC (D3DTEXF 5), one quad; the pixel shader's one stage is 2 t0 - 1 on colour and alpha (RGB input
+     0x48: t0 EXPAND_NORMAL times 1, output r0; the final combiner passes r0). What survives is the back buffer above
+     half; the title draws dark and the gamma ramp brightens afterwards, so on these maps it is mostly the sky
+     (de_aztec's white sky, de_dust2's blue sky little, de_inferno's night none).
+  2. blur into 320x120 (scissor 320x120) and 3. into 160x120 (scissor 160x60): four bilinear taps each from the
+     previous target, weights 1/3 and 1/6 at 1 and 3 texels (cl_hdrblur scales the offsets), as G1 found.
+  4. composite: the 160x120 target added to the back buffer with ONE / ONE and the blend colour cl_hdrbloom.
+  The targets follow the back buffer's width (427x240 at 16:9, 569x240 at 21:9). In every run with the audit log
+  (CSX_VK_AUDIT, the front end and matches on several maps) filter 5 is set only on stage 0 and only for pass 1:
+  GAUSSIANCUBIC has no other user seen.
+- Each map sets its own intensity: the client's map start runs `exec "<map>-light.cfg"` (0xC3E90; 0x1A5B80 formats
+  the command at 0xC4089, adds it and executes the buffer), which sets cl_hdrbloom: 0.5 on de_aztec (0.6 is the cvar's
+  default, FCVAR_ARCHIVE). Found with a write watch on the cvar (CSX_WATCH).
+- **Scissor.** The composite drew with the scissor its passes left (0,0 to 160,60 of the 640x960 back buffer: a
+  quarter of the width by a sixteenth of the height, top left, at every aspect), so the glow was added in that corner
+  only; it shows under a flashbang's fade (the white glows: the corner was 10 to 32 levels brighter than its edge in
+  the fade, de_aztec and de_dust2). The cause is the SDK's SetRenderTarget, not the title: the XDK's
+  D3DDevice_SetRenderTarget (0x305A30) ends in 0x304B10 with the viewport {0, 0, MAXINT, MAXINT, 0, 1} (0x3135E0),
+  which tail-jumps (0x304E26) to D3DDevice_SetViewport (0x306240), and that calls SetScissors(0, 0, 0) (0x306428):
+  on the console every SetRenderTarget clears the scissors. The HLE reset only the viewport. SDK patch 0034 clears
+  them there too (both renderers share the state). G3's note ("SetRenderTarget does neither") was wrong: it read
+  SetRenderTarget's body without following the tail jump. The other passes are unchanged: each sets its scissor
+  after its SetRenderTarget (the same rectangles before and after). In the traced frame (1321 draws) only the three
+  passes and, before the fix, the composite drew with a scissor; the world, the HUD and the dynamic gamma's
+  measurement draw with none either way.
+- **GAUSSIANCUBIC.** The title's D3D (its lazy stage setup, 0x30F2D0..0x30F3B6, method 0x41B14) programs the NV2A's
+  convolution filter for it: MIN 7 (CONVOLUTION_2D_LOD0) and MAG 4 when either filter is above 3, with the kernel
+  GAUSSIAN_3 when either is 5 (QUINCUNX otherwise). The hardware kernel is not documented; xemu (hw/xbox/nv2a, psh.c)
+  models CONVOLUTION_2D_LOD0 with GAUSSIAN_3 as a 3x3 kernel [1 2 1; 2 4 2; 1 2 1] / 16 at one texel offsets, each
+  tap filtered linearly, and its authors note it was not checked against hardware (xqemu issue 238). Both renderers
+  now do that (SDK patch 0035: shaders.cpp gauss3, MakePixelKey's kTexGauss for a 2D texture with min or mag 5; the
+  reference renderer's Sample the same nine bilinear taps), at the texture's guest texel size (one texel of the 640x960
+  back buffer, 1.8 texels of Vulkan's 1152x960 at 4:3). Before, both took filter 5 as bilinear. The kernel sums to 1:
+  the bright pass's mean is unchanged (1.07 at de_aztec's sky); its high frequencies drop 7 % (texels differ by up to
+  36 of 255 at the sky's edge), after the two blurs by at most 6 and 1. On screen it is a slightly softer, steadier
+  glow edge; the change of brightness is under a level.
+- **The visible difference.** On de_aztec's sky the glow now brightens the frame's upper right quarter by 3 to 4
+  levels (2.8 to 3.7 at 4:3, 16:9 and 21:9; before the fix 0); the corner seam under a flashbang's fade is gone
+  (de_dust2 +26 / +32 at its edges, now +2 / +3; de_aztec +10 / +11, now -1 / 0; with Bloom Off +4 and +2 / +3, the
+  scene's own edges). de_dust2 and de_inferno change little: their bright pass holds little. With Bloom Off the two
+  builds draw the same.
+- **PC Options > Bloom** (On / Off, default On; pc_settings.ini "bloom"; src/game/pc_bloom.cpp) is cl_hdrbloom
+  itself: Off sets it to 0 (the title then skips the passes) when chosen and again after every map's light config
+  (a hook at 0xC408E); On gives back the intensity the cvar last held: the map's, or one set in the console. At the
+  start On does nothing (the title's own value stands). A console change stands until the setting changes or the next
+  map starts; nothing else is stored. The row is the tenth of twelve (the pause menu's list now scrolls to Master
+  Volume; the front end's already scrolled).
+- Found on the way, not changed (G4, TODO.md): Auto Exposure Off chosen before the start is only in force from the
+  first change of a setting. PcAutoExposureFrame takes cl_dynamicgamma's 0 before the client registers it as done;
+  registration sets 1 and the dynamic gamma runs (34 adjustments in 38 s headless on de_aztec with auto_exposure=0)
+  until any setting changes (the identity ramp is set again then). The tests started with Auto Exposure Off compare
+  frames under that running ramp; the Bloom tests take their frames after a change.
+
+- Performance (de_aztec, gamescope 1280x960, 4:3, VSync off: the white sky ahead, the sky to the side, the river;
+  Bloom On at the map's 0.5; before = the build before G5, after = with both patches and the option; GPU time and CPU
+  recording per frame in ms):
+  60 fps limit: GPU 1.024 / 0.815 / 0.935 before, 1.061 / 0.819 / 0.952 after; recording 4.27 / 3.40 / 3.55 before,
+  4.46 / 3.42 / 3.44 after; 60.0 fps both. 120: GPU 1.037 / 0.808 / 0.927 and 1.046 / 0.810 / 0.943; 119.8 to 119.9
+  fps both. 240: GPU 1.032 / 0.808 / 0.922 and 1.045 / 0.805 / 0.937; 149.5 / 172.4 / 189.1 fps before, 150.2 /
+  171.4 / 183.4 after (the CPU bound frame rate of these views; the river's 3 % is recording noise, 3.33 and 3.49 ms,
+  the GPU's difference is 0.015 ms). The bloom's passes (now over the whole frame on the composite, nine bilinear taps
+  on the bright pass) cost about 0.01 to 0.04 ms of GPU time. Peak resident memory 167 MB either way. Validation
+  (the 60 fps run with the layers, no message limit): the same five older kinds as G4 recorded (FINDINGS.md
+  "Water"), in proportion to the frames presented (3029 and 3101 per present message, 17 shader module, 19
+  output-not-consumed, one image view, one device extension, before and after); nothing new from the bloom.
+
+Remaining uncertainty: the convolution kernel is xemu's model, not a hardware measurement (no console capture);
+whether the NV2A's MAG 4 differs from its MIN path; the bright pass and blurs otherwise as G1 compared them.
 
 ## Buy menu taps (2026-10-22)
 

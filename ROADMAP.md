@@ -39,6 +39,7 @@
 - G1 — Graphics fidelity audit: the title's effects against both renderers, ranked (FINDINGS.md) ✅ 2026-10-21
 - G2 — Dynamic gamma (auto exposure) in Vulkan and in the reference renderer, Auto Exposure in PC Options ✅ 2026-10-21
 - G3 — remaining confirmed differences: the flashbang's white fade ✅ 2026-10-21 (full screen at every aspect); de_aztec's
-  water (its cube texture in Vulkan) ✅ 2026-10-22; GAUSSIANCUBIC;
-  G4 — Xbox Graphical Effects in PC Options; G5 — final validation
+  water (its cube texture in Vulkan) ✅ 2026-10-22; G4 — the cube texture and Auto Exposure checks ✅ 2026-10-22;
+  G5 — the bloom: GAUSSIANCUBIC, the composite's scissor, Bloom in PC Options ✅ 2026-10-22; G6 — Vulkan validation
+  messages (FINDINGS.md "Water")
 - M8 — PC feature set complete

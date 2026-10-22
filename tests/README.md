@@ -121,6 +121,19 @@ mean chroma of a box of water (`expect chroma NAME X0 Y0 X1 Y1 MIN MAX`: how muc
 `vk_water_43.txt`, `_169.txt` and `_219.txt`: the same views in the Vulkan window, the chroma within the reference's
 bounds (before the cube texture was bound: below them), the cube texture's creation logged. Auto Exposure off in all.
 
+## Bloom
+
+The title's bloom and PC Options' Bloom (FINDINGS.md "Bloom"), at de_aztec's white sky with the player held there
+(`setview`): `regress_bloom.txt` (headless, the reference renderer) starts with Bloom Off (`--pc bloom=0`) and expects
+the map's light config's 0.5 taken back to 0, On giving 0.5 back and the glow across the frame's upper right quarter
+(`expect regiondiff`; before SDK patch 0034 the composite was clipped to the top left corner), and a console intensity
+(0.3) kept through Off and On. `vk_bloom_43.txt` (windowed, the Bloom row turned off with the mouse),
+`vk_bloom_169.txt` (full screen at an internal 3840x2160) and `vk_bloom_219.txt` (144 frames per second, no VSync) do
+the same in the Vulkan window, expect the back buffer's downsample sampled with GAUSSIANCUBIC (logged once), and part
+way through a flashbang's fade with Bloom On no seam at the old corner (`expect seam NAME X Y MAX`: the box from the
+top left to X, Y no more than MAX brighter across its right and bottom edges; it was 10 to 32 levels). Frames are taken
+after a change of setting, as Auto Exposure Off chosen before the start only holds from the first change (TODO.md).
+
 ## Rounds
 
 `rounds_direct.txt` plays complete rounds from the direct start of any map fixture (`de_airstrip_beginner`,

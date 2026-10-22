@@ -429,3 +429,16 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   noise; the cube is 24 KiB, uploaded once; no new synchronisation or readback. Validation: no new messages (five
   older kinds recorded in FINDINGS.md "Water").
 
+## 2026-10-22 — Bloom (G5)
+
+- Test harness first (FINDINGS.md "Buy menu taps"): `pckey tap` presses +buymenu after the HUD's settings check and
+  releases it on the steady clock; regress_flashbang 20 of 20, the buy tests and the window flashbang tests repeated.
+- The bloom traced (FINDINGS.md "Bloom"): bright pass 2 t0 - 1 from the back buffer through GAUSSIANCUBIC, two blurs,
+  composite ONE / ONE with cl_hdrbloom; each map's light config sets the intensity (0.5 on de_aztec).
+- SDK patch 0035: GAUSSIANCUBIC as the 3x3 Gaussian (xemu's model of the NV2A's convolution filter) in both renderers.
+- SDK patch 0034: SetRenderTarget clears the scissors as the XDK's does (through SetViewport); the composite covers the
+  whole frame instead of the top-left sixteenth; the corner seam under a flashbang's fade is gone.
+- PC Options > Bloom (On / Off, default On) through cl_hdrbloom, kept Off after each map's light config.
+- Tests regress_bloom, vk_bloom_43/169/219 (`expect seam`). Headless all passed, window 31 of 31 (vk_display_mode's
+  clicks follow the twelfth row). Performance the same within noise; validation no new messages.
+- Found, not changed: Auto Exposure Off at launch only holds from the first setting change (TODO.md).
