@@ -321,6 +321,7 @@ private:
     bool MakeImage(Image& im, uint32_t w, uint32_t h, VkFormat fmt, uint32_t levels, VkImageUsageFlags usage, bool depth,
                    bool cube = false);
     void FreeImage(Image& im);
+    void TransferWriteBarrier(VkImage image);
     void Barrier(Image& im, VkImageLayout to);
     VkCommandBuffer Cmd();
     void Submit(bool wait);
@@ -783,6 +784,21 @@ void VulkanBackend::FreeImage(Image& im) {
     if (im.view) g.views.push_back(im.view);
     if (im.image) g.images.push_back({im.image, im.memory});
     im = Image{};
+}
+
+// a transfer write (clear, copy) finished before the next transfer write to the same colour image, which stays in
+// TRANSFER_DST_OPTIMAL (Barrier does nothing without a layout change)
+void VulkanBackend::TransferWriteBarrier(VkImage image) {
+    VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+    b.srcStageMask = b.dstStageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+    b.srcAccessMask = b.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    b.oldLayout = b.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    b.image = image;
+    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    VkDependencyInfo d{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    d.imageMemoryBarrierCount = 1;
+    d.pImageMemoryBarriers = &b;
+    vkCmdPipelineBarrier2(Cmd(), &d);
 }
 
 void VulkanBackend::Barrier(Image& im, VkImageLayout to) {
@@ -1871,6 +1887,7 @@ Image* VulkanBackend::ComposeOverlay(Image& t) {
     copy.extent = {t.w, t.h, 1};
     vkCmdCopyImage(cb, t.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, overlay_target_.image,
                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+    TransferWriteBarrier(overlay_target_.image);  // the frame first, the video blitted over it
     Barrier(overlay_img_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     VkBufferImageCopy up{};
     up.bufferOffset = a.offset;
@@ -2106,6 +2123,7 @@ void VulkanBackend::Present(const Surface& front) {
         VkClearColorValue black{};
         VkImageSubresourceRange r{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
         vkCmdClearColorImage(cb, swap_images_[index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &r);
+        TransferWriteBarrier(swap_images_[index]);  // the letterbox's black first, the blit over it
         // the target at the title's display aspect (4:3, or the wider frame of PC widescreen), letterboxed
         const float aspect = float(guest_w_) / float(guest_h_);
         float W = float(swap_extent_.width), H = float(swap_extent_.height), tw = W, th = W / aspect;
