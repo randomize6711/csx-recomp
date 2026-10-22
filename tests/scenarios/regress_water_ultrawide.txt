@@ -7,7 +7,8 @@
 # below it (of the 960; the same ray at every aspect, Hor+; water in all three views) is the cube's (graze 0.244,
 # steep 0.157, back 0.230; a unit normalisation cube would give 0.227, 0.132, 0.194 and no cube 0.302), and what
 # lies under the water shows the water as much as the reference renderer and Vulkan agree on (mean chroma of a box
-# of water). (Auto Exposure off, so the frames compare directly.)
+# of water). (Auto Exposure off, so the frames compare directly at the identity ramp; until G6 the map's light config
+# set the dynamic gamma running again and the bounds were taken under it: FINDINGS.md "Auto Exposure at the start".)
 #   --env FPS=30 --env PROBES=769,640 --env PROBE_WIDTH=1138 --pc auto_exposure=0 --pc aspect=21:9
 #   --launch tests/launch/de_aztec_nobots
 wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
@@ -27,18 +28,18 @@ sleep 1.5
 state graze
 snap graze
 expect probealpha graze 769 640 0.237 0.251
-expect chroma graze 449 600 689 800 16.3 19.5
+expect chroma graze 449 600 689 800 9.7 11.6
 setview 800 800 -330 0 70
 sleep 1.5
 state steep
 snap steep
 expect probealpha steep 769 640 0.15 0.168
-expect chroma steep 489 0 729 560 34 43
+expect chroma steep 489 0 729 560 20.5 26.1
 setview 1700 744 -470 180 25
 sleep 1.5
 state back
 snap back
 expect probealpha back 769 640 0.223 0.237
-expect chroma back 399 520 699 800 12.3 15.5
+expect chroma back 399 520 699 800 7.3 9.2
 setview off
 expect nolog guest trap

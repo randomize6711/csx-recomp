@@ -5,7 +5,8 @@
 # over what lies under it, looking down). The player held over the river (tools/drive.py setview, no bots) in the
 # views of regress_water.txt (along it 12 degrees down, steeply down 70, back the other way 25): what lies under it
 # shows as much as in the reference renderer (mean chroma of a box of water, the reference's bounds; before: 15.4,
-# 29.8, 10.8 at 4:3). The window shots are the game's frame (1138x480 drawn at 2275x960). Auto Exposure off.
+# 29.8, 10.8 at 4:3, under the dynamic gamma that ran until G6 despite Off). The window shots are the game's frame
+# (1138x480 drawn at 2275x960). Auto Exposure off (the identity ramp).
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 2560 -H 1080), with
 #   --launch tests/launch/de_aztec_nobots --env CSX_VK_AUDIT=1 --pc aspect=21:9 --pc auto_exposure=0
 wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
@@ -24,17 +25,17 @@ setview 100 744 -490 0 12
 sleep 1.5
 state graze
 windowshot graze
-expect chroma graze 898 600 1377 800 16.3 19.5
+expect chroma graze 898 600 1377 800 9.7 11.6
 setview 800 800 -330 0 70
 sleep 1.5
 state steep
 windowshot steep
-expect chroma steep 978 0 1457 560 34 43
+expect chroma steep 978 0 1457 560 20.5 26.1
 setview 1700 744 -470 180 25
 sleep 1.5
 state back
 windowshot back
-expect chroma back 798 520 1397 800 12.3 15.5
+expect chroma back 798 520 1397 800 7.3 9.2
 setview off
 expect log vulkan: cube texture 32x32 X8R8G8B8, 1 levels, faces \+X -X \+Y -Y \+Z -Z as layers 0 to 5
 expect nolog vulkan: .*textures are not drawn yet
