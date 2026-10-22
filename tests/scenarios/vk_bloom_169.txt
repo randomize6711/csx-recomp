@@ -1,0 +1,82 @@
+# Bloom in the Vulkan window (FINDINGS.md "Bloom", src/game/pc_bloom.cpp, SDK patches 0034 and 0035), on de_aztec,
+# whose light config sets cl_hdrbloom 0.5 as the map starts (its white sky is what glows: the bright pass keeps the
+# back buffer's colour above half, 2c - 1, and the title draws dark for the gamma ramp to brighten). Started with
+# Bloom Off (pc_settings.ini): the map's 0.5 is taken back to 0.
+# The player held under the sky (tools/drive.py setview, no bots): Bloom On gives the map's 0.5 back and the sky's
+# glow brightens the upper right quarter of the frame (before SDK patch 0034 the bloom's last pass kept the scissor
+# of its small targets and drew in the top left corner only: no change there); the back buffer's downsample is
+# sampled with GAUSSIANCUBIC (the 3x3 Gaussian, patch 0035). Then a flashbang with Bloom On: part way through its fade
+# the frame's top left quarter by a sixteenth of its height is not brighter than the rest (the corner the leaked
+# scissor brightened by 10 to 32 levels). The snaps follow a change of setting, as Auto Exposure Off chosen before the
+# start is only in force from the first change (TODO.md).
+# 16:9 full screen at an internal 3840x2160 (the bloom's targets follow the back buffer's width: 427x240).
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --launch tests/launch/de_aztec_nobots --env CSX_LOG_FADE=1 --pc bloom=0 --pc auto_exposure=0
+#   --pc aspect=16:9 --pc display_mode=fullscreen
+#   --pc resolution=3840x2160
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+expect log pc: Bloom off
+wait log pc: the map's light config set cl_hdrbloom 0.5, Bloom off sets 0
+wait log pc: Bloom off, cl_hdrbloom 0$
+sleep 25
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 20
+key Left_Ctrl
+wait log pc keys: menu T_BuyMenuRoot
+sleep 24
+pckey cmd mp_buytime 60
+sleep 1
+pckey tap +buymenu 0.2
+sleep 1.5
+pckey pointer 227 351
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 157 321
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey mclick 2
+sleep 1
+pckey mclick 2
+sleep 2
+setview 2352 -256 -251.969 135 -10
+sleep 2
+pckey set bloom 1
+sleep 2
+expect log pc: Bloom on, cl_hdrbloom 0.5
+expect log vulkan: stage 0 sampled with GAUSSIANCUBIC \(the 3x3 Gaussian\) from [0-9]+x960 into [0-9]+x240
+windowshot on
+pckey set bloom 0
+sleep 2
+expect count pc:.Bloom.off,.cl_hdrbloom.0$ 3
+windowshot off
+expect regiondiff off on 1920 0 3840 1080 1 8
+pckey set bloom 1
+sleep 2
+expect count pc:.Bloom.on,.cl_hdrbloom.0.5$ 2
+setview off
+sleep 2
+pckey key 52 1
+sleep 0.1
+pckey key 52 0
+sleep 1.5
+state fb1
+expect weapon fb1 25
+mousestream 0 40 10 60
+sleep 6
+windowshot pre
+pckey cmd +attack
+sleep 0.3
+pckey cmd -attack
+sleep 2.2
+windowshot white
+expect log screen fade: started at [0-9.]+ s, colour FFFFFF alpha 255,
+sleep 1.5
+windowshot fade1
+expect seam fade1 960 135 6
+expect nolog vulkan: .* failed

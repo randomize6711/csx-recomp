@@ -1,0 +1,49 @@
+# Bloom headless (FINDINGS.md "Bloom", src/game/pc_bloom.cpp): PC Options' Bloom is the title's cl_hdrbloom, which
+# each map's light config sets as the map starts ("exec <map>-light.cfg", 0.5 on de_aztec). Started with Bloom Off:
+# the map's 0.5 is taken back to 0; On gives the map's 0.5 back; an intensity set in the console (0.3) stays through
+# Off and On. The reference renderer's bloom, at aztec's white sky with the player held there (tools/drive.py
+# setview, no bots): On adds its glow across the frame, not only in the top left corner (the last pass kept the
+# scissor of the small targets before SDK patch 0034), and the setting is saved. (Auto Exposure off, so the frames
+# compare directly; the snaps follow a change of setting, as Auto Exposure Off chosen before the start is only
+# in force from the first change: TODO.md.)
+#   --env FPS=30 --pc bloom=0 --pc auto_exposure=0 --launch tests/launch/de_aztec_nobots
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+expect log pc: Bloom off
+wait log pc: the map's light config set cl_hdrbloom 0.5, Bloom off sets 0
+wait log pc: Bloom off, cl_hdrbloom 0$
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 14
+setview 2352 -256 -251.969 135 -10
+sleep 2
+pckey set bloom 1
+sleep 2
+expect log pc: Bloom on, cl_hdrbloom 0.5
+expect setting bloom 1
+snap on
+pckey set bloom 0
+sleep 2
+expect setting bloom 0
+expect count pc:.Bloom.off,.cl_hdrbloom.0$ 3
+snap off
+expect regiondiff off on 0 0 640 480 0.5 6
+expect regiondiff off on 320 0 640 240 1 12
+pckey set bloom 1
+sleep 2
+expect count pc:.Bloom.on,.cl_hdrbloom.0.5$ 2
+pckey cmd cl_hdrbloom 0.3
+sleep 1
+pckey set bloom 0
+sleep 2
+pckey set bloom 1
+sleep 2
+expect log pc: Bloom on, cl_hdrbloom 0.3
+setview off
+expect nolog guest trap

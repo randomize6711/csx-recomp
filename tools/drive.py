@@ -78,6 +78,8 @@ per line, executed in order:
     expect probealpha NAME X Y MIN MAX  the first SRCALPHA blended draw at back buffer pixel X,Y in each of snap NAME's
                             frames has a source alpha in [MIN, MAX] (reference renderer, run with --env PROBES=X,Y)
     expect regiondiff A B X0 Y0 X1 Y1 MIN MAX  mean luminance of that box in B less that in A (snaps or window shots)
+    expect seam NAME X Y MAX       the box from the top left corner to X, Y no more than MAX brighter across its right
+                                   and bottom edges (the bloom's leaked scissor, FINDINGS.md "Bloom")
     expect coverage PRE SHOT MIN SPREAD  a white full-screen fade reaches the whole frame evenly: in nine patches touching
                             its edges (centre, the four edges' middles, the four corners; 2% of the frame's height
                             square, medians) the fade's opacity (SHOT - PRE) / (255 - PRE) is at least MIN, and within
@@ -614,6 +616,22 @@ def main():
                 good = len(means) == 2 and float(st[8]) <= means[1] - means[0] <= float(st[9])
                 if len(means) == 2:
                     print(f'     {box}: {means[0]:.1f} -> {means[1]:.1f} ({means[1] - means[0]:+.1f}, want {st[8]}..{st[9]})')
+            elif kind == 'expect' and st[1] == 'seam':
+                # expect seam NAME X Y MAX: the box from the shot's top left corner to X, Y is at most MAX brighter (mean
+                # luminance, 6 pixels either side) across its right edge and across its bottom edge than outside
+                from PIL import Image, ImageStat
+                path = os.path.join(RUN, 'snaps', st[2] + '_2.tga')
+                if not os.path.exists(path):
+                    path = os.path.join(RUN, 'shots', st[2] + '.bmp')
+                good = os.path.exists(path)
+                if good:
+                    im = Image.open(path).convert('L')
+                    x, y = int(st[3]), int(st[4])
+                    mean = lambda box: ImageStat.Stat(im.crop(box)).mean[0]
+                    right = mean((x - 6, 0, x, y)) - mean((x, 0, x + 6, y))
+                    bottom = mean((0, y - 6, x, y)) - mean((0, y, x, y + 6))
+                    print(f'     {st[2]}: {right:+.1f} across x {x}, {bottom:+.1f} across y {y} (want at most {st[5]})')
+                    good = right <= float(st[5]) and bottom <= float(st[5])
             elif kind == 'expect' and st[1] == 'coverage':
                 # expect coverage PRE SHOT MIN SPREAD: the white fade's opacity in nine edge-touching patches
                 from PIL import Image

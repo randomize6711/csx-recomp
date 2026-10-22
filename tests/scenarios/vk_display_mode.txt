@@ -4,7 +4,9 @@
 # left again with the right button (the Display Mode was applied on every save: the window went back to its tile,
 # looking minimized); changing Display Mode itself still applies it (Fullscreen, then Windowed). gamescope does not
 # keep SDL's full screen flag, so the check is the window's decision ("Display Mode ... applied"), not the
-# compositor's answer; that needs a play-test on the desktop.
+# compositor's answer; that needs a play-test on the desktop. Display Mode is the eleventh row, under the ten shown:
+# the pointer on the tenth (Bloom) and one wheel notch down bring it there, and the screen keeps that scroll when
+# entered again.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1600 -H 900)
 wait log renderer: vulkan
 wait log open d:\\Media\\Videos\\ESRB.xmv
@@ -28,7 +30,7 @@ point 150 232
 sleep 0.5
 click 1
 sleep 3
-expect log pc mouse: screen SuperLauncher_PCOptions, 11 rows
+expect log pc mouse: screen SuperLauncher_PCOptions, 12 rows
 point 545 199
 sleep 0.5
 click 1
@@ -51,6 +53,10 @@ point 150 232
 sleep 0.5
 click 1
 sleep 3
+point 150 355
+sleep 0.5
+wheel -1
+sleep 1
 point 545 355
 sleep 0.5
 click 1

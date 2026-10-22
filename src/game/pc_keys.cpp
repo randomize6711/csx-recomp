@@ -268,6 +268,7 @@ void PcMouseFrame(X86Context& ctx);    // pc_mouse.cpp
 void PcMenuFrame(X86Context& ctx);     // pc_menu.cpp
 void PcFrameRateFrame(X86Context& ctx);  // pc_frame.cpp
 void PcAutoExposureFrame(X86Context& ctx);  // dynamic_gamma.cpp
+void PcBloomFrame(X86Context& ctx);         // pc_bloom.cpp
 
 // [[hook]] at 0x3BB50 (config/game.toml): Cbuf_Execute's entry, on the game thread every frame
 void PcKeysFrame(X86Context& ctx, uint8_t*) {
@@ -277,6 +278,7 @@ void PcKeysFrame(X86Context& ctx, uint8_t*) {
     PcMenuFrame(ctx);
     PcFrameRateFrame(ctx);
     PcAutoExposureFrame(ctx);
+    PcBloomFrame(ctx);
     // a menu takes the keyboard and mouse as the pad; a screen that passes the controls through (Spectator, the
     // Scoreboard: ControlPassThrough, the right stick turns the spectator's camera) leaves them the game's, as playing
     uint32_t screen = R32(kCurrentScreen);
