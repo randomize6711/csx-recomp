@@ -12,6 +12,11 @@
    targets (a quarter of the width by 60 back buffer lines, top left: FINDINGS.md "Flashbang", seen as a brighter
    corner during a flashbang's fade), against a console capture; the muzzle flash (drawn, not seen) and dynamic lights,
    frame-exact against the reference. G4: Xbox Graphical Effects in PC Options (cl_dynamicgamma, cl_hdrbloom).
+0. Tests: the buy scenarios' +buymenu hold (sleep 0.2 after drive.py's 0.2 s polling) can pass the title's 0.5 s
+   tap limit (FINDINGS.md "Buy menu taps"): hold for less (0.05) or make the pckey poll finer, in every buy step.
+0. Vulkan validation messages older than G4 (FINDINGS.md "Water"): VkSwapchainPresentModeInfoKHR with
+   swapchainCount 0, VK_EXT_surface_maintenance1 missing on the instance, the DemoteToHelperInvocation feature
+   not enabled, a view of a transfer-only image, the blit after a clear without a barrier.
 0. The spectator screen (Free Look after dying): one status line in garbled characters, the menu backdrop over the
    view.
 0. Play-test on the desktop (Hyprland): Display Mode with the compositor's own fullscreen key, VSync Off at a 240

@@ -1461,14 +1461,44 @@ Checked:
 - The two renderers' overall brightness still differs a little in these views (walls 2 to 4 levels, one bank patch
   about 24, the water's mean colour -5 to +8 either way) as it did before the fix and away from the water; the
   water's chroma, which carries its alpha, matches. Not the cube's doing; not chased here.
-- Regressions: headless 27 scenarios, 26 on the first run, regress_flashbang failing at its buy (weapon 17, the
-  known intermittent buy-menu failure) and passing on rerun; window 27/27.
+- Regressions: headless 27 scenarios, 26 on the first run, regress_flashbang failing at its buy (weapon 17) and
+  passing on rerun; window 27/27. That failure is the test's, not a timing flake of the game: see "Buy menu taps".
+- Performance (window build, de_aztec, the three views held 10 s each, VSync off, the limit at 60, 120 and 240, the
+  renderer's own GPU timestamps and CPU spans; build/window_before is the build before the fix): before and after
+  agree within the run-to-run noise at every rate and view, GPU 0.88 to 1.21 ms a frame, CPU recording (the render
+  thread inside Clear / Draw) 5.0 to 6.8 ms, present 0.24 to 0.28 ms; 60 and 120 held (frame interval 16.67 and 8.35
+  to 8.97 ms; the back view runs at 112 to 113 at the 120 limit before and after), 240 not reached (113 to 143
+  frames/s before and after: the game thread is CPU-bound, TODO). Pacing: the 99th percentile interval no worse
+  after (at 120: 9.5 to 11.3 ms after, 10.9 to 12.5 before). The cube is one 24 KiB image
+  (vkGetImageMemoryRequirements on RADV for the same create info: 32x32 B8G8R8A8, 6 layers), made and uploaded once
+  per run (one creation line); no wait, fence, submit or readback was added (the upload goes through the frame's
+  upload ring as 2D textures do).
+- Vulkan validation (CSX_VK_VALIDATION=1, the Khronos layer with synchronisation validation, the message limit off,
+  the same views at 60): the same five message kinds before and after the fix, none about the cube texture or its
+  barriers. They are older than G4: the swapchain present mode info chained with swapchainCount 0 (each present),
+  VK_EXT_swapchain_maintenance1 enabled without VK_EXT_surface_maintenance1 on the instance, shaders declaring
+  DemoteToHelperInvocation without the feature enabled, one image view of a transfer-only image, and a blit after a
+  clear without a barrier between them (each present: SYNC-HAZARD-WRITE-AFTER-WRITE). TODO.
 - Uncertainty: Vulkan filters a cube across face edges (seamless), the reference renderer within a face (clamped);
   the console's behaviour at face edges is not known (GeForce 3 generation hardware is not documented as seamless).
   For this cube the neighbouring texels across an edge encode nearly the same vector, so the difference is within a
   texel's quantisation. Both renderers take the texel as an 8 bit unsigned value expanded with 2x - 1, as the
   register combiners do; the console's colour interpolation of d0 (0.5 as 127 or 128) moves r by under 0.004. No
   console capture of the water.
+
+## Buy menu taps (2026-10-22)
+
+- The title opens the buy menu on +buymenu's release (0x18FCB0, then 0xE62C0), and only for a tap: held 0.05 to 0.5
+  s of real time (the press time from QueryPerformanceCounter at 0x552E70, the bounds the doubles at 0x365FD0 and
+  0x365D10), with two of the pad's axes (0x384F8C and 0x384F90 for the active pad) under 0.4. A longer hold does
+  nothing.
+- The scenarios hold it with `pckey cmd +buymenu`, `sleep 0.2`, `pckey cmd -buymenu`. drive.py starts the sleep only
+  once it sees the request file gone, and it looks every 0.2 s; the harness picks a request up every 50 ms and the
+  command runs on the next frame. The hold is then about 0.2 to 0.5 s, past 0.5 often enough to fail:
+  regress_flashbang failed at its buy in 2 of 6 runs (weapon 17, no buy menu at all). Held 0.05 s it bought in 3 of
+  3, held 0.6 s it failed in 3 of 3 with the same signature. This is the "intermittent buy-menu failure" of
+  vk_flashbang_rates (G3) and regress_flashbang (G4), not a timing flake of the game. Not changed yet: the tests'
+  hold (TODO).
 
 ## High pixel density (2026-10-21)
 

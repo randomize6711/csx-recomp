@@ -423,5 +423,9 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   shared decode). The cube is not a unit normalisation cube (texel V |V_major| / |V|^2), which the tests take in.
 - tools/drive.py `setview` (a fixed camera over the river, test only), `expect probealpha` and `expect chroma`; tests
   regress_water(_wide, _ultrawide) and vk_water_43/169/219.
-- Headless 27 (regress_flashbang's buy failed once, passed on rerun: the known buy-menu flake), window 27/27.
+- Headless 27 (regress_flashbang's buy failed once, passed on rerun), window 27/27. That buy failure is the tests'
+  hold of +buymenu passing the title's 0.5 s tap limit (FINDINGS.md "Buy menu taps"), not a flake of the game.
+- Performance before and after the fix (60, 120, 240 limits): GPU, CPU recording, present and pacing the same within
+  noise; the cube is 24 KiB, uploaded once; no new synchronisation or readback. Validation: no new messages (five
+  older kinds recorded in FINDINGS.md "Water").
 
