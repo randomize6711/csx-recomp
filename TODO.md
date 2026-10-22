@@ -10,13 +10,11 @@
    "<map>-light.cfg", FINDINGS.md "Bloom", is the likely source). The bloom's GAUSSIANCUBIC kernel (xemu's model)
    against a console capture; the muzzle flash (drawn, not seen) and dynamic lights, frame-exact against the
    reference.
-0. Auto Exposure Off chosen before the start is only in force from the first change of a setting (FINDINGS.md
-   "Bloom"): PcAutoExposureFrame takes cl_dynamicgamma's 0 before registration as done. Fix as pc_bloom.cpp does
-   (wait for registration or the map's light config), then re-check the tests started with auto_exposure=0, whose
-   frames were taken under the running ramp.
-0. Vulkan validation messages older than G4 (FINDINGS.md "Water"): VkSwapchainPresentModeInfoKHR with
-   swapchainCount 0, VK_EXT_surface_maintenance1 missing on the instance, the DemoteToHelperInvocation feature
-   not enabled, a view of a transfer-only image, the blit after a clear without a barrier.
+0. Vulkan validation, left after G6 (FINDINGS.md "Vulkan validation"): gamescope's WSI layer chains a
+   VkSwapchainPresentModeInfoKHR with swapchainCount 0 to every present and enables VK_EXT_swapchain_maintenance1
+   without VK_EXT_surface_maintenance1 (not the renderer's; DISABLE_GAMESCOPE_WSI=1 runs have none); the performance
+   warning OutputNotConsumed (vertex outputs and attributes the title's shaders leave unread). Validation was run on
+   one GPU (RADV): a check on another vendor's driver would be worth having.
 0. The spectator screen (Free Look after dying): one status line in garbled characters, the menu backdrop over the
    view.
 0. Play-test on the desktop (Hyprland): Display Mode with the compositor's own fullscreen key, VSync Off at a 240

@@ -1259,6 +1259,8 @@ Results (Vulkan):
   a console change stands until the setting changes again. Going Off sets the title's identity ramp (0xBF030) once.
   Note: cl_dynamicgamma 0 on the match's command line (releasemap) did not stop it; changelevel did not reload a map
   in these tests, so whether a map load sets cl_dynamicgamma back is not known (the setting re-sends only on change).
+  G6: it does: each map's light config sets cl_dynamicgamma 1 as the map starts, after the command line; Off is now
+  taken back there (FINDINGS.md "Auto Exposure at the start").
 
 Found on the way: the flashbang's white-out is not drawn in either renderer. A flashbang that blinds the player sets
 the client's screen fade (ScreenFade at 0xB6500: white, alpha 255, held then faded over about 4 s); the fade routine
@@ -1543,10 +1545,10 @@ Checked:
   map starts; nothing else is stored. The row is the tenth of twelve (the pause menu's list now scrolls to Master
   Volume; the front end's already scrolled).
 - Found on the way, not changed (G4, TODO.md): Auto Exposure Off chosen before the start is only in force from the
-  first change of a setting. PcAutoExposureFrame takes cl_dynamicgamma's 0 before the client registers it as done;
-  registration sets 1 and the dynamic gamma runs (34 adjustments in 38 s headless on de_aztec with auto_exposure=0)
-  until any setting changes (the identity ramp is set again then). The tests started with Auto Exposure Off compare
-  frames under that running ramp; the Bloom tests take their frames after a change.
+  first change of a setting (34 adjustments in 38 s headless on de_aztec with auto_exposure=0), until any setting
+  changes (the identity ramp is set again then). The tests started with Auto Exposure Off compare frames under that
+  running ramp; the Bloom tests take their frames after a change. The cause given here (registration sets 1) was
+  incomplete: G6 found the map's light config setting 1 (FINDINGS.md "Auto Exposure at the start"), now fixed.
 
 - Performance (de_aztec, gamescope 1280x960, 4:3, VSync off: the white sky ahead, the sky to the side, the river;
   Bloom On at the map's 0.5; before = the build before G5, after = with both patches and the option; GPU time and CPU
@@ -1563,6 +1565,151 @@ Checked:
 
 Remaining uncertainty: the convolution kernel is xemu's model, not a hardware measurement (no console capture);
 whether the NV2A's MAG 4 differs from its MIN path; the bright pass and blurs otherwise as G1 compared them.
+
+## Auto Exposure at the start (2026-10-22, G6)
+
+- The bug (G4, TODO.md): Auto Exposure Off saved in pc_settings.ini did not hold in a match until a setting was
+  changed. Two causes, the second the one that mattered:
+  1. Before the client registers its cvars, cl_dynamicgamma's value is 0 whatever the setting (the static record at
+     0x37A2F0 holds its default string "1" at 0x32A090 and value 0; Cvar_RegisterVariable, 0x422A0, called for it at
+     0x2BDEF, puts an allocated copy of the string at +4 and its atof at +0xC). PcAutoExposureFrame compared the value
+     and took Off as done before registration.
+  2. Each map's light config ("exec <map>-light.cfg", run as the client's map start at 0xC4089, FINDINGS.md "Bloom")
+     sets cl_dynamicgamma 1: a probe on both sides of it read 0 before and 1 after on de_aztec, de_dust2 and
+     de_inferno, with Off already applied and the cvar registered (the same probe: de_dust2's and de_inferno's
+     configs set cl_hdrbloom 0.5 too, as de_aztec's does). Every map start is a title relaunch (the front end, Change
+     Map, Quit: FINDINGS.md "Title relaunch"; Restart Match is not and does not run the config again), so the
+     config runs once per instance, after the frame code's Off. That is why cl_dynamicgamma 0 on the match's command
+     line did not stop it in G4 either (the command line runs before the config).
+  With the cvar back at 1 the title's post pass (0xC2160) ran the dynamic gamma (0xBDFC0) every frame: headless on
+  de_aztec it adjusted once a second from the first frame of the match and the ramp's high point sank from 0.85 to
+  its 0.6 clamp, so the held view's mean was 122 against 61 with the identity ramp. A change of any setting re-sent
+  Off (the cvar then held 1) and set the identity ramp, which is why it held from the first change on.
+- The fix (src/game/dynamic_gamma.cpp, pc_keys.cpp, config/game.toml): the hook after the light config (0xC408E,
+  now PcMapLightConfig, which Bloom already used) also calls PcAutoExposureMapConfig: with Off and the cvar not 0 it
+  sets cl_dynamicgamma to 0 through the title's Cvar_DirectSet (0x41F90, what the console's command calls; the
+  string is the engine's "0", 0x329F70) and sets the identity ramp (0xBF030), in the hook, before the map's first
+  frame. On leaves the map's 1 (the title's own state). The frame code compares nothing before the cvar is registered
+  (its string pointer still the static default). Bloom's frame code waits for registration the same way (it already
+  took the light config back; before, it logged "Bloom off" as done before the cvar existed). The adaptation itself
+  (0xBDFC0, 0xBE760, 0xBE960) and its timing are unchanged.
+- Checked: regress_ae_startup (headless de_aztec, Auto Exposure and Bloom Off saved: the map's 1 and 0.5 taken back,
+  no adjustment logged, the held view's frame equal to the one after Off is chosen again, -0.0; the four combinations
+  changed while playing: On adjusts again, Off stops it and sets the identity ramp, Bloom follows its own setting,
+  each saved); on the G5 build the same scenario fails (adjustments from the start; frame +61.2). vk_ae_maps (the
+  Vulkan window, Off saved: front end, de_airstrip, Change Map to de_aztec; in each instance Off is in the cvar before
+  the bloom's first pass, no adjustment; at a held view the frame equals the one after On and Off again, -0.1).
+  vk_bloom_43, _169 and _219 (4:3, 16:9 at 3840x2160, 21:9 at 144 frames per second) start with Off and expect the
+  map's 1 taken back and no adjustment.
+- Tests measured under the running ramp: the water tests (regress_water*, vk_water_*) start with Auto Exposure Off
+  and bound the mean chroma of a box of water. On G5 the same run logged 46 adjustments, so the bounds (graze 16.3 to
+  19.5, steep 34 to 43, back 12.3 to 15.5) were the brightened ramp's; with Off holding, the frames are darker and the
+  graze box measured 10.4. The water itself is unchanged: the cube's alpha probes read the same (0.245, 0.161, 0.231).
+  Re-measured at the identity ramp, both renderers agree as before: graze 10.4 (reference) / 10.5 (Vulkan), steep
+  21.8 to 24.6 / 23.3 to 24.0 over the runs, back 8.1 / 8.1, at 4:3, 16:9 and 21:9. The bounds are now 9.7 to 11.6,
+  20.5 to 26.1 and 7.3 to 9.2 (the same relative width as before).
+- Found on the way, fixed (tools/drive.py): the game's log is written through stdio (info lines unflushed, warnings
+  flushed), so the driver's read could end mid-line; it kept the two halves as two lines and a wait for that line
+  never matched (vk_loading waited its 900 s for a shot line that was in the log, once in seven full window suites). A cut line
+  now waits for its end.
+
+## Vulkan validation (2026-10-22, G6)
+
+The Khronos layer (CSX_VK_VALIDATION=1, synchronisation validation, errors, warnings and performance warnings, no
+message limit) in the test's headless gamescope. Each kind reproduced with a minimal scenario (the front end's first
+screens, 12 s: ESRB and Valve logo videos, the title) and in a match (de_aztec, three views held, 60 frames per second).
+
+Before (G5, 452713d) and after (G6), message counts:
+
+| Kind | Origin | Front end, no WSI layer (G5 / G6) | de_aztec match, no WSI layer (G5 / G6) | Status |
+|---|---|---|---|---|
+| SwapchainPresentModeInfo arraylength, -07760 | gamescope WSI layer | 0 / 0 | 0 / 0 (one each per present with the layer, both builds) | external, documented |
+| vkCreateDevice-01387 | gamescope WSI layer | 0 / 0 | 0 / 0 (once with the layer, both builds) | external, documented |
+| SYNC-HAZARD-WRITE-AFTER-WRITE | renderer (Present, ComposeOverlay) | 769 / 0 | 3074 / 0 | fixed (647962b) |
+| vkDestroyImage-image-01000 | renderer (FreeImage between frames) | 1 / 0 | 0 / 0 | fixed (412b0ad) |
+| ShaderModuleCreateInfo-pCode-08740 | renderer (device features) | 0 / 0 | 17 / 0 | fixed (463ab3d) |
+| ImageViewCreateInfo-image-04441 | renderer (GuestSized's copy) | 0 / 0 | 1 / 0 | fixed (9aef86b) |
+| WARNING-Shader-OutputNotConsumed | renderer (title's shaders, performance warning) | 0 / 0 | 19 / 19 | not changed, documented |
+
+None comes from the recompiled code or the compatibility layer: every message names a Vulkan call of the renderer
+(src/vulkan/vk_backend.cpp) or, for the first two, the gamescope layer's own calls.
+
+1. **VUID-VkSwapchainPresentModeInfoKHR-swapchainCount-arraylength and -07760** (each present: a
+   VkSwapchainPresentModeInfoKHR chained to vkQueuePresentKHR with swapchainCount 0) and
+   **VUID-vkCreateDevice-ppEnabledExtensionNames-01387** (once: VK_EXT_swapchain_maintenance1 enabled without
+   VK_EXT_surface_maintenance1 on the instance). Not the renderer's: it enables at most four device extensions
+   (swapchain, push descriptor, depth bias control, depth range unrestricted) and chains nothing to a present; the
+   extension is the fifth in the list the layer saw. They come from gamescope's WSI layer (VK_LAYER_FROG_gamescope_wsi,
+   implicit, enabled by gamescope's ENABLE_GAMESCOPE_WSI=1), which sits above the validation layer: with
+   DISABLE_GAMESCOPE_WSI=1 the same runs have none of the three. Not fixed (outside the project; harmless to the
+   picture). On the desktop (Hyprland, no gamescope) the layer is not loaded. Severity: none for the game. A future
+   test run could set DISABLE_GAMESCOPE_WSI=1 for its validation passes.
+2. **SYNC-HAZARD-WRITE-AFTER-WRITE** (one per present, one per video frame). Present clears the swapchain image black
+   (the letterbox) and blits the frame over it; ComposeOverlay copies the frame into its target and blits the video
+   over it; neither had a barrier between the two transfer writes to the same image, so the clear or the copy could
+   land after the blit (a black or stale frame on hardware that overlaps transfers). Fixed: TransferWriteBarrier
+   (transfer write to transfer write, the image staying in TRANSFER_DST_OPTIMAL) between them. The picture is
+   unchanged where the order already held (every test's frames).
+3. **VUID-vkDestroyImage-image-01000** (once, the front end: the ESRB video changing to the Valve logo). A resource
+   lifetime bug: FreeImage queued an image on the current frame slot's garbage, which the slot destroys when it next
+   starts. Freed between frames (ComposeOverlay before a frame's first command when the video changes size,
+   UpdateResolution after Present's submit), that start was the very next one, while the frame just submitted on the
+   other slot could still read the image on the GPU. Fixed: an image freed while no frame records waits and goes with
+   the next frame started, destroyed after that frame's fence (which covers every earlier submission); one freed while
+   recording goes with its frame as before. (A first attempt, starting the frame inside FreeImage, began the wrong
+   slot when called from UpdateResolution between the submit and frame_++; the validation run showed it at once.)
+4. **VUID-VkShaderModuleCreateInfo-pCode-08740** (once per pixel shader with a discard: 17 in the match). DXC with
+   -fspv-target-env=vulkan1.3 compiles discard (texkill, the alpha test, clip planes) to OpDemoteToHelperInvocation,
+   whose capability needs the shaderDemoteToHelperInvocation feature. Every Vulkan 1.3 device has it; the device
+   now enables it. The shaders and their output are unchanged (the driver already ran them).
+5. **VUID-VkImageViewCreateInfo-image-04441** (once). GuestSized's downscaled copy of a drawn target (transfer
+   source and destination only, read through copies) was given an image view, which needs a sampled or attachment
+   usage. Fixed: MakeImage makes no view for an image without such a usage; nothing used that view.
+6. **WARNING-Shader-OutputNotConsumed** (performance warnings, 19 in the match: 15 pipelines whose vertex shader writes
+   the fog factor, TEXCOORD4 at location 8, that the pixel shader does not read; 4 whose vertex input has attributes
+   2 and 3 of the title's vertex declaration that the vertex shader does not read). Not invalid (the layer says so);
+   the write is discarded and the driver drops it when it links the pipeline. Not changed: the vertex shaders and
+   input state follow the title's own declarations and programs, and trimming them per pipeline would add keys for no
+   change in the picture or measurable cost.
+
+- The sweep (G6, and G5 for comparison; the validation layer as above with gamescope's WSI layer at its default):
+  vk_bloom_169 (16:9, full screen at an internal 3840x2160), vk_bloom_219 (21:9 at 2560x1080, 144 limit),
+  vk_display_mode (windowed, borderless and full screen, the resolution changed), vk_vsync_play (VSync on and off at
+  60, 120 and 240 limits), vk_flashbang (the white fade), vk_ae_maps (the front end's videos, two relaunches and a
+  Change Map), and the 240 perf scenario (4:3, three views). G6 in every one: the WSI layer's two messages per present
+  and one per device (three in vk_ae_maps, one per instance), and OutputNotConsumed (3 to 39, one per pipeline using
+  such a shader; 39 over three instances); nothing else. G5 in the same runs: also SYNC-HAZARD-WRITE-AFTER-WRITE once
+  per present (6446 in vk_flashbang, 27647 in vk_ae_maps), pCode-08740 (4 to 18), image-04441 (1 per instance) and
+  vkDestroyImage-image-01000 (once in vk_display_mode, at a resolution change, and once in vk_ae_maps, at the video
+  change). Under the layer the game runs at 18 to 30 frames per second, so the tests' frame rate checks fail
+  (vk_bloom_219, vk_vsync_play, both builds; they pass without it), and the G5 runs fail the new Auto Exposure
+  expectations (the bug); the counts are what is compared.
+
+- Performance, G5 against G6 (de_aztec, gamescope 1280x960, 4:3, VSync off, Bloom On at the map's 0.5: the white sky
+  ahead, the sky to the side, the river, 10 s each; both builds log the 95th percentile, which G6 adds to the frame
+  timing line; GPU time and CPU recording per frame in ms, sky / side / river). Auto Exposure Off saved: G5 ran 146
+  adjustments anyway, G6 none; On: 146 to 147 both.
+  - 60 limit, Off: GPU 1.046 / 0.807 / 0.954 (G5) and 1.040 / 0.797 / 0.932 (G6); recording 4.56 / 3.37 / 3.62 and
+    4.23 / 3.33 / 3.43; 60.0 fps; 95th percentile interval 17.6 to 17.9 ms both; 99th (the worst second's) up to 27.0
+    (G5) and 19.1 (G6). On: GPU 1.049 / 0.821 / 0.952 and 1.039 / 0.811 / 0.952; 95th 17.3 to 17.7 and 18.0 to 18.8.
+  - 120, Off: GPU 1.038 / 0.822 / 0.945 and 1.011 / 0.796 / 0.926; 119.7 to 120.0 fps; 95th 9.3 to 9.4 and 9.3 to
+    10.1; 99th 10.0 to 10.1 and 10.3 to 11.5. On: GPU 1.046 / 0.808 / 0.945 and 1.043 / 0.814 / 0.945; 118.8 to 119.9
+    fps both; 95th 9.3 to 11.5 and 9.2 to 12.0.
+  - 240 (CPU bound in these views), Off: 149.6 / 170.0 / 181.5 fps and 153.2 / 173.5 / 186.6; GPU 1.034 / 0.806 /
+    0.936 and 1.018 / 0.783 / 0.912; 95th 6.2 to 7.8 and 6.2 to 9.1. On: 153.1 / 174.7 / 185.1 and 149.8 / 169.2 /
+    184.6; 95th 6.1 to 8.6 and 6.1 to 7.8.
+  The differences go both ways between runs and with the build (the 240 runs' frame rates swap order between Off and
+  On): noise. The identity ramp saves the dynamic gamma's measurement draw (GPU about 0.01 to 0.02 ms less with Off on
+  G6). Present 0.25 to 0.29 ms throughout. Peak resident memory 167 to 170 MB, G6 0.6 to 2.0 MB lower in every pair.
+
+- Tests: headless 30 of 30, window 32 of 32 (after the water bounds and the driver fix; before them the water tests
+  failed at the identity ramp and vk_loading hung once).
+
+Remaining: the gamescope WSI layer's messages (1; the desktop does not load the layer, so they were not seen
+there), the performance warnings (6). Checked on one GPU and driver only (AMD Radeon RX 9070 XT, RADV, Mesa 26.2.5):
+the write-after-write and destroy-in-use hazards never showed on screen here, and another driver could have shown
+them (a black or stale frame, a fault). Nothing in this section depends on the console or on xemu: the Auto
+Exposure cause is the title's own (its light configs, read in the title), the fixes are Vulkan usage.
 
 ## Buy menu taps (2026-10-22)
 

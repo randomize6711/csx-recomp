@@ -442,3 +442,19 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
 - Tests regress_bloom, vk_bloom_43/169/219 (`expect seam`). Headless all passed, window 31 of 31 (vk_display_mode's
   clicks follow the twelfth row). Performance the same within noise; validation no new messages.
 - Found, not changed: Auto Exposure Off at launch only holds from the first setting change (TODO.md).
+
+## 2026-10-22 — Vulkan validation, Auto Exposure at the start (G6)
+
+- Auto Exposure Off saved now holds from the map's first frame (FINDINGS.md "Auto Exposure at the start"): each map's
+  light config set cl_dynamicgamma 1 after Off was applied; the hook after the config takes it back with the identity
+  ramp. On is the title's own behaviour; the adaptation is unchanged. Tests regress_ae_startup (fails on G5) and
+  vk_ae_maps (front end, relaunch, Change Map); the Bloom window tests start with Off.
+- Vulkan validation (FINDINGS.md "Vulkan validation"): four renderer fixes, a barrier between two transfer writes to
+  one image (Present, ComposeOverlay), images freed between frames destroyed after the next frame's fence, no view for
+  a transfer-only image, shaderDemoteToHelperInvocation enabled. Left: gamescope's WSI layer's messages (external) and
+  the OutputNotConsumed performance warning.
+- The water tests' chroma bounds re-measured at the identity ramp (they had been taken under the ramp that kept
+  running); drive.py waits for a log line's end (vk_loading's one hang); the frame timing line logs the 95th
+  percentile.
+- Tests: headless 30 of 30, window 32 of 32. Performance against G5 the same within noise at 60, 120 and 240;
+  memory 0.6 to 2 MB lower.
