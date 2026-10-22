@@ -217,6 +217,12 @@ struct PipelineKey {
     float zslope;
 };
 
+// images (and their memory) and views freed, destroyed once the GPU is past their last use (FreeImage)
+struct Garbage {
+    std::vector<std::pair<VkImage, VkDeviceMemory>> images;
+    std::vector<VkImageView> views;
+};
+
 struct Frame {
     VkCommandBuffer cmd = VK_NULL_HANDLE;
     VkFence fence = VK_NULL_HANDLE;
@@ -225,8 +231,7 @@ struct Frame {
     VkDeviceMemory upload_memory = VK_NULL_HANDLE;
     uint8_t* map = nullptr;
     VkDeviceSize used = 0;
-    std::vector<std::pair<VkImage, VkDeviceMemory>> garbage;
-    std::vector<VkImageView> garbage_views;
+    Garbage garbage;
     bool timed = false;  // both timestamps written for the frame last recorded in this slot
 };
 
@@ -378,6 +383,7 @@ private:
     std::array<Frame, kFrames> frames_{};
     uint64_t frame_ = 0;
     bool recording_ = false;
+    Garbage pending_garbage_;  // freed between frames: goes with the next frame started
 
     VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
     VkPipelineLayout layout_ = VK_NULL_HANDLE;
@@ -768,11 +774,14 @@ bool VulkanBackend::MakeImage(Image& im, uint32_t w, uint32_t h, VkFormat fmt, u
     return true;
 }
 
-// freed once the GPU is past the frame that may still use it
+// freed once the GPU is past the frame that may still use it: while a frame records, with that frame (its slot's
+// garbage, destroyed when the slot is next started after its fence); between frames (before the first command of a
+// frame, after a submit: the overlay at a video change, UpdateResolution) the last user may be the frame just
+// submitted, so it waits for the next frame to start and goes with that one
 void VulkanBackend::FreeImage(Image& im) {
-    Frame& f = frames_[frame_ % kFrames];
-    if (im.view) f.garbage_views.push_back(im.view);
-    if (im.image) f.garbage.push_back({im.image, im.memory});
+    Garbage& g = recording_ ? frames_[frame_ % kFrames].garbage : pending_garbage_;
+    if (im.view) g.views.push_back(im.view);
+    if (im.image) g.images.push_back({im.image, im.memory});
     im = Image{};
 }
 
@@ -801,13 +810,13 @@ VkCommandBuffer VulkanBackend::Cmd() {
     Frame& f = frames_[frame_ % kFrames];
     if (!recording_) {
         vkWaitForFences(dev_, 1, &f.fence, VK_TRUE, UINT64_MAX);
-        for (VkImageView v : f.garbage_views) vkDestroyImageView(dev_, v, nullptr);
-        for (auto& [img, mem] : f.garbage) {
+        for (VkImageView v : f.garbage.views) vkDestroyImageView(dev_, v, nullptr);
+        for (auto& [img, mem] : f.garbage.images) {
             vkDestroyImage(dev_, img, nullptr);
             vkFreeMemory(dev_, mem, nullptr);
         }
-        f.garbage.clear();
-        f.garbage_views.clear();
+        f.garbage = std::move(pending_garbage_);
+        pending_garbage_ = {};
         f.used = 0;
         vkResetCommandBuffer(f.cmd, 0);
         VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
