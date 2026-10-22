@@ -109,6 +109,18 @@ and even part way through the fade; Auto Exposure off so the frames compare dire
 `regress_flashbang.txt`, `regress_flashbang_wide.txt` (16:9) and `regress_flashbang_ultrawide.txt` (21:9) headless.
 The window shots and snaps are the game's frame, so the present's letterbox is not part of them.
 
+## Water
+
+de_aztec's river (FINDINGS.md "Water"), its alpha from a cube texture (a Fresnel term), from three fixed views over it:
+`setview X Y Z YAW PITCH` holds the player at an origin with view angles (the server's copy, every 20 ms, no velocity;
+`setview off` lets go), since noclip does not work and no spawn sees the river. `regress_water.txt`, `_wide.txt` (16:9)
+and `_ultrawide.txt` (21:9) headless: the reference renderer's alpha for the water at one pixel in each view (`expect
+probealpha NAME X Y MIN MAX`: the first SRCALPHA draw at that back buffer pixel in each of the snap's frames, from the
+renderer's `PROBES` lines; the run sets `--env PROBES=X,Y --env PROBE_WIDTH=W`) against the cube's formula, and the
+mean chroma of a box of water (`expect chroma NAME X0 Y0 X1 Y1 MIN MAX`: how much of what lies under it shows through).
+`vk_water_43.txt`, `_169.txt` and `_219.txt`: the same views in the Vulkan window, the chroma within the reference's
+bounds (before the cube texture was bound: below them), the cube texture's creation logged. Auto Exposure off in all.
+
 ## Rounds
 
 `rounds_direct.txt` plays complete rounds from the direct start of any map fixture (`de_airstrip_beginner`,

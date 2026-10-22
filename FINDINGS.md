@@ -1312,7 +1312,7 @@ Effects:
 | Effect | Class | Evidence |
 |---|---|---|
 | Dynamic gamma (auto exposure, cl_dynamicgamma) | 2: incorrect in Vulkan (and in the reference renderer) | below |
-| de_aztec water | 2: an input missing in Vulkan; picture not yet seen | below |
+| de_aztec water | 2: an input missing in Vulkan (fixed in G4, "Water") | below |
 | HDR bloom and blur (cl_hdrbloom, cl_hdrblur) | 1, a filter detail 2 | below |
 | Muzzle flash | 4: drawn, not seen in captures | below |
 | Dynamic lights (r_dynamic) | 4 | below |
@@ -1349,8 +1349,10 @@ the CPU reads the target:
   slow frames (large frame times in the adjustment), its L8 target contents, or both.
 - Classed incorrect in both; the highest visual impact of the audit (the brightness and contrast of every frame).
 
-**de_aztec water.** Its water pixel shader (texture modes 0x1821: stage 0 project2d, stage 1 project2d, stage 2
-bump env map) samples stage 0 as a 2D texture while a 32x32 X8R8G8B8 cube texture is bound there, takes
+**de_aztec water.** (Corrected by "Water" below: the title's D3D turns stage 0's mode into the cube mode for a cube
+texture, and the reference renderer samples it as a cube, not its first face.) Its water pixel shader (texture modes
+0x1821: stage 0 project2d, stage 1 project2d, stage 2 bump env map) samples stage 0 as a 2D texture while a 32x32
+X8R8G8B8 cube texture is bound there, takes
 dot(expand(v0), expand(t0)) into r1 (combiner 0, RGB output 0x20D0) and makes the water's alpha from r1 (alpha
 combiner 1, 0x0DD1D22D), its colour from the bump-mapped stage 2. Vulkan binds no cube texture (a placeholder takes
 its place), so the alpha term is wrong; the reference renderer samples the cube's first face. Only de_aztec of the
@@ -1383,8 +1385,7 @@ Other observations:
 
 Recommended order: (1) dynamic gamma in Vulkan (a write-back of the LIN_L8 measurement for the title's inlined lock,
 then checking the adaptation on several maps; the reference's collapse alongside); (2) de_aztec's cube texture
-(bind cube textures; sample a cube through a 2D mode as the reference does, once verified against the console's
-behaviour or documentation); (3) GAUSSIANCUBIC; (4) the muzzle flash comparison and dynamic lights, only with
+(bind cube textures; done in G4, "Water"); (3) GAUSSIANCUBIC; (4) the muzzle flash comparison and dynamic lights, only with
 evidence of a difference.
 
 Toggles: the title's own cvars switch the optional effects cleanly and are the right layer for them:
@@ -1392,6 +1393,82 @@ cl_dynamicgamma 0 (the static ramp from the brightness settings) and cl_hdrbloom
 Shadows (r_shadows) are basic legibility and the water's terms are part of its shader: neither should be switched
 off. A master "Xbox Graphical Effects" setting can set both cvars; separate "Bloom" and "Auto Exposure" settings are
 justified only once the dynamic gamma works in Vulkan (today switching it does nothing visible).
+
+## Water (de_aztec, 2026-10-22)
+
+The river on de_aztec is the only water of the 9 maps drawn with this shader (and the only cube texture CS binds).
+Its draws, read from the reference renderer at a fixed camera over it and from the title's code:
+- Surfaces: 270 quads at z -528, x -624 to 1920, y 576 to 912 (the river and the stretch into the tunnels), each
+  drawn twice in a frame with the same state (both draws blend; the second sits on the first). Drawn with the world,
+  before entities, sprites and particles (splash and mist particles cross it later in the frame).
+- Vertex program (B0064BF1, v0 position, v9 texture coordinates): t0 = c5 - v0, the eye less the vertex (c5 is the
+  eye, its w 1, so t0.w = 0); d0 = c6 * c4 + c6 = (0.5, 0.5, 1, 0.5), the water's normal (0, 0, 1) as a colour; t1,
+  t2 and t3 = v9 scaled by c7 to c9 (the bump map's and the water texture's tiling).
+- Stages: 0 the cube texture (32x32 X8R8G8B8, one level, at 82EE2000; clamp, linear, no mip), 1 the 128x128 V8U8
+  bump map (3 levels), 2 the water texture, offset by stage 1 through the bump env matrix; 3 unused. Texture modes
+  0x1821 as set: stage 0 PROJECT2D, 1 PROJECT2D, 2 BUMPENVMAP.
+- The mode stage 0 really gets: the title's D3D sets the shader stage program (NV097 method 0x1E70) lazily before a
+  draw (the inlined code at 0x30F0B1 to 0x30F2CD, one block per stage): a stage with no texture gets mode 0 (except
+  PASSTHRU, CLIPPLANE, DOT_ZW, DOTPRODUCT), modes 1 to 3 become 3 (CUBEMAP) when the bound texture's format has the
+  cube bit (4), 2 (PROJECT3D) for a volume texture and 1 (PROJECT2D) otherwise, and DOT_STR_3D / DOT_STR_CUBE
+  likewise. So the console samples stage 0 as a cube along t0.xyz (q unused, which matters: t0.w is 0). The SDK's
+  pixel key does the same (sdk/runtime/gpu/shaders.cpp MakePixelKey, "as D3D's lazy shader stage setup does"); the
+  audit's "samples stage 0 as a 2D texture" read the mode as set, not as sent.
+- The cube's six faces lie one after another in guest memory (+X -X +Y -Y +Z -Z, each a whole mip chain, 128-byte
+  aligned: FaceSize), swizzled like 2D textures; their texels are the D3D convention's (+X face: s = -z, t = -y, and
+  so on): face 0's centre holds +X, its top left (u 0, v 0) +X +Y +Z. It is not a unit normalisation cube: the texel
+  along V is V |V_major| / |V|^2 ((s, t, 1) / (1 + s^2 + t^2) on each face; a face's centre (0, 0, 1), its corners
+  (+-1, +-1, 1) / 3), checked against the texels at both and at traced pixels.
+- Pixel shader: r1 = dot(expand(v0), expand(t0)) = r, the cube texel's z (the normal is up); alpha = r * c2.a + (1 -
+  r) * c3.a with c2.a 0.102 (26/255) and c3.a 0.302 (77/255): 0.10 looking straight down, 0.30 at grazing angles (a
+  Fresnel term); colour = the bump-offset water texture (stage 2). Blended SRCALPHA / INVSRCALPHA, depth tested, no
+  depth writes.
+- Vulkan bound no cube texture ("cube and volume textures are not drawn yet"): stage 0 had no texture, its mode
+  became 0, t0 read (0, 0, 0, 1), r = -1 and the alpha was 0.302 at every angle: a grey film over what lies under it
+  when looking down at it. The reference renderer was right: its key has stage 0 in the cube mode and it samples the
+  cube along t0.xyz with the D3D face convention (its "first face" path is only for a cube read in the 2D mode,
+  which the key never leaves); the audit's statement was wrong.
+
+Camera for tests: noclip does not work, and no spawn sees the river. tools/drive.py `setview X Y Z YAW PITCH` holds
+the player at an origin with view angles (src/game/state_probe.cpp): the server's origin of client 0's edict
+(svs.clients at 0x636CE4, client_t::edict +0x4B9C, the entvars origin at +0x88, velocity +0xA0) written every 20 ms
+with no velocity, and the client's view yaw and pitch (0x552C10, 0x552C14) set once; "setview off" lets go. Nothing
+in the game's movement or collision changes. (The client copy 0x3AE3E0 that `state` reads is overwritten from the
+server every frame; poking it does nothing.) Views used, map de_aztec, no bots, Auto Exposure off, bloom on:
+- graze: 100 744 -490, yaw 0, pitch 12 (looking along the river, 55 units above the water);
+- steep: 800 800 -330, yaw 0, pitch 70;
+- back: 1700 744 -470, yaw 180, pitch 25.
+
+Fix (src/vulkan/vk_backend.cpp EnsureTexture, MakeImage): a cube texture is made a cube-compatible image of six
+layers with a cube view, each face's levels decoded from guest memory with DecodeLevel(d, level, face) (the decode
+the reference renderer uses) into layer face; the shader generator already declared TextureCube and sampled along
+tc.xyz for it. Volume and depth textures are still not drawn (none in CS). The sampler is the stage's (clamp,
+linear).
+
+Checked:
+- Reference renderer, exact (tests/scenarios/regress_water*.txt, drive.py `expect probealpha`): the water's alpha at
+  the pixel 200 columns right of the centre and 160 rows below it (of 960; the same ray at every aspect) is graze
+  0.245, steep 0.161, back 0.231 against 0.244, 0.157, 0.230 from the formula above with the cube's texels (a unit
+  normalisation cube would give 0.227, 0.132, 0.194, no cube 0.302), at 4:3, 16:9 and 21:9 alike. The three rays hit
+  the -X, +Z and +X faces: face order, orientation and decoding as above.
+- Vulkan against the reference (drive.py `expect chroma`: mean chroma of a box of water, how much of the colour of
+  what lies under it shows through): graze 17.8, steep 40.9 to 41.5, back 13.7 at 4:3, 16:9 and 21:9
+  (tests/scenarios/vk_water_43/169/219.txt; 1152x960, 1706x960 and 2275x960 frames), the reference 17.3 to 17.4,
+  38.4 to 39.4, 13.6; Vulkan before the fix 15.4, 29.8, 10.8 (outside the bounds).
+- Nothing else changed: the same views before and after the fix with the bloom off (cl_hdrbloom 0) differ only where
+  water is drawn (the river, the shallow water over its banks, the stretch into the tunnel); walls, sky, HUD and the
+  weapon are identical. With the bloom on, its blur carries the water's change a little way round it.
+- The two renderers' overall brightness still differs a little in these views (walls 2 to 4 levels, one bank patch
+  about 24, the water's mean colour -5 to +8 either way) as it did before the fix and away from the water; the
+  water's chroma, which carries its alpha, matches. Not the cube's doing; not chased here.
+- Regressions: headless 27 scenarios, 26 on the first run, regress_flashbang failing at its buy (weapon 17, the
+  known intermittent buy-menu failure) and passing on rerun; window 27/27.
+- Uncertainty: Vulkan filters a cube across face edges (seamless), the reference renderer within a face (clamped);
+  the console's behaviour at face edges is not known (GeForce 3 generation hardware is not documented as seamless).
+  For this cube the neighbouring texels across an edge encode nearly the same vector, so the difference is within a
+  texel's quantisation. Both renderers take the texel as an 8 bit unsigned value expanded with 2x - 1, as the
+  register combiners do; the console's colour interpolation of d0 (0.5 as 127 or 128) moves r by under 0.004. No
+  console capture of the water.
 
 ## High pixel density (2026-10-21)
 

@@ -1,8 +1,9 @@
 # TODO (priority order)
 
 ## Now
-0. Graphics fidelity (FINDINGS.md "Graphics fidelity audit", "Dynamic gamma", "Flashbang"): de_aztec's cube texture
-   (sampled through a 2D mode by the water's shader), with the water in view for a comparison. Other screen-space
+0. Graphics fidelity (FINDINGS.md "Graphics fidelity audit", "Dynamic gamma", "Flashbang", "Water"): de_aztec's
+   water against a console capture (cube filtering across face edges: seamless in Vulkan, per face in the reference
+   renderer, unknown on the console). Other screen-space
    passes that now draw without the depth test (the ZEnable fix: 0xB9880, the glow passes) and GL-layer draws now
    kept below depth 0 (the cull range fix): look for any that changed on a map. The Vulkan depth buffer is D32F:
    fixed function fragments below depth 0 are not clamped (nothing seen there yet). Whether a map load sets cl_dynamicgamma back (Auto Exposure re-sends only on

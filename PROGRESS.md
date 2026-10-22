@@ -414,3 +414,14 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   _1610, _169, _219 added; vk_flashbang_rates passed on a rerun after a buy that did not open).
 - Found: the bloom's last pass keeps a scissor at the top left (TODO.md, for the bloom work).
 
+## 2026-10-22 — de_aztec's water (G4)
+
+- The water's alpha is a Fresnel term from a 32x32 cube texture on stage 0, sampled along eye - P. The title's D3D
+  sends stage 0 in the cube mode for a cube texture (its lazy stage setup at 0x30F0B1), as the SDK's pixel key already
+  does; the reference renderer sampled it right (the audit's "first face" was a misreading). Vulkan bound no cube
+  texture: the water was 0.302 opaque at every angle. It now binds cube textures as Vulkan cubes (six layers, the
+  shared decode). The cube is not a unit normalisation cube (texel V |V_major| / |V|^2), which the tests take in.
+- tools/drive.py `setview` (a fixed camera over the river, test only), `expect probealpha` and `expect chroma`; tests
+  regress_water(_wide, _ultrawide) and vk_water_43/169/219.
+- Headless 27 (regress_flashbang's buy failed once, passed on rerun: the known buy-menu flake), window 27/27.
+
