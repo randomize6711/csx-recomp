@@ -19,9 +19,7 @@ count game:.World.triggered."Round_Start" 2
 sleep 3
 expect log pc wide: view fov 90 -> 106.3 \(854x480\)
 expect log pc wide: culling fov 90 -> 106.3 \(854x480\)
-pckey cmd +buymenu
-sleep 0.2
-pckey cmd -buymenu
+pckey tap +buymenu 0.2
 count pc.keys:.menu.T_BuyMenuRoot 2
 sleep 1
 press LSR 20

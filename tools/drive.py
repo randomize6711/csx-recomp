@@ -68,6 +68,8 @@ per line, executed in order:
     click BUTTON [SECONDS]  (window build) a mouse button (1 left, 2 middle, 3 right) through SDL; wheel N: wheel notches
     pckey cmd TEXT          console text through Cbuf_AddText; pckey key KEYNUM DOWN: an engine key event (pc_keys.cpp);
                             pckey set NAME VALUE: a PC setting changed and saved, as PC Options' Accept does
+    pckey tap +CMD SECONDS  the game presses +CMD and releases it SECONDS later on its own clock (pc_keys.cpp), the
+                            buy menu's tap (+buymenu, 0.05 to 0.5 s); fails unless the logged hold is SECONDS to + 0.1
     snap NAME               draw the next two frames and keep them as build/run/snaps/NAME_1.tga / NAME_2.tga
     expect region NAME X0 Y0 X1 Y1 MIN MAX  mean luminance of that box of snaps/NAME_2.tga (or shots/NAME.bmp) in [MIN, MAX]
     expect darkfrac NAME X0 Y0 X1 Y1 LUM MIN MAX  share of that box's pixels darker than LUM in [MIN, MAX]
@@ -301,6 +303,21 @@ def main():
                 send_file('mouse', ('button ' + st[1] + ' ' + (st[2] if len(st) > 2 else '0.12')) if kind == 'click'
                           else 'wheel ' + st[1])
                 good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'mouse')))
+            elif kind == 'pckey' and st[1] == 'tap':
+                # pckey tap +CMD SECONDS: the game holds +CMD for SECONDS (src/game/pc_keys.cpp TapFrame: pressed and
+                # released at the start of a Cbuf_Execute on the steady clock, right after the HUD's half-second
+                # settings check, so the hold is the game's own and the title's buy menu reply does not meet the
+                # check's commands; FINDINGS.md "Buy menu taps"); fails unless it logs a hold of SECONDS to + 0.1
+                cmd, hold = st[2], float(st[3])
+                rx = re.compile(r'pc keys: tap ' + re.escape(cmd) + r' held ([\d.]+) s')
+                seen = sum(1 for l in log.lines if rx.search(l))
+                send_file('pckey', 'tap %s %s' % (cmd, st[3]))
+                good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'pckey')))
+                good = good and wait_until(lambda: sum(1 for l in log.lines if rx.search(l)) > seen)
+                if good:
+                    held = float([rx.search(l).group(1) for l in log.lines if rx.search(l)][seen])
+                    print('     %s held %.3f s (asked %.3f)' % (cmd, held, hold))
+                    good = hold <= held <= hold + 0.1
             elif kind == 'pckey':
                 # pckey cmd TEXT... | pckey key KEYNUM DOWN: console text or an engine key event (src/game/pc_keys.cpp)
                 send_file('pckey', ' '.join(st[1:]))

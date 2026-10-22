@@ -172,6 +172,15 @@ ones.
 the pause menu's PC Controls restores the defaults (X) and saves (A) and Space jumps. In the window build `click
 BUTTON [SECONDS]` and `wheel N` send mouse buttons and wheel notches through SDL like `key`.
 
+## Buy menu taps
+
+The buy menu opens only for a tap of +buymenu (0.05 to 0.5 s), and the title's answer to it can be lost to its own
+half-second settings command (FINDINGS.md "Buy menu taps"). Every buy step uses `pckey tap +buymenu SECONDS`:
+pc_keys.cpp presses it just after the HUD's settings check and releases it SECONDS later on the host's steady clock,
+logs "pc keys: tap +buymenu held N s", and drive.py fails a hold outside SECONDS to SECONDS + 0.1.
+`regress_buy_tap.txt` (headless) and `vk_buy_tap.txt` (Vulkan window, VSync off) tap 0.08 and 0.35 s (the menu opens)
+and 0.7 s (it does not) at 30, 60, 120 and 240 frames per second.
+
 ## Field of view
 
 `regress_pc_fov.txt` starts a match with FOV 110 (`--pc fov=110`), buys an AWP through the buy menu (+buymenu, the

@@ -1,0 +1,91 @@
+# The buy menu's tap in the Vulkan window (FINDINGS.md "Buy menu taps", regress_buy_tap.txt headless): the title
+# opens the buy menu on +buymenu's release only when it was held 0.05 to 0.5 s of real time; drive.py's `pckey tap`
+# has the game hold it on its own clock, pressed right after the HUD's half-second settings check. The buy time set
+# to 60 minutes first, as the other window buy tests (without it the window run's buy was refused about 50 s after
+# its spawn, where headless buys at 40 to 90 s; not traced). At 30, 60, 120 and 240 frames per second, VSync off
+# (the Frame Rate Limit changed while playing): taps of 0.08 and 0.35 s open the buy menu (the right button closes
+# it), a hold of 0.7 s does not.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960 -r 240), with
+#   --launch tests/launch/de_dust2_nobots --pc frame_rate=30 --pc vsync=0
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+sleep 25
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 20
+key Left_Ctrl
+wait log pc keys: menu T_BuyMenuRoot
+sleep 24
+expect count pc.keys:.menu.T_BuyMenuRoot 1
+pckey cmd mp_buytime 60
+pckey set frame_rate 30
+sleep 3
+expect log pc frame: limit 30 frames per second
+expect fps 28 32
+pckey tap +buymenu 0.08
+sleep 1
+expect count pc.keys:.menu.T_BuyMenuRoot 2
+pckey mclick 2
+sleep 1
+pckey tap +buymenu 0.35
+sleep 1
+expect count pc.keys:.menu.T_BuyMenuRoot 3
+pckey mclick 2
+sleep 1
+pckey tap +buymenu 0.7
+sleep 1
+expect count pc.keys:.menu.T_BuyMenuRoot 3
+pckey set frame_rate 60
+sleep 3
+expect log pc frame: limit 60 frames per second
+expect fps 57 62
+pckey tap +buymenu 0.08
+sleep 1
+expect count pc.keys:.menu.T_BuyMenuRoot 4
+pckey mclick 2
+sleep 1
+pckey tap +buymenu 0.35
+sleep 1
+expect count pc.keys:.menu.T_BuyMenuRoot 5
+pckey mclick 2
+sleep 1
+pckey tap +buymenu 0.7
+sleep 1
+expect count pc.keys:.menu.T_BuyMenuRoot 5
+pckey set frame_rate 120
+sleep 3
+expect log pc frame: limit 120 frames per second
+expect fps 112 124
+pckey tap +buymenu 0.08
+sleep 1
+expect count pc.keys:.menu.T_BuyMenuRoot 6
+pckey mclick 2
+sleep 1
+pckey tap +buymenu 0.35
+sleep 1
+expect count pc.keys:.menu.T_BuyMenuRoot 7
+pckey mclick 2
+sleep 1
+pckey tap +buymenu 0.7
+sleep 1
+expect count pc.keys:.menu.T_BuyMenuRoot 7
+pckey set frame_rate 240
+sleep 3
+expect log pc frame: limit 240 frames per second
+expect fps 220 245
+pckey tap +buymenu 0.08
+sleep 1
+expect count pc.keys:.menu.T_BuyMenuRoot 8
+pckey mclick 2
+sleep 1
+pckey tap +buymenu 0.35
+sleep 1
+expect count pc.keys:.menu.T_BuyMenuRoot 9
+pckey mclick 2
+sleep 1
+pckey tap +buymenu 0.7
+sleep 1
+expect count pc.keys:.menu.T_BuyMenuRoot 9
+expect nolog vulkan: .* failed

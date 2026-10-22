@@ -24,9 +24,7 @@ wait log pc keys: menu T_BuyMenuRoot
 sleep 24
 pckey cmd mp_buytime 60
 sleep 1
-pckey cmd +buymenu
-sleep 0.2
-pckey cmd -buymenu
+pckey tap +buymenu 0.2
 sleep 1.5
 pckey pointer 227 351
 sleep 0.5

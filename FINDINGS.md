@@ -1462,7 +1462,7 @@ Checked:
   about 24, the water's mean colour -5 to +8 either way) as it did before the fix and away from the water; the
   water's chroma, which carries its alpha, matches. Not the cube's doing; not chased here.
 - Regressions: headless 27 scenarios, 26 on the first run, regress_flashbang failing at its buy (weapon 17) and
-  passing on rerun; window 27/27. That failure is the test's, not a timing flake of the game: see "Buy menu taps".
+  passing on rerun; window 27/27. That failure was the title's buy-message race and the tests' hold: see "Buy menu taps".
 - Performance (window build, de_aztec, the three views held 10 s each, VSync off, the limit at 60, 120 and 240, the
   renderer's own GPU timestamps and CPU spans; build/window_before is the build before the fix): before and after
   agree within the run-to-run noise at every rate and view, GPU 0.88 to 1.21 ms a frame, CPU recording (the render
@@ -1491,14 +1491,27 @@ Checked:
 - The title opens the buy menu on +buymenu's release (0x18FCB0, then 0xE62C0), and only for a tap: held 0.05 to 0.5
   s of real time (the press time from QueryPerformanceCounter at 0x552E70, the bounds the doubles at 0x365FD0 and
   0x365D10), with two of the pad's axes (0x384F8C and 0x384F90 for the active pad) under 0.4. A longer hold does
-  nothing.
-- The scenarios hold it with `pckey cmd +buymenu`, `sleep 0.2`, `pckey cmd -buymenu`. drive.py starts the sleep only
-  once it sees the request file gone, and it looks every 0.2 s; the harness picks a request up every 50 ms and the
-  command runs on the next frame. The hold is then about 0.2 to 0.5 s, past 0.5 often enough to fail:
-  regress_flashbang failed at its buy in 2 of 6 runs (weapon 17, no buy menu at all). Held 0.05 s it bought in 3 of
-  3, held 0.6 s it failed in 3 of 3 with the same signature. This is the "intermittent buy-menu failure" of
-  vk_flashbang_rates (G3) and regress_flashbang (G4), not a timing flake of the game. Not changed yet: the tests'
-  hold (TODO).
+  nothing. An accepted tap queues "xbui canbuy" (0xCA6F0), which sends "impulse 53"; the server answers with the
+  SrtBuyMenu message, whose handler (0x1ADC80) queues "xbui buymenu" with no newline (the string at 0x35F054), and
+  "xbui buymenu" opens T_ or CT_BuyMenuRoot when the player is in a buy zone (0x552346) and no spectator screen is up.
+- That missing newline is the title's own race: CHud::Think (0x1AE680) checks the client's settings every 0.5 s of
+  client time (m_flTime 0x562438, the next check at 0x563F9C) and sends "m_pitch 0.022\n" each time, the float cvar
+  never equalling the double it is compared with. When that check runs in the frame SrtBuyMenu arrives, the command
+  buffer holds "xbui buymenum_pitch 0.022" and no menu opens (seen in the buffer itself: "xbui buymenum_pitch
+  0.022"). On the console a pad tap meets it as rarely as a frame's chance; the tests met it about one buy in three.
+- The tests' hold was a second, separate cause: `pckey cmd +buymenu`, `sleep 0.2`, `pckey cmd -buymenu` held it 0.2
+  to 0.5 s of drive.py's polling, sometimes more (0.6 s fails 3 of 3, as the title means it to). A hold made exact
+  (0.266 s) still failed 2 of 5, which is how the race was found.
+- The fix is the harness's, not the game's: `pckey tap +CMD SECONDS` (drive.py) has pc_keys.cpp press the command on
+  the frame just after the HUD's check (when 0x563F9C moves on), so the server's answer lands well before the next
+  one, and release it SECONDS later by the host's steady clock; it logs the hold, and drive.py fails a hold outside
+  SECONDS to SECONDS + 0.1. The title's timing and rules are unchanged (a 0.7 s tap is still refused).
+- Checked: regress_flashbang 20 of 20 headless, regress_buy_tap 3 of 3 (taps 0.08 and 0.35 s open the menu and 0.7 s
+  does not, at 30, 60, 120 and 240 frames per second), the other headless buy scenarios, and in the Vulkan window
+  vk_flashbang_rates 3 of 3, vk_buy_tap 5 (every tap right; one run's 240 fps sample read 203, the other four 229 to
+  240), vk_flashbang 2 of 2, the four coverage tests and vk_auto_exposure. Holds
+  logged 0.200 to 0.233 s for the 0.2 s taps (one frame at 30 fps), 0.080 to 0.100, 0.350 to 0.367 and 0.700 to
+  0.704 in regress_buy_tap; no buy failed.
 
 ## High pixel density (2026-10-21)
 

@@ -60,9 +60,7 @@ sleep 3
 exposure aftermenu
 expect exposurediff level aftermenu middle -0.03 0.03
 count audit:.gamma.ramp 4
-pckey cmd +buymenu
-sleep 0.2
-pckey cmd -buymenu
+pckey tap +buymenu 0.2
 sleep 1.5
 pckey pointer 227 351
 sleep 0.5

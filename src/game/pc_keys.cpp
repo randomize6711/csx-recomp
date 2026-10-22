@@ -116,12 +116,59 @@ void SyncBindings(X86Context& ctx) {
     }
 }
 
+// a test's tap of a held command (pckey "tap +CMD SECONDS"; FINDINGS.md "Buy menu taps"): +CMD at the start of a
+// Cbuf_Execute, -CMD at the first one SECONDS later (steady clock, the title's hold timers read QueryPerformanceCounter),
+// so the hold is what the game sees and no request polling is in it. The press waits (at most a second) for the
+// frame after the HUD's settings check (CHud::Think 0x1AE680, gHUD 0x5623D0: every 0.5 s of client time from
+// m_flTime 0x562438 to the next check at 0x563F9C) ClientCmds "m_pitch 0.022\n" and the like: the server's
+// SrtBuyMenu reply to the buy menu's tap Cbuf_AddTexts "xbui buymenu" without a line end, so a check in the same frame
+// makes it "xbui buymenum_pitch 0.022" and the menu does not open (the title's own race, as on the console); a hold
+// under 0.5 s started right after a check ends before the next
+struct Tap {
+    std::string cmd;  // +CMD
+    double hold = 0;
+    int stage = 0;    // 1 waiting for the check, 2 held
+    float next = 0;   // the next check's time last frame
+    std::chrono::steady_clock::time_point asked, down;
+} g_tap;
+constexpr uint32_t kHudTime = 0x562438, kHudNextCheck = 0x563F9C;
+
+float GuestFloat(uint32_t va) {
+    uint32_t v = R32(va);
+    float f;
+    std::memcpy(&f, &v, 4);
+    return f;
+}
+
+void TapFrame(X86Context& ctx) {
+    if (!g_tap.stage) return;
+    auto now = std::chrono::steady_clock::now();
+    if (g_tap.stage == 1) {
+        float next = GuestFloat(kHudNextCheck);
+        bool checked = next != g_tap.next && next > GuestFloat(kHudTime);
+        g_tap.next = next;
+        bool late = now - g_tap.asked > std::chrono::seconds(1);
+        if (!checked && !late) return;
+        if (late) LOGW("pc keys: tap %s without the HUD's settings check (none for a second)", g_tap.cmd.c_str());
+        AddText(ctx, g_tap.cmd + "\n");
+        g_tap.down = now;
+        g_tap.stage = 2;
+        return;
+    }
+    double held = std::chrono::duration<double>(now - g_tap.down).count();
+    if (held < g_tap.hold) return;
+    AddText(ctx, "-" + g_tap.cmd.substr(1) + "\n");
+    g_tap.stage = 0;
+    LOGI("pc keys: tap %s held %.3f s", g_tap.cmd.c_str(), held);
+}
+
 // "pckey" request file in the run folder (tests): lines "cmd TEXT" (console text), "key KEYNUM DOWN", and for the
 // developer console "con TEXT" (typed text) and "conkey NAME" (toggle close backspace enter up down tab pgup pgdn),
 // for the menus' mouse "pointer X Y" (menu pixels), "mclick BUTTON", "mwheel N", for PC Controls' key capture
 // "bindstart" (Enter on a row), "bindkey KEYNUM" (the key the window would send), "bindcancel" (Escape), for the
 // name field "name TEXT" (typed text) and "namekey NAME" (backspace left right enter escape), "set NAME VALUE" a PC
-// setting changed and saved as PC Options' Accept does (tests of settings applied while playing)
+// setting changed and saved as PC Options' Accept does (tests of settings applied while playing), "tap +CMD SECONDS"
+// (TapFrame)
 void PollRequests() {
     static auto next = std::chrono::steady_clock::now();
     auto now = std::chrono::steady_clock::now();
@@ -135,7 +182,16 @@ void PollRequests() {
         std::string l = line;
         while (!l.empty() && (l.back() == '\n' || l.back() == '\r')) l.pop_back();
         if (l.rfind("cmd ", 0) == 0) csx::QueueEngineCommand(l.substr(4));
-        else if (l.rfind("key ", 0) == 0) {
+        else if (l.rfind("tap +", 0) == 0) {
+            size_t sp = l.find(' ', 4);
+            if (sp != std::string::npos && !g_tap.stage) {
+                g_tap.cmd = l.substr(4, sp - 4);
+                g_tap.hold = std::atof(l.c_str() + sp + 1);
+                g_tap.stage = 1;
+                g_tap.next = GuestFloat(kHudNextCheck);
+                g_tap.asked = std::chrono::steady_clock::now();
+            }
+        } else if (l.rfind("key ", 0) == 0) {
             int key = 0, down = 0;
             if (std::sscanf(l.c_str() + 4, "%d %d", &key, &down) == 2) csx::QueueEngineKey(key, down != 0);
         } else if (l.rfind("pointer ", 0) == 0) {
@@ -246,5 +302,6 @@ void PcKeysFrame(X86Context& ctx, uint8_t*) {
         commands.swap(g_commands);
     }
     for (const std::string& c : commands) AddText(ctx, c + "\n");
+    TapFrame(ctx);
     for (auto [key, down] : keys) kernel::CallGuest(ctx, kKeyEvent, {uint32_t(key), down ? 1u : 0u});
 }

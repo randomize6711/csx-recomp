@@ -23,9 +23,7 @@ sleep 1
 mousestream 0 40 10 60
 sleep 2
 expect fps 28 32
-pckey cmd +buymenu
-sleep 0.2
-pckey cmd -buymenu
+pckey tap +buymenu 0.2
 sleep 1.5
 pckey pointer 227 351
 sleep 0.5
@@ -66,9 +64,7 @@ expect regiondiff pre30 post30 0 0 1280 960 -6 6
 pckey set frame_rate 60
 sleep 2
 expect fps 57 62
-pckey cmd +buymenu
-sleep 0.2
-pckey cmd -buymenu
+pckey tap +buymenu 0.2
 sleep 1.5
 pckey pointer 227 351
 sleep 0.5
@@ -113,9 +109,7 @@ sleep 1
 pckey set frame_rate 120
 sleep 2
 expect fps 112 124
-pckey cmd +buymenu
-sleep 0.2
-pckey cmd -buymenu
+pckey tap +buymenu 0.2
 sleep 1.5
 pckey pointer 227 351
 sleep 0.5
@@ -158,9 +152,7 @@ expect regiondiff pre120 post120 0 0 1280 960 -6 6
 pckey set frame_rate 144
 sleep 2
 expect fps 134 148
-pckey cmd +buymenu
-sleep 0.2
-pckey cmd -buymenu
+pckey tap +buymenu 0.2
 sleep 1.5
 pckey pointer 227 351
 sleep 0.5
@@ -203,9 +195,7 @@ expect regiondiff pre144 post144 0 0 1280 960 -6 6
 pckey set frame_rate 240
 sleep 2
 expect fps 220 245
-pckey cmd +buymenu
-sleep 0.2
-pckey cmd -buymenu
+pckey tap +buymenu 0.2
 sleep 1.5
 pckey pointer 227 351
 sleep 0.5

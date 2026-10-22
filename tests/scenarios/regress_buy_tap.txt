@@ -1,0 +1,86 @@
+# The buy menu's tap (FINDINGS.md "Buy menu taps"): the title opens the buy menu on +buymenu's release only when it
+# was held 0.05 to 0.5 s of real time. drive.py's `pckey tap` has the game hold a command for a set time on its own
+# clock (pc_keys.cpp, the hold logged and checked), pressed right after the HUD's half-second settings check, whose
+# commands would otherwise join the title's reply "xbui buymenu" (no line end). At 30, 60, 120 and 240 frames a
+# second (the Frame Rate Limit changed while playing): taps of 0.08 and 0.35 s open the buy menu (the right button
+# closes it), a hold of 0.7 s does not. On an empty de_dust2 after the title's own buy menu at spawn has closed.
+#   --env FPS=30 --pc frame_rate=30 --launch tests/launch/de_dust2_nobots
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 12
+wait log pc keys: menu T_BuyMenuRoot
+sleep 24
+expect count pc.keys:.menu.T_BuyMenuRoot 1
+pckey set frame_rate 30
+sleep 3
+expect log pc frame: limit 30 frames per second
+pckey tap +buymenu 0.08
+sleep 1
+expect count pc.keys:.menu.T_BuyMenuRoot 2
+pckey mclick 2
+sleep 1
+pckey tap +buymenu 0.35
+sleep 1
+expect count pc.keys:.menu.T_BuyMenuRoot 3
+pckey mclick 2
+sleep 1
+pckey tap +buymenu 0.7
+sleep 1
+expect count pc.keys:.menu.T_BuyMenuRoot 3
+pckey set frame_rate 60
+sleep 3
+expect log pc frame: limit 60 frames per second
+pckey tap +buymenu 0.08
+sleep 1
+expect count pc.keys:.menu.T_BuyMenuRoot 4
+pckey mclick 2
+sleep 1
+pckey tap +buymenu 0.35
+sleep 1
+expect count pc.keys:.menu.T_BuyMenuRoot 5
+pckey mclick 2
+sleep 1
+pckey tap +buymenu 0.7
+sleep 1
+expect count pc.keys:.menu.T_BuyMenuRoot 5
+pckey set frame_rate 120
+sleep 3
+expect log pc frame: limit 120 frames per second
+pckey tap +buymenu 0.08
+sleep 1
+expect count pc.keys:.menu.T_BuyMenuRoot 6
+pckey mclick 2
+sleep 1
+pckey tap +buymenu 0.35
+sleep 1
+expect count pc.keys:.menu.T_BuyMenuRoot 7
+pckey mclick 2
+sleep 1
+pckey tap +buymenu 0.7
+sleep 1
+expect count pc.keys:.menu.T_BuyMenuRoot 7
+pckey set frame_rate 240
+sleep 3
+expect log pc frame: limit 240 frames per second
+pckey tap +buymenu 0.08
+sleep 1
+expect count pc.keys:.menu.T_BuyMenuRoot 8
+pckey mclick 2
+sleep 1
+pckey tap +buymenu 0.35
+sleep 1
+expect count pc.keys:.menu.T_BuyMenuRoot 9
+pckey mclick 2
+sleep 1
+pckey tap +buymenu 0.7
+sleep 1
+expect count pc.keys:.menu.T_BuyMenuRoot 9
+expect nolog guest trap

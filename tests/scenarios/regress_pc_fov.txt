@@ -15,9 +15,7 @@ press B
 count game:.World.triggered."Round_Start" 2
 sleep 3
 expect log pc view: fov 110
-pckey cmd +buymenu
-sleep 0.2
-pckey cmd -buymenu
+pckey tap +buymenu 0.2
 count pc.keys:.menu.T_BuyMenuRoot 2
 sleep 1
 press LSR 20

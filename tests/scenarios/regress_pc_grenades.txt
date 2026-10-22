@@ -18,9 +18,7 @@ press B
 sleep 12
 state g0
 expect weapon g0 17
-pckey cmd +buymenu
-sleep 0.2
-pckey cmd -buymenu
+pckey tap +buymenu 0.2
 sleep 1.5
 expect log pc mouse: screen T_BuyMenuRoot
 pckey pointer 227 351

@@ -24,9 +24,7 @@ sleep 3
 snap y270
 look 90 0
 sleep 2
-pckey cmd +buymenu
-sleep 0.2
-pckey cmd -buymenu
+pckey tap +buymenu 0.2
 sleep 1.5
 pckey pointer 227 351
 sleep 0.5
