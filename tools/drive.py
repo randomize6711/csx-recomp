@@ -61,6 +61,8 @@ per line, executed in order:
                             thread (they arrive between the window's polls, as a mouse's do); waits until all are sent
     count REGEX N           until N log lines match REGEX (no spaces: write . for them)
     look RIGHT UP           turn the view by degrees through the mouse look hook (src/game/mouse_look.cpp)
+    setview X Y Z YAW PITCH the player held at that origin (server side, no velocity) with those view angles
+                            (src/game/state_probe.cpp): a fixed camera for picture tests; setview off lets go
     pokefile FILE           every "VA FLOAT" line of FILE (relative to the repository) written at once
     poke VA FLOAT           write FLOAT to guest address VA (hex) once, src/common/memory_dump.cpp (diagnostics)
     click BUTTON [SECONDS]  (window build) a mouse button (1 left, 2 middle, 3 right) through SDL; wheel N: wheel notches
@@ -69,6 +71,10 @@ per line, executed in order:
     snap NAME               draw the next two frames and keep them as build/run/snaps/NAME_1.tga / NAME_2.tga
     expect region NAME X0 Y0 X1 Y1 MIN MAX  mean luminance of that box of snaps/NAME_2.tga (or shots/NAME.bmp) in [MIN, MAX]
     expect darkfrac NAME X0 Y0 X1 Y1 LUM MIN MAX  share of that box's pixels darker than LUM in [MIN, MAX]
+    expect chroma NAME X0 Y0 X1 Y1 MIN MAX  mean chroma (max - min of RGB) of that box in [MIN, MAX]: how much of a
+                            surface's colour shows through a blended layer over it (water)
+    expect probealpha NAME X Y MIN MAX  the first SRCALPHA blended draw at back buffer pixel X,Y in each of snap NAME's
+                            frames has a source alpha in [MIN, MAX] (reference renderer, run with --env PROBES=X,Y)
     expect regiondiff A B X0 Y0 X1 Y1 MIN MAX  mean luminance of that box in B less that in A (snaps or window shots)
     expect coverage PRE SHOT MIN SPREAD  a white full-screen fade reaches the whole frame evenly: in nine patches touching
                             its edges (centre, the four edges' middles, the four corners; 2% of the frame's height
@@ -226,6 +232,7 @@ def main():
     tracks = {}  # track steps: NAME -> rose, moved
     exposures = {}  # exposure steps: NAME -> dark, light, mean, low, high, middle
     fades = {}  # fade steps: NAME -> alpha, hold, length, lasted, real
+    snap_lines = {}  # snap steps: NAME -> the log lines its frames wrote
     exe_name = os.path.basename(EXE)
 
     def wine_alive():
@@ -344,6 +351,9 @@ def main():
             elif kind == 'look':
                 send_file('look', st[1] + ' ' + st[2])
                 good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'look')))
+            elif kind == 'setview':
+                send_file('setview', ' '.join(st[1:6]))
+                good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'setview')))
             elif kind == 'pokefile':
                 send_file('poke', open(os.path.join(ROOT, st[1])).read().strip())
                 good = wait_until(lambda: log.match(r'poke: .*writes'))
@@ -493,10 +503,14 @@ def main():
                     good = off <= float(st[4])
                     print(f'     moved toward {move:.1f}, yaw {a[3]:.1f}, off by {off:.1f} degrees')
             elif kind == 'snap':
+                log.poll()
+                first = len(log.lines)
                 open(os.path.join(RUN, 'snap.tmp'), 'w').close()
                 os.replace(os.path.join(RUN, 'snap.tmp'), os.path.join(RUN, 'snap'))
                 good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'snap')))
                 time.sleep(0.5)
+                log.poll()
+                snap_lines[st[1]] = log.lines[first:]  # what the snap's frames logged (PROBES lines)
                 for k in (1, 2):
                     src = os.path.join(RUN, f'snap_{k}.tga')
                     if os.path.exists(src):
@@ -509,6 +523,41 @@ def main():
                 good = os.path.exists(path) and ImageStat.Stat(Image.open(path).convert('L')).stddev[0] >= float(st[3])
                 if good:
                     print(f'     {st[2]}: luminance spread {ImageStat.Stat(Image.open(path).convert("L")).stddev[0]:.1f}')
+            elif kind == 'expect' and st[1] == 'probealpha':
+                # expect probealpha NAME X Y MIN MAX: the source alpha of the first SRCALPHA / INVSRCALPHA draw at
+                # back buffer pixel X,Y in each of snap NAME's frames (the reference renderer's PROBES lines, the run
+                # started with --env PROBES=X,Y) in [MIN, MAX]: a surface drawn with the world (water) comes before
+                # the sprites and particles that may cross it
+                rx = re.compile(r'probe %s,%s draw (\d+) src [-\d.]+ [-\d.]+ [-\d.]+ ([-\d.]+) -> .* blend 1 (\d+) (\d+)'
+                                % (st[3], st[4]))
+                found, last, first = [], -1, True
+                for m in map(rx.search, snap_lines.get(st[2], [])):
+                    if not m:
+                        continue
+                    draw = int(m.group(1))
+                    if draw <= last:  # the draw count started again: the next frame
+                        first = True
+                    last = draw
+                    if first and m.group(3, 4) == ('302', '303'):
+                        found.append((draw, float(m.group(2))))
+                        first = False
+                print(f'     {st[2]} at {st[3]},{st[4]}: alpha ' + ', '.join(f'{a:.3f} (draw {d})' for d, a in found) +
+                      f' (want {st[5]}..{st[6]})')
+                good = bool(found) and all(float(st[5]) <= a <= float(st[6]) for _, a in found)
+            elif kind == 'expect' and st[1] == 'chroma':
+                # expect chroma NAME X0 Y0 X1 Y1 MIN MAX: mean chroma (max less min of RGB) of that box: how much of a
+                # surface's colour shows through a blended layer over it (water: the more opaque, the greyer)
+                from PIL import Image
+                path = os.path.join(RUN, 'snaps', st[2] + '_2.tga')
+                if not os.path.exists(path):
+                    path = os.path.join(RUN, 'shots', st[2] + '.bmp')
+                good = os.path.exists(path)
+                if good:
+                    box = tuple(int(v) for v in st[3:7])
+                    px = list(Image.open(path).convert('RGB').crop(box).get_flattened_data())
+                    chroma = sum(max(p) - min(p) for p in px) / max(1, len(px))
+                    print(f'     {st[2]} {box}: mean chroma {chroma:.1f} (want {st[7]}..{st[8]})')
+                    good = float(st[7]) <= chroma <= float(st[8])
             elif kind == 'expect' and st[1] == 'darkfrac':
                 # expect darkfrac NAME X0 Y0 X1 Y1 LUM MIN MAX: share of that box's pixels darker than LUM
                 from PIL import Image

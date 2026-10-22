@@ -6,6 +6,10 @@
 // addresses were found by diffing memory dumps (FINDINGS.md, "Player control"): the float triple at 0x3AE3E0 moves by
 // the run speed while the left stick is held and stays put otherwise; 0x3AE3F0 holds the yaw in degrees (it matches
 // the 3D audio listener's forward vector at 0x3038C0); the int at 0x3A2988 drops by one per shot (20 for a full Glock).
+// A file named setview holding "X Y Z YAW PITCH" holds the player there (tools/drive.py "setview": a fixed camera for
+// picture tests, e.g. over de_aztec's water, which no spawn sees): the server's origin of client 0's edict (svs.clients
+// 0x636CE4, client_t::edict +0x4B9C, entvars origin +0x88, velocity +0xA0) written every 20 ms with no velocity, so
+// the player neither falls nor drifts, and the view angles the client sends set once; "off" lets go.
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -32,6 +36,8 @@ float F(uint32_t va) {
     std::memcpy(&f, kernel::HostPtr(va), 4);
     return f;
 }
+void WF(uint32_t va, float f) { std::memcpy(kernel::HostPtr(va), &f, 4); }
+constexpr uint32_t kClients = 0x636CE4, kClientEdict = 0x4B9C, kEdictOrigin = 0x88, kEdictVelocity = 0xA0;
 }  // namespace
 
 void StartStateProbe() {
@@ -39,6 +45,9 @@ void StartStateProbe() {
         namespace fs = std::filesystem;
         const fs::path req = app::ExeDir() / "state";
         const fs::path look = app::ExeDir() / "look";
+        const fs::path setview = app::ExeDir() / "setview";
+        bool held = false;
+        float hold[3] = {};
         for (;;) {
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
             std::error_code ec;
@@ -54,6 +63,31 @@ void StartStateProbe() {
                 }
                 fs::remove(look, ec);
             }
+            uint32_t clients = kernel::R32(kClients), edict = clients ? kernel::R32(clients + kClientEdict) : 0;
+            if (fs::exists(setview, ec)) {
+                float v[5];
+                char word[8] = "";
+                FILE* f = std::fopen(setview.string().c_str(), "r");
+                if (f && std::fscanf(f, "%f %f %f %f %f", &v[0], &v[1], &v[2], &v[3], &v[4]) == 5 && edict) {
+                    held = true;
+                    std::memcpy(hold, v, sizeof hold);
+                    WF(kViewYaw, v[3]);
+                    WF(kViewPitch, v[4]);
+                    LOGI("setview: %g %g %g, yaw %g pitch %g (edict %08X)", v[0], v[1], v[2], v[3], v[4], edict);
+                } else if (f && std::fscanf(f, "%7s", word) == 1 && !std::strcmp(word, "off")) {
+                    held = false;
+                    LOGI("setview: off");
+                } else {
+                    LOGW("setview: no player edict or not X Y Z YAW PITCH");
+                }
+                if (f) std::fclose(f);
+                fs::remove(setview, ec);
+            }
+            if (held && edict)
+                for (int i = 0; i < 3; i++) {
+                    WF(edict + kEdictOrigin + i * 4, hold[i]);
+                    WF(edict + kEdictVelocity + i * 4, 0);
+                }
             if (!fs::exists(req, ec)) continue;
             char name[64] = "state";
             float track = 0;  // "NAME SECONDS": the position followed that long (every 5 ms) first

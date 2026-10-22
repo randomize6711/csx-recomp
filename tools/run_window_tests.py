@@ -22,7 +22,8 @@ DEFAULT = ['vk_menu_pointer_43.txt', 'vk_menu_pointer_169.txt', 'vk_menu_pointer
            'vk_display_mode.txt', 'vk_menu_pointer_pause.txt', 'vk_loading.txt', 'vk_vsync.txt',
            'vk_vsync_play.txt', 'vk_mouse_raw.txt', 'vk_auto_exposure.txt', 'vk_auto_exposure_rates.txt',
            'vk_flashbang.txt', 'vk_flashbang_rates.txt', 'vk_flashbang_cover_43.txt', 'vk_flashbang_cover_1610.txt',
-           'vk_flashbang_cover_169.txt', 'vk_flashbang_cover_219.txt']
+           'vk_flashbang_cover_169.txt', 'vk_flashbang_cover_219.txt', 'vk_water_43.txt', 'vk_water_169.txt',
+           'vk_water_219.txt']
 
 
 def options(path):

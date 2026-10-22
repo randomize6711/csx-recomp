@@ -167,6 +167,7 @@ struct Image {
     VkImageView view = VK_NULL_HANDLE;
     VkFormat format = VK_FORMAT_UNDEFINED;
     uint32_t w = 0, h = 0, levels = 1;
+    uint32_t layers = 1;  // 6 for a cube texture
     VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
     bool depth = false;
 };
@@ -312,7 +313,8 @@ private:
     bool CreateLayouts();
     void CreateFrames();
     uint32_t MemoryType(uint32_t bits, VkMemoryPropertyFlags want) const;
-    bool MakeImage(Image& im, uint32_t w, uint32_t h, VkFormat fmt, uint32_t levels, VkImageUsageFlags usage, bool depth);
+    bool MakeImage(Image& im, uint32_t w, uint32_t h, VkFormat fmt, uint32_t levels, VkImageUsageFlags usage, bool depth,
+                   bool cube = false);
     void FreeImage(Image& im);
     void Barrier(Image& im, VkImageLayout to);
     VkCommandBuffer Cmd();
@@ -726,14 +728,17 @@ uint32_t VulkanBackend::MemoryType(uint32_t bits, VkMemoryPropertyFlags want) co
     return 0;
 }
 
+// cube: six faces, sampled through a cube view (a cube texture)
 bool VulkanBackend::MakeImage(Image& im, uint32_t w, uint32_t h, VkFormat fmt, uint32_t levels, VkImageUsageFlags usage,
-                              bool depth) {
+                              bool depth, bool cube) {
+    uint32_t layers = cube ? 6 : 1;
     VkImageCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    if (cube) ci.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
     ci.imageType = VK_IMAGE_TYPE_2D;
     ci.format = fmt;
     ci.extent = {w, h, 1};
     ci.mipLevels = levels;
-    ci.arrayLayers = 1;
+    ci.arrayLayers = layers;
     ci.samples = VK_SAMPLE_COUNT_1_BIT;
     ci.tiling = VK_IMAGE_TILING_OPTIMAL;
     ci.usage = usage;
@@ -748,15 +753,16 @@ bool VulkanBackend::MakeImage(Image& im, uint32_t w, uint32_t h, VkFormat fmt, u
     vkBindImageMemory(dev_, im.image, im.memory, 0);
     VkImageViewCreateInfo vi{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
     vi.image = im.image;
-    vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vi.viewType = cube ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D;
     vi.format = fmt;
     vi.subresourceRange = {VkImageAspectFlags(depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT), 0, levels,
-                           0, 1};
+                           0, layers};
     if (vkCreateImageView(dev_, &vi, nullptr, &im.view) != VK_SUCCESS) return false;
     im.format = fmt;
     im.w = w;
     im.h = h;
     im.levels = levels;
+    im.layers = layers;
     im.depth = depth;
     im.layout = VK_IMAGE_LAYOUT_UNDEFINED;
     return true;
@@ -782,7 +788,7 @@ void VulkanBackend::Barrier(Image& im, VkImageLayout to) {
     b.image = im.image;
     b.subresourceRange = {
         VkImageAspectFlags(im.depth ? VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT : VK_IMAGE_ASPECT_COLOR_BIT),
-        0, im.levels, 0, 1};
+        0, im.levels, 0, im.layers};
     VkDependencyInfo d{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
     d.imageMemoryBarrierCount = 1;
     d.pImageMemoryBarriers = &b;
@@ -1073,8 +1079,8 @@ Image* VulkanBackend::EnsureTexture(const State& s, int stage, Target* drawing, 
             return t;
         }
     }
-    if (d.cube || d.depth > 1) {
-        LOG_FIRST(4, "vulkan: cube and volume textures are not drawn yet");
+    if (d.depth > 1) {
+        LOG_FIRST(4, "vulkan: volume textures are not drawn yet");
         return nullptr;
     }
     const FormatInfo& fi = Format(d.format);
@@ -1082,7 +1088,9 @@ Image* VulkanBackend::EnsureTexture(const State& s, int stage, Target* drawing, 
         LOG_FIRST(4, "vulkan: depth textures (shadow maps) are not drawn yet");
         return nullptr;
     }
-    info.kind = kTex2D;
+    // a cube texture (de_aztec's water takes its alpha from one): its six faces one after another in guest memory,
+    // +X -X +Y -Y +Z -Z, each a whole mip chain (FaceSize apart), the layers of a Vulkan cube in the same order
+    info.kind = d.cube ? kTexCube : kTex2D;
     info.rect = d.linear;
     uint32_t colours[256];
     uint32_t pva = 0;
@@ -1090,18 +1098,21 @@ Image* VulkanBackend::EnsureTexture(const State& s, int stage, Target* drawing, 
     uint64_t key = uint64_t(pva) << 32 | d.data;
     Texture& t = textures_[key];
     bool same = t.image && t.desc.format == d.format && t.desc.width == d.width && t.desc.height == d.height &&
-                t.desc.levels == d.levels;
+                t.desc.levels == d.levels && t.desc.cube == d.cube;
     if (!same) {
         if (t.image) FreeImage(t);
         uint32_t levels = std::max<uint32_t>(d.levels, 1);
         if (fi.compressed && ((d.width & 3) || (d.height & 3))) levels = 1;
         if (!MakeImage(t, d.width, d.height, TextureFormat(fi.host), levels,
-                       VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, false)) {
+                       VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, false, d.cube)) {
             textures_.erase(key);
             return nullptr;
         }
         t.desc = d;
         t.sig = 0;
+        if (d.cube)
+            LOGI("vulkan: cube texture %ux%u %s, %u levels, faces +X -X +Y -Y +Z -Z as layers 0 to 5", d.width, d.height,
+                 fi.name, levels);
     }
     if (t.frame != presents_ + 1 || !same || t.palette != phash) {
         t.frame = presents_ + 1;
@@ -1125,19 +1136,21 @@ Image* VulkanBackend::EnsureTexture(const State& s, int stage, Target* drawing, 
             EndRendering();
             Barrier(t, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
             const uint8_t* guest = static_cast<const uint8_t*>(kernel::HostPtr(d.data));
-            for (uint32_t level = 0; level < t.levels; level++) {
-                std::vector<uint8_t> px;
-                uint32_t pitch = 0;
-                DecodeLevel(d, level, 0, guest, pva ? colours : nullptr, px, pitch);
-                if (px.empty()) continue;
-                Alloc a = Upload(px.size(), 16);
-                std::memcpy(a.cpu, px.data(), px.size());
-                VkBufferImageCopy c{};
-                c.bufferOffset = a.offset;
-                c.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, level, 0, 1};
-                c.imageExtent = {std::max<uint32_t>(d.width >> level, 1), std::max<uint32_t>(d.height >> level, 1), 1};
-                vkCmdCopyBufferToImage(Cmd(), frames_[frame_ % kFrames].upload, t.image,
-                                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &c);
+            for (uint32_t face = 0; face < t.layers; face++) {
+                for (uint32_t level = 0; level < t.levels; level++) {
+                    std::vector<uint8_t> px;
+                    uint32_t pitch = 0;
+                    DecodeLevel(d, level, face, guest, pva ? colours : nullptr, px, pitch);
+                    if (px.empty()) continue;
+                    Alloc a = Upload(px.size(), 16);
+                    std::memcpy(a.cpu, px.data(), px.size());
+                    VkBufferImageCopy c{};
+                    c.bufferOffset = a.offset;
+                    c.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, level, face, 1};
+                    c.imageExtent = {std::max<uint32_t>(d.width >> level, 1), std::max<uint32_t>(d.height >> level, 1), 1};
+                    vkCmdCopyBufferToImage(Cmd(), frames_[frame_ % kFrames].upload, t.image,
+                                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &c);
+                }
             }
             Barrier(t, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         }
@@ -1368,9 +1381,9 @@ void VulkanBackend::Audit(const State& s, uint32_t prim) {
         bool target = FindTarget(mem::PhysicalFromVirtual(d.data), d.width, d.height) != nullptr;
         uint64_t key = uint64_t(d.format) << 40 ^ uint64_t(d.width) << 28 ^ uint64_t(d.height) << 16 ^
                        uint64_t(d.depth) << 4 ^ (d.cube ? 1 : 0) ^ (target ? 2 : 0) ^ uint64_t(st) << 56;
-        // draws with a texture this backend does not bind (cube, volume, depth): counted whether or not the stage is
+        // draws with a texture this backend does not bind (volume, depth): counted whether or not the stage is
         // sampled (a texture left on an unused stage counts too), the first few described with their pixel shader
-        if (d.cube || d.depth > 1 || fi.depth) {
+        if (d.depth > 1 || fi.depth) {
             static uint64_t gaps = 0, last = 0;
             static uint64_t logged = 0;
             gaps++;
@@ -1392,7 +1405,7 @@ void VulkanBackend::Audit(const State& s, uint32_t prim) {
             }
             if (presents_ >= last + 300) {
                 last = presents_;
-                LOGI("audit: %llu draws with cube, volume or depth textures by frame %llu", (unsigned long long)gaps,
+                LOGI("audit: %llu draws with volume or depth textures by frame %llu", (unsigned long long)gaps,
                      (unsigned long long)presents_);
             }
         }
