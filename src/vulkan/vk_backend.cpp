@@ -758,13 +758,6 @@ bool VulkanBackend::MakeImage(Image& im, uint32_t w, uint32_t h, VkFormat fmt, u
     ma.memoryTypeIndex = MemoryType(mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     if (vkAllocateMemory(dev_, &ma, nullptr, &im.memory) != VK_SUCCESS) return false;
     vkBindImageMemory(dev_, im.image, im.memory, 0);
-    VkImageViewCreateInfo vi{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-    vi.image = im.image;
-    vi.viewType = cube ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D;
-    vi.format = fmt;
-    vi.subresourceRange = {VkImageAspectFlags(depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT), 0, levels,
-                           0, layers};
-    if (vkCreateImageView(dev_, &vi, nullptr, &im.view) != VK_SUCCESS) return false;
     im.format = fmt;
     im.w = w;
     im.h = h;
@@ -772,7 +765,17 @@ bool VulkanBackend::MakeImage(Image& im, uint32_t w, uint32_t h, VkFormat fmt, u
     im.layers = layers;
     im.depth = depth;
     im.layout = VK_IMAGE_LAYOUT_UNDEFINED;
-    return true;
+    // a view only for an image read or drawn through one: a copy's image (transfer only, GuestSized) has none
+    if (!(usage & (VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                   VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)))
+        return true;
+    VkImageViewCreateInfo vi{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    vi.image = im.image;
+    vi.viewType = cube ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D;
+    vi.format = fmt;
+    vi.subresourceRange = {VkImageAspectFlags(depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT), 0, levels,
+                           0, layers};
+    return vkCreateImageView(dev_, &vi, nullptr, &im.view) == VK_SUCCESS;
 }
 
 // freed once the GPU is past the frame that may still use it: while a frame records, with that frame (its slot's
