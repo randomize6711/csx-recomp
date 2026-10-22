@@ -1,0 +1,26 @@
+D3D: SetRenderTarget resets the scissors
+
+The XDK's SetRenderTarget ends in SetViewport with the whole target's viewport (CS: 0x304B10 tail-calls
+D3DDevice_SetViewport 0x306240 with {0, 0, MAXINT, MAXINT, 0, 1} from 0x3135E0), and SetViewport calls
+SetScissors(0, 0, 0) (0x306428), so a target change clears the scissor rectangles. The HLE reset only the viewport:
+CS's bloom draws its last pass (the additive full-screen triangle into the back buffer) after SetRenderTarget with no
+viewport of its own, and both renderers kept the scissor its blur passes set for their small targets (0, 0 to 160,
+60 of the back buffer at 4:3).
+
+--- a/runtime/xdk/d3d8.cpp
++++ b/runtime/xdk/d3d8.cpp
+@@ -698,10 +698,13 @@
+     if (back && g_state.rs[gpu::kRsMultiSampleMode])
+         LOG_FIRST(1, "d3d: MultiSampleMode %u on the back buffer, its super sample adjustment is not modelled",
+                   g_state.rs[gpu::kRsMultiSampleMode]);
+-    // SetRenderTarget resets the viewport to the whole target
++    // SetRenderTarget resets the viewport to the whole target, and with it the scissors: the XDK's ends in
++    // SetViewport (CS: 0x304B10 with the viewport {0, 0, MAXINT, MAXINT, 0, 1}, then 0x306240, which calls
++    // SetScissors(0, 0, 0)), so a pass drawn after a target change is not clipped to rectangles set for the last one
+     uint32_t w, h;
+     gpu::SurfaceSize(g_state.rt, w, h);
+     g_title_viewport = {0, 0, uint32_t(float(w) / g_ss[0]), uint32_t(float(h) / g_ss[1]), 0.0f, 1.0f};
++    g_state.scissor_count = 0;
+     UpdateViewportConstants();
+     return 0;
+ }
