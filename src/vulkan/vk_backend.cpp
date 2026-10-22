@@ -519,6 +519,9 @@ bool VulkanBackend::CreateDevice() {
     VkPhysicalDeviceVulkan13Features f13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
     f13.dynamicRendering = VK_TRUE;
     f13.synchronization2 = VK_TRUE;
+    // DXC (-fspv-target-env=vulkan1.3) makes the pixel shaders' discard (texkill, the alpha and clip plane tests)
+    // OpDemoteToHelperInvocation, whose capability needs this feature; every Vulkan 1.3 device has it
+    f13.shaderDemoteToHelperInvocation = VK_TRUE;
     f2.pNext = &f13;
     // the console offsets depth by whole units of its integer buffer; the targets here are D32F, whose constant bias
     // scales with each primitive's depth exponent, so the bias is given as a float in normalised depth instead
