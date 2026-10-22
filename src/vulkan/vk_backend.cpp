@@ -1464,6 +1464,10 @@ void VulkanBackend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t
     for (int i = 0; i < 4; i++) stage_tex[i] = EnsureTexture(s, i, rt, tex[i], tex_w[i], tex_h[i]);
     PixelKey pk = MakePixelKey(s, tex);
     pk.quad = sh.quad;
+    for (int i = 0; i < 4; i++)
+        if (pk.tex[i].flags & kTexGauss)
+            LOG_FIRST(1, "vulkan: stage %d sampled with GAUSSIANCUBIC (the 3x3 Gaussian) from %ux%u into %ux%u", i,
+                      tex_w[i], tex_h[i], rt ? rt->gw : 0, rt ? rt->gh : 0);
     // PixelHlsl applies QuadHlsl for pk.quad
     const Shader& ps = EnsureShader(Hash(&pk, sizeof(pk)) ^ kPixelKeySalt, vk_shader::Stage::Pixel, [&] { return PixelHlsl(pk); });
     // CSX_VK_LOGFRAME=N: every draw of the Nth presented frame in the log (and of the CSX_VK_STEPSHOTS frame)

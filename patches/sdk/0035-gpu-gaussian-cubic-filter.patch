@@ -1,0 +1,114 @@
+GPU: D3DTEXF_GAUSSIANCUBIC as the console's convolution filter
+
+The XDK's lazy texture stage setup (CS 0x30F2D0..0x30F3B6) turns a min or mag filter of D3DTEXF_GAUSSIANCUBIC (5)
+into NV097_SET_TEXTURE_FILTER MIN = CONVOLUTION_2D_LOD0 (7), MAG = CONVOLUTION_2D_LOD0 (4) and CONVOLUTION_KERNEL =
+GAUSSIAN_3 (2) (D3DTEXF_QUINCUNX, 4, gets the QUINCUNX kernel). Both renderers drew it as bilinear. Now a 2D stage
+with either filter at 5 takes nine bilinear taps of its top level, one console texel apart, weighted 1 2 1 / 2 4 2 /
+1 2 1 over 16, as xemu models the kernel (hw/xbox/nv2a/pgraph/glsl/psh.c); NVIDIA documents no weights. PixelKey's
+TexInfo gets kTexGauss (the HLSL gauss3, offsets over texsize, the console size) and the reference renderer's Unit
+the same kernel. CS uses it for the bloom's first downsample of the back buffer (0xC1FA0).
+
+--- a/runtime/gpu/shaders.h
++++ b/runtime/gpu/shaders.h
+@@ -19,6 +19,7 @@
+ enum : uint8_t {
+     kTexWide = 4,    // an upscaled target shrunk by the pass: each tap averaged over console texels
+     kTexTarget = 8,  // a render target, read where the console's pixel offset puts it (DrawConstants::rtshift)
++    kTexGauss = 16,  // D3DTEXF_GAUSSIANCUBIC: the console's convolution filter with its 3x3 Gaussian kernel (gauss3)
+ };
+ 
+ struct PixelKey {
+--- a/runtime/gpu/shaders.cpp
++++ b/runtime/gpu/shaders.cpp
+@@ -405,6 +405,7 @@
+         return F("float dp%d%s = dot(tc%d.xyz, %s);\n", n, coord == n ? "" : "n", coord, DotInput(map, src).c_str());
+     };
+     auto tex2d = [&](const std::string& uv) {
++        if (t.flags & kTexGauss) return F("gauss3(tex%d, smp%d, %s, texsize[%d].xy)", i, i, uv.c_str(), i);
+         if (t.flags & kTexWide) return F("spreadtap(tex%d, smp%d, %s, spread[%d], %s)", i, i, uv.c_str(), i, Hooks().ReadScale(t).c_str());
+         return F("tex%d.Sample(smp%d, %s)", i, i, uv.c_str());
+     };
+@@ -471,7 +472,17 @@
+ // unorm to byte b, less lo under 128 or hi from 128, over d
+ float3 sbyte(float3 u, float lo, float hi, float d) { float3 b = u * 255; return (b - (b >= 128 ? hi : lo)) / d; }
+ )";
+-const char* kPsTail = R"(float4 spreadtap(Texture2D t, SamplerState s, float2 uv, float4 w, float m) {
++const char* kPsTail = R"(// the convolution filter's GAUSSIAN_3 kernel (D3DTEXF_GAUSSIANCUBIC): nine taps a texel of the texture (size, the
++// console's texels) apart around uv, weights 1 2 1 / 2 4 2 / 1 2 1 over 16, each tap the stage's bilinear sample of
++// the top level (CONVOLUTION_2D_LOD0), as xemu models it (FINDINGS.md "Bloom": the console's weights are not documented)
++float4 gauss3(Texture2D t, SamplerState s, float2 uv, float2 size) {
++    float4 c = 0;
++    for (int y = -1; y <= 1; y++)
++        for (int x = -1; x <= 1; x++)
++            c += t.SampleLevel(s, uv + float2(x, y) / size, 0) * ((2 - abs(x)) * (2 - abs(y)) / 16.0);
++    return c;
++}
++float4 spreadtap(Texture2D t, SamplerState s, float2 uv, float4 w, float m) {
+     float4 c = 0;
+     int n = (int)w.z;
+     for (int y = 0; y < n; y++)
+@@ -590,6 +601,11 @@
+     for (int i = 0; i < 4; i++) {
+         k.tex[i] = tex[i];
+         if (s.tss[size_t(i)][kTssAlphaKill] == 4) k.alphakill |= 1u << i;  // D3DTALPHAKILL_ENABLE
++        // D3DTEXF_GAUSSIANCUBIC (5) as min or mag filter: the XDK's lazy stage setup (CS 0x30F399) programs
++        // NV097_SET_TEXTURE_FILTER with both filters CONVOLUTION_2D_LOD0 (min 7, mag 4) and the GAUSSIAN_3 kernel
++        // (QUINCUNX for D3DTEXF_QUINCUNX, 4, which stays bilinear here)
++        uint32_t mag = s.tss[size_t(i)][kTssMagFilter], min = s.tss[size_t(i)][kTssMinFilter];
++        if (tex[i].kind == kTex2D && !tex[i].shadow && (mag == 5 || min == 5)) k.tex[i].flags |= kTexGauss;
+     }
+     k.flat = s.simple[kMShadeMode >> 2] == 0x1D00;  // D3DSHADE_FLAT
+     k.two_sided = s.rs[kRsTwoSidedLighting] != 0;
+@@ -889,6 +905,8 @@
+             if (t.shadow)
+                 body += F("float4 t%d = shadow(tex%d, smp%d, ", i, i, i) + TexUv(t, i, F("tc%d.xy / tc%d.w", i, i)) +
+                         F(", tc%d.z / tc%d.w, %d, i.pos.xy, texsize[%d].xy);\n", i, i, t.shadow, i);
++            else if (t.kind == kTex2D && (t.flags & kTexGauss))
++                body += F("float4 t%d = gauss3(tex%d, smp%d, %s, texsize[%d].xy);\n", i, i, i, uv.c_str(), i);
+             else if (t.kind == kTex2D && (t.flags & kTexWide))
+                 body += F("float4 t%d = spreadtap(tex%d, smp%d, %s, spread[%d], %s);\n", i, i, i, uv.c_str(), i, Hooks().ReadScale(t).c_str());
+             else if (t.kind == kTex2D) body += F("float4 t%d = tex%d.Sample(smp%d, %s);\n", i, i, i, uv.c_str());
+--- a/harness/reference_renderer.cpp
++++ b/harness/reference_renderer.cpp
+@@ -263,6 +263,8 @@
+     std::shared_ptr<Image> img;
+     uint32_t address_u = 1, address_v = 1, mag = 2, min = 2;
+     Vec border;
++    bool gauss = false;   // D3DTEXF_GAUSSIANCUBIC: the convolution filter's 3x3 Gaussian (shaders.cpp gauss3)
++    float gw = 1, gh = 1;  // the texture's size in console texels, the kernel's spacing
+ 
+     // D3DTADDRESS: 1 wrap, 2 mirror, 4 border, else clamp
+     static int Address(int i, int n, uint32_t mode, bool& outside) {
+@@ -286,9 +288,21 @@
+         if (outside) return border;
+         return img->texels[face][size_t(y) * img->w + x];
+     }
+-    // point when both filters are, else bilinear at texel centres
++    // point when both filters are, else bilinear at texel centres; the Gaussian kernel's nine bilinear taps a console
++    // texel apart, weights 1 2 1 / 2 4 2 / 1 2 1 over 16
+     Vec Sample(int face, float u, float v) const {
+         if (!img) return V(0, 0, 0, 1);
++        if (!gauss) return Bilinear(face, u, v);
++        Vec r = V(0, 0, 0, 0);
++        for (int y = -1; y <= 1; y++)
++            for (int x = -1; x <= 1; x++) {
++                Vec t = Bilinear(face, u + float(x) / gw, v + float(y) / gh);
++                float w = float((2 - std::abs(x)) * (2 - std::abs(y))) / 16.0f;
++                for (int i = 0; i < 4; i++) r[i] += t[i] * w;
++            }
++        return r;
++    }
++    Vec Bilinear(int face, float u, float v) const {
+         float sx = u * img->w - 0.5f, sy = v * img->h - 0.5f;
+         if (mag < 2 && min < 2) return Texel(face, int(std::floor(u * img->w)), int(std::floor(v * img->h)));
+         int x = int(std::floor(sx)), y = int(std::floor(sy));
+@@ -1094,6 +1108,9 @@
+         u.address_v = ts[kTssAddressV];
+         u.mag = ti.shadow ? 1 : ts[kTssMagFilter];
+         u.min = ti.shadow ? 1 : ts[kTssMinFilter];
++        u.gauss = ti.kind == kTex2D && !ti.shadow && (u.mag == 5 || u.min == 5);  // as MakePixelKey's kTexGauss
++        u.gw = float(std::max<uint32_t>(d.width, 1));
++        u.gh = float(std::max<uint32_t>(d.height, 1));
+         u.border = Unpack(ts[kTssBorderColor]);
+     }
+     mat.key = MakePixelKey(s, mat.info);
