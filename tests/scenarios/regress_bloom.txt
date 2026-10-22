@@ -4,8 +4,7 @@
 # Off and On. The reference renderer's bloom, at aztec's white sky with the player held there (tools/drive.py
 # setview, no bots): On adds its glow across the frame, not only in the top left corner (the last pass kept the
 # scissor of the small targets before SDK patch 0034), and the setting is saved. (Auto Exposure off, so the frames
-# compare directly; the snaps follow a change of setting, as Auto Exposure Off chosen before the start is only
-# in force from the first change: TODO.md.)
+# compare directly.)
 #   --env FPS=30 --pc bloom=0 --pc auto_exposure=0 --launch tests/launch/de_aztec_nobots
 wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
 expect log pc: Bloom off

@@ -131,8 +131,19 @@ the map's light config's 0.5 taken back to 0, On giving 0.5 back and the glow ac
 `vk_bloom_169.txt` (full screen at an internal 3840x2160) and `vk_bloom_219.txt` (144 frames per second, no VSync) do
 the same in the Vulkan window, expect the back buffer's downsample sampled with GAUSSIANCUBIC (logged once), and part
 way through a flashbang's fade with Bloom On no seam at the old corner (`expect seam NAME X Y MAX`: the box from the
-top left to X, Y no more than MAX brighter across its right and bottom edges; it was 10 to 32 levels). Frames are taken
-after a change of setting, as Auto Exposure Off chosen before the start only holds from the first change (TODO.md).
+top left to X, Y no more than MAX brighter across its right and bottom edges; it was 10 to 32 levels). All four start
+with Auto Exposure Off; the window tests also expect the map's `cl_dynamicgamma 1` taken back and no adjustment.
+
+## Auto Exposure at the start
+
+Each map's light config sets `cl_dynamicgamma 1` (FINDINGS.md "Auto Exposure at the start"). `regress_ae_startup.txt`
+(headless, de_aztec, started with Auto Exposure and Bloom Off) expects the map's values taken back as the config runs,
+no adjustment (`CSX_LOG_DYNGAMMA=1` logs one a second while it runs: `expect quiet`), the frame at a held view equal to
+the one after Auto Exposure is chosen Off again, and the four combinations of the two settings changed while playing,
+each saved. `vk_ae_maps.txt` (the Vulkan window, Off saved) goes from the front end to de_airstrip and through Change
+Map to de_aztec, each a relaunch of the title: in each instance Off is in the cvar before the first post processed
+frame (`expect before A B`: this instance's first line matching A comes before its first matching B; B is the bloom's
+GAUSSIANCUBIC line, logged once per instance) and no adjustment runs; On and Off then work while playing.
 
 ## Rounds
 

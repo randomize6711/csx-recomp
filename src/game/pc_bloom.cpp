@@ -18,7 +18,9 @@
 
 namespace {
 
-constexpr uint32_t kHdrBloom = 0x37A594;  // cl_hdrbloom's value (float), record at 0x37A588 (FCVAR_ARCHIVE)
+constexpr uint32_t kRecord = 0x37A588;    // cl_hdrbloom's cvar_t (FCVAR_ARCHIVE): string at +4, value at +0xC
+constexpr uint32_t kDefault = 0x33AC90;   // its static default string "0.6", replaced when the client registers it
+constexpr uint32_t kHdrBloom = kRecord + 0xC;
 
 bool g_want = true;        // the setting
 bool g_pending = false;    // the setting not in the cvar yet
@@ -35,8 +37,8 @@ float Value() {
 
 // on the game thread every frame (pc_keys.cpp's PcKeysFrame): a changed setting set into cl_hdrbloom through the
 // console's own command, sent again until the cvar holds it, then left alone. At the start only Off acts (On is the
-// title's own state); before the client registers its cvars they hold 0, so Off is done then and the map's light
-// config is what it takes back (PcBloomMapConfig).
+// title's own state), once the client has registered the cvar (its value is 0 before, whatever the setting); each
+// map's light config sets it again afterwards, which PcBloomMapConfig takes back.
 void PcBloomFrame(X86Context&) {
     static unsigned seen = ~0u;
     float v = Value();
@@ -51,7 +53,7 @@ void PcBloomFrame(X86Context&) {
         }
         g_want = on;
     }
-    if (!g_pending) return;
+    if (!g_pending || kernel::R32(kRecord + 4) == kDefault) return;
     if ((v != 0) == g_want || (g_want && g_intensity == 0)) {
         g_pending = false;
         LOGI("pc: Bloom %s, cl_hdrbloom %g", g_want ? "on" : "off", v);
@@ -65,9 +67,9 @@ void PcBloomFrame(X86Context&) {
     csx::QueueEngineCommand(cmd);
 }
 
-// [[hook]] at 0xC408E (config/game.toml): the map's light config has just run (0x1A5B80 executes the buffer it added);
-// its cl_hdrbloom is the intensity On gives back (0 included: a map without the bloom), unless Off's own 0 is left
-void PcBloomMapConfig(X86Context&, uint8_t*) {
+// pc_keys.cpp's PcMapLightConfig, after the map's light config (0x1A5B80 executes the buffer it added): its
+// cl_hdrbloom is the intensity On gives back (0 included: a map without the bloom), unless Off's own 0 is left
+void PcBloomMapConfig(X86Context&) {
     float v = Value();
     if (g_want || v != 0) g_intensity = v;
     LOGI("pc: the map's light config set cl_hdrbloom %g%s", v, g_want ? "" : ", Bloom off sets 0");

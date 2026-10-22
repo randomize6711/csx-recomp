@@ -1,0 +1,58 @@
+# Auto Exposure chosen before the start, headless (FINDINGS.md "Auto Exposure at the start",
+# src/game/dynamic_gamma.cpp): each map's light config sets cl_dynamicgamma 1 as the map starts, so Off saved in
+# pc_settings.ini was undone and the dynamic gamma ran until a setting changed (before the fix: the ramp's high point
+# sank to its 0.6 clamp, the held view's mean 122 against 61 with the identity ramp). Started with Auto Exposure and
+# Bloom Off on de_aztec: the map's 1 and 0.5 are taken back to 0 as the config runs, and with the identity ramp no
+# adjustment runs (CSX_LOG_DYNGAMMA logs one a second while it does). The frame then equals the one after Auto Exposure
+# is chosen Off again at the same view (the player held: tools/drive.py setview, no bots). The four combinations of the
+# two settings, changed while playing: Auto Exposure On starts the adjustment again (the title's own behaviour, Bloom
+# either way), Off stops it and sets the identity ramp; Bloom follows its own setting either way; each change is saved.
+#   --env FPS=30 --env CSX_LOG_DYNGAMMA=1 --pc auto_exposure=0 --pc bloom=0 --launch tests/launch/de_aztec_nobots
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+expect log pc: Auto Exposure off \(cl_dynamicgamma 0\)
+expect log pc: Bloom off
+wait log pc: the map's light config set cl_dynamicgamma 1, Auto Exposure off sets 0
+expect log pc: Auto Exposure off, cl_dynamicgamma 0, the title's identity ramp set
+expect log pc: the map's light config set cl_hdrbloom 0.5, Bloom off sets 0
+wait draws>=150
+expect quiet dynamic.gamma:.measured 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 14
+setview 2352 -256 -251.969 135 -10
+sleep 2
+snap launch_off
+expect nolog dynamic gamma: measured
+pckey set auto_exposure 1
+wait log pc: Auto Exposure on
+expect setting auto_exposure 1
+wait log dynamic gamma: measured
+sleep 3
+snap ae_on_bloom_off
+expect count pc:.Bloom.off,.cl_hdrbloom.0$ 2
+pckey set bloom 1
+sleep 2
+expect log pc: Bloom on, cl_hdrbloom 0.5
+expect setting bloom 1
+snap ae_on_bloom_on
+pckey set auto_exposure 0
+count pc:.Auto.Exposure.off,.the.title's.identity.ramp.set 2
+expect setting auto_exposure 0
+sleep 2
+expect quiet dynamic.gamma:.measured 5
+snap ae_off_bloom_on
+pckey set bloom 0
+sleep 2
+expect setting bloom 0
+expect count pc:.Bloom.off,.cl_hdrbloom.0$ 3
+snap ae_off_bloom_off
+expect quiet dynamic.gamma:.measured 3
+expect regiondiff launch_off ae_off_bloom_off 0 0 640 480 -0.5 0.5
+expect regiondiff ae_off_bloom_off ae_off_bloom_on 320 0 640 240 1 12
+setview off
+expect nolog guest trap

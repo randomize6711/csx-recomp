@@ -88,6 +88,8 @@ per line, executed in order:
     expect quiet REGEX S    wait S seconds; fail if a log line logged meanwhile matches (no spaces: write . for them)
     expect nolog REGEX      fail if a log line matches
     expect count REGEX N    fail unless exactly N log lines match (no spaces: write . for them)
+    expect before A B       in this instance's log (since the last relaunch) a line matching A comes before the first
+                            one matching B, and both are there (no spaces: write . for them)
     expect menuaudio [SOUND]  the menu sound (menu/buy_hover.wav) audible at each mouse play in the run's capture
                             (needs CSX_AUDIO_WAV and CSX_LOG_MENU_SOUNDS=1; tools/check_menu_audio.py)
     expect image NAME MIN   fail unless snaps/NAME_2.tga (or the window shot shots/NAME.bmp) has a luminance standard deviation of at least MIN
@@ -454,6 +456,20 @@ def main():
                 good = v is not None and float(lo) <= v <= float(hi)
                 if v is not None:
                     print(f'     {field} {v:+.3f} (want {lo}..{hi})')
+            elif kind == 'expect' and st[1] == 'before':
+                # expect before A B: this instance's first A line precedes its first B line (a relaunch starts a new log)
+                log.poll()
+                lines = log.lines
+                for i in range(len(lines) - 1, -1, -1):
+                    if lines[i].startswith('--- relaunch: '):
+                        lines = lines[i + 1:]
+                        break
+                ra, rb = re.compile(st[2]), re.compile(st[3])
+                ia = next((i for i, l in enumerate(lines) if ra.search(l)), None)
+                ib = next((i for i, l in enumerate(lines) if rb.search(l)), None)
+                good = ia is not None and ib is not None and ia < ib
+                for name, i in (('A', ia), ('B', ib)):
+                    print(f'     {name}: ' + (lines[i].rstrip() if i is not None else 'no line'))
             elif kind == 'expect' and st[1] == 'quiet':
                 # expect quiet REGEX S: nothing matching for S seconds from now
                 log.poll()

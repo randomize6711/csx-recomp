@@ -269,6 +269,16 @@ void PcMenuFrame(X86Context& ctx);     // pc_menu.cpp
 void PcFrameRateFrame(X86Context& ctx);  // pc_frame.cpp
 void PcAutoExposureFrame(X86Context& ctx);  // dynamic_gamma.cpp
 void PcBloomFrame(X86Context& ctx);         // pc_bloom.cpp
+void PcAutoExposureMapConfig(X86Context& ctx);  // dynamic_gamma.cpp
+void PcBloomMapConfig(X86Context& ctx);         // pc_bloom.cpp
+
+// [[hook]] at 0xC408E (config/game.toml): the client's map start has just run "exec <map>-light.cfg" (0x1A5B80 at 0xC4089
+// formats the command, adds it and executes the buffer), which sets the map's cl_hdrbloom and cl_dynamicgamma 1; the
+// settings that are those cvars take them back
+void PcMapLightConfig(X86Context& ctx, uint8_t*) {
+    PcBloomMapConfig(ctx);
+    PcAutoExposureMapConfig(ctx);
+}
 
 // [[hook]] at 0x3BB50 (config/game.toml): Cbuf_Execute's entry, on the game thread every frame
 void PcKeysFrame(X86Context& ctx, uint8_t*) {
