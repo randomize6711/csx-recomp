@@ -119,6 +119,7 @@ class Log:
         self.prev = None  # (frame, draws) of the previous renderer line
         self.per_frame = 0.0
         self.samples = 0  # renderer lines seen, each a new draws-per-frame measurement
+        self.partial = ''  # a line the game has not finished writing (its log is flushed in blocks, not lines)
 
     def poll(self):
         logs = os.path.join(RUN, 'logs')
@@ -127,14 +128,14 @@ class Log:
             names = sorted(os.listdir(logs))
             if names and (self.path is None or os.path.join(logs, names[-1]) != self.path):
                 if self.path is not None:
-                    self.lines.extend(self.f.readlines())
+                    self.lines.extend(self.read(final=True))
                     self.lines.append('--- relaunch: ' + names[-1] + '\n')
                     self.prev = None
                 self.path = os.path.join(logs, names[-1])
                 self.f = open(self.path, 'r', errors='replace')
         if self.path is None:
             return
-        for line in self.f.readlines():
+        for line in self.read():
             self.lines.append(line)
             m = FRAME_RE.search(line)
             if m:
@@ -143,6 +144,13 @@ class Log:
                     self.per_frame = (draws - self.prev[1]) / (frame - self.prev[0])
                     self.samples += 1
                 self.prev = (frame, draws)
+
+    def read(self, final=False):
+        # the whole lines written since the last read; a line cut by a flush waits for its end (the old instance's
+        # last one, at a relaunch, is taken as it is)
+        parts = (self.partial + self.f.read()).split('\n')
+        self.partial = '' if final else parts.pop()
+        return [p + '\n' for p in parts if p or not final]
 
     def match(self, rx):
         r = re.compile(rx)
