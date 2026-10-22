@@ -2228,11 +2228,11 @@ void VulkanBackend::Present(const Surface& front) {
     }
 }
 
-// once a second: "frame timing: F frames/s, P presented, interval A ms on average, M at most, 99% under Q; per frame
-// acquire, present, limiter, GPU; present mode, display refresh". Frames are the title's presents (what it rendered),
-// presented the swapchain's successful presents. Waits in acquire and present are the display's pacing (FIFO at the
-// refresh), the limiter's the Frame Rate Limit's; a frame rate short of both with neither waiting is the title's or
-// the renderer's own cost.
+// once a second: "frame timing: F frames/s, P presented, interval A ms on average, M at most, 99% under Q, 95% under R;
+// per frame acquire, present, limiter, GPU; present mode, display refresh". Frames are the title's presents (what it
+// rendered), presented the swapchain's successful presents. Waits in acquire and present are the display's pacing (FIFO
+// at the refresh), the limiter's the Frame Rate Limit's; a frame rate short of both with neither waiting is the title's
+// or the renderer's own cost.
 void VulkanBackend::LogFrameTiming() {
     Timing& t = timing_;
     auto now = std::chrono::steady_clock::now();
@@ -2249,16 +2249,17 @@ void VulkanBackend::LogFrameTiming() {
     double avg = 0;
     for (float v : t.intervals) avg += v;
     avg = t.intervals.empty() ? 0 : avg / double(t.intervals.size());
-    float p99 = 0;
-    if (!t.intervals.empty()) {
-        size_t k = std::min(t.intervals.size() - 1, size_t(double(t.intervals.size()) * 0.99));
+    auto percentile = [&](double q) {
+        if (t.intervals.empty()) return 0.0f;
+        size_t k = std::min(t.intervals.size() - 1, size_t(double(t.intervals.size()) * q));
         std::nth_element(t.intervals.begin(), t.intervals.begin() + long(k), t.intervals.end());
-        p99 = t.intervals[k];
-    }
+        return t.intervals[k];
+    };
+    float p99 = percentile(0.99), p95 = percentile(0.95);
     double paced = double(app::PacedNanoseconds() - t.paced_ns);
-    LOGI("frame timing: %.1f frames/s, %.1f presented, interval %.2f ms on average, %.2f at most, 99%% under %.2f; "
-         "per frame: acquire %.3f ms, present %.3f ms, limiter %.3f ms; %s, display %.2f Hz",
-         t.frames / secs, t.shown / secs, avg, t.max_ms, p99, t.acquire_ns / t.frames / 1e6,
+    LOGI("frame timing: %.1f frames/s, %.1f presented, interval %.2f ms on average, %.2f at most, 99%% under %.2f, "
+         "95%% under %.2f; per frame: acquire %.3f ms, present %.3f ms, limiter %.3f ms; %s, display %.2f Hz",
+         t.frames / secs, t.shown / secs, avg, t.max_ms, p99, p95, t.acquire_ns / t.frames / 1e6,
          t.queue_ns / t.frames / 1e6, paced / t.frames / 1e6, PresentModeName(present_mode_), window::DisplayRefresh());
     t = Timing{};
     t.last = now;
