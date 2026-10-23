@@ -370,6 +370,10 @@ private:
     // VK_EXT_depth_range_unrestricted: a viewport depth range outside 0 to 1, for the console's fixed function cull range
     // (FixedDepthCullRange: a GL style MinZ of -1 keeps what lands below 0)
     bool depth_unrestricted_ = false;
+    // VK_EXT_depth_clip_enable and VK_EXT_depth_clamp_control: depth kept within the cull range is clamped to the
+    // buffer's 0 to 1, as the console's integer buffer holds it (a fragment the range keeps below 0 stores 0, not -0.5;
+    // depth_clamp_zero_one does not clamp a float buffer with an unrestricted range, a user range does)
+    bool depth_clamp01_ = false;
 
     VkSwapchainKHR swapchain_ = VK_NULL_HANDLE;
     std::vector<VkImage> swap_images_;
@@ -526,6 +530,7 @@ bool VulkanBackend::CreateDevice() {
     // the console offsets depth by whole units of its integer buffer; the targets here are D32F, whose constant bias
     // scales with each primitive's depth exponent, so the bias is given as a float in normalised depth instead
     VkPhysicalDeviceDepthBiasControlFeaturesEXT bias_have{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_BIAS_CONTROL_FEATURES_EXT};
+    bool clip_ext = false, clamp_ext = false;
     {
         uint32_t n = 0;
         vkEnumerateDeviceExtensionProperties(gpu_, nullptr, &n, nullptr);
@@ -538,18 +543,48 @@ bool VulkanBackend::CreateDevice() {
                 bias_float_ = bias_have.depthBiasControl && bias_have.floatRepresentation && bias_have.depthBiasExact;
             }
             if (!std::strcmp(e.extensionName, VK_EXT_DEPTH_RANGE_UNRESTRICTED_EXTENSION_NAME)) depth_unrestricted_ = true;
+            if (!std::strcmp(e.extensionName, VK_EXT_DEPTH_CLIP_ENABLE_EXTENSION_NAME)) clip_ext = true;
+            if (!std::strcmp(e.extensionName, VK_EXT_DEPTH_CLAMP_CONTROL_EXTENSION_NAME)) clamp_ext = true;
         }
+    }
+    // the fixed function's cull range reaches below 0 (MinZ -1: the 3D view, the first-person weapon close to the eye),
+    // which the console culls at MinZ but stores clamped to its buffer's 0; the HUD after it is depth tested at 0 (LEQUAL)
+    VkPhysicalDeviceDepthClipEnableFeaturesEXT clip_have{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLIP_ENABLE_FEATURES_EXT};
+    VkPhysicalDeviceDepthClampControlFeaturesEXT clamp_have{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLAMP_CONTROL_FEATURES_EXT};
+    if (depth_unrestricted_ && clip_ext && clamp_ext && have.depthClamp) {
+        clip_have.pNext = &clamp_have;
+        VkPhysicalDeviceFeatures2 q{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &clip_have};
+        vkGetPhysicalDeviceFeatures2(gpu_, &q);
+        depth_clamp01_ = clip_have.depthClipEnable && clamp_have.depthClampControl;
     }
     VkPhysicalDeviceDepthBiasControlFeaturesEXT bias_on{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_BIAS_CONTROL_FEATURES_EXT};
     bias_on.depthBiasControl = bias_on.floatRepresentation = bias_on.depthBiasExact = VK_TRUE;
     if (bias_float_) f13.pNext = &bias_on;
+    VkPhysicalDeviceDepthClipEnableFeaturesEXT clip_on{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLIP_ENABLE_FEATURES_EXT};
+    VkPhysicalDeviceDepthClampControlFeaturesEXT clamp_on{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLAMP_CONTROL_FEATURES_EXT};
+    if (depth_clamp01_) {
+        f2.features.depthClamp = VK_TRUE;
+        clip_on.depthClipEnable = clamp_on.depthClampControl = VK_TRUE;
+        clip_on.pNext = &clamp_on;
+        clamp_on.pNext = f13.pNext;
+        f13.pNext = &clip_on;
+    }
     LOGI("vulkan: polygon offset %s", bias_float_ ? "as a float depth bias (VK_EXT_depth_bias_control)"
                                                    : "approximated in 24 bit units (no VK_EXT_depth_bias_control)");
     std::vector<const char*> ext = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME};
     if (bias_float_) ext.push_back(VK_EXT_DEPTH_BIAS_CONTROL_EXTENSION_NAME);
     if (depth_unrestricted_) ext.push_back(VK_EXT_DEPTH_RANGE_UNRESTRICTED_EXTENSION_NAME);
+    if (depth_clamp01_) {
+        ext.push_back(VK_EXT_DEPTH_CLIP_ENABLE_EXTENSION_NAME);
+        ext.push_back(VK_EXT_DEPTH_CLAMP_CONTROL_EXTENSION_NAME);
+    }
     LOGI("vulkan: fixed function near/far cull %s", depth_unrestricted_ ? "at the viewport's MinZ to MaxZ (VK_EXT_depth_range_unrestricted)"
                                                                        : "at 0 to 1 (no VK_EXT_depth_range_unrestricted)");
+    if (depth_unrestricted_)
+        LOGI("vulkan: depth within the cull range %s", depth_clamp01_ ? "clamped to the buffer's 0 to 1 (VK_EXT_depth_clip_enable, "
+                                                                        "VK_EXT_depth_clamp_control)"
+                                                                      : "not clamped (no depth clip enable or clamp control): "
+                                                                        "below 0 it stays below 0");
     float prio = 1.0f;
     VkDeviceQueueCreateInfo qci{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
     qci.queueFamilyIndex = qfamily_;
@@ -1268,12 +1303,24 @@ VkPipeline VulkanBackend::EnsurePipeline(const PipelineKey& k, const std::vector
                       : (k.strip ? VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
     VkPipelineViewportStateCreateInfo vp{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
     vp.viewportCount = vp.scissorCount = 1;
+    // depth clipped to the viewport's range (the cull range) as without clamping, then clamped to 0 to 1 (bias first)
+    static const VkDepthClampRangeEXT range01{0.0f, 1.0f};
+    VkPipelineViewportDepthClampControlCreateInfoEXT clamp{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_DEPTH_CLAMP_CONTROL_CREATE_INFO_EXT};
+    clamp.depthClampMode = VK_DEPTH_CLAMP_MODE_USER_DEFINED_RANGE_EXT;
+    clamp.pDepthClampRange = &range01;
+    if (depth_clamp01_) vp.pNext = &clamp;
     VkPipelineRasterizationStateCreateInfo rs{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
     rs.polygonMode = k.fill == 0x1B00 ? VK_POLYGON_MODE_POINT : k.fill == 0x1B01 ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
     rs.cullMode = k.cull ? VK_CULL_MODE_BACK_BIT : VK_CULL_MODE_NONE;
     // the viewport is flipped (negative height), which keeps D3D's winding: front is clockwise unless culling CW
     rs.frontFace = k.ccw ? VK_FRONT_FACE_COUNTER_CLOCKWISE : VK_FRONT_FACE_CLOCKWISE;
     rs.lineWidth = 1.0f;
+    VkPipelineRasterizationDepthClipStateCreateInfoEXT clip{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_DEPTH_CLIP_STATE_CREATE_INFO_EXT};
+    if (depth_clamp01_) {
+        rs.depthClampEnable = VK_TRUE;
+        clip.depthClipEnable = VK_TRUE;
+        rs.pNext = &clip;
+    }
     VkDepthBiasRepresentationInfoEXT bias_rep{VK_STRUCTURE_TYPE_DEPTH_BIAS_REPRESENTATION_INFO_EXT};
     if (k.zbias != 0 || k.zslope != 0) {
         rs.depthBiasEnable = VK_TRUE;
@@ -1281,6 +1328,7 @@ VkPipeline VulkanBackend::EnsurePipeline(const PipelineKey& k, const std::vector
         if (bias_float_) {
             bias_rep.depthBiasRepresentation = VK_DEPTH_BIAS_REPRESENTATION_FLOAT_EXT;
             bias_rep.depthBiasExact = VK_TRUE;
+            bias_rep.pNext = rs.pNext;
             rs.pNext = &bias_rep;
             rs.depthBiasConstantFactor = k.zbias;
         } else {
