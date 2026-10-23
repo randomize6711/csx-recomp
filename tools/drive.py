@@ -50,6 +50,12 @@ per line, executed in order:
     expect fade NAME FIELD MIN MAX  a fade step's FIELD in [MIN, MAX]
     expect fadediff A B FIELD MIN MAX  FIELD of fade B less that of fade A in [MIN, MAX]
     expect setting NAME VALUE      the run's pc_settings.ini holds NAME = VALUE (what PC Options saved)
+    expect apart NAME N M MIN MAX  clients N and M horizontally MIN..MAX apart in players step NAME
+    expect bodymoved A B N MIN MAX client N moved MIN..MAX (horizontally) from players step A to B
+    expect health NAME N MIN MAX   client N's health in players step NAME
+    expect bodyz NAME N MIN MAX    client N's origin height in players step NAME
+    expect healthdrop A B N MIN MAX  client N's health fell MIN..MAX from players step A to B
+    expect spawnapart NAME MIN     every two clients at least MIN apart in players step NAME
     expect effects BLOOM GAMMA     within 5 s the cvars the optional Xbox effects are read cl_hdrbloom BLOOM and
                                    cl_dynamicgamma GAMMA (as logged, %g: 0, 0.5, 1; needs CSX_LOG_EFFECTS=1)
     expect movetime MIN MAX        the movement commands' milliseconds per real second (the last two "pc frame" lines,
@@ -63,6 +69,8 @@ per line, executed in order:
                             thread (they arrive between the window's polls, as a mouse's do); waits until all are sent
     count REGEX N           until N log lines match REGEX (no spaces: write . for them)
     look RIGHT UP           turn the view by degrees through the mouse look hook (src/game/mouse_look.cpp)
+    place N X Y Z           client N (0 the player, then the bots) put at that origin once, no velocity
+    players NAME            every active client's origin and health logged and kept as NAME
     setview X Y Z YAW PITCH the player held at that origin (server side, no velocity) with those view angles
                             (src/game/state_probe.cpp): a fixed camera for picture tests; setview off lets go
     pokefile FILE           every "VA FLOAT" line of FILE (relative to the repository) written at once
@@ -248,6 +256,7 @@ def main():
     log, start, ok = Log(), time.time(), True
     states = {}
     tracks = {}  # track steps: NAME -> rose, moved
+    rosters = {}  # players steps: NAME -> {client: (x, y, z, health)}
     exposures = {}  # exposure steps: NAME -> dark, light, mean, low, high, middle
     fades = {}  # fade steps: NAME -> alpha, hold, length, lasted, real
     snap_lines = {}  # snap steps: NAME -> the log lines its frames wrote
@@ -403,6 +412,23 @@ def main():
                         print('     ' + l[l.index('track'):])
                         m = re.search(r'rose (-?[0-9.]+) at most, moved ([0-9.]+)', l)
                         tracks[st[1]] = {'rose': float(m.group(1)), 'moved': float(m.group(2))}
+            elif kind == 'place':
+                # place N X Y Z: client N (0 the player, then the bots) put at that origin once (src/game/state_probe.cpp)
+                send_file('place', ' '.join(st[1:5]))
+                good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'place'))) and \
+                    wait_until(lambda: log.match(r'place: client ' + st[1] + ' at'))
+            elif kind == 'players':
+                # players NAME: every active client's origin and health, kept as NAME
+                send_file('players', st[1])
+                good = wait_until(lambda: log.match(r'players ' + re.escape(st[1]) + ' end'))
+                if good:
+                    rosters[st[1]] = {}
+                    for l in log.lines:
+                        m = re.search(r'players ' + re.escape(st[1]) + r' (\d+) (\S+) (\S+) (\S+) (\S+)\s*$', l)
+                        if m:
+                            rosters[st[1]][int(m.group(1))] = tuple(float(v) for v in m.groups()[1:])
+                    print('     ' + '; '.join('%d: %.1f %.1f %.1f health %.0f' % ((n,) + v)
+                                              for n, v in sorted(rosters[st[1]].items())))
             elif kind == 'state':
                 send_file('state', st[1])
                 rx = re.compile(r'state ' + re.escape(st[1]) + r' (\S+) (\S+) (\S+) (\S+) (-?\d+)(?: (\S+) (\S+))?(?: (-?\d+))?')
@@ -761,6 +787,33 @@ def main():
                             saved[k.strip()] = v.strip()
                 print('     %s = %s' % (st[2], saved.get(st[2], '(none)')))
                 good = saved.get(st[2]) == ' '.join(st[3:])
+            elif kind == 'expect' and st[1] in ('apart', 'bodymoved', 'bodyz', 'health', 'healthdrop', 'spawnapart'):
+                # expect apart NAME N M MIN MAX: clients N and M horizontally that far apart in players step NAME;
+                # expect bodymoved A B N MIN MAX: client N moved that far (horizontally) from players A to B;
+                # expect healthdrop A B N MIN MAX: client N's health fell that much from A to B;
+                # expect health NAME N MIN MAX: client N's health; expect bodyz NAME N MIN MAX: its origin's height;
+                # expect spawnapart NAME MIN: every two clients at
+                # least MIN apart (no one spawned in another)
+                def flat(a, b):
+                    return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
+                try:
+                    if st[1] == 'apart':
+                        r = rosters[st[2]]; v = flat(r[int(st[3])], r[int(st[4])]); lo, hi = st[5], st[6]
+                    elif st[1] == 'bodymoved':
+                        v = flat(rosters[st[2]][int(st[4])], rosters[st[3]][int(st[4])]); lo, hi = st[5], st[6]
+                    elif st[1] == 'healthdrop':
+                        v = rosters[st[2]][int(st[4])][3] - rosters[st[3]][int(st[4])][3]; lo, hi = st[5], st[6]
+                    elif st[1] in ('health', 'bodyz'):
+                        v = rosters[st[2]][int(st[3])][3 if st[1] == 'health' else 2]; lo, hi = st[4], st[5]
+                    else:
+                        r = list(rosters[st[2]].values())
+                        v = min((flat(a, b) for i, a in enumerate(r) for b in r[i + 1:]), default=float('inf'))
+                        lo, hi = st[3], 'inf'
+                    print('     %.1f (want %s..%s)' % (v, lo, hi))
+                    good = float(lo) <= v <= float(hi)
+                except KeyError as e:
+                    print('     no such step or client: %s' % e)
+                    good = False
             elif kind == 'expect' and st[1] == 'effects':
                 # expect effects BLOOM GAMMA: within 5 s the last "pc effects" line (CSX_LOG_EFFECTS=1, src/game/
                 # pc_bloom.cpp: the cvars' values each time one changes) reads cl_hdrbloom BLOOM, cl_dynamicgamma GAMMA

@@ -10,6 +10,11 @@
 // picture tests, e.g. over de_aztec's water, which no spawn sees): the server's origin of client 0's edict (svs.clients
 // 0x636CE4, client_t::edict +0x4B9C, entvars origin +0x88, velocity +0xA0) written every 20 ms with no velocity, so
 // the player neither falls nor drifts, and the view angles the client sends set once; "off" lets go.
+// A file named place holding "N X Y Z" puts client N (0 the local player, then the bots; client_t 0x5010 bytes each,
+// svs.maxclients at 0x636CE8) at that origin once, with no velocity, and lets it go (tools/drive.py "place": bodies
+// put in each other's way for the player collision tests). A file named players holding a name logs one line per
+// active client (client_t +0 active): "players NAME N x y z health" (entvars health at edict +0x1E0) and ends with
+// "players NAME end".
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -38,6 +43,15 @@ float F(uint32_t va) {
 }
 void WF(uint32_t va, float f) { std::memcpy(kernel::HostPtr(va), &f, 4); }
 constexpr uint32_t kClients = 0x636CE4, kClientEdict = 0x4B9C, kEdictOrigin = 0x88, kEdictVelocity = 0xA0;
+constexpr uint32_t kMaxClients = 0x636CE8, kClientSize = 0x5010, kEdictHealth = 0x1E0;
+
+// client N's edict, 0 when there is no such active client
+uint32_t ClientEdict(uint32_t n) {
+    uint32_t clients = kernel::R32(kClients);
+    if (!clients || n >= kernel::R32(kMaxClients)) return 0;
+    uint32_t c = clients + n * kClientSize;
+    return kernel::R32(c) ? kernel::R32(c + kClientEdict) : 0;
+}
 }  // namespace
 
 void StartStateProbe() {
@@ -46,6 +60,8 @@ void StartStateProbe() {
         const fs::path req = app::ExeDir() / "state";
         const fs::path look = app::ExeDir() / "look";
         const fs::path setview = app::ExeDir() / "setview";
+        const fs::path place = app::ExeDir() / "place";
+        const fs::path players = app::ExeDir() / "players";
         bool held = false;
         float hold[3] = {};
         for (;;) {
@@ -82,6 +98,37 @@ void StartStateProbe() {
                 }
                 if (f) std::fclose(f);
                 fs::remove(setview, ec);
+            }
+            if (fs::exists(place, ec)) {
+                unsigned n = 0;
+                float v[3];
+                FILE* f = std::fopen(place.string().c_str(), "r");
+                uint32_t e = 0;
+                if (f && std::fscanf(f, "%u %f %f %f", &n, &v[0], &v[1], &v[2]) == 4 && (e = ClientEdict(n))) {
+                    for (int i = 0; i < 3; i++) {
+                        WF(e + kEdictOrigin + i * 4, v[i]);
+                        WF(e + kEdictVelocity + i * 4, 0);
+                    }
+                    LOGI("place: client %u at %g %g %g", n, v[0], v[1], v[2]);
+                } else {
+                    LOGW("place: no such client or not N X Y Z");
+                }
+                if (f) std::fclose(f);
+                fs::remove(place, ec);
+            }
+            if (fs::exists(players, ec)) {
+                char name[64] = "players";
+                if (FILE* f = std::fopen(players.string().c_str(), "r")) {
+                    if (std::fscanf(f, "%63s", name) != 1) std::snprintf(name, sizeof name, "players");
+                    std::fclose(f);
+                }
+                fs::remove(players, ec);
+                for (uint32_t n = 0, max = kernel::R32(kMaxClients); n < max; n++)
+                    if (uint32_t e = ClientEdict(n))
+                        LOGI("players %s %u %.3f %.3f %.3f %.0f", name, n, F(e + kEdictOrigin), F(e + kEdictOrigin + 4),
+                             F(e + kEdictOrigin + 8), F(e + kEdictHealth));
+                LOGI("players %s end", name);
+                logx::Flush();
             }
             if (held && edict)
                 for (int i = 0; i < 3; i++) {
