@@ -1941,6 +1941,79 @@ Remaining uncertainty: the bots' avoidance of teammates is their own logic and w
 they can still pause behind each other); hostages keep blocking (they are not players); network play is untested and
 the option is not offered there.
 
+## Player slot tooling (2026-10-23, G8.2B checkpoint 1)
+
+Tools for raising the 17 player slots to 65 safely (docs/player_slots_plan.md); no player table is moved and no
+player count changed yet.
+
+- **Instruction operand patches** (SDK patch 0036, sdk/tools/recomp/patches.cpp): a `[[patch]]` in the recompiler
+  config names one instruction (address, its bytes, optionally its text), one operand (`imm` or `disp`, `index` when
+  there are two of a kind) and the old and new value. xbe_recomp checks the image's sha256 (`[xbe] sha256`, now in
+  config/game.toml), the bytes, the text and the old value before analysis, and after it that analysis decoded an
+  instruction there; it refuses branches, calls, ret and enter, new values wider than the operation, and two patches
+  for one operand; every failure is reported and nothing is generated. Patches apply where instructions are decoded,
+  so analysis and code generation see the same values; the generated code carries the full value (an imm8 compare can
+  take 0x80) and marks each patched instruction; <out>/patches.txt lists them all with the instruction before and
+  after. The XBE file is never changed. Without patches the generated code is byte for byte what it was. Also
+  `--describe ADDRESS` (an instruction's bytes, text and operands: the fields a patch needs) and `--listing FILE`
+  (every analysed instruction by function, for audits). A full recompile takes 2 s.
+- **The player slot audit** (tools/slot_audit.py, config/player_slots.toml, analysis/player_slots_inventory.json):
+  reads the listing, so it covers the code the program contains. 20 tables (the server's lag compensation, ping and
+  loss tables, client_t's voice bits, the client's frame ring player states, cl.players, predicted players, the
+  model cache, six HUD tables, CVoiceStatus, the ScorePanel, the game's voice masks, StatShot, CSoundEnt) with their
+  direct, end-pointer, alias, stride and object-field references; 76 classified single sites (limits, sizes, protocol
+  fields, engine limits, values of 17 that are not player counts); every other compare or load of 16, 17, 18, 32 and
+  33 in the engine, front end, game and HUD as a candidate, classified by pattern where the code shows it (block
+  copies, string compares, switch bounds, weapon ids, enumerations). Found beyond the investigation: the HUD's
+  ScoreInfo, TeamInfo and ScoreAttrib handlers bound the player index at 17 (0x1B5890, 0x1B5A20, 0x1D5AAA), the
+  front end's max players loops (0xE3DF9..0xE3E3E), CVoiceStatus's clears and loop of its 17 pointers (0x1B7E52,
+  0x1B7FCE, 0x1B91AC). Counts: cl.players 54 direct and 6 end-pointer references in 27 functions, g_PlayerExtraInfo
+  96 and 7 in 39, the game's voice masks 69, the frame ring 18 absolute player state and 60 frame field references
+  and 86 stride multiplies in 33 functions.
+- **The frame ring** (the highest risk): besides the absolute references, a register trace through each function
+  that computes frame addresses (a register holding an imul by 0x1B60 or a frame address, followed through copies,
+  adds and lea until overwritten) finds 236 accesses through frame-derived registers, 50 of them in the player states,
+  in 17 functions (0x1D270, 0x23B70, 0x23B9D, 0x23D8D, 0x242F0, 0x24FE0, 0x254B0, 0x25BF0, 0x25C4D, 0x25EC0, 0x26000,
+  0x30900, 0x31420, 0x3158D, 0x323B0, 0x32EB0, 0x92B90); a wider net lists 275 register-relative accesses past the
+  first player state and 127 within it in the frame functions (many are cl_entity_t and entity_state_t fields), and
+  10 pointer walks by 0xFB. The trace does not follow branches or stack spills: it narrows the review, it does not
+  prove coverage.
+- **Unresolved** (in the inventory): the server's write of the protocol version (46: checked at 0x30945, 0x2E822,
+  0x98C78, written somewhere not yet found), the scoreboard widget's visible rows, the client's MAX_PACKET_ENTITIES
+  check, 34 compares or loads of 17 not yet classified (listed by address), and the frame ring review lists above.
+- **Guest tables** (src/common/guest_tables.cpp, config/guest_tables.toml, tools/guest_tables.py): a region of the
+  guest's user space (0x70000000, 16 MB of address space) taken out of the game's allocator before the title starts;
+  each table ends at a page boundary with an uncommitted guard page after it, so the first byte past its end faults,
+  and the fault is reported with the table and element (Linux: SIGSEGV handler chained before the previous one;
+  Windows: a vectored handler that reports and passes the fault on); an access before a table faults only below its
+  first page. Element() refuses an out of range index for host code. A layout is validated (alignment, page ends,
+  guard pages, no overlap, inside the region, 32-bit arithmetic) and a region in use is refused; a layout that
+  cannot be mapped stops the program before the title runs. No production table yet, so nothing is mapped today.
+- **Tests**: tests/recomp_patches.py (5 patches applied, 16 refusals alone and 3 together, determinism, unchanged
+  output without patches), tests/slot_audit_test.py (27 cases: synthetic and the real program, the committed
+  inventory matching a fresh audit), tests/guest_tables_test.py (38 cases: the generator and the runtime's guest
+  memory, faults in child processes). Runtime: the headless harness and window build with the new start-up path;
+  regress_boot_to_spawn, regress_player_control, regress_player_collision_on and regress_bots_aztec_16 pass (with
+  CSX_LOG_MEMORY=1); the new files also compile for the Windows target (syntax check; the full Windows build was not
+  run).
+
+## Guest memory (2026-10-23, G8.2B checkpoint 1)
+
+What the "64 MB" is, measured (CSX_LOG_MEMORY=1, headless) and read from the code (analysis/memory_architecture.md;
+the proposal is docs/memory_modernization.md).
+
+- The 64 MB is only the contiguous pool (textures, vertex and sound buffers, movie frames, the host's frame buffers
+  and upload ring; 63 MB after the kernel's first MB). The game's heap (the XAPI NT heap: doubling segments, large
+  blocks reserved alone) lives in the 2 GB user range, committed on demand; the engine's hunk, zone and cache are
+  malloc'ed lists, and its -heapsize and -zone options are dead code (Sys_InitMemory 0xAD310 parses -heapsize and
+  discards it). Nothing sizes itself from MmQueryStatistics' 64 MB.
+- de_airstrip from the front end: 37.5 MB of user memory committed (38.6 MB reserved in 16 reservations), 25.6 MB of
+  the contiguous pool. de_aztec with 16 bots: 37.2 MB peak committed (52.1 MB reserved in 15 reservations, all between
+  0x10000 and 0x3640000; 1994 MB of the user range free, in one block: no fragmentation), 22.6 MB contiguous; with 2
+  bots the same within 0.5 MB. System pool 0.4 MB.
+- The engine's allocators never check for NULL: running out of heap would be a write to guest page 0 and a crash
+  without a message (Sys_Error only for map images and texture creation).
+
 ## Bot count (2026-10-23, G8.2)
 
 The question: how many bots a single player match can hold, against a target of 64, and what limits it. Answered

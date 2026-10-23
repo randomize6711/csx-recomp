@@ -46,5 +46,6 @@
   Exposure ✅ 2026-10-23
 - G8.1 — Custom Game > Player Collision (single player Custom Options) ✅ 2026-10-23
 - G8.2 — Custom Game > Number of Bots: 0 to 16 in the original 17 slots ✅ 2026-10-23; G8.2B, 65 player slots
-  (any mix of humans and bots), planned in docs/player_slots_plan.md, not started
+  (any mix of humans and bots), planned in docs/player_slots_plan.md: checkpoint 1 (recompiler [[patch]], the player
+  slot audit, guest tables, the memory investigation) ✅ 2026-10-23; checkpoint 2 (the 65 slots) waits for approval
 - M8 — PC feature set complete

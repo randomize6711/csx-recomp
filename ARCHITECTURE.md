@@ -71,6 +71,16 @@ still apply unless a milestone changes them. Applied first in G8.2B (65 player s
 10. **One front end on both platforms.** Windows builds the Linux window build's sources (SDL3 + Vulkan + SDL audio)
    with Clang targeting MinGW-w64 from Linux (cmake/windows, tools/build_windows.sh); the generated code comes from
    the Linux recompiler run. The upstream D3D12 / XAudio2 app layer is not built (FINDINGS.md "Windows build").
+11. **Changing the original code's data is a build-time `[[patch]]`** (SDK patch 0036): one instruction, one operand,
+   checked against the exact image (sha256), the instruction's bytes and the old value, recorded in patches.txt. No
+   search and replace, no run-time code patching, the XBE untouched. Hooks remain the tool for adding behaviour.
+12. **Guest-visible data the image has no room for lives in guest tables** (src/common/guest_tables.cpp): fixed
+   addresses in a reserved part of the guest's user space, laid out from config/guest_tables.toml, a guard page after
+   each table. Recompiled code holds 32-bit guest addresses, so anything it touches must be inside the 4 GB guest
+   window; state only host code uses stays in ordinary host memory (docs/memory_modernization.md).
+13. **Capacity changes are audited**: tools/slot_audit.py lists every reference to the structures a capacity change
+   moves, from the recompiler's own listing; a relocation is complete when its references are all patched
+   (`--require-patched`) and the committed inventory still matches (`--check`).
 
 ## Workspace
 

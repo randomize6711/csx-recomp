@@ -163,28 +163,20 @@ unused guest memory, and only the code that addresses that array changes. Fields
 offsets. Growing a struct in place would shift hundreds of unrelated field references, many of them through
 registers that an address scan cannot find.
 
-### Step 0: Tooling (framework; SDK patch plus our tools)
+### Step 0: Tooling (done in checkpoint 1, FINDINGS.md "Player slot tooling")
 
-**Recompiler patch** (`patches/sdk/000N-data-remap.patch`): two new config forms.
-
-- `[[imm]] at = VA, old = X, new = Y` replaces one instruction's immediate or displacement. Codegen refuses if the
-  instruction does not hold X.
-- `[[remap]] lo, hi, to` rewrites absolute displacements and immediates in [lo, hi) to `to + (v - lo)` at listed sites,
-  or at every site in a function range. Every rewrite is logged.
-
-**Audit tool** (`tools/slot_audit.py`), the safety net against silent misses.
-
-- It lists every instruction that:
-  - references a relocated range;
-  - multiplies or adds by a relocated stride (0xFB, 0x24C, 0x4C, 0x28, 0x20C, 0x5010, ...);
-  - or compares with 16 / 17 / 18 / 32 or 0x55110-style sizes in the engine, HUD and game ranges.
-- It fails unless each one is classified in `config/player_slots.toml` as rewritten, not a player count, or reviewed.
-- Its output is checked by a test.
-
-**Guard pages.** A test-build option places a no-access page after each relocated table, so an overrun traps instead
-of corrupting memory.
-
-**Complexity: medium.** The recompiler patch is a few hundred lines; the manifest is the bulk.
+- **`[[patch]]` instruction operand patches** (SDK patch 0036): one instruction, one operand, old and new value,
+  checked against the image's sha256, the bytes, the text and the old value; refused for control transfers and
+  addresses analysis never decoded; recorded in patches.txt and marked in the generated code. The `[[remap]]` range
+  form of the first plan was dropped: every relocated reference is listed as its own patch, generated from the audit
+  and the guest table layout, so a reviewer sees each one.
+- **The audit** (tools/slot_audit.py, config/player_slots.toml, analysis/player_slots_inventory.json): every
+  reference to the 20 tables, 76 classified sites, every unreviewed count constant, the frame ring's register trace,
+  the unresolved list; `--check` against the committed inventory, `--require-patched` per table.
+- **Guest tables** (config/guest_tables.toml, tools/guest_tables.py, src/common/guest_tables.cpp): the relocated
+  tables' home, fixed addresses in a reserved region with a guard page after each table and a fault report; host
+  code's Element() index check.
+- **CSX_LOG_MEMORY=1** for the memory measurements.
 
 ### Step 1: Engine server and game DLL to N
 
@@ -206,7 +198,9 @@ of corrupting memory.
   g_PlayerInfoList and the small HUD arrays.
 - Scoreboard and voice status object: their embedded arrays are reached by object offsets, so they are relocated
   per site (or the object is allocated larger and the arrays moved to its end).
-- The client's 17 checks: Bad maxclients, updateuserinfo, customization, the spectator wrap.
+- The client's 17 checks: Bad maxclients, updateuserinfo, customization, the spectator wrap, and the ones the audit
+  found: the ScoreInfo, TeamInfo and ScoreAttrib handlers' index bounds (0x1B5890, 0x1B5A20, 0x1D5AAA), CVoiceStatus's
+  clears and loop (0x1B7E52, 0x1B7FCE, 0x1B91AC).
 
 **Complexity: large.** Several hundred sites, every one classified by the audit. The frame ring is the riskiest part.
 
@@ -263,8 +257,8 @@ measured first.
 **Measurements**
 
 - Benchmarks of server and bot time and memory at 16, 32 and 64 bots.
-- The guest heap's headroom at 65, measured. If it is short, the guest memory is enlarged (an SDK patch on
-  mem::kPhysicalSize, 64 MB today) rather than lowering the slot count.
+- The guest heap's headroom at 65, measured with CSX_LOG_MEMORY=1. The heap is in the 2 GB user range, not the 64 MB
+  pool (docs/memory_modernization.md): 37 MB committed with 16 bots today, about +3.3 MB expected at 65.
 
 ## 5. Unknowns, to be settled by steps 0 to 2
 
@@ -278,9 +272,35 @@ measured first.
 
 | Checkpoint | Work | Ends with |
 |---|---|---|
-| 0 | This investigation and plan | Approval to begin implementation (the current boundary) |
-| 1 | Step 0 | The tool, the manifest and its test. Nothing in the game changes; the existing suites pass. |
+| 0 | This investigation and plan | Done (8749f94) |
+| 1 | Step 0, the memory investigation | Done (b4841f7, 9fd2633, b2c4029, 9dbe16b): tools, tests, docs/memory_modernization.md |
 | 2 | Steps 1 to 4 at N = 65 | 64 bots plus the player in a match, with guard pages on and the audit clean |
 | 3 | Step 5 | The menu, tests, benchmarks, docs and report |
 
 Each checkpoint stops for approval.
+
+## 7. What remains for checkpoint 2
+
+In order; each relocation is a guest table plus generated `[[patch]]` entries, gated by the audit.
+
+1. **Classify what the audit leaves open**: the 34 compares or loads of 17 it lists by address; the server's write
+   of the protocol version; the client's MAX_PACKET_ENTITIES check. Add each to config/player_slots.toml.
+2. **A patch generator** (new, tools/): from config/guest_tables.toml's layout and the inventory's direct, end-pointer
+   and alias references, write the `[[patch]]` entries for each relocated table (new address = new base + the same
+   offset; end pointers to the new end), into a config file game.toml includes. Strides stay (elements keep their
+   size); counts and limits are listed patches by hand.
+3. **Engine server and game DLL** (step 1), then **client and HUD** (step 2). The frame ring last and most carefully:
+   its player states move to their own [16][65] table; first review the 50 player state accesses the register trace
+   found in 17 functions, then the wider net, then the 10 pointer walks; every site classified in the manifest.
+4. **Protocol** (step 3): svc_pings' slot to 8 bits (0x9DC42, 0x31A00), N-bit voice and StatShot masks, the protocol
+   version raised from 46 at its checks (0x30945, 0x2E822, 0x98C78) and its writer.
+5. **Spawns** (step 4), unchanged from the approved design.
+6. **Gates**: `slot_audit.py --require-patched` for every relocated table and `--check` against the committed
+   inventory; the guest tables mapped with their guard pages in every test run; the recompiler's patch record
+   reviewed. Then the 64-bot match, with memory, server and bot time measured.
+7. **Out of memory reports** (docs/memory_modernization.md item 3): log the guest's failed allocations and name a
+   page-0 access as a likely failed one.
+
+Proposed changes from checkpoint 1: the plan's `[[remap]]` became per-site `[[patch]]` entries generated by a tool
+(item 2), each reviewable; the HUD handler bounds and CVoiceStatus sites join step 2; memory needs no change for 65
+slots (the heap is not the 64 MB pool).

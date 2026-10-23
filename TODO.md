@@ -51,11 +51,14 @@
 1c. Player-driven objectives (defuse, plant) with scripted movement per map.
 1d. Player Collision for system link / Live hosts (G8.1 offers it in single player only): the remote client's
    prediction would need the host's value (e.g. a replicated server cvar) and two instances on a link to test it.
-1e. G8.2B, 65 player slots (any mix of humans and bots): docs/player_slots_plan.md (tooling to relocate the
-   per-player tables, the engine server and game DLL, the engine client and HUD, a widened protocol for PC
-   multiplayer, the original spawn points reused); waiting for approval past checkpoint 0. No 17-slot mode is kept
-   and original Xbox networking is not kept (ARCHITECTURE.md "Direction: PC first"). Separate Counter-Terrorist and
-   Terrorist bot counts (one bot_quota today) not done.
+1e. G8.2B, 65 player slots (any mix of humans and bots): checkpoint 1 (tooling, audit, guest tables, memory
+   investigation) done; checkpoint 2 waits for approval. Its list: docs/player_slots_plan.md section 7 (34 compares of
+   17 and three other audit items still unclassified; the frame ring's 50 traced player state accesses to review
+   first). No 17-slot mode and no original Xbox networking kept (ARCHITECTURE.md "Direction: PC first"). Separate
+   Counter-Terrorist and Terrorist bot counts (one bot_quota today) not done.
+1f. Memory modernization (after G8.2B, docs/memory_modernization.md section 4): a configurable contiguous pool and
+   real MmQueryStatistics totals, the engine's fixed pools for larger maps and assets, a second data arena only if
+   needed, memory dumps over the whole user range; out of memory reports in G8.2B checkpoint 2.
 2. Compare in-game rendering with xemu (dark sky/wall area on de_airstrip, lightmaps, fog, rain, colours).
 2a. Thin vertical rain streaks over de_airstrip in the Vulkan window that the reference renderer's frames do not show
    (seen during G6.1, not investigated). Without VK_EXT_depth_clip_enable and VK_EXT_depth_clamp_control the depth

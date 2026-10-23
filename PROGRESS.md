@@ -514,3 +514,19 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   MAX_CLIENTS in the engine, the HUD and the voice manager (the recompilation adds no limit); the per-player tables,
   svc_pings' 5-bit slot and the maps' spawn points have to change. Plan in docs/player_slots_plan.md, evidence in
   analysis/player_slots_*.md; waiting for approval.
+
+## 2026-10-23 — G8.2B checkpoint 1: tooling for 65 slots, guest memory
+
+Branch g8.2b (from g8.2). Nothing in the game's behaviour changes: no player table moved, no count raised.
+- Recompiler `[[patch]]` (SDK patch 0036): build-time operand patches checked against the exact image, recorded in
+  patches.txt; `--describe`, `--listing`. config/game.toml now names the image's sha256. tests/recomp_patches.py.
+- Player slot audit: tools/slot_audit.py, config/player_slots.toml, analysis/player_slots_inventory.json (20 tables,
+  76 sites, candidates, the frame ring's register trace, unresolved list). tests/slot_audit_test.py.
+- Guest tables (config/guest_tables.toml, tools/guest_tables.py, src/common/guest_tables.cpp): fixed-address tables
+  with guard pages and fault reports, mapped before the title starts (none yet). CSX_LOG_MEMORY=1 (SDK patch 0037).
+  tests/guest_tables_test.py.
+- Memory: analysis/memory_architecture.md, docs/memory_modernization.md; the 64 MB is only the contiguous pool, the
+  heap (37 MB with 16 bots) grows in the 2 GB user range.
+- Tests: the three tool suites pass; headless regress_boot_to_spawn, regress_player_control,
+  regress_player_collision_on, regress_bots_aztec_16 pass with the new start-up path.
+- Next: checkpoint 2 (docs/player_slots_plan.md section 7), after approval.
