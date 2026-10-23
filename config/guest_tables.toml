@@ -13,5 +13,73 @@
 base = 0x70000000
 size = 0x01000000        # 16 MB of address space; only the tables' own pages are committed
 
-# [[table]] name, elem (bytes), count, align (a power of two dividing elem; default 4), what
-# No production table yet: Checkpoint 2 adds the player tables here.
+# [[table]] name, elem (bytes), count, align (a power of two dividing elem; default 4), what, text (initial content:
+# a string the recompiled code is pointed at). The player tables (G8.2B, 65 slots: config/player_slots.toml [slots]);
+# config/player_slots.toml names the table each original one moved to, tools/slot_patches.py points the code at it.
+
+# --- engine server ---
+
+[[table]]
+name = "sv_truepositions"
+elem = 0x58
+count = 65
+what = "lag compensation positions, one per client (was 17 at 0x4E46C0)"
+
+[[table]]
+name = "sv_lastping"
+elem = 2
+count = 65
+align = 2
+what = "last ping per client, u16 (was 17 at 0x4E0448)"
+
+[[table]]
+name = "sv_lastloss"
+elem = 1
+count = 65
+align = 1
+what = "last packet loss per client, u8 (was 17 at 0x4E449C)"
+
+# --- engine client ---
+
+[[table]]
+name = "cl_frame_playerstates"
+elem = 0x3FBB            # 65 x 0xFB: one frame's player states
+count = 16
+align = 1
+what = "cl.frames[16].playerstate[65], moved out of the frames (was [17] at frame + 0x18)"
+
+[[table]]
+name = "cl_players"
+elem = 0x24C
+count = 65
+what = "cl.players[65], player_info_t (was 17 inside cl at 0x7791F0)"
+
+[[table]]
+name = "cl_predicted_players"
+elem = 0x28
+count = 65
+what = "predicted_players[65] (was 17 at 0x3AE3D0)"
+
+[[table]]
+name = "dm_playerstate"
+elem = 0x20C
+count = 65
+what = "the studio renderer's player model cache [65] (was 17 at 0x6A38A0)"
+
+# --- the match's command line (the title's templates at 0x33AA60 and 0x33A9F0 say -maxplayers 17) ---
+
+[[table]]
+name = "cmdline_cstrike"
+elem = 1
+count = 128
+align = 1
+what = "the match's command line template, 65 player slots"
+text = "-dev -console +set developer 1 -game cstrike -maxplayers 65 +maxplayers 65 +hideradar +hostname XBOX %s"
+
+[[table]]
+name = "cmdline_launcher"
+elem = 1
+count = 128
+align = 1
+what = "the front end's command line template, 65 player slots"
+text = "-dev -console +set developer 1 -game launcher -maxplayers 65 +maxplayers 65 +hideradar +hostname XBOX %s"

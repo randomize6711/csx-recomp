@@ -4,7 +4,7 @@
 # docs/symbol_verification.md.
 
 # instead of [xbe] xdk = 5659, which needs a folder in the SDK
-includes = ["../xdk/5659/layout.toml"]
+includes = ["../xdk/5659/layout.toml", "player_slots_patches.toml"]
 
 [xbe]
 path = "assets/default.xbe"
@@ -699,3 +699,55 @@ call = "ServerMoveBegin"
 [[hook]]
 at = 0x1A5B7B
 call = "ServerMoveEnd"
+
+# 65 player slots (G8.2B, src/game/player_slots.cpp; the operand patches are config/player_slots_patches.toml):
+# SV_ParseVoiceData's relay test reads the listen bits that moved behind the client_t block; the two clears of a
+# client_t (SV_CreateFakeClient, SV_ConnectClient) clear its moved bits too
+[[hook]]
+at = 0xABDF8
+call = "SlotsVoiceRelayListening"
+on_true = 0xABE09
+on_false = 0xABE01
+
+[[hook]]
+at = 0x79E03
+call = "SlotsClientCleared"
+
+[[hook]]
+at = 0xA271F
+call = "SlotsClientCleared"
+
+# the client's frame ring: its player states moved to cl_frame_playerstates; two sites compute a state from the frame
+# pointer the frame's other fields keep using, so the state's register is set by a hook after them; the clears of
+# the frames and of cl clear the moved tables too
+[[hook]]
+at = 0x23FAE
+call = "SlotsFrameStateEcx"
+
+[[hook]]
+at = 0x32F81
+call = "SlotsFrameStateEsi"
+
+[[hook]]
+at = 0x29128
+call = "SlotsClearFrameStates"
+
+[[hook]]
+at = 0x2E358
+call = "SlotsClearFrameStates"
+
+[[hook]]
+at = 0x28E37
+call = "SlotsClearClientState"
+
+# svc_pings' slot (8 bits now) checked against the server's player count before cl.players is written
+[[hook]]
+at = 0x31A22
+call = "SlotsPingSlot"
+on_false = 0x31A3B
+
+# the prediction's player physents: never past the 600 physents
+[[hook]]
+at = 0x26094
+call = "SlotsPhysentRoom"
+on_false = 0x2626C

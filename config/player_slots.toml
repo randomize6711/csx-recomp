@@ -13,6 +13,20 @@
 # A table's references are the instructions with an absolute address in [base, base + stride * count + slack); slack
 # (default one element) catches pointers to a field of the element past the end, as loop ends use.
 
+[slots]
+# the engine's player slots (G8.2B): every relocated table and raised limit is sized for this many players
+max_players = 65
+# the network protocol: one PC format (no Xbox compatibility), raised from the title's 46 so an original console or an
+# older build is refused at connect instead of misreading the wider fields
+protocol_version = 47
+
+# Relocation (tools/slot_patches.py): a table with `relocate` moved to that guest table (config/guest_tables.toml);
+# every operand in it is patched to the same offset there. Past its end (up to `slack`) a reference must be listed in
+# `ends` (an end pointer: moved to the new end) or `others` (another object's: left alone); before its base (up to
+# one element) only a reference listed in `below` (element -1, 1-based indexing) is patched. [[change]] entries are
+# the hand-classified constants (limits, sizes, counts): at, operand ("imm" / "disp"), index (optional), old, new
+# (an expression of N = max_players and the guest tables' names), why.
+
 [audit]
 # code the scans cover: the engine, the front end and its voice code, the game DLL, the client HUD
 ranges = [[0x12000, 0xBF000, "engine"], [0xBF000, 0x116000, "ui"], [0x116000, 0x18B300, "game"],
@@ -31,6 +45,11 @@ stride = 0x58
 count = 17
 also = [0x4E4668]                  # base - 0x58: indexed by client number from 1
 plan = "relocate"
+relocate = "sv_truepositions"
+below = [0xAB07F, 0xAB266]         # [clientnum * 0x58 + 0x4E4668], clientnum from 1 (SV_SetupMove)
+# 0x4E4C98.. is the next object (Sys_FloatTime's state at 0xAC2xx, a buffer at 0xACDxx), not an end pointer
+others = [0xAC29E, 0xAC2B2, 0xAC2C8, 0xAC2EB, 0xAC30D, 0xAC318, 0xAC32B, 0xACDF1, 0xACDFB, 0xACE37, 0xACE69, 0xACE72,
+          0xACE8D, 0xACEAE, 0xACEC0, 0xACED1, 0xACEEE, 0xACEFA]
 layout = "verified"
 source = "player_slots_engine_server.md 1"
 
@@ -42,6 +61,7 @@ base = 0x4E0448
 stride = 2
 count = 17
 plan = "relocate"
+relocate = "sv_lastping"
 layout = "verified"
 source = "player_slots_engine_server.md 1"
 
@@ -53,6 +73,7 @@ base = 0x4E449C
 stride = 1
 count = 17
 plan = "relocate"
+relocate = "sv_lastloss"
 layout = "verified"
 source = "player_slots_engine_server.md 1"
 
@@ -92,6 +113,9 @@ slack = 0
 frame = { base = 0x74A2A0, stride = 0x1B60, count = 16, field = 0x18 }
 strides = [0xFB, 0x1B60]
 plan = "relocate-out"
+relocate = "cl_frame_playerstates"
+# ps[index - 1] of a frame: [frame * 0x1B60 + index * 0xFB + 0x74A1BD] (the studio and event code, 1-based)
+below = [0x8F10F, 0x4D161, 0x4D1DC, 0x937E7, 0x93868]
 layout = "verified"
 source = "player_slots_engine_client.md 1a"
 
@@ -104,6 +128,10 @@ stride = 0x24C
 count = 17
 strides = [0x24C]
 plan = "relocate"
+relocate = "cl_players"
+ends = [0x1DB1D, 0x28E21, 0x2E963]          # loops over every player to the end of the table
+below = [0x1C1CB, 0x1D9DD, 0x1D9EC]         # cl.players[index - 1].name / .userinfo (1-based)
+others = [0x247E2, 0x2F08E, 0x2F0B3]        # 0x77B8FC: the instanced baselines after the table
 layout = "verified"
 source = "player_slots_engine_client.md 1a"
 
@@ -115,6 +143,8 @@ base = 0x3AE3D0
 stride = 0x28
 count = 17
 plan = "relocate"
+relocate = "cl_predicted_players"
+others = [0x276D2, 0x27787, 0x2A46B]        # 0x3AE680: the next variable
 layout = "verified"
 source = "player_slots_engine_client.md 1a"
 
@@ -127,6 +157,8 @@ stride = 0x20C
 count = 17
 strides = [0x20C]
 plan = "relocate"
+relocate = "dm_playerstate"
+others = [0x8D773, 0x8D77D, 0x8D789, 0x8EF1F, 0x9137C, 0x91385, 0x91390]   # 0x6A5B80..: the bone lighting after it
 layout = "verified"
 source = "player_slots_engine_client.md 1a"
 
@@ -655,3 +687,365 @@ what = "the scoreboard list widget's visible rows and scrolling (0xDD520 family,
 what = "frame_t pointers: code that walks a frame's player states through a register (see the inventory's frame section)"
 [[unresolved]]
 what = "the client's MAX_PACKET_ENTITIES check (string 0x32AED8)"
+
+# --- changes: the engine server (G8.2B checkpoint 2) ---
+
+[[change]]
+at = 0xA19F3
+old = 0x11
+new = "N"
+why = "SV_SetMaxclients: maxplayers clamped to 1..N (compare)"
+[[change]]
+at = 0xA19F8
+old = 0x11
+new = "N"
+why = "SV_SetMaxclients: maxplayers clamped to 1..N (value)"
+[[change]]
+at = 0xA1A10
+operand = "imm"
+old = 0x11
+new = "N"
+why = "svs.maxclientslimit = N"
+# the client_t block: N records of 0x5010 bytes, then the voice listen bits, 3 dwords (96 bits) per receiving client
+# (client_t's own 64 bits at +0x5008 cannot hold player 65), after a 0x10-byte header
+[[change]]
+at = 0xA1A0B
+old = 0x55120
+new = "N * 0x5010 + N * 12 + 0x10"
+why = "svs.clients block: N client_t and the voice listen bits, with the header"
+[[change]]
+at = 0xA1A40
+operand = "imm"
+old = 0x55110
+new = "N * 0x5010 + N * 12"
+why = "svs.clients block header: its size"
+[[change]]
+at = 0xA1A4F
+old = 0x15444
+new = "(N * 0x5010 + N * 12) // 4"
+why = "svs.clients block cleared: N client_t and the voice listen bits, in dwords"
+[[change]]
+at = 0x99103
+operand = "imm"
+old = 0x11
+new = "N"
+why = "SV_CheckForDuplicateNames: N clients"
+[[change]]
+at = 0x99126
+old = 0x11
+new = "N"
+why = "SV_CheckForDuplicateNames: N clients"
+[[change]]
+at = 0x9E84F
+old = 0x11
+new = "N"
+why = "SV_ExtractFromUserinfo: the name loop over N clients"
+[[change]]
+at = 0x9E8B1
+old = 0x11
+new = "N"
+why = "SV_ExtractFromUserinfo: the name loop over N clients"
+[[change]]
+at = 0xABE8E
+old = 0x55110
+new = "N * 0x5010"
+why = "SV_ParseVoiceData: the relay loop over N clients"
+[[change]]
+at = 0x791C5
+old = 0x11
+new = "N"
+why = "the edict to userinfo lookup: players 1..N"
+# voice listen bits (Voice_GetClientListening 0xAC3B0, Voice_SetClientListening 0xAC410): [svs.clients +
+# (receiver * 3 + sender / 32) * 4 + N * 0x5010], after the N client_t; the relay's test (0xABDF8) is a hook
+[[change]]
+at = 0xAC3D0
+old = 0x1404
+new = 3
+why = "Voice_GetClientListening: 3 dwords of listen bits per receiver"
+[[change]]
+at = 0xAC3E5
+operand = "disp"
+old = 0x5008
+new = "N * 0x5010"
+why = "Voice_GetClientListening: the listen bits after the N client_t"
+[[change]]
+at = 0xAC430
+old = 0x1404
+new = 3
+why = "Voice_SetClientListening: 3 dwords of listen bits per receiver"
+[[change]]
+at = 0xAC443
+operand = "disp"
+old = 0x5008
+new = "N * 0x5010"
+why = "Voice_SetClientListening: the listen bits after the N client_t"
+# lag compensation positions: their clears
+[[change]]
+at = 0xAAADC
+old = 0x176
+new = "N * 0x58 // 4"
+why = "SV_SetupMove: truepositions cleared, N entries in dwords"
+[[change]]
+at = 0xAB13D
+old = 0x5D8
+new = "N * 0x58"
+why = "SV_SetupMove: truepositions cleared (Q_memset), N entries"
+[[change]]
+at = 0xAB16E
+old = 0x176
+new = "N * 0x58 // 4"
+why = "SV_SetupMove: truepositions cleared, N entries in dwords"
+# the title's command line templates: -maxplayers N +maxplayers N
+[[change]]
+at = 0xBF6BA
+old = 0x33AA60
+new = "cmdline_cstrike"
+why = "the match's command line: -maxplayers N +maxplayers N (guest table text)"
+[[change]]
+at = 0xBF6D6
+old = 0x33A9F0
+new = "cmdline_launcher"
+why = "the front end's command line: -maxplayers N +maxplayers N (guest table text)"
+
+# --- changes: the engine client ---
+
+# the frame ring's player states: each frame's states are N x 0xFB in cl_frame_playerstates, so a frame index
+# multiplied for a player state uses that stride (the frame's other fields keep 0x1B60: only these 13 feed a state)
+[[change]]
+at = 0x1D282
+old = 0x1B60
+new = "N * 0xFB"
+why = "frame index to its player states (cl_frame_playerstates)"
+[[change]]
+at = 0x23C7C
+old = 0x1B60
+new = "N * 0xFB"
+why = "frame index to its player states (cl_frame_playerstates)"
+[[change]]
+at = 0x254B8
+old = 0x1B60
+new = "N * 0xFB"
+why = "frame index to its player states (cl_frame_playerstates)"
+[[change]]
+at = 0x25ECB
+old = 0x1B60
+new = "N * 0xFB"
+why = "frame index to its player states (cl_frame_playerstates)"
+[[change]]
+at = 0x25F5E
+old = 0x1B60
+new = "N * 0xFB"
+why = "frame index to its player states (cl_frame_playerstates)"
+[[change]]
+at = 0x26034
+old = 0x1B60
+new = "N * 0xFB"
+why = "frame index to its player states (cl_frame_playerstates)"
+[[change]]
+at = 0x323D2
+old = 0x1B60
+new = "N * 0xFB"
+why = "frame index to its player states (cl_frame_playerstates)"
+[[change]]
+at = 0x4D15B
+old = 0x1B60
+new = "N * 0xFB"
+why = "frame index to its player states (cl_frame_playerstates)"
+[[change]]
+at = 0x4D1D6
+old = 0x1B60
+new = "N * 0xFB"
+why = "frame index to its player states (cl_frame_playerstates)"
+[[change]]
+at = 0x8F109
+old = 0x1B60
+new = "N * 0xFB"
+why = "frame index to its player states (cl_frame_playerstates)"
+[[change]]
+at = 0x92BA6
+old = 0x1B60
+new = "N * 0xFB"
+why = "frame index to its player states (cl_frame_playerstates)"
+[[change]]
+at = 0x937E1
+old = 0x1B60
+new = "N * 0xFB"
+why = "frame index to its player states (cl_frame_playerstates)"
+[[change]]
+at = 0x93862
+old = 0x1B60
+new = "N * 0xFB"
+why = "frame index to its player states (cl_frame_playerstates)"
+[[change]]
+at = 0x25897
+old = 0x7C0C
+new = "N * 0x74C"
+why = "CL_LinkPlayers: cl_entities 1..N (players)"
+[[change]]
+at = 0x25FE5
+old = 0x11
+new = "N"
+why = "predicted players: N"
+[[change]]
+at = 0x26276
+old = 0x11
+new = "N"
+why = "the prediction's player physents: N"
+[[change]]
+at = 0x2E8E1
+old = 0x11
+new = "N"
+why = "svc_serverinfo: maxclients up to N (Bad maxclients above)"
+[[change]]
+at = 0x2CA2C
+old = 0x11
+new = "N"
+why = "svc_updateuserinfo: slot below N"
+[[change]]
+at = 0x2E02A
+old = 0x11
+new = "N"
+why = "customization: player index below N"
+[[change]]
+at = 0x38DA6
+old = 0x11
+new = "N"
+why = "event player lookup: entity - 1 below N"
+
+# --- changes: the protocol (one PC wire format; docs/player_slots_plan.md section 5) ---
+
+[[change]]
+at = 0x9DC42
+old = 5
+new = 8
+why = "svc_pings writer: the player slot in 8 bits (5 bits held 32)"
+[[change]]
+at = 0x31A00
+old = 5
+new = 8
+why = "svc_pings reader: the player slot in 8 bits"
+[[change]]
+at = 0x970F0
+old = 46
+new = "PROTOCOL"
+why = "protocol version: svc_serverinfo: the protocol version the server sends"
+[[change]]
+at = 0x98C78
+old = 46
+new = "PROTOCOL"
+why = "protocol version: SV_CheckProtocol: the version a connecting client must have"
+[[change]]
+at = 0x98CA4
+old = 46
+new = "PROTOCOL"
+why = "protocol version: SV_CheckProtocol: the version in its refusal message"
+[[change]]
+at = 0x98CB9
+old = 46
+new = "PROTOCOL"
+why = "protocol version: SV_CheckProtocol: the version in its refusal message"
+[[change]]
+at = 0x9A5DB
+old = 46
+new = "PROTOCOL"
+why = "protocol version: the server info string: protocol"
+[[change]]
+at = 0x296C1
+old = 46
+new = "PROTOCOL"
+why = "protocol version: the client's connect packet: protocol"
+[[change]]
+at = 0x2E822
+old = 46
+new = "PROTOCOL"
+why = "protocol version: svc_serverinfo: the version the client accepts"
+[[change]]
+at = 0x2E831
+old = 46
+new = "PROTOCOL"
+why = "protocol version: svc_serverinfo: the version in the client's refusal"
+[[change]]
+at = 0x30945
+old = 46
+new = "PROTOCOL"
+why = "protocol version: CL_Parse_Version: the version the client accepts"
+[[change]]
+at = 0x3094A
+old = 46
+new = "PROTOCOL"
+why = "protocol version: CL_Parse_Version: the version in its message"
+[[change]]
+at = 0x5D9AD
+old = 46
+new = "PROTOCOL"
+why = "protocol version: version command: Protocol version"
+[[change]]
+at = 0x63505
+old = 46
+new = "PROTOCOL"
+why = "protocol version: version command: Protocol version"
+[[change]]
+at = 0x944ED
+old = 46
+new = "PROTOCOL"
+why = "protocol version: the log file header: version"
+[[change]]
+at = 0x213AA
+old = 46
+new = "PROTOCOL"
+why = "protocol version: demo recording: the network protocol in the demo header"
+[[change]]
+at = 0x1E65F
+old = 46
+new = "PROTOCOL"
+why = "protocol version: demo playback: the network protocol a demo must have"
+[[change]]
+at = 0x1E89B
+old = 46
+new = "PROTOCOL"
+why = "protocol version: demo playback: the protocol in its message"
+[[change]]
+at = 0x1EBC6
+old = 46
+new = "PROTOCOL"
+why = "protocol version: demo playback: the network protocol a demo must have"
+[[change]]
+at = 0x1EDE2
+old = 46
+new = "PROTOCOL"
+why = "protocol version: demo playback: the protocol in its message"
+[[change]]
+at = 0x1F113
+old = 46
+new = "PROTOCOL"
+why = "protocol version: demo playback: the network protocol a demo must have"
+[[change]]
+at = 0x1F579
+old = 46
+new = "PROTOCOL"
+why = "protocol version: demo playback: the protocol in its message"
+[[change]]
+at = 0x1F82D
+old = 46
+new = "PROTOCOL"
+why = "protocol version: demo playback: the network protocol a demo must have"
+[[change]]
+at = 0x1FAFC
+old = 46
+new = "PROTOCOL"
+why = "protocol version: demo playback: the protocol in its message"
+[[change]]
+at = 0x1FC5D
+old = 46
+new = "PROTOCOL"
+why = "protocol version: demo listing: the protocol in its message"
+[[change]]
+at = 0x21894
+old = 46
+new = "PROTOCOL"
+why = "protocol version: demo playback: the network protocol a demo must have"
+[[change]]
+at = 0x218A6
+old = 46
+new = "PROTOCOL"
+why = "protocol version: demo playback: the protocol in its message"

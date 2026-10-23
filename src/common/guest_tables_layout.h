@@ -6,7 +6,35 @@ namespace guest_tables {
 
 constexpr Region kRegion = {0x70000000u, 0x01000000u};
 
-constexpr const Table* kTables = nullptr;  // none yet
-constexpr size_t kTableCount = 0;
+constexpr Table kTables[] = {
+    {"sv_truepositions", 0x700019A8u, 0x58u, 65u, 4u},  // lag compensation positions, one per client (was 17 at 0x4E46C0)
+    {"sv_lastping", 0x70004F7Eu, 0x2u, 65u, 2u},  // last ping per client, u16 (was 17 at 0x4E0448)
+    {"sv_lastloss", 0x70006FBFu, 0x1u, 65u, 1u},  // last packet loss per client, u8 (was 17 at 0x4E449C)
+    {"cl_frame_playerstates", 0x70008450u, 0x3FBBu, 16u, 1u},  // cl.frames[16].playerstate[65], moved out of the frames (was [17] at frame + 0x18)
+    {"cl_players", 0x70049AB4u, 0x24Cu, 65u, 4u},  // cl.players[65], player_info_t (was 17 inside cl at 0x7791F0)
+    {"cl_predicted_players", 0x700545D8u, 0x28u, 65u, 4u},  // predicted_players[65] (was 17 at 0x3AE3D0)
+    {"dm_playerstate", 0x70056AF4u, 0x20Cu, 65u, 4u},  // the studio renderer's player model cache [65] (was 17 at 0x6A38A0)
+    {"cmdline_cstrike", 0x70060F80u, 0x1u, 128u, 1u},  // the match's command line template, 65 player slots
+    {"cmdline_launcher", 0x70062F80u, 0x1u, 128u, 1u},  // the front end's command line template, 65 player slots
+};
+constexpr size_t kTableCount = sizeof(kTables) / sizeof(kTables[0]);
+
+// each table by name, for host code: kTables[k_NAME]
+constexpr size_t k_sv_truepositions = 0;
+constexpr size_t k_sv_lastping = 1;
+constexpr size_t k_sv_lastloss = 2;
+constexpr size_t k_cl_frame_playerstates = 3;
+constexpr size_t k_cl_players = 4;
+constexpr size_t k_cl_predicted_players = 5;
+constexpr size_t k_dm_playerstate = 6;
+constexpr size_t k_cmdline_cstrike = 7;
+constexpr size_t k_cmdline_launcher = 8;
+
+// tables that start with a text (a NUL-terminated string the recompiled code is pointed at)
+constexpr TableText kTexts[] = {
+    {7, "-dev -console +set developer 1 -game cstrike -maxplayers 65 +maxplayers 65 +hideradar +hostname XBOX %s"},
+    {8, "-dev -console +set developer 1 -game launcher -maxplayers 65 +maxplayers 65 +hideradar +hostname XBOX %s"},
+};
+constexpr size_t kTextCount = sizeof(kTexts) / sizeof(kTexts[0]);
 
 }  // namespace guest_tables
