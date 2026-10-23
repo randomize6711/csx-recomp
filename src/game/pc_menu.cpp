@@ -323,6 +323,59 @@ std::string ExtendCustomOptions(const std::string& text) {
     return text.substr(0, end) + CollisionRow() + text.substr(end);
 }
 
+// Custom Game > Number of Bots (FINDINGS.md "Bot count"): the single player match's Match Options list "1 bot" to
+// "11 bots" (+bot_quota N on the match's command line, as its other rows); the engine has 17 player slots
+// (-maxplayers 17 in the title's own command line; svs.maxclientslimit and the client's MAX_CLIENTS are 17), so with
+// the player 16 bots fit. The list gains "0 bots" before its first choice and "12 bots" to "16 bots" after its last;
+// the screen's code that reads it by position (0xE1D10, with the bots on one team at most 8) is replaced by
+// PcBotCountLimit for the longer list
+constexpr int kMaxBots = 16;
+
+std::string ExtendBotCount(const std::string& text) {
+    size_t screen = text.find("\nSuperLauncher_SinglePlayerMatchOptions\r\n");
+    size_t next = screen == std::string::npos ? screen : text.find("\nSuperLauncher_", screen + 1);
+    const std::string help = "CellFixed \"Select how many bots you want to play with.\"\r\n\t\t\t\t}\r\n";
+    const std::string first = "\t\t\t\tListOption \"1 bot\"\t\t\t\"+wait +bot_quota 1\"\r\n";
+    const std::string last = "\t\t\t\tListOption \"11 bots\"\t\t\"+wait +bot_quota 11\"\r\n";
+    size_t h = screen == std::string::npos ? screen : text.find(help, screen);
+    size_t f = h == std::string::npos ? h : text.find(first, h);
+    size_t l = f == std::string::npos ? f : text.find(last, f);
+    if (l == std::string::npos || l > next) {
+        LOGW("pc menu: the single player Match Options not as expected, Number of Bots left as it is");
+        return text;
+    }
+    std::string more;
+    for (int n = 12; n <= kMaxBots; n++)
+        more += "\t\t\t\tListOption \"" + std::to_string(n) + " bots\"\t\t\"+wait +bot_quota " + std::to_string(n) +
+                "\"\r\n";
+    std::string out = text.substr(0, l + last.size()) + more + text.substr(l + last.size());
+    out.insert(f, "\t\t\t\tListOption \"0 bots\"\t\t\t\"+wait +bot_quota 0\"\r\n");
+    out.insert(h + help.size(),
+               "\t\t\t\tRow\r\n\t\t\t\t{\r\n"
+               "\t\t\t\t\tCellFixed \"16 bots and you fill the game's 17 player slots.\"\r\n\t\t\t\t}\r\n");
+    return out;
+}
+
+}  // namespace
+
+// [[hook]] at 0xE1D2B (config/game.toml) in the single player Match Options' simulate (0xE1D10), where it has the
+// table (ecx) and the Bot Team row's choice (edi: 0 both teams, 1 or 2 one team): the original then caps Number of
+// Bots at its eighth choice ("8 bots") and disables the ninth to fifteenth while the bots join one team, enables them
+// otherwise (the list's enable bytes at its cell +0x29 + choice). The same for the list ExtendBotCount makes ("0 bots"
+// first: "8 bots" is the ninth choice, "9 bots" to "16 bots" the ones after it); true leaves the function (0xE1D63)
+bool PcBotCountLimit(X86Context& ctx, uint8_t*) {
+    uint32_t list = R32(R32(ctx.ecx + 0x60) + 0xC) + 0x78;  // row 0's cells: the label, then the list
+    bool one_team = ctx.edi != 0;
+    if (one_team && R32(list) > 8) {
+        LOGI("pc menu: Number of Bots %u capped at 8 (the bots on one team)", R32(list));
+        kernel::W32(list, 8);
+    }
+    for (int i = 9; i <= kMaxBots; i++) static_cast<uint8_t*>(kernel::HostPtr(list + 0x29 + i))[0] = one_team ? 0 : 1;
+    return true;
+}
+
+namespace {
+
 // the front end text: before View Credits in SuperLauncher_Options a row per screen (as its rows are written, with
 // help), then the screens; empty when its layout is not the one expected
 std::string ExtendFrontEnd(const std::string& text) {
@@ -617,7 +670,8 @@ void PcUiLoadText(X86Context& ctx, uint8_t*) {
         std::filesystem::create_directories(app::ExeDir() / "uidump");
         std::ofstream(app::ExeDir() / "uidump" / name, std::ios::binary) << text;
     }
-    std::string out = name.rfind("FrontEndUI", 0) == 0 ? ExtendFrontEnd(ExtendCustomOptions(text)) : ExtendInGame(text);
+    std::string out = name.rfind("FrontEndUI", 0) == 0 ? ExtendFrontEnd(ExtendBotCount(ExtendCustomOptions(text)))
+                                                       : ExtendInGame(text);
     PcMouseLearnUi(out.empty() ? text : out);
     if (out.empty() || out.size() > room) {
         LOGW("pc menu: %s left as it is (%s)", name.c_str(), out.empty() ? "layout not recognised" : "no room");
