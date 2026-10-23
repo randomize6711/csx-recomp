@@ -1,0 +1,98 @@
+# PC Options > Xbox Graphical Effects, headless (FINDINGS.md "Xbox Graphical Effects", src/common/pc_settings.cpp
+# pc::XboxEffect): the master over the two optional effects, Bloom (cl_hdrbloom) and Auto Exposure (cl_dynamicgamma).
+# Started with the master Off saved and Bloom and Auto Exposure On saved: both are off from the map's first frame
+# (the map's 0.5 and 1 taken back after its light config) while their own saved values stay 1. Then all eight
+# combinations of the three settings, changed while playing at one held view (tools/drive.py setview, no bots): the
+# cvars follow master AND setting (`expect effects`, CSX_LOG_EFFECTS=1), no setting is rewritten by another, the
+# adjustment runs only with the master and Auto Exposure On (CSX_LOG_DYNGAMMA logs one a second while it does), and
+# every frame with the master Off equals the frame with the master On and both effects Off (the identity ramp, no
+# bloom), whatever the effects' own settings; the bloom brightens the sky (the upper right) only with both On.
+#   --env FPS=30 --env CSX_LOG_DYNGAMMA=1 --env CSX_LOG_EFFECTS=1 --pc xbox_effects=0 --pc bloom=1
+#   --pc auto_exposure=1 --launch tests/launch/de_aztec_nobots
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+expect log pc: Auto Exposure off \(cl_dynamicgamma 0\), Xbox Graphical Effects off
+expect log pc: Bloom off \(Xbox Graphical Effects off\)
+wait log pc: the map's light config set cl_dynamicgamma 1, Auto Exposure off sets 0
+expect log pc: Auto Exposure off, cl_dynamicgamma 0, the title's identity ramp set
+expect log pc: the map's light config set cl_hdrbloom 0.5, Bloom off sets 0
+wait draws>=150
+expect effects 0 0
+expect quiet dynamic.gamma:.measured 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 14
+setview 2352 -256 -251.969 135 -10
+sleep 2
+expect effects 0 0
+snap m0_b1_a1
+expect nolog dynamic gamma: measured
+pckey set bloom 0
+sleep 2
+expect effects 0 0
+snap m0_b0_a1
+pckey set auto_exposure 0
+sleep 2
+expect effects 0 0
+snap m0_b0_a0
+pckey set bloom 1
+sleep 2
+expect effects 0 0
+snap m0_b1_a0
+expect nolog dynamic gamma: measured
+expect setting xbox_effects 0
+expect setting bloom 1
+expect setting auto_exposure 0
+pckey set xbox_effects 1
+wait log pc: Bloom on, cl_hdrbloom 0.5
+expect effects 0.5 0
+sleep 2
+expect quiet dynamic.gamma:.measured 3
+snap m1_b1_a0
+pckey set auto_exposure 1
+wait log pc: Auto Exposure on \(cl_dynamicgamma 1\)$
+expect effects 0.5 1
+wait log dynamic gamma: measured
+sleep 3
+snap m1_b1_a1
+pckey set bloom 0
+wait log pc: Bloom off, cl_hdrbloom 0$
+expect effects 0 1
+sleep 2
+snap m1_b0_a1
+pckey set auto_exposure 0
+wait log pc: Auto Exposure off, the title's identity ramp set
+expect effects 0 0
+sleep 2
+expect quiet dynamic.gamma:.measured 3
+snap m1_b0_a0
+expect setting xbox_effects 1
+expect setting bloom 0
+expect setting auto_exposure 0
+pckey set bloom 1
+pckey set auto_exposure 1
+sleep 3
+expect effects 0.5 1
+pckey set xbox_effects 0
+sleep 3
+expect effects 0 0
+expect quiet dynamic.gamma:.measured 3
+snap m0_again
+expect setting bloom 1
+expect setting auto_exposure 1
+pckey set xbox_effects 1
+sleep 3
+expect effects 0.5 1
+wait log dynamic gamma: measured
+expect regiondiff m1_b0_a0 m0_b1_a1 0 0 640 480 -0.5 0.5
+expect regiondiff m1_b0_a0 m0_b0_a1 0 0 640 480 -0.5 0.5
+expect regiondiff m1_b0_a0 m0_b0_a0 0 0 640 480 -0.5 0.5
+expect regiondiff m1_b0_a0 m0_b1_a0 0 0 640 480 -0.5 0.5
+expect regiondiff m1_b0_a0 m0_again 0 0 640 480 -0.5 0.5
+expect regiondiff m1_b0_a0 m1_b1_a0 320 0 640 240 1 12
+setview off
+expect nolog guest trap

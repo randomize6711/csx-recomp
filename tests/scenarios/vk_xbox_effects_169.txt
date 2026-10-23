@@ -1,0 +1,126 @@
+# PC Options > Xbox Graphical Effects through the menus, map changes and relaunches, in the Vulkan window at 16:9
+# (FINDINGS.md "Xbox Graphical Effects"): saved Off before the start (Bloom and Auto Exposure saved On), the front end
+# starts de_airstrip in a new process (a relaunch reading pc_settings.ini) with both effects off from the map's first
+# frame (`expect effects`, CSX_LOG_EFFECTS=1: cl_hdrbloom and cl_dynamicgamma as the title holds them). The pause
+# menu's PC Options row 9 (the mouse: its arrow, a double click accepting) turns the master On: saved, the map's 0.5
+# and the adjustment back. A console cl_hdrbloom 0.8 stands, and the master Off and On again gives it back (On
+# restores what the cvar last held); the master Off, Change Map to de_aztec (another relaunch): its light config's 0.5
+# and 1 taken back to 0 before its first frame; the master On gives back de_aztec's own 0.5, not the console's 0.8.
+# A console change while Off stands until a setting changes (cl_dynamicgamma 1 runs the adjustment; the master On and
+# Off again stops it). Bloom and Auto Exposure stay saved On throughout.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --env CSX_LOG_EFFECTS=1 --env CSX_LOG_DYNGAMMA=1 --pc xbox_effects=0 --pc bloom=1 --pc auto_exposure=1
+#   --pc aspect=16:9
+wait log renderer: vulkan
+expect log pc: Auto Exposure off \(cl_dynamicgamma 0\), Xbox Graphical Effects off
+wait log open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+key Down
+sleep 2
+key Space
+sleep 5
+key Space
+sleep 5
+key Space
+wait log relaunching into
+wait log open D:\\de_airstrip.sxwad
+wait log pc: the map's light config set cl_dynamicgamma 1, Auto Exposure off sets 0
+expect log pc: Bloom off \(Xbox Graphical Effects off\)
+expect before pc:.Auto.Exposure.off..cl_dynamicgamma.0.,.Xbox.Graphical.Effects.off pc:.the.map's.light.config
+expect effects 0 0
+expect quiet dynamic.gamma:.measured 10
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 20
+key Left_Ctrl
+sleep 10
+expect nolog dynamic gamma: measured
+expect effects 0 0
+key Escape
+sleep 2
+point 300 271
+sleep 0.5
+click 1
+sleep 2
+point 300 249
+sleep 0.5
+click 1
+sleep 2
+expect log pc mouse: screen InGame_PCOptions, 13 rows
+point 545 329
+sleep 0.5
+click 1
+sleep 1
+point 200 329
+sleep 0.5
+click 11
+sleep 2
+expect log pc: xbox_effects = 1
+expect setting xbox_effects 1
+expect setting bloom 1
+expect setting auto_exposure 1
+click 3
+sleep 2
+point 300 141
+sleep 0.5
+click 1
+sleep 3
+expect effects 0.5 1
+wait log dynamic gamma: measured
+pckey cmd cl_hdrbloom 0.8
+expect effects 0.8 1
+pckey set xbox_effects 0
+expect effects 0 0
+expect quiet dynamic.gamma:.measured 3
+pckey set xbox_effects 1
+expect effects 0.8 1
+pckey set xbox_effects 0
+expect effects 0 0
+key Escape
+sleep 2
+point 300 193
+sleep 0.5
+click 1
+sleep 3
+point 320 142
+sleep 0.5
+click 1
+sleep 2
+expect log pc mouse: screen InGame_ConfirmChangeMap
+point 320 273
+sleep 1
+click 1
+wait log open D:\\de_aztec.sxwad
+count pc:.the.map's.light.config.set.cl_dynamicgamma.1,.Auto.Exposure.off.sets.0 2
+expect count pc:.the.map's.light.config.set.cl_hdrbloom.0.5,.Bloom.off.sets.0 2
+expect effects 0 0
+wait log pc mouse: screen TeamSelect_RootSinglePlayer
+point 318 249
+sleep 0.5
+click 1
+sleep 4
+key Left_Ctrl
+sleep 5
+expect quiet dynamic.gamma:.measured 5
+expect effects 0 0
+pckey cmd cl_dynamicgamma 1
+expect effects 0 1
+pckey set xbox_effects 1
+expect effects 0.5 1
+pckey set xbox_effects 0
+expect effects 0 0
+sleep 2
+expect quiet dynamic.gamma:.measured 3
+expect setting xbox_effects 0
+expect setting bloom 1
+expect setting auto_exposure 1
+expect nolog guest trap

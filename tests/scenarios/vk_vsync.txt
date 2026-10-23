@@ -31,7 +31,7 @@ point 150 232
 sleep 0.5
 click 1
 sleep 3
-expect log pc mouse: screen SuperLauncher_PCOptions, 12 rows
+expect log pc mouse: screen SuperLauncher_PCOptions, 13 rows
 point 545 303
 sleep 0.5
 click 1

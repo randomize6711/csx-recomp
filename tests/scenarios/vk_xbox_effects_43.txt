@@ -1,0 +1,104 @@
+# PC Options > Xbox Graphical Effects in the Vulkan window at 4:3 (FINDINGS.md "Xbox Graphical Effects"): saved
+# Off with Bloom and Auto Exposure saved On, the map starts with both off (its light config's cl_hdrbloom 0.5 and
+# cl_dynamicgamma 1 taken back, `expect effects`, CSX_LOG_EFFECTS=1) and their saved values untouched. The master
+# leaves the rendering fixes on: Vulkan's depth clamp (FOV 120, a K&M SMG bought: the reserve ammunition over the
+# weapon within vk_viewmodel_hud_43's bounds, at the held view, tools/drive.py setview) and the flashbang's
+# white-out over the whole 640x480 frame (thrown at the player's feet: the opacity in nine patches touching the
+# frame's edges). On while playing gives back the map's 0.5 and the adjustment, Off again the same frame as at the
+# start (the identity ramp, no bloom).
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), with
+#   --launch tests/launch/de_aztec_nobots --env CSX_LOG_EFFECTS=1 --env CSX_LOG_DYNGAMMA=1 --env CSX_LOG_FADE=1
+#   --pc xbox_effects=0 --pc bloom=1 --pc auto_exposure=1 --pc aspect=4:3 --pc fov=120
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+expect log vulkan: depth within the cull range clamped to the buffer's 0 to 1
+expect log pc: Auto Exposure off \(cl_dynamicgamma 0\), Xbox Graphical Effects off
+expect log pc: Bloom off \(Xbox Graphical Effects off\)
+wait log pc: the map's light config set cl_dynamicgamma 1, Auto Exposure off sets 0
+expect log pc: the map's light config set cl_hdrbloom 0.5, Bloom off sets 0
+expect effects 0 0
+sleep 20
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 20
+key Left_Ctrl
+wait log pc keys: menu T_BuyMenuRoot
+sleep 24
+pckey cmd mp_buytime 60
+expect nolog dynamic gamma: measured
+pckey tap +buymenu 0.2
+sleep 1.5
+pckey pointer 125 282
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 125 245
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey mclick 2
+sleep 1
+pckey mclick 2
+sleep 3
+state m
+expect weapon m 19
+setview 2352 -256 -251.969 135 -10
+sleep 3
+windowshot off_launch
+expect bluefrac off_launch 755 800 1025 900 0.13 0.19
+pckey set xbox_effects 1
+expect effects 0.5 1
+wait log dynamic gamma: measured
+sleep 3
+windowshot on
+pckey set xbox_effects 0
+expect effects 0 0
+sleep 3
+expect quiet dynamic.gamma:.measured 3
+windowshot off_again
+expect regiondiff off_launch off_again 0 0 1150 500 -0.5 0.5
+expect bluefrac off_again 755 800 1025 900 0.13 0.19
+expect setting xbox_effects 0
+expect setting bloom 1
+expect setting auto_exposure 1
+setview off
+pckey tap +buymenu 0.2
+sleep 1.5
+pckey pointer 227 351
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 157 321
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey mclick 2
+sleep 1
+pckey mclick 2
+sleep 2
+pckey key 52 1
+sleep 0.1
+pckey key 52 0
+sleep 1.5
+state fb
+expect weapon fb 25
+mousestream 0 40 10 60
+sleep 6
+pckey cmd +attack
+sleep 0.3
+pckey cmd -attack
+sleep 2.2
+windowshot white
+expect log screen fade: started at [0-9.]+ s, colour FFFFFF alpha 255,
+sleep 2.5
+windowshot fading
+fade f
+expect fade f alpha 255 255
+sleep 2
+windowshot after
+expect coverage after white 0.97 0.03
+expect coverage after fading 0.15 0.3
+expect effects 0 0
+expect nolog guest trap

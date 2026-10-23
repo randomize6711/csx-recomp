@@ -154,6 +154,17 @@ the weapon's parts close to the eye must not hide it. `expect bluefrac NAME X0 Y
 pixels whose blue exceeds red by 12) measures the HUD's blue-grey numbers over the dark weapon in the bottom right
 box: as in the reference renderer (0.149, 0.090, 0.044 at 4:3, 16:9, 21:9), about half before the fix.
 
+## Xbox Graphical Effects
+
+The master over Bloom and Auto Exposure (FINDINGS.md "Xbox Graphical Effects"). `expect effects BLOOM GAMMA` waits up
+to 5 s for the last "pc effects" line (CSX_LOG_EFFECTS=1: cl_hdrbloom and cl_dynamicgamma logged each time either
+changes) to read those values. `regress_xbox_effects.txt` (headless, the master saved Off): the eight combinations of
+the three settings while playing, the saved values untouched, every master Off frame equal to the master On frame
+with both effects Off. `vk_xbox_effects_43.txt` and `_219.txt` (FOV 120, the master saved Off): both off from the first
+frame, the HUD over the weapon (`expect bluefrac`, vk_viewmodel_hud's bounds) and the flashbang's white-out
+(`expect coverage`) unchanged by the master, On and Off again while playing. `vk_xbox_effects_169.txt` (from the front
+end): the relaunch into de_airstrip, the pause menu's row (the mouse), console values, Change Map with the master Off.
+
 ## Rounds
 
 `rounds_direct.txt` plays complete rounds from the direct start of any map fixture (`de_airstrip_beginner`,

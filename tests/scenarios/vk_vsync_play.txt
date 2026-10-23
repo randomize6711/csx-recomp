@@ -38,7 +38,7 @@ point 300 249
 sleep 0.5
 click 1
 sleep 2
-expect log pc mouse: screen InGame_PCOptions, 12 rows
+expect log pc mouse: screen InGame_PCOptions, 13 rows
 point 545 303
 sleep 0.5
 click 1
