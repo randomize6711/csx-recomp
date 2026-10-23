@@ -1,0 +1,595 @@
+diff --git i/tools/recomp/analysis.cpp w/tools/recomp/analysis.cpp
+index ca434a7..69dcc04 100644
+--- i/tools/recomp/analysis.cpp
++++ w/tools/recomp/analysis.cpp
+@@ -1,5 +1,7 @@
+ #include "analysis.h"
+ 
++#include "patches.h"
++
+ #include <algorithm>
+ #include <cstdio>
+ #include <deque>
+@@ -38,13 +40,19 @@ const uint8_t* Analysis::Bytes(uint32_t va, uint32_t& avail) const {
+     return img.file.data() + o;
+ }
+ 
+-bool Analysis::Decode(uint32_t va, ZydisDecodedInstruction& insn, ZydisDecodedOperand* ops) const {
++bool Analysis::DecodeOriginal(uint32_t va, ZydisDecodedInstruction& insn, ZydisDecodedOperand* ops) const {
+     uint32_t avail = 0;
+     const uint8_t* p = Bytes(va, avail);
+     if (!p || !avail) return false;
+     return ZYAN_SUCCESS(ZydisDecoderDecodeFull(&dec_, p, std::min<uint32_t>(avail, 15), &insn, ops));
+ }
+ 
++bool Analysis::Decode(uint32_t va, ZydisDecodedInstruction& insn, ZydisDecodedOperand* ops) const {
++    if (!DecodeOriginal(va, insn, ops)) return false;
++    if (!cfg.patches.empty()) ApplyPatches(cfg, va, insn, ops);
++    return true;
++}
++
+ bool Analysis::ReadTable(uint32_t jmp_va, const ZydisDecodedOperand& mem, JumpTable& jt) {
+     jt.insn = jmp_va;
+     jt.table = uint32_t(mem.mem.disp.value);
+diff --git i/tools/recomp/analysis.h w/tools/recomp/analysis.h
+index 7b85c56..7ba2f67 100644
+--- i/tools/recomp/analysis.h
++++ w/tools/recomp/analysis.h
+@@ -22,6 +22,19 @@ struct Hook {
+     bool Returns() const { return on_true.set || on_false.set; }
+ };
+ 
++// [[patch]]: one operand of one instruction replaced at recompile time, so the generated code computes with the new
++// value (patches.cpp). The image file is never changed.
++struct Patch {
++    enum class Kind : uint8_t { Imm, Disp };
++    uint32_t at = 0;
++    Kind kind = Kind::Imm;
++    int index = -1;                 // the operand, -1 = the only one of its kind
++    int64_t old_value = 0, new_value = 0;
++    std::vector<uint8_t> bytes;     // the instruction as the image holds it
++    std::string insn;               // its Intel text as xbe_recomp formats it, "" = unchecked
++    std::string why, source;        // the reason, and the config file that declared it
++};
++
+ struct Config {
+     std::string xbe_path;
+     uint32_t title = 0, entry = 0;  // the image xbe_symbols wrote the config for, 0 = unchecked
+@@ -42,6 +55,8 @@ struct Config {
+     std::multimap<uint32_t, Hook> hooks;
+     std::map<uint32_t, uint32_t> function_ends;          // declared entries, exclusive decode limit or 0
+     std::map<uint32_t, std::vector<uint32_t>> switches;  // indirect jmp to its targets
++    std::string sha256;                                  // the exact image, required by [[patch]]
++    std::map<std::pair<uint32_t, int>, Patch> patches;   // keyed by address and kind
+ };
+ 
+ enum class Flow : uint8_t { Normal, Jcc, Jmp, JmpIndirect, Call, CallIndirect, Ret, Stop, Invalid };
+@@ -65,7 +80,8 @@ public:
+     void Run();
+ 
+     bool IsCode(uint32_t va) const { return va >= lo_ && va < hi_ && code_[va - lo_]; }
+-    bool Decode(uint32_t va, ZydisDecodedInstruction& insn, ZydisDecodedOperand* ops) const;
++    bool Decode(uint32_t va, ZydisDecodedInstruction& insn, ZydisDecodedOperand* ops) const;  // with [[patch]] applied
++    bool DecodeOriginal(uint32_t va, ZydisDecodedInstruction& insn, ZydisDecodedOperand* ops) const;
+     const Insn* InsnAt(uint32_t va) const {
+         auto it = insns_.find(va);
+         return it == insns_.end() ? nullptr : &it->second;
+diff --git i/tools/recomp/codegen_emit.cpp w/tools/recomp/codegen_emit.cpp
+index 160d841..f7e6a1c 100644
+--- i/tools/recomp/codegen_emit.cpp
++++ w/tools/recomp/codegen_emit.cpp
+@@ -6,6 +6,7 @@
+ #include <sstream>
+ 
+ #include "codegen.h"
++#include "patches.h"
+ 
+ namespace fs = std::filesystem;
+ 
+@@ -80,6 +81,9 @@ std::string CodeGen::EmitFunction(uint32_t entry) {
+             continue;
+         }
+         Line("\t// " + F("%08X ", va) + Text(va, in, ops));
++        for (auto it = an_.cfg.patches.lower_bound({va, 0}); it != an_.cfg.patches.end() && it->first.first == va; ++it)
++            Line(F("\t// [[patch]] %s %s -> %s (%s)", it->second.kind == Patch::Kind::Imm ? "imm" : "disp",
++                   PatchValue(it->second.old_value).c_str(), PatchValue(it->second.new_value).c_str(), it->second.source.c_str()));
+         uint32_t next_body = i + 1 < body.size() ? body[i + 1] : 0;
+         EmitInsn(va, in, ops, next_body);
+         if (!an_.cfg.hooks.empty()) EmitHooks(va, true);
+diff --git i/tools/recomp/main.cpp w/tools/recomp/main.cpp
+index 0190081..374f950 100644
+--- i/tools/recomp/main.cpp
++++ w/tools/recomp/main.cpp
+@@ -2,6 +2,7 @@
+ 
+ #include <algorithm>
+ #include <cstdio>
++#include <cctype>
+ #include <cstring>
+ #include <filesystem>
+ #include <fstream>
+@@ -9,6 +10,7 @@
+ 
+ #include "analysis.h"
+ #include "codegen.h"
++#include "patches.h"
+ 
+ namespace fs = std::filesystem;
+ 
+@@ -48,6 +50,10 @@ static bool ParseExit(const toml::node* n, Hook::Exit& e) {
+ //   [[function]] at, end  an entry decoded no further than end (exclusive); it also stops other walks
+ //   [[switch]] at, targets  the targets of an indirect jmp, replacing table detection
+ //   [xbe] xdk = build  includes <--xdk folder>/<build>/layout.toml
++//   [xbe] sha256 = "..."  the exact image (lower case hex of the whole file); required by [[patch]]
++//   [[patch]] at, operand ("imm" or "disp"), index (optional), old, new, bytes ("C7 05 ..."), insn (optional), why
++//     replace one operand of the instruction at `at` in the generated code; the bytes, the text and the old value must
++//     match the image and analysis must decode an instruction there, or nothing is generated (patches.cpp)
+ //   [abi] name = ["esi", "stack", "none", ...]  where a [symbols] function takes each API argument when the image does not
+ //     use the convention the host declares: a register, or "stack" for the next stack slot, which the callee pops
+ static bool LoadConfig(const fs::path& path, Config& cfg, const fs::path& xdk_dir) {
+@@ -142,6 +148,42 @@ static bool LoadConfig(const fs::path& path, Config& cfg, const fs::path& xdk_di
+             k.after = (*h)["after"].value_or(false);
+             cfg.hooks.emplace(k.at, k);
+         }
++    if (auto v = t["xbe"]["sha256"].value<std::string>()) cfg.sha256 = *v;
++    if (auto a = t["patch"].as_array())
++        for (auto& e : *a) {
++            auto h = e.as_table();
++            auto at = Num(h, "at"), old_v = Num(h, "old"), new_v = Num(h, "new");
++            auto operand = h ? (*h)["operand"].value<std::string>() : std::nullopt;
++            auto bytes = h ? (*h)["bytes"].value<std::string>() : std::nullopt;
++            if (!at || !old_v || !new_v || !operand || (*operand != "imm" && *operand != "disp") || !bytes) return bad("patch");
++            Patch p;
++            p.at = uint32_t(*at);
++            p.kind = *operand == "imm" ? Patch::Kind::Imm : Patch::Kind::Disp;
++            p.index = int(Num(h, "index").value_or(-1));
++            p.old_value = *old_v;
++            p.new_value = *new_v;
++            p.insn = (*h)["insn"].value_or(std::string());
++            p.why = (*h)["why"].value_or(std::string());
++            p.source = path.filename().string();
++            for (size_t i = 0; i < bytes->size();) {
++                if ((*bytes)[i] == ' ') {
++                    i++;
++                    continue;
++                }
++                if (i + 1 >= bytes->size() || !std::isxdigit((unsigned char)(*bytes)[i]) ||
++                    !std::isxdigit((unsigned char)(*bytes)[i + 1]))
++                    return bad("patch");
++                p.bytes.push_back(uint8_t(std::stoul(bytes->substr(i, 2), nullptr, 16)));
++                i += 2;
++            }
++            if (p.bytes.empty() || p.bytes.size() > 15) return bad("patch");
++            auto key = std::make_pair(p.at, int(p.kind));
++            if (cfg.patches.count(key)) {
++                std::fprintf(stderr, "%s: two [[patch]] entries for %08X %s\n", path.string().c_str(), p.at, operand->c_str());
++                return false;
++            }
++            cfg.patches.emplace(key, std::move(p));
++        }
+     if (auto a = t["function"].as_array())
+         for (auto& e : *a) {
+             auto at = Num(e.as_table(), "at");
+@@ -191,17 +233,76 @@ static bool CheckOverrides(const Analysis& an) {
+     return ok;
+ }
+ 
++// every analysed instruction of every function, one line each (a shared tail once per function): function, address,
++// bytes, the original Intel text and its operands (imm:INDEX:VALUE:BITS, mem:INDEX:BASE:INDEX:SCALE:DISP), then
++// "patched" when a [[patch]] changes it; for audits of the code the generated program contains
++static const char* RegName(ZydisRegister r) {
++    const char* n = r == ZYDIS_REGISTER_NONE ? nullptr : ZydisRegisterGetString(r);
++    return n ? n : "-";
++}
++
++static bool WriteListing(const Analysis& an, const fs::path& path) {
++    std::ofstream o(path, std::ios::binary);
++    char buf[64];
++    for (uint32_t f : an.functions)
++        for (uint32_t va : an.Body(f)) {
++            ZydisDecodedInstruction in;
++            ZydisDecodedOperand ops[ZYDIS_MAX_OPERAND_COUNT];
++            if (!an.DecodeOriginal(va, in, ops)) continue;
++            int64_t off = an.img.Offset(va);
++            std::snprintf(buf, sizeof(buf), "%08X\t%08X\t", f, va);
++            o << buf;
++            for (unsigned i = 0; i < in.length; i++) {
++                std::snprintf(buf, sizeof(buf), "%02X", an.img.file[size_t(off) + i]);
++                o << buf;
++            }
++            o << '\t' << InsnText(va, in, ops);
++            for (int k = 0; k < in.operand_count_visible; k++) {
++                auto& op = ops[k];
++                unsigned w = in.operand_width >= 8 && in.operand_width <= 32 ? in.operand_width : 32;  // as patches.cpp
++                if (op.type == ZYDIS_OPERAND_TYPE_IMMEDIATE && !op.imm.is_relative)
++                    std::snprintf(buf, sizeof(buf), "\timm:%d:%llX:%u", k, (unsigned long long)(op.imm.value.u & ((1ull << w) - 1)), w);
++                else if (op.type == ZYDIS_OPERAND_TYPE_MEMORY)
++                    std::snprintf(buf, sizeof(buf), "\tmem:%d:%s:%s:%u:%X", k, RegName(op.mem.base), RegName(op.mem.index),
++                                  op.mem.scale, uint32_t(op.mem.disp.value));
++                else
++                    continue;
++                o << buf;
++            }
++            if (an.cfg.patches.lower_bound({va, 0}) != an.cfg.patches.end() && an.cfg.patches.lower_bound({va, 0})->first.first == va)
++                o << "\tpatched";
++            o << '\n';
++        }
++    return bool(o);
++}
++
+ int main(int argc, char** argv) {
+     std::vector<std::string> args;
+-    fs::path xdk_dir;
++    fs::path xdk_dir, listing;
++    std::vector<uint32_t> describe;
+     bool usage = false;
+     for (int i = 1; i < argc; i++) {
+-        if (std::strcmp(argv[i], "--xdk")) args.push_back(argv[i]);
+-        else if (++i < argc) xdk_dir = argv[i];
+-        else usage = true;
++        bool opt = !std::strcmp(argv[i], "--xdk") || !std::strcmp(argv[i], "--describe") || !std::strcmp(argv[i], "--listing");
++        if (!opt) {
++            args.push_back(argv[i]);
++        } else if (i + 1 >= argc) {
++            usage = true;
++        } else if (!std::strcmp(argv[i], "--xdk")) {
++            xdk_dir = argv[++i];
++        } else if (!std::strcmp(argv[i], "--listing")) {
++            listing = argv[++i];
++        } else {
++            try {
++                describe.push_back(ParseAddr(argv[++i]));
++            } catch (...) {
++                usage = true;
++            }
++        }
+     }
+     if (args.empty() || usage) {
+-        std::fprintf(stderr, "usage: xbe_recomp <config.toml> [xbe override] [out override] [--xdk <SDK xdk folder>]\n");
++        std::fprintf(stderr, "usage: xbe_recomp <config.toml> [xbe override] [out override] [--xdk <SDK xdk folder>]\n"
++                             "       [--describe <address>]...  print the instructions and their operands, generate nothing\n"
++                             "       [--listing <file>]  also write every analysed instruction, by function\n");
+         return 1;
+     }
+     Config cfg;
+@@ -237,9 +338,37 @@ int main(int argc, char** argv) {
+     }
+ 
+     Analysis an(img, cfg);
+-    an.Run();
++    std::vector<std::string> errors;
++    CheckPatchesInImage(an, an.img.file, errors);
++    if (errors.empty()) {
++        an.Run();
++        CheckPatchesDecoded(an, errors);
++    }
++    if (!errors.empty()) {
++        for (auto& e : errors) std::fprintf(stderr, "%s\n", e.c_str());
++        std::fprintf(stderr, "%zu of %zu [[patch]] entries cannot be applied: no code was generated\n", errors.size(),
++                     cfg.patches.size());
++        return 1;
++    }
++    if (!describe.empty()) {
++        for (uint32_t va : describe) std::fputs(DescribeInsn(an, va).c_str(), stdout);
++        return 0;
++    }
+     if (!CheckOverrides(an)) return 1;
++    if (!listing.empty() && !WriteListing(an, listing)) {
++        std::fprintf(stderr, "cannot write %s\n", listing.string().c_str());
++        return 1;
++    }
+     fs::create_directories(out_dir);
++    {
++        std::ofstream m(out_dir / "patches.txt", std::ios::binary);
++        m << PatchManifest(an);
++        if (!m) {
++            std::fprintf(stderr, "cannot write %s\n", (out_dir / "patches.txt").string().c_str());
++            return 1;
++        }
++    }
++    if (!cfg.patches.empty()) std::fprintf(stderr, "%zu instruction operand patches applied (patches.txt)\n", cfg.patches.size());
+     CodeGen gen(an, out_dir);
+     return gen.Run() ? 0 : 1;
+ }
+diff --git i/tools/recomp/patches.cpp w/tools/recomp/patches.cpp
+new file mode 100644
+index 0000000..8b6db8e
+--- /dev/null
++++ w/tools/recomp/patches.cpp
+@@ -0,0 +1,208 @@
++#include "patches.h"
++
++#include <cstdarg>
++#include <cstdio>
++
++#include "sha256.h"
++
++static std::string Fmt(const char* f, ...) {
++    char buf[512];
++    va_list a;
++    va_start(a, f);
++    std::vsnprintf(buf, sizeof(buf), f, a);
++    va_end(a);
++    return buf;
++}
++
++static const char* KindName(Patch::Kind k) { return k == Patch::Kind::Imm ? "imm" : "disp"; }
++
++std::string InsnText(uint32_t va, const ZydisDecodedInstruction& in, const ZydisDecodedOperand* ops) {
++    static ZydisFormatter fmt = [] {
++        ZydisFormatter f;
++        ZydisFormatterInit(&f, ZYDIS_FORMATTER_STYLE_INTEL);
++        return f;
++    }();
++    char buf[256];
++    ZydisFormatterFormatInstruction(&fmt, &in, ops, in.operand_count_visible, buf, sizeof(buf), va, nullptr);
++    return buf;
++}
++
++static bool IsKind(const ZydisDecodedOperand& o, Patch::Kind k) {
++    if (k == Patch::Kind::Imm) return o.type == ZYDIS_OPERAND_TYPE_IMMEDIATE && !o.imm.is_relative;
++    return o.type == ZYDIS_OPERAND_TYPE_MEMORY && o.mem.disp.has_displacement;
++}
++
++// the operand a patch names, -1 with the reason when there is none or more than one
++static int Select(const Patch& p, const ZydisDecodedInstruction& in, const ZydisDecodedOperand* ops, std::string& why) {
++    if (p.index >= 0) {
++        if (p.index >= in.operand_count_visible || !IsKind(ops[p.index], p.kind)) {
++            why = Fmt("operand %d is not an %s operand", p.index, KindName(p.kind));
++            return -1;
++        }
++        return p.index;
++    }
++    int found = -1, n = 0;
++    for (int i = 0; i < in.operand_count_visible; i++)
++        if (IsKind(ops[i], p.kind)) found = i, n++;
++    if (n != 1) {
++        why = n ? Fmt("%d %s operands: name one with index", n, KindName(p.kind)) : Fmt("no %s operand", KindName(p.kind));
++        return -1;
++    }
++    return found;
++}
++
++// the operand's width in bits: an immediate's is its operation's (an imm8 sign extended to 32 bits is 32 wide: the
++// generated code holds the full value, the encoding does not limit the new one); a displacement is an address offset
++static unsigned Width(const ZydisDecodedInstruction& in, Patch::Kind k) {
++    if (k == Patch::Kind::Disp) return 32;
++    return in.operand_width >= 8 && in.operand_width <= 32 ? in.operand_width : 32;
++}
++
++static uint64_t Mask(unsigned w) { return w >= 64 ? ~0ull : (1ull << w) - 1; }
++
++// the operand's value as a w-bit unsigned number
++static uint64_t Current(const ZydisDecodedOperand& o, Patch::Kind k, unsigned w) {
++    uint64_t v = k == Patch::Kind::Imm ? o.imm.value.u : uint64_t(o.mem.disp.value);
++    return v & Mask(w);
++}
++
++// a configured value in w bits: unsigned below 2^w, or negative down to -2^(w-1)
++static bool InWidth(int64_t v, unsigned w, uint64_t& out) {
++    if (v >= 0 ? uint64_t(v) > Mask(w) : v < -(int64_t(1) << (w - 1))) return false;
++    out = uint64_t(v) & Mask(w);
++    return true;
++}
++
++static void Set(ZydisDecodedOperand& o, Patch::Kind k, unsigned w, uint64_t v) {
++    int64_t s = int64_t(v << (64 - w)) >> (64 - w);  // sign extended from w bits
++    if (k == Patch::Kind::Disp) {
++        o.mem.disp.value = s;
++    } else if (o.imm.is_signed) {
++        o.imm.value.s = s;
++    } else {
++        o.imm.value.u = v;
++    }
++}
++
++void ApplyPatches(const Config& cfg, uint32_t va, ZydisDecodedInstruction& in, ZydisDecodedOperand* ops) {
++    for (auto it = cfg.patches.lower_bound({va, 0}); it != cfg.patches.end() && it->first.first == va; ++it) {
++        const Patch& p = it->second;
++        std::string why;
++        int i = Select(p, in, ops, why);
++        uint64_t v;
++        if (i >= 0 && InWidth(p.new_value, Width(in, p.kind), v)) Set(ops[i], p.kind, Width(in, p.kind), v);
++    }
++}
++
++std::string PatchValue(int64_t v) {
++    return v < 0 ? Fmt("-0x%llX", (unsigned long long)(-(v + 1)) + 1) : Fmt("0x%llX", (unsigned long long)v);
++}
++
++static std::string Hex(const std::vector<uint8_t>& b) {
++    std::string s;
++    for (size_t i = 0; i < b.size(); i++) s += Fmt(i ? " %02X" : "%02X", b[i]);
++    return s;
++}
++
++void CheckPatchesInImage(const Analysis& an, const std::vector<uint8_t>& file, std::vector<std::string>& errors) {
++    const Config& cfg = an.cfg;
++    if (cfg.patches.empty()) return;
++    std::string sha = Sha256Hex(file);
++    if (cfg.sha256.empty()) {
++        errors.push_back(Fmt("[[patch]] needs [xbe] sha256, the image the patches were written for (this one is %s)", sha.c_str()));
++        return;
++    }
++    if (cfg.sha256 != sha) {
++        errors.push_back(Fmt("unsupported image: [xbe] sha256 is %s, this image is %s; its [[patch]] entries do not apply",
++                             cfg.sha256.c_str(), sha.c_str()));
++        return;
++    }
++    for (auto& [key, p] : cfg.patches) {
++        std::string at = Fmt("[[patch]] %08X %s (%s)", p.at, KindName(p.kind), p.source.c_str());
++        ZydisDecodedInstruction in;
++        ZydisDecodedOperand ops[ZYDIS_MAX_OPERAND_COUNT];
++        int64_t off = an.img.Offset(p.at);
++        if (off < 0 || !an.IsCode(p.at) || !an.DecodeOriginal(p.at, in, ops)) {
++            errors.push_back(at + ": not decodable code in the image");
++            continue;
++        }
++        std::vector<uint8_t> bytes(an.img.file.begin() + off, an.img.file.begin() + off + in.length);
++        if (bytes != p.bytes) {
++            errors.push_back(at + ": the image holds " + Hex(bytes) + ", the patch expects " + Hex(p.bytes));
++            continue;
++        }
++        std::string text = InsnText(p.at, in, ops);
++        if (!p.insn.empty() && text != p.insn) {
++            errors.push_back(at + ": the instruction is \"" + text + "\", the patch expects \"" + p.insn + "\"");
++            continue;
++        }
++        if (in.meta.branch_type != ZYDIS_BRANCH_TYPE_NONE || in.mnemonic == ZYDIS_MNEMONIC_RET ||
++            in.mnemonic == ZYDIS_MNEMONIC_ENTER || in.mnemonic == ZYDIS_MNEMONIC_INT || in.mnemonic == ZYDIS_MNEMONIC_IRETD) {
++            errors.push_back(at + ": \"" + text + "\" transfers control; branch, call, ret and enter operands are not patched");
++            continue;
++        }
++        std::string why;
++        int i = Select(p, in, ops, why);
++        if (i < 0) {
++            errors.push_back(at + ": \"" + text + "\": " + why);
++            continue;
++        }
++        unsigned w = Width(in, p.kind);
++        uint64_t old_v, new_v;
++        if (!InWidth(p.old_value, w, old_v) || old_v != Current(ops[i], p.kind, w)) {
++            errors.push_back(at + Fmt(": \"%s\": the operand is 0x%llX, the patch expects old = 0x%llX", text.c_str(),
++                                      (unsigned long long)Current(ops[i], p.kind, w), (unsigned long long)p.old_value));
++            continue;
++        }
++        if (!InWidth(p.new_value, w, new_v)) {
++            errors.push_back(at + Fmt(": new = 0x%llX does not fit the %u-bit operand", (unsigned long long)p.new_value, w));
++            continue;
++        }
++        if (new_v == old_v) errors.push_back(at + ": new equals old");
++    }
++}
++
++void CheckPatchesDecoded(const Analysis& an, std::vector<std::string>& errors) {
++    for (auto& [key, p] : an.cfg.patches) {
++        const Insn* i = an.InsnAt(p.at);
++        if (!i || i->flow != Flow::Normal)
++            errors.push_back(Fmt("[[patch]] %08X %s (%s): analysis never decoded an instruction starting there (data, "
++                                 "unreached code or inside another instruction): nothing would be patched",
++                                 p.at, KindName(p.kind), p.source.c_str()));
++    }
++}
++
++std::string PatchManifest(const Analysis& an) {
++    std::string out = Fmt("# xbe_recomp [[patch]] record: %zu operand patches, image sha256 %s\n", an.cfg.patches.size(),
++                          an.cfg.patches.empty() ? "(not checked)" : an.cfg.sha256.c_str());
++    out += "# address  operand  old -> new  | instruction before | after | reason | config\n";
++    for (auto& [key, p] : an.cfg.patches) {
++        ZydisDecodedInstruction in;
++        ZydisDecodedOperand ops[ZYDIS_MAX_OPERAND_COUNT];
++        std::string before, after;
++        if (an.DecodeOriginal(p.at, in, ops)) before = InsnText(p.at, in, ops);
++        if (an.Decode(p.at, in, ops)) after = InsnText(p.at, in, ops);
++        out += Fmt("%08X %s %s -> %s | ", p.at, KindName(p.kind), PatchValue(p.old_value).c_str(), PatchValue(p.new_value).c_str()) +
++               before + " | " + after + " | " + p.why + " | " + p.source + "\n";
++    }
++    return out;
++}
++
++std::string DescribeInsn(const Analysis& an, uint32_t va) {
++    ZydisDecodedInstruction in;
++    ZydisDecodedOperand ops[ZYDIS_MAX_OPERAND_COUNT];
++    int64_t off = an.img.Offset(va);
++    if (off < 0 || !an.DecodeOriginal(va, in, ops)) return Fmt("%08X: not decodable\n", va);
++    std::vector<uint8_t> bytes(an.img.file.begin() + off, an.img.file.begin() + off + in.length);
++    std::string out = Fmt("%08X  bytes = \"%s\"  insn = \"%s\"", va, Hex(bytes).c_str(), InsnText(va, in, ops).c_str());
++    const Insn* i = an.InsnAt(va);
++    out += i ? (i->flow == Flow::Normal ? "  decoded" : "  decoded (control transfer)") : "  NOT an analysed instruction";
++    for (int k = 0; k < in.operand_count_visible; k++) {
++        if (IsKind(ops[k], Patch::Kind::Imm))
++            out += Fmt("  [%d] imm 0x%llX/%u", k, (unsigned long long)Current(ops[k], Patch::Kind::Imm, Width(in, Patch::Kind::Imm)),
++                       Width(in, Patch::Kind::Imm));
++        if (IsKind(ops[k], Patch::Kind::Disp))
++            out += Fmt("  [%d] disp 0x%llX", k, (unsigned long long)Current(ops[k], Patch::Kind::Disp, 32));
++    }
++    return out + "\n";
++}
+diff --git i/tools/recomp/patches.h w/tools/recomp/patches.h
+new file mode 100644
+index 0000000..89f7e7b
+--- /dev/null
++++ w/tools/recomp/patches.h
+@@ -0,0 +1,28 @@
++#pragma once
++// [[patch]] instruction operand patches: verified against the exact image, applied when an instruction is decoded,
++// recorded in <out>/patches.txt. Each names one instruction and one operand; there is no search and replace.
++#include <string>
++#include <vector>
++
++#include "analysis.h"
++
++// the instruction's Intel text, as the generated code's comments show it
++std::string InsnText(uint32_t va, const ZydisDecodedInstruction& in, const ZydisDecodedOperand* ops);
++
++// replaces the patched operands of the instruction at va (no-op without patches there)
++void ApplyPatches(const Config& cfg, uint32_t va, ZydisDecodedInstruction& in, ZydisDecodedOperand* ops);
++
++// against the image, before analysis: the image's hash, each instruction's bytes and text, the operand and the old
++// value; each failure appended as one line
++void CheckPatchesInImage(const Analysis& an, const std::vector<uint8_t>& file, std::vector<std::string>& errors);
++// after analysis: each patched address is an instruction the generated code contains, with no branch
++void CheckPatchesDecoded(const Analysis& an, std::vector<std::string>& errors);
++
++// a configured old or new value as written: 0x41, -0x1
++std::string PatchValue(int64_t v);
++
++// the record of every patch, sorted by address
++std::string PatchManifest(const Analysis& an);
++
++// "--describe": each address's bytes, text and operands, the fields a [[patch]] needs
++std::string DescribeInsn(const Analysis& an, uint32_t va);
+diff --git i/tools/recomp/sha256.h w/tools/recomp/sha256.h
+new file mode 100644
+index 0000000..f330d1f
+--- /dev/null
++++ w/tools/recomp/sha256.h
+@@ -0,0 +1,48 @@
++#pragma once
++// SHA-256 (FIPS 180-4), for naming the exact image a config's instruction patches were written for
++#include <cstdint>
++#include <cstdio>
++#include <string>
++#include <vector>
++
++inline std::string Sha256Hex(const std::vector<uint8_t>& data) {
++    static const uint32_t k[64] = {
++        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01,
++        0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
++        0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147,
++        0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
++        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08,
++        0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
++        0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
++    uint32_t h[8] = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
++    auto rot = [](uint32_t x, int n) { return (x >> n) | (x << (32 - n)); };
++    std::vector<uint8_t> m(data);
++    uint64_t bits = uint64_t(data.size()) * 8;
++    m.push_back(0x80);
++    while (m.size() % 64 != 56) m.push_back(0);
++    for (int i = 7; i >= 0; i--) m.push_back(uint8_t(bits >> (i * 8)));
++    for (size_t c = 0; c < m.size(); c += 64) {
++        uint32_t w[64];
++        for (int i = 0; i < 16; i++)
++            w[i] = uint32_t(m[c + i * 4]) << 24 | uint32_t(m[c + i * 4 + 1]) << 16 | uint32_t(m[c + i * 4 + 2]) << 8 | m[c + i * 4 + 3];
++        for (int i = 16; i < 64; i++) {
++            uint32_t s0 = rot(w[i - 15], 7) ^ rot(w[i - 15], 18) ^ (w[i - 15] >> 3);
++            uint32_t s1 = rot(w[i - 2], 17) ^ rot(w[i - 2], 19) ^ (w[i - 2] >> 10);
++            w[i] = w[i - 16] + s0 + w[i - 7] + s1;
++        }
++        uint32_t a = h[0], b = h[1], cc = h[2], d = h[3], e = h[4], f = h[5], g = h[6], hh = h[7];
++        for (int i = 0; i < 64; i++) {
++            uint32_t t1 = hh + (rot(e, 6) ^ rot(e, 11) ^ rot(e, 25)) + ((e & f) ^ (~e & g)) + k[i] + w[i];
++            uint32_t t2 = (rot(a, 2) ^ rot(a, 13) ^ rot(a, 22)) + ((a & b) ^ (a & cc) ^ (b & cc));
++            hh = g, g = f, f = e, e = d + t1, d = cc, cc = b, b = a, a = t1 + t2;
++        }
++        h[0] += a, h[1] += b, h[2] += cc, h[3] += d, h[4] += e, h[5] += f, h[6] += g, h[7] += hh;
++    }
++    std::string out;
++    char buf[9];
++    for (uint32_t v : h) {
++        std::snprintf(buf, sizeof(buf), "%08x", v);
++        out += buf;
++    }
++    return out;
++}

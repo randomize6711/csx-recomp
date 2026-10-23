@@ -192,6 +192,17 @@ walking (`expect bodiesmoved A B MIN N`), kills and two round ends in the game's
 de_aztec with 17 players, the play and scoreboard shots; 169 also caps one team at 8 as the original and keeps 16
 through Quit and the next front end. CSX_LOG_SERVERTIME=1 logs the server frame's time once a second (benchmarks).
 
+## Recompiler instruction patches (about 10 s, no game run)
+
+`python3 -I tests/recomp_patches.py` recompiles assets/default.xbe with test configs that include config/game.toml:
+five `[[patch]]` entries that apply (an imm8 compare given a value past its encoding, an imm beside a disp, an
+absolute disp, an 8-bit operation's top value, an old value written as -1) change exactly those instructions in the
+generated code, are marked there and are listed in patches.txt; the same input gives the same output twice; without
+patches the code is what it was before the feature. Sixteen refusals, each alone (wrong bytes, text or old value, a
+new value too wide, new equal to old, a branch, no or another operand, inside another instruction, not code, no or
+another image hash, two patches for one operand, missing fields, an unknown operand kind) and three together, each
+reported with its reason and nothing generated.
+
 ## Rounds
 
 `rounds_direct.txt` plays complete rounds from the direct start of any map fixture (`de_airstrip_beginner`,

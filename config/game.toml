@@ -10,6 +10,8 @@ includes = ["../xdk/5659/layout.toml"]
 path = "assets/default.xbe"
 title = 0x4D530036
 entry = 0x202C3C
+# the exact image (sha256sum assets/default.xbe): [[patch]] entries apply to this one only
+sha256 = "e7698b09ed7322b69cf4c9c6d3778bb0864a15594b30258b5637ddcf8ee8308f"
 out = "generated/game"
 partitions = 64
 code_sections = [".text", "D3DX", "DSOUND", "XNET", "XONLINE", "XMV", "WMADEC", "XGRPH", "XACTENG", "D3D", "XPP"]  # DSKERDAT left out: DSP data, no x86 code calls into it (FINDINGS.md)
