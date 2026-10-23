@@ -1879,7 +1879,7 @@ insn = "push 0x33AA60"
 operand = "imm"
 index = 0
 old = 0x33AA60
-new = 0x70060F80
+new = 0x70097F80
 why = "the match's command line: -maxplayers N +maxplayers N (guest table text)"
 
 [[patch]]
@@ -1889,5 +1889,2125 @@ insn = "push 0x33A9F0"
 operand = "imm"
 index = 0
 old = 0x33A9F0
-new = 0x70062F80
+new = 0x70099F80
 why = "the front end's command line: -maxplayers N +maxplayers N (guest table text)"
+
+[[patch]]
+at = 0xEF1A7
+bytes = "83 FE 11"
+insn = "cmp esi, 0x11"
+operand = "imm"
+index = 1
+old = 0x11
+new = 0x41
+why = "voice talk time: player 1..N"
+
+[[patch]]
+at = 0xEF1B2
+bytes = "D9 1C B5 28 6C 57 00"
+insn = "fstp [esi*4+0x576C28]"
+operand = "disp"
+index = 0
+old = 0x576C28
+new = 0x70071EF4
+why = "voice talk time of player 1..N (moved table)"
+
+[[patch]]
+at = 0xEF1BC
+bytes = "C7 86 C0 E9 57 00 01 00 00 00"
+insn = "mov dword ptr [esi+0x57E9C0], 0x01"
+operand = "disp"
+index = 0
+old = 0x57E9C0
+new = 0x70060C64
+why = "hud_player_extra_info: direct 0x57E9C0 -> hud_extra_info+0x48"
+
+[[patch]]
+at = 0x102DB0
+bytes = "83 F8 11"
+insn = "cmp eax, 0x11"
+operand = "imm"
+index = 1
+old = 0x11
+new = 0x41
+why = "CVoiceGameMgr::Init: N players (its other functions are host code, src/game/player_slots_voice.cpp)"
+
+[[patch]]
+at = 0x102DB8
+bytes = "B8 11 00 00 00"
+insn = "mov eax, 0x11"
+operand = "imm"
+index = 1
+old = 0x11
+new = 0x41
+why = "CVoiceGameMgr::Init: N players"
+
+[[patch]]
+at = 0x102DCB
+bytes = "6A 08"
+insn = "push 0x08"
+operand = "imm"
+index = 0
+old = 0x8
+new = 0x18
+why = "VoiceMask message: two masks of 3 dwords"
+
+[[patch]]
+at = 0x104647
+bytes = "39 1C 85 B0 87 54 00"
+insn = "cmp [eax*4+0x5487B0], ebx"
+operand = "disp"
+index = 0
+old = 0x5487B0
+new = 0x70063AC4
+why = "hud_player_info_list: direct 0x5487B0 -> hud_info_list+0x0"
+
+[[patch]]
+at = 0x116EAD
+bytes = "6A 07"
+insn = "push 0x07"
+operand = "imm"
+index = 0
+old = 0x7
+new = 0x1B
+why = "StatShot message: two masks of 3 dwords and three bytes"
+
+[[patch]]
+at = 0x11BFC0
+bytes = "83 F8 3F"
+insn = "cmp eax, 0x3F"
+operand = "imm"
+index = 1
+old = 0x3F
+new = 0x80
+why = "a client's reserved sound: 64 + N sounds"
+
+[[patch]]
+at = 0x14401B
+bytes = "6A 54"
+insn = "push 0x54"
+operand = "imm"
+index = 0
+old = 0x54
+new = 0x114
+why = "StatShot block: damage per player 1..N at +0x10"
+
+[[patch]]
+at = 0x1509B3
+bytes = "83 F9 40"
+insn = "cmp ecx, 0x40"
+operand = "imm"
+index = 1
+old = 0x40
+new = 0x81
+why = "CSoundEnt::Initialize: 64 + N sounds"
+
+[[patch]]
+at = 0x150AAA
+bytes = "83 F8 3F"
+insn = "cmp eax, 0x3F"
+operand = "imm"
+index = 1
+old = 0x3F
+new = 0x80
+why = "CSoundEnt::SoundPointerForIndex: 64 + N sounds"
+
+[[patch]]
+at = 0x150B18
+bytes = "68 A4 08 00 00"
+insn = "push 0x8A4"
+operand = "imm"
+index = 0
+old = 0x8A4
+new = 0x10C4
+why = "CSoundEnt: 64 world sounds and one per client"
+
+[[patch]]
+at = 0x18B918
+bytes = "89 88 94 E9 57 00"
+insn = "mov [eax+0x57E994], ecx"
+operand = "disp"
+index = 0
+old = 0x57E994
+new = 0x70060C38
+why = "hud_player_extra_info: direct 0x57E994 -> hud_extra_info+0x1C"
+
+[[patch]]
+at = 0x18B924
+bytes = "C7 80 98 E9 57 00 01 00 00 00"
+insn = "mov dword ptr [eax+0x57E998], 0x01"
+operand = "disp"
+index = 0
+old = 0x57E998
+new = 0x70060C3C
+why = "hud_player_extra_info: direct 0x57E998 -> hud_extra_info+0x20"
+
+[[patch]]
+at = 0x18B92E
+bytes = "C7 80 9C E9 57 00 9F 86 01 00"
+insn = "mov dword ptr [eax+0x57E99C], 0x1869F"
+operand = "disp"
+index = 0
+old = 0x57E99C
+new = 0x70060C40
+why = "hud_player_extra_info: direct 0x57E99C -> hud_extra_info+0x24"
+
+[[patch]]
+at = 0x18B940
+bytes = "C7 80 94 E9 57 00 00 00 80 BF"
+insn = "mov dword ptr [eax+0x57E994], 0xBF800000"
+operand = "disp"
+index = 0
+old = 0x57E994
+new = 0x70060C38
+why = "hud_player_extra_info: direct 0x57E994 -> hud_extra_info+0x1C"
+
+[[patch]]
+at = 0x18B94A
+bytes = "C7 80 98 E9 57 00 00 00 00 00"
+insn = "mov dword ptr [eax+0x57E998], 0x00"
+operand = "disp"
+index = 0
+old = 0x57E998
+new = 0x70060C3C
+why = "hud_player_extra_info: direct 0x57E998 -> hud_extra_info+0x20"
+
+[[patch]]
+at = 0x18B954
+bytes = "C7 80 9C E9 57 00 00 00 00 00"
+insn = "mov dword ptr [eax+0x57E99C], 0x00"
+operand = "disp"
+index = 0
+old = 0x57E99C
+new = 0x70060C40
+why = "hud_player_extra_info: direct 0x57E99C -> hud_extra_info+0x24"
+
+[[patch]]
+at = 0x18C72D
+bytes = "0F BF 90 A2 E9 57 00"
+insn = "movsx edx, word ptr [eax+0x57E9A2]"
+operand = "disp"
+index = 1
+old = 0x57E9A2
+new = 0x70060C46
+why = "hud_player_extra_info: direct 0x57E9A2 -> hud_extra_info+0x2A"
+
+[[patch]]
+at = 0x190E53
+bytes = "39 94 8B B0 40 00 00"
+insn = "cmp [ebx+ecx*4+0x40B0], edx"
+operand = "disp"
+index = 0
+old = 0x40B0
+new = 0x6FB2CB28
+why = "studio renderer: a player's previous state (moved table)"
+
+[[patch]]
+at = 0x190E77
+bytes = "89 84 8B B0 40 00 00"
+insn = "mov [ebx+ecx*4+0x40B0], eax"
+operand = "disp"
+index = 0
+old = 0x40B0
+new = 0x6FB2CB28
+why = "studio renderer: a player's previous state (moved table)"
+
+[[patch]]
+at = 0x192B27
+bytes = "0F BF 88 A2 E9 57 00"
+insn = "movsx ecx, word ptr [eax+0x57E9A2]"
+operand = "disp"
+index = 1
+old = 0x57E9A2
+new = 0x70060C46
+why = "hud_player_extra_info: direct 0x57E9A2 -> hud_extra_info+0x2A"
+
+[[patch]]
+at = 0x192B39
+bytes = "39 B8 84 E9 57 00"
+insn = "cmp [eax+0x57E984], edi"
+operand = "disp"
+index = 0
+old = 0x57E984
+new = 0x70060C28
+why = "hud_player_extra_info: direct 0x57E984 -> hud_extra_info+0xC"
+
+[[patch]]
+at = 0x1A5C79
+bytes = "83 F9 12"
+insn = "cmp ecx, 0x12"
+operand = "imm"
+index = 1
+old = 0x12
+new = 0x43
+why = "a player's team colour: index below N + 2 (the table's size)"
+
+[[patch]]
+at = 0x1A5C81
+bytes = "0F BF 89 A2 E9 57 00"
+insn = "movsx ecx, word ptr [ecx+0x57E9A2]"
+operand = "disp"
+index = 1
+old = 0x57E9A2
+new = 0x70060C46
+why = "hud_player_extra_info: direct 0x57E9A2 -> hud_extra_info+0x2A"
+
+[[patch]]
+at = 0x1A5E22
+bytes = "A3 98 E9 57 00"
+insn = "mov [0x0057E998], eax"
+operand = "disp"
+index = 0
+old = 0x57E998
+new = 0x70060C3C
+why = "hud_player_extra_info: direct 0x57E998 -> hud_extra_info+0x20"
+
+[[patch]]
+at = 0x1A5E27
+bytes = "A3 9C E9 57 00"
+insn = "mov [0x0057E99C], eax"
+operand = "disp"
+index = 0
+old = 0x57E99C
+new = 0x70060C40
+why = "hud_player_extra_info: direct 0x57E99C -> hud_extra_info+0x24"
+
+[[patch]]
+at = 0x1A5E2C
+bytes = "C7 05 94 E9 57 00 00 00 80 BF"
+insn = "mov dword ptr [0x0057E994], 0xBF800000"
+operand = "disp"
+index = 0
+old = 0x57E994
+new = 0x70060C38
+why = "hud_player_extra_info: direct 0x57E994 -> hud_extra_info+0x1C"
+
+[[patch]]
+at = 0x1A73DA
+bytes = "89 9E BC E9 57 00"
+insn = "mov [esi+0x57E9BC], ebx"
+operand = "disp"
+index = 0
+old = 0x57E9BC
+new = 0x70060C60
+why = "hud_player_extra_info: direct 0x57E9BC -> hud_extra_info+0x44"
+
+[[patch]]
+at = 0x1A73E9
+bytes = "B8 BC E9 57 00"
+insn = "mov eax, 0x57E9BC"
+operand = "imm"
+index = 1
+old = 0x57E9BC
+new = 0x70060C60
+why = "hud_player_extra_info: direct 0x57E9BC -> hud_extra_info+0x44"
+
+[[patch]]
+at = 0x1A73F5
+bytes = "3D C8 EE 57 00"
+insn = "cmp eax, 0x57EEC8"
+operand = "imm"
+index = 1
+old = 0x57EEC8
+new = 0x70061FF8
+why = "hud_player_extra_info: end 0x57EEC8 -> hud_extra_info+0x13DC"
+
+[[patch]]
+at = 0x1A7427
+bytes = "89 9C B5 AC 00 00 00"
+insn = "mov [ebp+esi*4+0xAC], ebx"
+operand = "disp"
+index = 0
+old = 0xAC
+new = 0x6FB0BB24
+why = "per player field of view (moved table)"
+
+[[patch]]
+at = 0x1A7437
+bytes = "8D 85 AC 00 00 00"
+insn = "lea eax, [ebp+0xAC]"
+operand = "disp"
+index = 1
+old = 0xAC
+new = 0x6FB0BB24
+why = "per player field of view, every player (moved table; the rest past 17 by a hook)"
+
+[[patch]]
+at = 0x1A8A6A
+bytes = "BB C4 87 54 00"
+insn = "mov ebx, 0x5487C4"
+operand = "imm"
+index = 1
+old = 0x5487C4
+new = 0x70063AD8
+why = "hud_player_info_list: direct 0x5487C4 -> hud_info_list+0x14"
+
+[[patch]]
+at = 0x1A8A7B
+bytes = "8D B5 34 0F 00 00"
+insn = "lea esi, [ebp+0xF34]"
+operand = "disp"
+index = 1
+old = 0xF34
+new = 0x6FB0967C
+why = "spectator overview: the positions' reader (moved table)"
+
+[[patch]]
+at = 0x1A8C35
+bytes = "81 FB 18 89 54 00"
+insn = "cmp ebx, 0x548918"
+operand = "imm"
+index = 1
+old = 0x548918
+new = 0x70064000
+why = "hud_player_info_list: end 0x548918 -> hud_info_list+0x53C"
+
+[[patch]]
+at = 0x1A9089
+bytes = "83 FE 11"
+insn = "cmp esi, 0x11"
+operand = "imm"
+index = 1
+old = 0x11
+new = 0x41
+why = "spectator next / previous player: wraps at N"
+
+[[patch]]
+at = 0x1A909A
+bytes = "BE 11 00 00 00"
+insn = "mov esi, 0x11"
+operand = "imm"
+index = 1
+old = 0x11
+new = 0x41
+why = "spectator next / previous player: wraps to N"
+
+[[patch]]
+at = 0x1A90CF
+bytes = "8B 04 8D B0 87 54 00"
+insn = "mov eax, [ecx*4+0x5487B0]"
+operand = "disp"
+index = 1
+old = 0x5487B0
+new = 0x70063AC4
+why = "hud_player_info_list: direct 0x5487B0 -> hud_info_list+0x0"
+
+[[patch]]
+at = 0x1A9246
+bytes = "8B 04 95 B0 87 54 00"
+insn = "mov eax, [edx*4+0x5487B0]"
+operand = "disp"
+index = 1
+old = 0x5487B0
+new = 0x70063AC4
+why = "hud_player_info_list: direct 0x5487B0 -> hud_info_list+0x0"
+
+[[patch]]
+at = 0x1A9260
+bytes = "83 FF 11"
+insn = "cmp edi, 0x11"
+operand = "imm"
+index = 1
+old = 0x11
+new = 0x42
+why = "spectator find by name: players 1..N"
+
+[[patch]]
+at = 0x1A9406
+bytes = "D9 98 B8 E9 57 00"
+insn = "fstp [eax+0x57E9B8]"
+operand = "disp"
+index = 0
+old = 0x57E9B8
+new = 0x70060C5C
+why = "hud_player_extra_info: direct 0x57E9B8 -> hud_extra_info+0x40"
+
+[[patch]]
+at = 0x1A9767
+bytes = "8B 0C 85 B0 87 54 00"
+insn = "mov ecx, [eax*4+0x5487B0]"
+operand = "disp"
+index = 1
+old = 0x5487B0
+new = 0x70063AC4
+why = "hud_player_info_list: direct 0x5487B0 -> hud_info_list+0x0"
+
+[[patch]]
+at = 0x1A9C03
+bytes = "8D 83 38 0F 00 00"
+insn = "lea eax, [ebx+0xF38]"
+operand = "disp"
+index = 1
+old = 0xF38
+new = 0x6FB09680
+why = "spectator overview: player positions cleared (moved table)"
+
+[[patch]]
+at = 0x1A9C09
+bytes = "B9 11 00 00 00"
+insn = "mov ecx, 0x11"
+operand = "imm"
+index = 1
+old = 0x11
+new = 0x42
+why = "spectator overview: N + 1 player positions cleared"
+
+[[patch]]
+at = 0x1AA21D
+bytes = "8D 84 76 CC 03 00 00"
+insn = "lea eax, [esi+esi*2+0x3CC]"
+operand = "disp"
+index = 1
+old = 0x3CC
+new = 0x1BEC259E
+why = "spectator overview: a player's position (moved table, in dwords)"
+
+[[patch]]
+at = 0x1AA24F
+bytes = "C7 80 38 0F 00 00 00 00 80 3F"
+insn = "mov dword ptr [eax+0xF38], 0x3F800000"
+operand = "disp"
+index = 0
+old = 0xF38
+new = 0x6FB09680
+why = "spectator overview: a player's position (moved table)"
+
+[[patch]]
+at = 0x1AA259
+bytes = "D9 98 34 0F 00 00"
+insn = "fstp [eax+0xF34]"
+operand = "disp"
+index = 0
+old = 0xF34
+new = 0x6FB0967C
+why = "spectator overview: a player's position (moved table)"
+
+[[patch]]
+at = 0x1AA6AD
+bytes = "0F BF 88 A2 E9 57 00"
+insn = "movsx ecx, word ptr [eax+0x57E9A2]"
+operand = "disp"
+index = 1
+old = 0x57E9A2
+new = 0x70060C46
+why = "hud_player_extra_info: direct 0x57E9A2 -> hud_extra_info+0x2A"
+
+[[patch]]
+at = 0x1AA6D0
+bytes = "8B 88 84 E9 57 00"
+insn = "mov ecx, [eax+0x57E984]"
+operand = "disp"
+index = 1
+old = 0x57E984
+new = 0x70060C28
+why = "hud_player_extra_info: direct 0x57E984 -> hud_extra_info+0xC"
+
+[[patch]]
+at = 0x1AA6E0
+bytes = "8B 88 80 E9 57 00"
+insn = "mov ecx, [eax+0x57E980]"
+operand = "disp"
+index = 1
+old = 0x57E980
+new = 0x70060C24
+why = "hud_player_extra_info: direct 0x57E980 -> hud_extra_info+0x8"
+
+[[patch]]
+at = 0x1AE525
+bytes = "8B 84 8D AC 00 00 00"
+insn = "mov eax, [ebp+ecx*4+0xAC]"
+operand = "disp"
+index = 1
+old = 0xAC
+new = 0x6FB0BB24
+why = "per player field of view, the spectated player's (moved table)"
+
+[[patch]]
+at = 0x1B0A7F
+bytes = "B9 56 01 00 00"
+insn = "mov ecx, 0x156"
+operand = "imm"
+index = 1
+old = 0x156
+new = 0x4F9
+why = "g_PlayerExtraInfo cleared: N + 2 entries in dwords"
+
+[[patch]]
+at = 0x1B0A84
+bytes = "BF 78 E9 57 00"
+insn = "mov edi, 0x57E978"
+operand = "imm"
+index = 1
+old = 0x57E978
+new = 0x70060C1C
+why = "hud_player_extra_info: direct 0x57E978 -> hud_extra_info+0x0"
+
+[[patch]]
+at = 0x1B3CE5
+bytes = "8B 04 8D B0 87 54 00"
+insn = "mov eax, [ecx*4+0x5487B0]"
+operand = "disp"
+index = 1
+old = 0x5487B0
+new = 0x70063AC4
+why = "hud_player_info_list: direct 0x5487B0 -> hud_info_list+0x0"
+
+[[patch]]
+at = 0x1B3DA5
+bytes = "8B 2C 95 B0 87 54 00"
+insn = "mov ebp, [edx*4+0x5487B0]"
+operand = "disp"
+index = 1
+old = 0x5487B0
+new = 0x70063AC4
+why = "hud_player_info_list: direct 0x5487B0 -> hud_info_list+0x0"
+
+[[patch]]
+at = 0x1B3EB7
+bytes = "8B 04 8D B0 87 54 00"
+insn = "mov eax, [ecx*4+0x5487B0]"
+operand = "disp"
+index = 1
+old = 0x5487B0
+new = 0x70063AC4
+why = "hud_player_info_list: direct 0x5487B0 -> hud_info_list+0x0"
+
+[[patch]]
+at = 0x1B3F2A
+bytes = "83 FE 11"
+insn = "cmp esi, 0x11"
+operand = "imm"
+index = 1
+old = 0x11
+new = 0x42
+why = "spectator menu: players 1..N"
+
+[[patch]]
+at = 0x1B4195
+bytes = "D9 82 B8 E9 57 00"
+insn = "fld [edx+0x57E9B8]"
+operand = "disp"
+index = 0
+old = 0x57E9B8
+new = 0x70060C5C
+why = "hud_player_extra_info: direct 0x57E9B8 -> hud_extra_info+0x40"
+
+[[patch]]
+at = 0x1B41DD
+bytes = "8B 1C 8D B0 87 54 00"
+insn = "mov ebx, [ecx*4+0x5487B0]"
+operand = "disp"
+index = 1
+old = 0x5487B0
+new = 0x70063AC4
+why = "hud_player_info_list: direct 0x5487B0 -> hud_info_list+0x0"
+
+[[patch]]
+at = 0x1B41F9
+bytes = "8B 88 BC E9 57 00"
+insn = "mov ecx, [eax+0x57E9BC]"
+operand = "disp"
+index = 1
+old = 0x57E9BC
+new = 0x70060C60
+why = "hud_player_extra_info: direct 0x57E9BC -> hud_extra_info+0x44"
+
+[[patch]]
+at = 0x1B4203
+bytes = "0F BF 90 A2 E9 57 00"
+insn = "movsx edx, word ptr [eax+0x57E9A2]"
+operand = "disp"
+index = 1
+old = 0x57E9A2
+new = 0x70060C46
+why = "hud_player_extra_info: direct 0x57E9A2 -> hud_extra_info+0x2A"
+
+[[patch]]
+at = 0x1B42BF
+bytes = "8B 80 BC E9 57 00"
+insn = "mov eax, [eax+0x57E9BC]"
+operand = "disp"
+index = 1
+old = 0x57E9BC
+new = 0x70060C60
+why = "hud_player_extra_info: direct 0x57E9BC -> hud_extra_info+0x44"
+
+[[patch]]
+at = 0x1B4747
+bytes = "68 94 02 00 00"
+insn = "push 0x294"
+operand = "imm"
+index = 0
+old = 0x294
+new = 0x538
+why = "ScorePanel allocation: its rows and sorted flags after its fields"
+
+[[patch]]
+at = 0x1B4E37
+bytes = "BE CA 87 54 00"
+insn = "mov esi, 0x5487CA"
+operand = "imm"
+index = 1
+old = 0x5487CA
+new = 0x70063ADE
+why = "hud_player_info_list: direct 0x5487CA -> hud_info_list+0x1A"
+
+[[patch]]
+at = 0x1B4E64
+bytes = "81 FE 0A 89 54 00"
+insn = "cmp esi, 0x54890A"
+operand = "imm"
+index = 1
+old = 0x54890A
+new = 0x70063FF2
+why = "hud_player_info_list: end 0x54890A -> hud_info_list+0x52E"
+
+[[patch]]
+at = 0x1B5890
+bytes = "66 83 FD 11"
+insn = "cmp bp, 0x11"
+operand = "imm"
+index = 1
+old = 0x11
+new = 0x41
+why = "ScoreInfo: player index 1..N"
+
+[[patch]]
+at = 0x1B589C
+bytes = "66 89 B0 7A E9 57 00"
+insn = "mov [eax+0x57E97A], si"
+operand = "disp"
+index = 0
+old = 0x57E97A
+new = 0x70060C1E
+why = "hud_player_extra_info: direct 0x57E97A -> hud_extra_info+0x2"
+
+[[patch]]
+at = 0x1B58A7
+bytes = "66 89 98 78 E9 57 00"
+insn = "mov [eax+0x57E978], bx"
+operand = "disp"
+index = 0
+old = 0x57E978
+new = 0x70060C1C
+why = "hud_player_extra_info: direct 0x57E978 -> hud_extra_info+0x0"
+
+[[patch]]
+at = 0x1B58AE
+bytes = "66 89 88 A0 E9 57 00"
+insn = "mov [eax+0x57E9A0], cx"
+operand = "disp"
+index = 0
+old = 0x57E9A0
+new = 0x70060C44
+why = "hud_player_extra_info: direct 0x57E9A0 -> hud_extra_info+0x28"
+
+[[patch]]
+at = 0x1B5A20
+bytes = "66 3D 11 00"
+insn = "cmp ax, 0x11"
+operand = "imm"
+index = 1
+old = 0x11
+new = 0x41
+why = "TeamInfo: player index 1..N"
+
+[[patch]]
+at = 0x1B5A2F
+bytes = "8D BE A4 E9 57 00"
+insn = "lea edi, [esi+0x57E9A4]"
+operand = "disp"
+index = 1
+old = 0x57E9A4
+new = 0x70060C48
+why = "hud_player_extra_info: direct 0x57E9A4 -> hud_extra_info+0x2C"
+
+[[patch]]
+at = 0x1B5A53
+bytes = "66 C7 86 A2 E9 57 00 02 00"
+insn = "mov word ptr [esi+0x57E9A2], 0x02"
+operand = "disp"
+index = 0
+old = 0x57E9A2
+new = 0x70060C46
+why = "hud_player_extra_info: direct 0x57E9A2 -> hud_extra_info+0x2A"
+
+[[patch]]
+at = 0x1B5A71
+bytes = "66 89 86 A2 E9 57 00"
+insn = "mov [esi+0x57E9A2], ax"
+operand = "disp"
+index = 0
+old = 0x57E9A2
+new = 0x70060C46
+why = "hud_player_extra_info: direct 0x57E9A2 -> hud_extra_info+0x2A"
+
+[[patch]]
+at = 0x1B5ACC
+bytes = "66 83 FA 11"
+insn = "cmp dx, 0x11"
+operand = "imm"
+index = 1
+old = 0x11
+new = 0x41
+why = "Spectator message: player index 1..N"
+
+[[patch]]
+at = 0x1B5AE2
+bytes = "89 0C 95 50 87 54 00"
+insn = "mov [edx*4+0x548750], ecx"
+operand = "disp"
+index = 0
+old = 0x548750
+new = 0x70065EF4
+why = "hud_is_spectator: direct 0x548750 -> hud_is_spectator+0x0"
+
+[[patch]]
+at = 0x1B5AFB
+bytes = "89 0C 95 50 87 54 00"
+insn = "mov [edx*4+0x548750], ecx"
+operand = "disp"
+index = 0
+old = 0x548750
+new = 0x70065EF4
+why = "hud_is_spectator: direct 0x548750 -> hud_is_spectator+0x0"
+
+[[patch]]
+at = 0x1B5D25
+bytes = "0F BF 80 A2 E9 57 00"
+insn = "movsx eax, word ptr [eax+0x57E9A2]"
+operand = "disp"
+index = 1
+old = 0x57E9A2
+new = 0x70060C46
+why = "hud_player_extra_info: direct 0x57E9A2 -> hud_extra_info+0x2A"
+
+[[patch]]
+at = 0x1B5D2F
+bytes = "0F BF 91 A2 E9 57 00"
+insn = "movsx edx, word ptr [ecx+0x57E9A2]"
+operand = "disp"
+index = 1
+old = 0x57E9A2
+new = 0x70060C46
+why = "hud_player_extra_info: direct 0x57E9A2 -> hud_extra_info+0x2A"
+
+[[patch]]
+at = 0x1B7DE7
+bytes = "89 5E 24"
+insn = "mov [esi+0x24], ebx"
+operand = "disp"
+index = 0
+old = 0x24
+new = 0x6FB028DC
+why = "CVoiceStatus bit vector +0x24: 3 dwords (moved table)"
+
+[[patch]]
+at = 0x1B7DEA
+bytes = "89 5E 28"
+insn = "mov [esi+0x28], ebx"
+operand = "disp"
+index = 0
+old = 0x28
+new = 0x6FB028E8
+why = "CVoiceStatus bit vector +0x28: 3 dwords (moved table)"
+
+[[patch]]
+at = 0x1B7DED
+bytes = "89 5E 2C"
+insn = "mov [esi+0x2C], ebx"
+operand = "disp"
+index = 0
+old = 0x2C
+new = 0x6FB028F4
+why = "CVoiceStatus bit vector +0x2C: 3 dwords (moved table)"
+
+[[patch]]
+at = 0x1B7DF7
+bytes = "89 5E 30"
+insn = "mov [esi+0x30], ebx"
+operand = "disp"
+index = 0
+old = 0x30
+new = 0x6FB02900
+why = "CVoiceStatus bit vector +0x30: 3 dwords (moved table)"
+
+[[patch]]
+at = 0x1B7DFF
+bytes = "89 9E 8C 95 00 00"
+insn = "mov [esi+0x958C], ebx"
+operand = "disp"
+index = 0
+old = 0x958C
+new = 0x6FB0290C
+why = "CVoiceStatus bit vector +0x958C: 3 dwords (moved table)"
+
+[[patch]]
+at = 0x1B7E52
+bytes = "B9 11 00 00 00"
+insn = "mov ecx, 0x11"
+operand = "imm"
+index = 1
+old = 0x11
+new = 0x42
+why = "CVoiceStatus labels cleared: N + 1"
+
+[[patch]]
+at = 0x1B7E57
+bytes = "8D BE 68 7C 00 00"
+insn = "lea edi, [esi+0x7C68]"
+operand = "disp"
+index = 1
+old = 0x7C68
+new = 0x6FB06810
+why = "CVoiceStatus labels cleared (moved table)"
+
+[[patch]]
+at = 0x1B7FCE
+bytes = "B9 11 00 00 00"
+insn = "mov ecx, 0x11"
+operand = "imm"
+index = 1
+old = 0x11
+new = 0x42
+why = "CVoiceStatus talk times cleared: N + 1"
+
+[[patch]]
+at = 0x1B7FD3
+bytes = "8D BD 44 95 00 00"
+insn = "lea edi, [ebp+0x9544]"
+operand = "disp"
+index = 1
+old = 0x9544
+new = 0x6FB04810
+why = "CVoiceStatus talk times cleared (moved table)"
+
+[[patch]]
+at = 0x1B839A
+bytes = "83 FE 11"
+insn = "cmp esi, 0x11"
+operand = "imm"
+index = 1
+old = 0x11
+new = 0x41
+why = "CVoiceStatus: each player's label updated"
+
+[[patch]]
+at = 0x1B83D7
+bytes = "BE E0 E9 57 00"
+insn = "mov esi, 0x57E9E0"
+operand = "imm"
+index = 1
+old = 0x57E9E0
+new = 0x70060C84
+why = "hud_player_extra_info: direct 0x57E9E0 -> hud_extra_info+0x68"
+
+[[patch]]
+at = 0x1B83DC
+bytes = "8D 45 34"
+insn = "lea eax, [ebp+0x34]"
+operand = "disp"
+index = 1
+old = 0x34
+new = 0x6FB08780
+why = "CVoiceStatus speaker icon entities (moved table)"
+
+[[patch]]
+at = 0x1B83DF
+bytes = "8D 8D 44 95 00 00"
+insn = "lea ecx, [ebp+0x9544]"
+operand = "disp"
+index = 1
+old = 0x9544
+new = 0x6FB04810
+why = "CVoiceStatus talk times (moved table)"
+
+[[patch]]
+at = 0x1B8438
+bytes = "85 94 28 8C 95 00 00"
+insn = "test [eax+ebp*1+0x958C], edx"
+operand = "disp"
+index = 0
+old = 0x958C
+new = 0x6FB0290C
+why = "CVoiceStatus bit vector +0x958C: 3 dwords (moved table)"
+
+[[patch]]
+at = 0x1B844D
+bytes = "8B 8C 28 8C 95 00 00"
+insn = "mov ecx, [eax+ebp*1+0x958C]"
+operand = "disp"
+index = 1
+old = 0x958C
+new = 0x6FB0290C
+why = "CVoiceStatus bit vector +0x958C: 3 dwords (moved table)"
+
+[[patch]]
+at = 0x1B8458
+bytes = "89 8C 28 8C 95 00 00"
+insn = "mov [eax+ebp*1+0x958C], ecx"
+operand = "disp"
+index = 0
+old = 0x958C
+new = 0x6FB0290C
+why = "CVoiceStatus bit vector +0x958C: 3 dwords (moved table)"
+
+[[patch]]
+at = 0x1B84C9
+bytes = "8B 8C 28 8C 95 00 00"
+insn = "mov ecx, [eax+ebp*1+0x958C]"
+operand = "disp"
+index = 1
+old = 0x958C
+new = 0x6FB0290C
+why = "CVoiceStatus bit vector +0x958C: 3 dwords (moved table)"
+
+[[patch]]
+at = 0x1B84D6
+bytes = "89 8C 28 8C 95 00 00"
+insn = "mov [eax+ebp*1+0x958C], ecx"
+operand = "disp"
+index = 0
+old = 0x958C
+new = 0x6FB0290C
+why = "CVoiceStatus bit vector +0x958C: 3 dwords (moved table)"
+
+[[patch]]
+at = 0x1B85CD
+bytes = "81 FE EC EE 57 00"
+insn = "cmp esi, 0x57EEEC"
+operand = "imm"
+index = 1
+old = 0x57EEEC
+new = 0x7006201C
+why = "hud_player_extra_info: end 0x57EEEC -> hud_extra_info+0x1400"
+
+[[patch]]
+at = 0x1B86B3
+bytes = "83 FD 11"
+insn = "cmp ebp, 0x11"
+operand = "imm"
+index = 1
+old = 0x11
+new = 0x41
+why = "CVoiceStatus UpdateSpeakerStatus: player 1..N"
+
+[[patch]]
+at = 0x1B86F3
+bytes = "09 54 30 24"
+insn = "or [eax+esi*1+0x24], edx"
+operand = "disp"
+index = 0
+old = 0x24
+new = 0x6FB028DC
+why = "CVoiceStatus bit vector +0x24: 3 dwords (moved table)"
+
+[[patch]]
+at = 0x1B86F7
+bytes = "8B 4C 30 2C"
+insn = "mov ecx, [eax+esi*1+0x2C]"
+operand = "disp"
+index = 1
+old = 0x2C
+new = 0x6FB028F4
+why = "CVoiceStatus bit vector +0x2C: 3 dwords (moved table)"
+
+[[patch]]
+at = 0x1B86FF
+bytes = "89 4C 30 2C"
+insn = "mov [eax+esi*1+0x2C], ecx"
+operand = "disp"
+index = 0
+old = 0x2C
+new = 0x6FB028F4
+why = "CVoiceStatus bit vector +0x2C: 3 dwords (moved table)"
+
+[[patch]]
+at = 0x1B8800
+bytes = "8B 4C 86 24"
+insn = "mov ecx, [esi+eax*4+0x24]"
+operand = "disp"
+index = 1
+old = 0x24
+new = 0x6FB028DC
+why = "CVoiceStatus bit vector +0x24: 3 dwords (moved table)"
+
+[[patch]]
+at = 0x1B8804
+bytes = "8D 44 86 24"
+insn = "lea eax, [esi+eax*4+0x24]"
+operand = "disp"
+index = 1
+old = 0x24
+new = 0x6FB028DC
+why = "CVoiceStatus bit vector +0x24: 3 dwords (moved table)"
+
+[[patch]]
+at = 0x1B8B11
+bytes = "8B BC B5 68 7C 00 00"
+insn = "mov edi, [ebp+esi*4+0x7C68]"
+operand = "disp"
+index = 1
+old = 0x7C68
+new = 0x6FB06810
+why = "CVoiceStatus a player's label (moved table)"
+
+[[patch]]
+at = 0x1B8B6C
+bytes = "8B 5C 2E 24"
+insn = "mov ebx, [esi+ebp*1+0x24]"
+operand = "disp"
+index = 1
+old = 0x24
+new = 0x6FB028DC
+why = "CVoiceStatus bit vector +0x24: 3 dwords (moved table)"
+
+[[patch]]
+at = 0x1B8B7F
+bytes = "8B 5C 2E 2C"
+insn = "mov ebx, [esi+ebp*1+0x2C]"
+operand = "disp"
+index = 1
+old = 0x2C
+new = 0x6FB028F4
+why = "CVoiceStatus bit vector +0x2C: 3 dwords (moved table)"
+
+[[patch]]
+at = 0x1B91A6
+bytes = "8D BE 68 7C 00 00"
+insn = "lea edi, [esi+0x7C68]"
+operand = "disp"
+index = 1
+old = 0x7C68
+new = 0x6FB06810
+why = "CVoiceStatus labels released (moved table)"
+
+[[patch]]
+at = 0x1B91AC
+bytes = "BD 11 00 00 00"
+insn = "mov ebp, 0x11"
+operand = "imm"
+index = 1
+old = 0x11
+new = 0x42
+why = "CVoiceStatus labels released: N + 1"
+
+[[patch]]
+at = 0x1B926D
+bytes = "B9 56 01 00 00"
+insn = "mov ecx, 0x156"
+operand = "imm"
+index = 1
+old = 0x156
+new = 0x4F9
+why = "g_PlayerExtraInfo cleared: N + 2 entries in dwords"
+
+[[patch]]
+at = 0x1B9272
+bytes = "BF 78 E9 57 00"
+insn = "mov edi, 0x57E978"
+operand = "imm"
+index = 1
+old = 0x57E978
+new = 0x70060C1C
+why = "hud_player_extra_info: direct 0x57E978 -> hud_extra_info+0x0"
+
+[[patch]]
+at = 0x1B92AA
+bytes = "8A 90 40 8D 54 00"
+insn = "mov dl, [eax+0x548D40]"
+operand = "disp"
+index = 1
+old = 0x548D40
+new = 0x70069FBD
+why = "hud_player_flag: direct 0x548D40 -> hud_player_flag+0x0"
+
+[[patch]]
+at = 0x1B92B7
+bytes = "05 18 89 54 00"
+insn = "add eax, 0x548918"
+operand = "imm"
+index = 1
+old = 0x548918
+new = 0x70067BD0
+why = "hud_player_record: direct 0x548918 -> hud_player_record+0x0"
+
+[[patch]]
+at = 0x1B9309
+bytes = "8D 86 0C 02 00 00"
+insn = "lea eax, [esi+0x20C]"
+operand = "disp"
+index = 1
+old = 0x20C
+new = 0x3C4
+why = "SortTeams: is-a-team cleared (moved)"
+
+[[patch]]
+at = 0x1B930F
+bytes = "B9 1B 00 00 00"
+insn = "mov ecx, 0x1B"
+operand = "imm"
+index = 1
+old = 0x1B
+new = 0x4C
+why = "SortTeams: N + 11 rows cleared"
+
+[[patch]]
+at = 0x1B9320
+bytes = "C7 40 94 00 00 00 00"
+insn = "mov dword ptr [eax-0x6C], 0x00"
+operand = "disp"
+index = 0
+old = 0xFFFFFF94
+new = 0xFFFFFED0
+why = "SortTeams: rows cleared (moved, before is-a-team)"
+
+[[patch]]
+at = 0x1B9335
+bytes = "89 86 78 02 00 00"
+insn = "mov [esi+0x278], eax"
+operand = "disp"
+index = 0
+old = 0x278
+new = 0x4F4
+why = "SortTeams: sorted flags cleared (moved; all of them by a hook)"
+
+[[patch]]
+at = 0x1B933B
+bytes = "89 86 7C 02 00 00"
+insn = "mov [esi+0x27C], eax"
+operand = "disp"
+index = 0
+old = 0x27C
+new = 0x4F8
+why = "SortTeams: sorted flags cleared (moved)"
+
+[[patch]]
+at = 0x1B9341
+bytes = "89 86 80 02 00 00"
+insn = "mov [esi+0x280], eax"
+operand = "disp"
+index = 0
+old = 0x280
+new = 0x4FC
+why = "SortTeams: sorted flags cleared (moved)"
+
+[[patch]]
+at = 0x1B9347
+bytes = "89 86 84 02 00 00"
+insn = "mov [esi+0x284], eax"
+operand = "disp"
+index = 0
+old = 0x284
+new = 0x500
+why = "SortTeams: sorted flags cleared (moved)"
+
+[[patch]]
+at = 0x1B934D
+bytes = "66 89 86 88 02 00 00"
+insn = "mov [esi+0x288], ax"
+operand = "disp"
+index = 0
+old = 0x288
+new = 0x504
+why = "SortTeams: sorted flags cleared (moved)"
+
+[[patch]]
+at = 0x1B93B6
+bytes = "B9 EE E9 57 00"
+insn = "mov ecx, 0x57E9EE"
+operand = "imm"
+index = 1
+old = 0x57E9EE
+new = 0x70060C92
+why = "hud_player_extra_info: direct 0x57E9EE -> hud_extra_info+0x76"
+
+[[patch]]
+at = 0x1B93BF
+bytes = "BD C8 87 54 00"
+insn = "mov ebp, 0x5487C8"
+operand = "imm"
+index = 1
+old = 0x5487C8
+new = 0x70063ADC
+why = "hud_player_info_list: direct 0x5487C8 -> hud_info_list+0x18"
+
+[[patch]]
+at = 0x1B945F
+bytes = "81 FD 08 89 54 00"
+insn = "cmp ebp, 0x548908"
+operand = "imm"
+index = 1
+old = 0x548908
+new = 0x70063FF0
+why = "hud_player_info_list: end 0x548908 -> hud_info_list+0x52C"
+
+[[patch]]
+at = 0x1B9534
+bytes = "89 9C 86 A0 01 00 00"
+insn = "mov [esi+eax*4+0x1A0], ebx"
+operand = "disp"
+index = 0
+old = 0x1A0
+new = 0x294
+why = "SortTeams: a team row (moved)"
+
+[[patch]]
+at = 0x1B9541
+bytes = "C7 84 8E 0C 02 00 00 01 00 00 00"
+insn = "mov dword ptr [esi+ecx*4+0x20C], 0x01"
+operand = "disp"
+index = 0
+old = 0x20C
+new = 0x3C4
+why = "SortTeams: a team row is a team (moved)"
+
+[[patch]]
+at = 0x1B95AA
+bytes = "BE C4 E9 57 00"
+insn = "mov esi, 0x57E9C4"
+operand = "imm"
+index = 1
+old = 0x57E9C4
+new = 0x70060C68
+why = "hud_player_extra_info: direct 0x57E9C4 -> hud_extra_info+0x4C"
+
+[[patch]]
+at = 0x1B95AF
+bytes = "BD C4 87 54 00"
+insn = "mov ebp, 0x5487C4"
+operand = "imm"
+index = 1
+old = 0x5487C4
+new = 0x70063AD8
+why = "hud_player_info_list: direct 0x5487C4 -> hud_info_list+0x14"
+
+[[patch]]
+at = 0x1B95C4
+bytes = "8A 8C 38 78 02 00 00"
+insn = "mov cl, [eax+edi*1+0x278]"
+operand = "disp"
+index = 1
+old = 0x278
+new = 0x4F4
+why = "SortPlayers: sorted flag (moved)"
+
+[[patch]]
+at = 0x1B962D
+bytes = "81 FD 04 89 54 00"
+insn = "cmp ebp, 0x548904"
+operand = "imm"
+index = 1
+old = 0x548904
+new = 0x70063FEC
+why = "hud_player_info_list: end 0x548904 -> hud_info_list+0x528"
+
+[[patch]]
+at = 0x1B9653
+bytes = "89 8C B0 0C 02 00 00"
+insn = "mov [eax+esi*4+0x20C], ecx"
+operand = "disp"
+index = 0
+old = 0x20C
+new = 0x3C4
+why = "SortPlayers: row kind (moved)"
+
+[[patch]]
+at = 0x1B966B
+bytes = "89 94 88 A0 01 00 00"
+insn = "mov [eax+ecx*4+0x1A0], edx"
+operand = "disp"
+index = 0
+old = 0x1A0
+new = 0x294
+why = "SortPlayers: a player row (moved)"
+
+[[patch]]
+at = 0x1B9672
+bytes = "C6 84 10 78 02 00 00 01"
+insn = "mov byte ptr [eax+edx*1+0x278], 0x01"
+operand = "disp"
+index = 0
+old = 0x278
+new = 0x4F4
+why = "SortPlayers: sorted flag (moved)"
+
+[[patch]]
+at = 0x1B9697
+bytes = "C7 84 90 0C 02 00 00 03 00 00 00"
+insn = "mov dword ptr [eax+edx*4+0x20C], 0x03"
+operand = "disp"
+index = 0
+old = 0x20C
+new = 0x3C4
+why = "SortPlayers: row kind (moved)"
+
+[[patch]]
+at = 0x1B96EF
+bytes = "B8 C4 87 54 00"
+insn = "mov eax, 0x5487C4"
+operand = "imm"
+index = 1
+old = 0x5487C4
+new = 0x70063AD8
+why = "hud_player_info_list: direct 0x5487C4 -> hud_info_list+0x14"
+
+[[patch]]
+at = 0x1B96FE
+bytes = "BB F0 E9 57 00"
+insn = "mov ebx, 0x57E9F0"
+operand = "imm"
+index = 1
+old = 0x57E9F0
+new = 0x70060C94
+why = "hud_player_extra_info: direct 0x57E9F0 -> hud_extra_info+0x78"
+
+[[patch]]
+at = 0x1B97C1
+bytes = "3D 04 89 54 00"
+insn = "cmp eax, 0x548904"
+operand = "imm"
+index = 1
+old = 0x548904
+new = 0x70063FEC
+why = "hud_player_info_list: end 0x548904 -> hud_info_list+0x528"
+
+[[patch]]
+at = 0x1B9890
+bytes = "8D 85 0C 02 00 00"
+insn = "lea eax, [ebp+0x20C]"
+operand = "disp"
+index = 1
+old = 0x20C
+new = 0x3C4
+why = "FillGrid: row kinds (moved)"
+
+[[patch]]
+at = 0x1B9A07
+bytes = "8B BC 88 A0 01 00 00"
+insn = "mov edi, [eax+ecx*4+0x1A0]"
+operand = "disp"
+index = 1
+old = 0x1A0
+new = 0x294
+why = "a team row (moved)"
+
+[[patch]]
+at = 0x1BA03F
+bytes = "8B 8C B0 A0 01 00 00"
+insn = "mov ecx, [eax+esi*4+0x1A0]"
+operand = "disp"
+index = 1
+old = 0x1A0
+new = 0x294
+why = "a player row (moved)"
+
+[[patch]]
+at = 0x1BA049
+bytes = "8D 14 95 B0 87 54 00"
+insn = "lea edx, [edx*4+0x5487B0]"
+operand = "disp"
+index = 1
+old = 0x5487B0
+new = 0x70063AC4
+why = "hud_player_info_list: direct 0x5487B0 -> hud_info_list+0x0"
+
+[[patch]]
+at = 0x1BA0E3
+bytes = "8B 94 B0 A0 01 00 00"
+insn = "mov edx, [eax+esi*4+0x1A0]"
+operand = "disp"
+index = 1
+old = 0x1A0
+new = 0x294
+why = "a player row (moved)"
+
+[[patch]]
+at = 0x1BA0ED
+bytes = "0F BF 82 A2 E9 57 00"
+insn = "movsx eax, word ptr [edx+0x57E9A2]"
+operand = "disp"
+index = 1
+old = 0x57E9A2
+new = 0x70060C46
+why = "hud_player_extra_info: direct 0x57E9A2 -> hud_extra_info+0x2A"
+
+[[patch]]
+at = 0x1BA158
+bytes = "0F BF 80 A2 E9 57 00"
+insn = "movsx eax, word ptr [eax+0x57E9A2]"
+operand = "disp"
+index = 1
+old = 0x57E9A2
+new = 0x70060C46
+why = "hud_player_extra_info: direct 0x57E9A2 -> hud_extra_info+0x2A"
+
+[[patch]]
+at = 0x1BA1F6
+bytes = "38 99 B4 E9 57 00"
+insn = "cmp [ecx+0x57E9B4], bl"
+operand = "disp"
+index = 0
+old = 0x57E9B4
+new = 0x70060C58
+why = "hud_player_extra_info: direct 0x57E9B4 -> hud_extra_info+0x3C"
+
+[[patch]]
+at = 0x1BA209
+bytes = "8B 94 B1 A0 01 00 00"
+insn = "mov edx, [ecx+esi*4+0x1A0]"
+operand = "disp"
+index = 1
+old = 0x1A0
+new = 0x294
+why = "a player row (moved)"
+
+[[patch]]
+at = 0x1BA213
+bytes = "39 9A 80 E9 57 00"
+insn = "cmp [edx+0x57E980], ebx"
+operand = "disp"
+index = 0
+old = 0x57E980
+new = 0x70060C24
+why = "hud_player_extra_info: direct 0x57E980 -> hud_extra_info+0x8"
+
+[[patch]]
+at = 0x1BA3B3
+bytes = "8B 84 B1 A0 01 00 00"
+insn = "mov eax, [ecx+esi*4+0x1A0]"
+operand = "disp"
+index = 1
+old = 0x1A0
+new = 0x294
+why = "a player row (moved)"
+
+[[patch]]
+at = 0x1BA3BD
+bytes = "66 39 98 A2 E9 57 00"
+insn = "cmp [eax+0x57E9A2], bx"
+operand = "disp"
+index = 0
+old = 0x57E9A2
+new = 0x70060C46
+why = "hud_player_extra_info: direct 0x57E9A2 -> hud_extra_info+0x2A"
+
+[[patch]]
+at = 0x1BA3CA
+bytes = "0F BF 90 78 E9 57 00"
+insn = "movsx edx, word ptr [eax+0x57E978]"
+operand = "disp"
+index = 1
+old = 0x57E978
+new = 0x70060C1C
+why = "hud_player_extra_info: direct 0x57E978 -> hud_extra_info+0x0"
+
+[[patch]]
+at = 0x1BA445
+bytes = "8B 8C B0 A0 01 00 00"
+insn = "mov ecx, [eax+esi*4+0x1A0]"
+operand = "disp"
+index = 1
+old = 0x1A0
+new = 0x294
+why = "a player row (moved)"
+
+[[patch]]
+at = 0x1BA44F
+bytes = "0F BF 91 7A E9 57 00"
+insn = "movsx edx, word ptr [ecx+0x57E97A]"
+operand = "disp"
+index = 1
+old = 0x57E97A
+new = 0x70060C1E
+why = "hud_player_extra_info: direct 0x57E97A -> hud_extra_info+0x2"
+
+[[patch]]
+at = 0x1BA4CA
+bytes = "8B 8C B0 A0 01 00 00"
+insn = "mov ecx, [eax+esi*4+0x1A0]"
+operand = "disp"
+index = 1
+old = 0x1A0
+new = 0x294
+why = "a player row (moved)"
+
+[[patch]]
+at = 0x1BA4D4
+bytes = "8B 81 C0 E9 57 00"
+insn = "mov eax, [ecx+0x57E9C0]"
+operand = "disp"
+index = 1
+old = 0x57E9C0
+new = 0x70060C64
+why = "hud_player_extra_info: direct 0x57E9C0 -> hud_extra_info+0x48"
+
+[[patch]]
+at = 0x1BA6F6
+bytes = "C6 80 B4 E9 57 00 01"
+insn = "mov byte ptr [eax+0x57E9B4], 0x01"
+operand = "disp"
+index = 0
+old = 0x57E9B4
+new = 0x70060C58
+why = "hud_player_extra_info: direct 0x57E9B4 -> hud_extra_info+0x3C"
+
+[[patch]]
+at = 0x1BA700
+bytes = "C7 85 80 E9 57 00 00 00 00 00"
+insn = "mov dword ptr [ebp+0x57E980], 0x00"
+operand = "disp"
+index = 0
+old = 0x57E980
+new = 0x70060C24
+why = "hud_player_extra_info: direct 0x57E980 -> hud_extra_info+0x8"
+
+[[patch]]
+at = 0x1CC3B1
+bytes = "8D B7 AC 00 00 00"
+insn = "lea esi, [edi+0xAC]"
+operand = "disp"
+index = 1
+old = 0xAC
+new = 0x6FB0BB24
+why = "per player field of view reset (moved table)"
+
+[[patch]]
+at = 0x1CC3B7
+bytes = "BB 11 00 00 00"
+insn = "mov ebx, 0x11"
+operand = "imm"
+index = 1
+old = 0x11
+new = 0x43
+why = "per player field of view reset: N + 2 entries"
+
+[[patch]]
+at = 0x1CC434
+bytes = "D9 1D 88 E9 57 00"
+insn = "fstp [0x0057E988]"
+operand = "disp"
+index = 0
+old = 0x57E988
+new = 0x70060C2C
+why = "hud_player_extra_info: direct 0x57E988 -> hud_extra_info+0x10"
+
+[[patch]]
+at = 0x1CC43F
+bytes = "D9 1D 8C E9 57 00"
+insn = "fstp [0x0057E98C]"
+operand = "disp"
+index = 0
+old = 0x57E98C
+new = 0x70060C30
+why = "hud_player_extra_info: direct 0x57E98C -> hud_extra_info+0x14"
+
+[[patch]]
+at = 0x1CC44A
+bytes = "D9 1D 90 E9 57 00"
+insn = "fstp [0x0057E990]"
+operand = "disp"
+index = 0
+old = 0x57E990
+new = 0x70060C34
+why = "hud_player_extra_info: direct 0x57E990 -> hud_extra_info+0x18"
+
+[[patch]]
+at = 0x1CC461
+bytes = "89 15 94 E9 57 00"
+insn = "mov [0x0057E994], edx"
+operand = "disp"
+index = 0
+old = 0x57E994
+new = 0x70060C38
+why = "hud_player_extra_info: direct 0x57E994 -> hud_extra_info+0x1C"
+
+[[patch]]
+at = 0x1CC46E
+bytes = "C7 05 98 E9 57 00 01 00 00 00"
+insn = "mov dword ptr [0x0057E998], 0x01"
+operand = "disp"
+index = 0
+old = 0x57E998
+new = 0x70060C3C
+why = "hud_player_extra_info: direct 0x57E998 -> hud_extra_info+0x20"
+
+[[patch]]
+at = 0x1CC478
+bytes = "C7 05 9C E9 57 00 9F 86 01 00"
+insn = "mov dword ptr [0x0057E99C], 0x1869F"
+operand = "disp"
+index = 0
+old = 0x57E99C
+new = 0x70060C40
+why = "hud_player_extra_info: direct 0x57E99C -> hud_extra_info+0x24"
+
+[[patch]]
+at = 0x1CC482
+bytes = "A3 A4 E9 57 00"
+insn = "mov [0x0057E9A4], eax"
+operand = "disp"
+index = 0
+old = 0x57E9A4
+new = 0x70060C48
+why = "hud_player_extra_info: direct 0x57E9A4 -> hud_extra_info+0x2C"
+
+[[patch]]
+at = 0x1CC487
+bytes = "89 0D A8 E9 57 00"
+insn = "mov [0x0057E9A8], ecx"
+operand = "disp"
+index = 0
+old = 0x57E9A8
+new = 0x70060C4C
+why = "hud_player_extra_info: direct 0x57E9A8 -> hud_extra_info+0x30"
+
+[[patch]]
+at = 0x1CC48D
+bytes = "66 89 15 AC E9 57 00"
+insn = "mov [0x0057E9AC], dx"
+operand = "disp"
+index = 0
+old = 0x57E9AC
+new = 0x70060C50
+why = "hud_player_extra_info: direct 0x57E9AC -> hud_extra_info+0x34"
+
+[[patch]]
+at = 0x1CC494
+bytes = "C6 05 B4 E9 57 00 00"
+insn = "mov byte ptr [0x0057E9B4], 0x00"
+operand = "disp"
+index = 0
+old = 0x57E9B4
+new = 0x70060C58
+why = "hud_player_extra_info: direct 0x57E9B4 -> hud_extra_info+0x3C"
+
+[[patch]]
+at = 0x1D5341
+bytes = "8D 86 A4 E9 57 00"
+insn = "lea eax, [esi+0x57E9A4]"
+operand = "disp"
+index = 1
+old = 0x57E9A4
+new = 0x70060C48
+why = "hud_player_extra_info: direct 0x57E9A4 -> hud_extra_info+0x2C"
+
+[[patch]]
+at = 0x1D535B
+bytes = "80 BE B4 E9 57 00 01"
+insn = "cmp byte ptr [esi+0x57E9B4], 0x01"
+operand = "disp"
+index = 0
+old = 0x57E9B4
+new = 0x70060C58
+why = "hud_player_extra_info: direct 0x57E9B4 -> hud_extra_info+0x3C"
+
+[[patch]]
+at = 0x1D53AE
+bytes = "8D B7 A4 E9 57 00"
+insn = "lea esi, [edi+0x57E9A4]"
+operand = "disp"
+index = 1
+old = 0x57E9A4
+new = 0x70060C48
+why = "hud_player_extra_info: direct 0x57E9A4 -> hud_extra_info+0x2C"
+
+[[patch]]
+at = 0x1D53E9
+bytes = "8A 87 B4 E9 57 00"
+insn = "mov al, [edi+0x57E9B4]"
+operand = "disp"
+index = 1
+old = 0x57E9B4
+new = 0x70060C58
+why = "hud_player_extra_info: direct 0x57E9B4 -> hud_extra_info+0x3C"
+
+[[patch]]
+at = 0x1D53F7
+bytes = "D9 87 88 E9 57 00"
+insn = "fld [edi+0x57E988]"
+operand = "disp"
+index = 0
+old = 0x57E988
+new = 0x70060C2C
+why = "hud_player_extra_info: direct 0x57E988 -> hud_extra_info+0x10"
+
+[[patch]]
+at = 0x1D5405
+bytes = "D9 87 8C E9 57 00"
+insn = "fld [edi+0x57E98C]"
+operand = "disp"
+index = 0
+old = 0x57E98C
+new = 0x70060C30
+why = "hud_player_extra_info: direct 0x57E98C -> hud_extra_info+0x14"
+
+[[patch]]
+at = 0x1D5413
+bytes = "D9 87 90 E9 57 00"
+insn = "fld [edi+0x57E990]"
+operand = "disp"
+index = 0
+old = 0x57E990
+new = 0x70060C34
+why = "hud_player_extra_info: direct 0x57E990 -> hud_extra_info+0x18"
+
+[[patch]]
+at = 0x1D55A1
+bytes = "8B 87 80 E9 57 00"
+insn = "mov eax, [edi+0x57E980]"
+operand = "disp"
+index = 1
+old = 0x57E980
+new = 0x70060C24
+why = "hud_player_extra_info: direct 0x57E980 -> hud_extra_info+0x8"
+
+[[patch]]
+at = 0x1D55AB
+bytes = "8B 87 84 E9 57 00"
+insn = "mov eax, [edi+0x57E984]"
+operand = "disp"
+index = 1
+old = 0x57E984
+new = 0x70060C28
+why = "hud_player_extra_info: direct 0x57E984 -> hud_extra_info+0xC"
+
+[[patch]]
+at = 0x1D561F
+bytes = "81 BF 94 E9 57 00 00 00 80 BF"
+insn = "cmp dword ptr [edi+0x57E994], 0xBF800000"
+operand = "disp"
+index = 0
+old = 0x57E994
+new = 0x70060C38
+why = "hud_player_extra_info: direct 0x57E994 -> hud_extra_info+0x1C"
+
+[[patch]]
+at = 0x1D562F
+bytes = "D8 9F 94 E9 57 00"
+insn = "fcomp [edi+0x57E994]"
+operand = "disp"
+index = 0
+old = 0x57E994
+new = 0x70060C38
+why = "hud_player_extra_info: direct 0x57E994 -> hud_extra_info+0x1C"
+
+[[patch]]
+at = 0x1D563C
+bytes = "8B 87 9C E9 57 00"
+insn = "mov eax, [edi+0x57E99C]"
+operand = "disp"
+index = 1
+old = 0x57E99C
+new = 0x70060C40
+why = "hud_player_extra_info: direct 0x57E99C -> hud_extra_info+0x24"
+
+[[patch]]
+at = 0x1D564A
+bytes = "8B 8F 98 E9 57 00"
+insn = "mov ecx, [edi+0x57E998]"
+operand = "disp"
+index = 1
+old = 0x57E998
+new = 0x70060C3C
+why = "hud_player_extra_info: direct 0x57E998 -> hud_extra_info+0x20"
+
+[[patch]]
+at = 0x1D565E
+bytes = "D9 9F 94 E9 57 00"
+insn = "fstp [edi+0x57E994]"
+operand = "disp"
+index = 0
+old = 0x57E994
+new = 0x70060C38
+why = "hud_player_extra_info: direct 0x57E994 -> hud_extra_info+0x1C"
+
+[[patch]]
+at = 0x1D5664
+bytes = "89 97 98 E9 57 00"
+insn = "mov [edi+0x57E998], edx"
+operand = "disp"
+index = 0
+old = 0x57E998
+new = 0x70060C3C
+why = "hud_player_extra_info: direct 0x57E998 -> hud_extra_info+0x20"
+
+[[patch]]
+at = 0x1D566A
+bytes = "89 87 9C E9 57 00"
+insn = "mov [edi+0x57E99C], eax"
+operand = "disp"
+index = 0
+old = 0x57E99C
+new = 0x70060C40
+why = "hud_player_extra_info: direct 0x57E99C -> hud_extra_info+0x24"
+
+[[patch]]
+at = 0x1D5670
+bytes = "83 BF 98 E9 57 00 01"
+insn = "cmp dword ptr [edi+0x57E998], 0x01"
+operand = "disp"
+index = 0
+old = 0x57E998
+new = 0x70060C3C
+why = "hud_player_extra_info: direct 0x57E998 -> hud_extra_info+0x20"
+
+[[patch]]
+at = 0x1D5679
+bytes = "8B 87 9C E9 57 00"
+insn = "mov eax, [edi+0x57E99C]"
+operand = "disp"
+index = 1
+old = 0x57E99C
+new = 0x70060C40
+why = "hud_player_extra_info: direct 0x57E99C -> hud_extra_info+0x24"
+
+[[patch]]
+at = 0x1D59F0
+bytes = "81 C6 88 E9 57 00"
+insn = "add esi, 0x57E988"
+operand = "imm"
+index = 1
+old = 0x57E988
+new = 0x70060C2C
+why = "hud_player_extra_info: direct 0x57E988 -> hud_extra_info+0x10"
+
+[[patch]]
+at = 0x1D5A17
+bytes = "BE CA 87 54 00"
+insn = "mov esi, 0x5487CA"
+operand = "imm"
+index = 1
+old = 0x5487CA
+new = 0x70063ADE
+why = "hud_player_info_list: direct 0x5487CA -> hud_info_list+0x1A"
+
+[[patch]]
+at = 0x1D5A3B
+bytes = "81 FE 0A 89 54 00"
+insn = "cmp esi, 0x54890A"
+operand = "imm"
+index = 1
+old = 0x54890A
+new = 0x70063FF2
+why = "hud_player_info_list: end 0x54890A -> hud_info_list+0x52E"
+
+[[patch]]
+at = 0x1D5AAA
+bytes = "66 83 FB 11"
+insn = "cmp bx, 0x11"
+operand = "imm"
+index = 1
+old = 0x11
+new = 0x41
+why = "ScoreAttrib: player index 1..N"
+
+[[patch]]
+at = 0x1D5AC8
+bytes = "88 99 B4 E9 57 00"
+insn = "mov [ecx+0x57E9B4], bl"
+operand = "disp"
+index = 0
+old = 0x57E9B4
+new = 0x70060C58
+why = "hud_player_extra_info: direct 0x57E9B4 -> hud_extra_info+0x3C"
+
+[[patch]]
+at = 0x1D5ACE
+bytes = "89 B1 80 E9 57 00"
+insn = "mov [ecx+0x57E980], esi"
+operand = "disp"
+index = 0
+old = 0x57E980
+new = 0x70060C24
+why = "hud_player_extra_info: direct 0x57E980 -> hud_extra_info+0x8"
+
+[[patch]]
+at = 0x1D5AD4
+bytes = "89 91 84 E9 57 00"
+insn = "mov [ecx+0x57E984], edx"
+operand = "disp"
+index = 0
+old = 0x57E984
+new = 0x70060C28
+why = "hud_player_extra_info: direct 0x57E984 -> hud_extra_info+0xC"
+
+[[patch]]
+at = 0x1D6723
+bytes = "0F BF 80 A2 E9 57 00"
+insn = "movsx eax, word ptr [eax+0x57E9A2]"
+operand = "disp"
+index = 1
+old = 0x57E9A2
+new = 0x70060C46
+why = "hud_player_extra_info: direct 0x57E9A2 -> hud_extra_info+0x2A"
+
+[[patch]]
+at = 0x1D6D7C
+bytes = "8B 0C 85 B0 87 54 00"
+insn = "mov ecx, [eax*4+0x5487B0]"
+operand = "disp"
+index = 1
+old = 0x5487B0
+new = 0x70063AC4
+why = "hud_player_info_list: direct 0x5487B0 -> hud_info_list+0x0"
+
+[[patch]]
+at = 0x1D6D9D
+bytes = "0F BF 85 A2 E9 57 00"
+insn = "movsx eax, word ptr [ebp+0x57E9A2]"
+operand = "disp"
+index = 1
+old = 0x57E9A2
+new = 0x70060C46
+why = "hud_player_extra_info: direct 0x57E9A2 -> hud_extra_info+0x2A"
+
+[[patch]]
+at = 0x1D6E05
+bytes = "8B 0C 8D B0 87 54 00"
+insn = "mov ecx, [ecx*4+0x5487B0]"
+operand = "disp"
+index = 1
+old = 0x5487B0
+new = 0x70063AC4
+why = "hud_player_info_list: direct 0x5487B0 -> hud_info_list+0x0"
+
+[[patch]]
+at = 0x1D6E1F
+bytes = "0F BF 80 A2 E9 57 00"
+insn = "movsx eax, word ptr [eax+0x57E9A2]"
+operand = "disp"
+index = 1
+old = 0x57E9A2
+new = 0x70060C46
+why = "hud_player_extra_info: direct 0x57E9A2 -> hud_extra_info+0x2A"
+
+[[patch]]
+at = 0x1D7AA0
+bytes = "B8 B4 E9 57 00"
+insn = "mov eax, 0x57E9B4"
+operand = "imm"
+index = 1
+old = 0x57E9B4
+new = 0x70060C58
+why = "hud_player_extra_info: direct 0x57E9B4 -> hud_extra_info+0x3C"
+
+[[patch]]
+at = 0x1D7AB9
+bytes = "3D C0 EE 57 00"
+insn = "cmp eax, 0x57EEC0"
+operand = "imm"
+index = 1
+old = 0x57EEC0
+new = 0x70061FF0
+why = "hud_player_extra_info: end 0x57EEC0 -> hud_extra_info+0x13D4"
+
+[[patch]]
+at = 0x1D8241
+bytes = "89 88 94 E9 57 00"
+insn = "mov [eax+0x57E994], ecx"
+operand = "disp"
+index = 0
+old = 0x57E994
+new = 0x70060C38
+why = "hud_player_extra_info: direct 0x57E994 -> hud_extra_info+0x1C"
+
+[[patch]]
+at = 0x1D8247
+bytes = "C7 80 98 E9 57 00 01 00 00 00"
+insn = "mov dword ptr [eax+0x57E998], 0x01"
+operand = "disp"
+index = 0
+old = 0x57E998
+new = 0x70060C3C
+why = "hud_player_extra_info: direct 0x57E998 -> hud_extra_info+0x20"
+
+[[patch]]
+at = 0x1D8251
+bytes = "C7 80 9C E9 57 00 16 00 00 00"
+insn = "mov dword ptr [eax+0x57E99C], 0x16"
+operand = "disp"
+index = 0
+old = 0x57E99C
+new = 0x70060C40
+why = "hud_player_extra_info: direct 0x57E99C -> hud_extra_info+0x24"
+
+[[patch]]
+at = 0x1D8349
+bytes = "89 90 94 E9 57 00"
+insn = "mov [eax+0x57E994], edx"
+operand = "disp"
+index = 0
+old = 0x57E994
+new = 0x70060C38
+why = "hud_player_extra_info: direct 0x57E994 -> hud_extra_info+0x1C"
+
+[[patch]]
+at = 0x1D834F
+bytes = "C7 80 98 E9 57 00 01 00 00 00"
+insn = "mov dword ptr [eax+0x57E998], 0x01"
+operand = "disp"
+index = 0
+old = 0x57E998
+new = 0x70060C3C
+why = "hud_player_extra_info: direct 0x57E998 -> hud_extra_info+0x20"
+
+[[patch]]
+at = 0x1D8359
+bytes = "C7 80 9C E9 57 00 16 00 00 00"
+insn = "mov dword ptr [eax+0x57E99C], 0x16"
+operand = "disp"
+index = 0
+old = 0x57E99C
+new = 0x70060C40
+why = "hud_player_extra_info: direct 0x57E99C -> hud_extra_info+0x24"
+
+[[patch]]
+at = 0x1D8493
+bytes = "B8 B8 E9 57 00"
+insn = "mov eax, 0x57E9B8"
+operand = "imm"
+index = 1
+old = 0x57E9B8
+new = 0x70060C5C
+why = "hud_player_extra_info: direct 0x57E9B8 -> hud_extra_info+0x40"
+
+[[patch]]
+at = 0x1D84A9
+bytes = "3D C4 EE 57 00"
+insn = "cmp eax, 0x57EEC4"
+operand = "imm"
+index = 1
+old = 0x57EEC4
+new = 0x70061FF4
+why = "hud_player_extra_info: end 0x57EEC4 -> hud_extra_info+0x13D8"
+
+[[patch]]
+at = 0x1D865D
+bytes = "8D 3C 85 B0 87 54 00"
+insn = "lea edi, [eax*4+0x5487B0]"
+operand = "disp"
+index = 1
+old = 0x5487B0
+new = 0x70063AC4
+why = "hud_player_info_list: direct 0x5487B0 -> hud_info_list+0x0"
+
+[[patch]]
+at = 0x1D86F6
+bytes = "D9 98 B8 E9 57 00"
+insn = "fstp [eax+0x57E9B8]"
+operand = "disp"
+index = 0
+old = 0x57E9B8
+new = 0x70060C5C
+why = "hud_player_extra_info: direct 0x57E9B8 -> hud_extra_info+0x40"
+
+[[patch]]
+at = 0x1D86FD
+bytes = "89 B0 BC E9 57 00"
+insn = "mov [eax+0x57E9BC], esi"
+operand = "disp"
+index = 0
+old = 0x57E9BC
+new = 0x70060C60
+why = "hud_player_extra_info: direct 0x57E9BC -> hud_extra_info+0x44"

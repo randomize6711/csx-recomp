@@ -333,17 +333,6 @@
   {
    "area": "engine",
    "funcs": [
-    "000133D0"
-   ],
-   "mnemonic": "push",
-   "note": "",
-   "status": "unreviewed",
-   "va": "000133E8",
-   "value": "11"
-  },
-  {
-   "area": "engine",
-   "funcs": [
     "00013440"
    ],
    "mnemonic": "add",
@@ -5271,17 +5260,6 @@
   {
    "area": "engine",
    "funcs": [
-    "00045020"
-   ],
-   "mnemonic": "mov",
-   "note": "",
-   "status": "unreviewed",
-   "va": "000450B3",
-   "value": "11"
-  },
-  {
-   "area": "engine",
-   "funcs": [
     "00045140"
    ],
    "mnemonic": "sub",
@@ -5574,17 +5552,6 @@
    "status": "unreviewed",
    "va": "000460BE",
    "value": "20"
-  },
-  {
-   "area": "engine",
-   "funcs": [
-    "000461F0"
-   ],
-   "mnemonic": "push",
-   "note": "",
-   "status": "unreviewed",
-   "va": "0004621F",
-   "value": "11"
   },
   {
    "area": "engine",
@@ -7363,17 +7330,6 @@
    "mnemonic": "mov",
    "note": "",
    "status": "unreviewed",
-   "va": "0005F9DD",
-   "value": "11"
-  },
-  {
-   "area": "engine",
-   "funcs": [
-    "0005F830"
-   ],
-   "mnemonic": "mov",
-   "note": "",
-   "status": "unreviewed",
    "va": "0005F9F5",
    "value": "12"
   },
@@ -8436,17 +8392,6 @@
    "mnemonic": "push",
    "note": "",
    "status": "unreviewed",
-   "va": "0006CDEE",
-   "value": "11"
-  },
-  {
-   "area": "engine",
-   "funcs": [
-    "0006CDE0"
-   ],
-   "mnemonic": "push",
-   "note": "",
-   "status": "unreviewed",
    "va": "0006CE88",
    "value": "20"
   },
@@ -8918,17 +8863,6 @@
    "status": "unreviewed",
    "va": "000725F9",
    "value": "10"
-  },
-  {
-   "area": "engine",
-   "funcs": [
-    "000725E0"
-   ],
-   "mnemonic": "mov",
-   "note": "",
-   "status": "unreviewed",
-   "va": "00072641",
-   "value": "11"
   },
   {
    "area": "engine",
@@ -15814,17 +15748,6 @@
    "mnemonic": "mov",
    "note": "",
    "status": "unreviewed",
-   "va": "000BFFAF",
-   "value": "11"
-  },
-  {
-   "area": "ui",
-   "funcs": [
-    "000BFA40"
-   ],
-   "mnemonic": "mov",
-   "note": "",
-   "status": "unreviewed",
    "va": "000BFFC0",
    "value": "12"
   },
@@ -19962,17 +19885,6 @@
   {
    "area": "ui",
    "funcs": [
-    "000E88B0"
-   ],
-   "mnemonic": "mov",
-   "note": "",
-   "status": "unreviewed",
-   "va": "000E899C",
-   "value": "11"
-  },
-  {
-   "area": "ui",
-   "funcs": [
     "000E8B60"
    ],
    "mnemonic": "sub",
@@ -20060,17 +19972,6 @@
    "status": "unreviewed",
    "va": "000E9F92",
    "value": "10"
-  },
-  {
-   "area": "ui",
-   "funcs": [
-    "000E9FA0"
-   ],
-   "mnemonic": "mov",
-   "note": "",
-   "status": "unreviewed",
-   "va": "000E9FAC",
-   "value": "11"
   },
   {
    "area": "ui",
@@ -20304,17 +20205,6 @@
    "status": "unreviewed",
    "va": "000EBACA",
    "value": "20"
-  },
-  {
-   "area": "ui",
-   "funcs": [
-    "000EBA50"
-   ],
-   "mnemonic": "push",
-   "note": "",
-   "status": "unreviewed",
-   "va": "000EBB49",
-   "value": "11"
   },
   {
    "area": "ui",
@@ -21337,17 +21227,6 @@
   {
    "area": "ui",
    "funcs": [
-    "000F5EC0"
-   ],
-   "mnemonic": "mov",
-   "note": "",
-   "status": "unreviewed",
-   "va": "000F64E9",
-   "value": "11"
-  },
-  {
-   "area": "ui",
-   "funcs": [
     "000F6DE0"
    ],
    "mnemonic": "add",
@@ -21545,19 +21424,6 @@
    "status": "unreviewed",
    "va": "000F89C8",
    "value": "20"
-  },
-  {
-   "area": "ui",
-   "funcs": [
-    "000F79F0",
-    "000F82B9",
-    "000F84CD"
-   ],
-   "mnemonic": "mov",
-   "note": "",
-   "status": "unreviewed",
-   "va": "000F8A5F",
-   "value": "11"
   },
   {
    "area": "ui",
@@ -22562,18 +22428,6 @@
     "000FEDB0",
     "000FF42D"
    ],
-   "mnemonic": "mov",
-   "note": "",
-   "status": "unreviewed",
-   "va": "000FF6FB",
-   "value": "11"
-  },
-  {
-   "area": "ui",
-   "funcs": [
-    "000FEDB0",
-    "000FF42D"
-   ],
    "mnemonic": "cmp",
    "note": "",
    "status": "unreviewed",
@@ -23313,17 +23167,6 @@
   {
    "area": "ui",
    "funcs": [
-    "001045B0"
-   ],
-   "mnemonic": "cmp",
-   "note": "",
-   "status": "unreviewed",
-   "va": "001046FD",
-   "value": "11"
-  },
-  {
-   "area": "ui",
-   "funcs": [
     "00104B60"
    ],
    "mnemonic": "add",
@@ -23366,17 +23209,6 @@
    "status": "unreviewed",
    "va": "0010509C",
    "value": "10"
-  },
-  {
-   "area": "ui",
-   "funcs": [
-    "00105340"
-   ],
-   "mnemonic": "mov",
-   "note": "",
-   "status": "unreviewed",
-   "va": "00105409",
-   "value": "11"
   },
   {
    "area": "ui",
@@ -23610,17 +23442,6 @@
    "status": "pattern: block copy or clear of 16 dwords",
    "va": "0010848A",
    "value": "10"
-  },
-  {
-   "area": "ui",
-   "funcs": [
-    "00108470"
-   ],
-   "mnemonic": "mov",
-   "note": "",
-   "status": "unreviewed",
-   "va": "001084BF",
-   "value": "11"
   },
   {
    "area": "ui",
@@ -24840,17 +24661,6 @@
    "status": "unreviewed",
    "va": "0011ADF1",
    "value": "12"
-  },
-  {
-   "area": "game",
-   "funcs": [
-    "0011A340"
-   ],
-   "mnemonic": "push",
-   "note": "",
-   "status": "unreviewed",
-   "va": "0011ADF8",
-   "value": "11"
   },
   {
    "area": "game",
@@ -28539,17 +28349,6 @@
    "funcs": [
     "0014C980"
    ],
-   "mnemonic": "cmp",
-   "note": "",
-   "status": "unreviewed",
-   "va": "0014CB3F",
-   "value": "11"
-  },
-  {
-   "area": "game",
-   "funcs": [
-    "0014C980"
-   ],
    "mnemonic": "add",
    "note": "",
    "status": "unreviewed",
@@ -29664,17 +29463,6 @@
   {
    "area": "game",
    "funcs": [
-    "0015A180"
-   ],
-   "mnemonic": "mov",
-   "note": "",
-   "status": "unreviewed",
-   "va": "0015A222",
-   "value": "11"
-  },
-  {
-   "area": "game",
-   "funcs": [
     "0015A780"
    ],
    "mnemonic": "add",
@@ -30254,17 +30042,6 @@
    "status": "unreviewed",
    "va": "001623AD",
    "value": "10"
-  },
-  {
-   "area": "game",
-   "funcs": [
-    "00162390"
-   ],
-   "mnemonic": "mov",
-   "note": "",
-   "status": "unreviewed",
-   "va": "001623B8",
-   "value": "11"
   },
   {
    "area": "game",
@@ -31483,17 +31260,6 @@
    "funcs": [
     "00175340"
    ],
-   "mnemonic": "mov",
-   "note": "",
-   "status": "unreviewed",
-   "va": "0017551C",
-   "value": "11"
-  },
-  {
-   "area": "game",
-   "funcs": [
-    "00175340"
-   ],
    "mnemonic": "add",
    "note": "",
    "status": "unreviewed",
@@ -32542,17 +32308,6 @@
    "funcs": [
     "00184B20"
    ],
-   "mnemonic": "mov",
-   "note": "",
-   "status": "unreviewed",
-   "va": "00185184",
-   "value": "11"
-  },
-  {
-   "area": "game",
-   "funcs": [
-    "00184B20"
-   ],
    "mnemonic": "add",
    "note": "",
    "status": "unreviewed",
@@ -32624,17 +32379,6 @@
    "status": "unreviewed",
    "va": "00185C99",
    "value": "10"
-  },
-  {
-   "area": "game",
-   "funcs": [
-    "00185FE0"
-   ],
-   "mnemonic": "cmp",
-   "note": "",
-   "status": "unreviewed",
-   "va": "00185FF1",
-   "value": "11"
   },
   {
    "area": "game",
@@ -33170,17 +32914,6 @@
    "status": "unreviewed",
    "va": "0018DE1C",
    "value": "10"
-  },
-  {
-   "area": "hud",
-   "funcs": [
-    "0018DB10"
-   ],
-   "mnemonic": "cmp",
-   "note": "",
-   "status": "unreviewed",
-   "va": "0018DE21",
-   "value": "11"
   },
   {
    "area": "hud",
@@ -34515,17 +34248,6 @@
   {
    "area": "hud",
    "funcs": [
-    "001A32E0"
-   ],
-   "mnemonic": "mov",
-   "note": "",
-   "status": "unreviewed",
-   "va": "001A33CD",
-   "value": "11"
-  },
-  {
-   "area": "hud",
-   "funcs": [
     "001A33F0"
    ],
    "mnemonic": "add",
@@ -34922,17 +34644,6 @@
    "status": "unreviewed",
    "va": "001A965D",
    "value": "10"
-  },
-  {
-   "area": "hud",
-   "funcs": [
-    "001A9BD0"
-   ],
-   "mnemonic": "mov",
-   "note": "",
-   "status": "unreviewed",
-   "va": "001A9C09",
-   "value": "11"
   },
   {
    "area": "hud",
@@ -35933,17 +35644,6 @@
    "status": "unreviewed",
    "va": "001B2649",
    "value": "10"
-  },
-  {
-   "area": "hud",
-   "funcs": [
-    "001B1910"
-   ],
-   "mnemonic": "mov",
-   "note": "",
-   "status": "unreviewed",
-   "va": "001B26E0",
-   "value": "11"
   },
   {
    "area": "hud",
@@ -36971,18 +36671,6 @@
     "001BB190",
     "001BB2AD"
    ],
-   "mnemonic": "mov",
-   "note": "",
-   "status": "unreviewed",
-   "va": "001BB3C3",
-   "value": "11"
-  },
-  {
-   "area": "hud",
-   "funcs": [
-    "001BB190",
-    "001BB2AD"
-   ],
    "mnemonic": "push",
    "note": "",
    "status": "unreviewed",
@@ -37423,17 +37111,6 @@
    "funcs": [
     "001C2930"
    ],
-   "mnemonic": "push",
-   "note": "",
-   "status": "unreviewed",
-   "va": "001C2C8F",
-   "value": "11"
-  },
-  {
-   "area": "hud",
-   "funcs": [
-    "001C2930"
-   ],
    "mnemonic": "add",
    "note": "",
    "status": "unreviewed",
@@ -37560,28 +37237,6 @@
    "status": "unreviewed",
    "va": "001C5FFD",
    "value": "20"
-  },
-  {
-   "area": "hud",
-   "funcs": [
-    "001C6210"
-   ],
-   "mnemonic": "mov",
-   "note": "",
-   "status": "unreviewed",
-   "va": "001C6236",
-   "value": "11"
-  },
-  {
-   "area": "hud",
-   "funcs": [
-    "001C6410"
-   ],
-   "mnemonic": "mov",
-   "note": "",
-   "status": "unreviewed",
-   "va": "001C642A",
-   "value": "11"
   },
   {
    "area": "hud",
@@ -37883,17 +37538,6 @@
   {
    "area": "hud",
    "funcs": [
-    "001CBD00"
-   ],
-   "mnemonic": "mov",
-   "note": "",
-   "status": "unreviewed",
-   "va": "001CBD3D",
-   "value": "11"
-  },
-  {
-   "area": "hud",
-   "funcs": [
     "001CBEB0"
    ],
    "mnemonic": "add",
@@ -37912,17 +37556,6 @@
    "status": "unreviewed",
    "va": "001CC198",
    "value": "20"
-  },
-  {
-   "area": "hud",
-   "funcs": [
-    "001CC390"
-   ],
-   "mnemonic": "mov",
-   "note": "",
-   "status": "unreviewed",
-   "va": "001CC3B7",
-   "value": "11"
   },
   {
    "area": "hud",
@@ -39363,18 +38996,6 @@
    "mnemonic": "push",
    "note": "",
    "status": "unreviewed",
-   "va": "001DA40A",
-   "value": "11"
-  },
-  {
-   "area": "hud",
-   "funcs": [
-    "001D97E0",
-    "001D9B2D"
-   ],
-   "mnemonic": "push",
-   "note": "",
-   "status": "unreviewed",
    "va": "001DA4FF",
    "value": "20"
   },
@@ -40091,7 +39712,7 @@
     "mnemonic": "mov",
     "offset": "20",
     "operand": "indexed-disp",
-    "patched": false,
+    "patched": true,
     "va": "0001D28E",
     "within": "8"
    },
@@ -40120,7 +39741,7 @@
     "mnemonic": "lea",
     "offset": "18",
     "operand": "indexed-disp",
-    "patched": false,
+    "patched": true,
     "va": "00023C8B",
     "within": "0"
    },
@@ -40452,7 +40073,7 @@
     "mnemonic": "add",
     "offset": "18",
     "operand": "imm",
-    "patched": false,
+    "patched": true,
     "va": "000254C1",
     "within": "0"
    },
@@ -40481,7 +40102,7 @@
     "mnemonic": "add",
     "offset": "18",
     "operand": "imm",
-    "patched": false,
+    "patched": true,
     "va": "00025EDB",
     "within": "0"
    },
@@ -40496,7 +40117,7 @@
     "mnemonic": "mov",
     "offset": "5C",
     "operand": "indexed-disp",
-    "patched": false,
+    "patched": true,
     "va": "00025F6C",
     "within": "44"
    },
@@ -40511,7 +40132,7 @@
     "mnemonic": "mov",
     "offset": "60",
     "operand": "indexed-disp",
-    "patched": false,
+    "patched": true,
     "va": "00025F75",
     "within": "48"
    },
@@ -40526,7 +40147,7 @@
     "mnemonic": "mov",
     "offset": "64",
     "operand": "indexed-disp",
-    "patched": false,
+    "patched": true,
     "va": "00025F7E",
     "within": "4C"
    },
@@ -40541,7 +40162,7 @@
     "mnemonic": "mov",
     "offset": "68",
     "operand": "indexed-disp",
-    "patched": false,
+    "patched": true,
     "va": "00025F87",
     "within": "50"
    },
@@ -40556,7 +40177,7 @@
     "mnemonic": "mov",
     "offset": "6C",
     "operand": "indexed-disp",
-    "patched": false,
+    "patched": true,
     "va": "00025F90",
     "within": "54"
    },
@@ -40571,7 +40192,7 @@
     "mnemonic": "mov",
     "offset": "70",
     "operand": "indexed-disp",
-    "patched": false,
+    "patched": true,
     "va": "00025F96",
     "within": "58"
    },
@@ -40586,7 +40207,7 @@
     "mnemonic": "add",
     "offset": "18",
     "operand": "imm",
-    "patched": false,
+    "patched": true,
     "va": "0002603C",
     "within": "0"
    },
@@ -41032,7 +40653,7 @@
     "mnemonic": "fld",
     "offset": "5C",
     "operand": "indexed-disp",
-    "patched": false,
+    "patched": true,
     "va": "000323E7",
     "within": "44"
    },
@@ -41047,7 +40668,7 @@
     "mnemonic": "fld",
     "offset": "60",
     "operand": "indexed-disp",
-    "patched": false,
+    "patched": true,
     "va": "000323F7",
     "within": "48"
    },
@@ -41062,7 +40683,7 @@
     "mnemonic": "fld",
     "offset": "64",
     "operand": "indexed-disp",
-    "patched": false,
+    "patched": true,
     "va": "00032407",
     "within": "4C"
    },
@@ -41077,7 +40698,7 @@
     "mnemonic": "mov",
     "offset": "5C",
     "operand": "indexed-disp",
-    "patched": false,
+    "patched": true,
     "va": "000324D0",
     "within": "44"
    },
@@ -41092,7 +40713,7 @@
     "mnemonic": "mov",
     "offset": "60",
     "operand": "indexed-disp",
-    "patched": false,
+    "patched": true,
     "va": "000324EF",
     "within": "48"
    },
@@ -41107,7 +40728,7 @@
     "mnemonic": "mov",
     "offset": "64",
     "operand": "indexed-disp",
-    "patched": false,
+    "patched": true,
     "va": "00032508",
     "within": "4C"
    },
@@ -41148,7 +40769,7 @@
     "mnemonic": "lea",
     "offset": "18",
     "operand": "indexed-disp",
-    "patched": false,
+    "patched": true,
     "va": "00092BB2",
     "within": "0"
    }
@@ -41203,7 +40824,7 @@
     "kind": "playerstate",
     "mnemonic": "mov",
     "offset": "20",
-    "patched": false,
+    "patched": true,
     "va": "0001D28E",
     "via": "eax"
    },
@@ -41230,7 +40851,7 @@
     "kind": "playerstate",
     "mnemonic": "lea",
     "offset": "18",
-    "patched": false,
+    "patched": true,
     "va": "00023C8B",
     "via": "edx"
    },
@@ -41244,7 +40865,7 @@
     "kind": "playerstate",
     "mnemonic": "lea",
     "offset": "18",
-    "patched": false,
+    "patched": true,
     "va": "00023C8B",
     "via": "edx"
    },
@@ -42852,7 +42473,7 @@
     "kind": "playerstate",
     "mnemonic": "mov",
     "offset": "5C",
-    "patched": false,
+    "patched": true,
     "va": "00025F6C",
     "via": "eax"
    },
@@ -42865,7 +42486,7 @@
     "kind": "playerstate",
     "mnemonic": "mov",
     "offset": "60",
-    "patched": false,
+    "patched": true,
     "va": "00025F75",
     "via": "eax"
    },
@@ -42878,7 +42499,7 @@
     "kind": "playerstate",
     "mnemonic": "mov",
     "offset": "64",
-    "patched": false,
+    "patched": true,
     "va": "00025F7E",
     "via": "eax"
    },
@@ -42891,7 +42512,7 @@
     "kind": "playerstate",
     "mnemonic": "mov",
     "offset": "68",
-    "patched": false,
+    "patched": true,
     "va": "00025F87",
     "via": "eax"
    },
@@ -42904,7 +42525,7 @@
     "kind": "playerstate",
     "mnemonic": "mov",
     "offset": "6C",
-    "patched": false,
+    "patched": true,
     "va": "00025F90",
     "via": "eax"
    },
@@ -42917,7 +42538,7 @@
     "kind": "playerstate",
     "mnemonic": "mov",
     "offset": "70",
-    "patched": false,
+    "patched": true,
     "va": "00025F96",
     "via": "eax"
    },
@@ -43859,7 +43480,7 @@
     "kind": "playerstate",
     "mnemonic": "fld",
     "offset": "5C",
-    "patched": false,
+    "patched": true,
     "va": "000323E7",
     "via": "ecx"
    },
@@ -43872,7 +43493,7 @@
     "kind": "playerstate",
     "mnemonic": "fld",
     "offset": "60",
-    "patched": false,
+    "patched": true,
     "va": "000323F7",
     "via": "ecx"
    },
@@ -43885,7 +43506,7 @@
     "kind": "playerstate",
     "mnemonic": "fld",
     "offset": "64",
-    "patched": false,
+    "patched": true,
     "va": "00032407",
     "via": "ecx"
    },
@@ -43898,7 +43519,7 @@
     "kind": "playerstate",
     "mnemonic": "mov",
     "offset": "5C",
-    "patched": false,
+    "patched": true,
     "va": "000324D0",
     "via": "esi"
    },
@@ -43911,7 +43532,7 @@
     "kind": "playerstate",
     "mnemonic": "mov",
     "offset": "60",
-    "patched": false,
+    "patched": true,
     "va": "000324EF",
     "via": "esi"
    },
@@ -43924,7 +43545,7 @@
     "kind": "playerstate",
     "mnemonic": "mov",
     "offset": "64",
-    "patched": false,
+    "patched": true,
     "va": "00032508",
     "via": "esi"
    },
@@ -43977,7 +43598,7 @@
     "kind": "frame-field",
     "mnemonic": "lea",
     "offset": "74A1BD",
-    "patched": false,
+    "patched": true,
     "va": "0004D161",
     "via": "edx"
    },
@@ -43991,7 +43612,7 @@
     "kind": "frame-field",
     "mnemonic": "lea",
     "offset": "74A1BD",
-    "patched": false,
+    "patched": true,
     "va": "0004D161",
     "via": "edx"
    },
@@ -44005,7 +43626,7 @@
     "kind": "frame-field",
     "mnemonic": "lea",
     "offset": "74A1BD",
-    "patched": false,
+    "patched": true,
     "va": "0004D1DC",
     "via": "edx"
    },
@@ -44019,7 +43640,7 @@
     "kind": "frame-field",
     "mnemonic": "lea",
     "offset": "74A1BD",
-    "patched": false,
+    "patched": true,
     "va": "0004D1DC",
     "via": "edx"
    },
@@ -44305,7 +43926,7 @@
     "kind": "frame-field",
     "mnemonic": "lea",
     "offset": "74A1BD",
-    "patched": false,
+    "patched": true,
     "va": "0008F10F",
     "via": "edx"
    },
@@ -44318,7 +43939,7 @@
     "kind": "playerstate",
     "mnemonic": "lea",
     "offset": "18",
-    "patched": false,
+    "patched": true,
     "va": "00092BB2",
     "via": "ecx"
    },
@@ -44331,7 +43952,7 @@
     "kind": "frame-field",
     "mnemonic": "lea",
     "offset": "74A1BD",
-    "patched": false,
+    "patched": true,
     "va": "000937E7",
     "via": "edx"
    },
@@ -44344,7 +43965,7 @@
     "kind": "frame-field",
     "mnemonic": "lea",
     "offset": "74A1BD",
-    "patched": false,
+    "patched": true,
     "va": "00093868",
     "via": "edx"
    }
@@ -49334,6 +48955,41 @@
     "stride": "FB",
     "va": "00026270"
    }
+  ],
+  "reviewed": [
+   "0001D270",
+   "00023510",
+   "00023B70",
+   "00023B9D",
+   "00023D8D",
+   "000242F0",
+   "00024FE0",
+   "000254B0",
+   "00025BF0",
+   "00025C4D",
+   "00025EC0",
+   "00026000",
+   "000264E0",
+   "00028D50",
+   "000290F0",
+   "0002A920",
+   "0002AA4A",
+   "0002E2E0",
+   "00030260",
+   "00030900",
+   "00031100",
+   "000311D0",
+   "00031420",
+   "0003158D",
+   "00031B80",
+   "000323B0",
+   "00032EB0",
+   "0004D0D0",
+   "0004D0FD",
+   "0006DD00",
+   "0008F0A0",
+   "00092B90",
+   "00093600"
   ]
  },
  "functions": 15350,
@@ -49346,7 +49002,7 @@
     "0005BE30"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "000A19F3",
    "values": [
@@ -49361,7 +49017,7 @@
     "0005BE30"
    ],
    "mnemonic": "mov",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "000A19F8",
    "values": [
@@ -49376,7 +49032,7 @@
     "0005BE30"
    ],
    "mnemonic": "mov",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "000A1A10",
    "values": [
@@ -49392,7 +49048,7 @@
     "0005BE30"
    ],
    "mnemonic": "push",
-   "patched": false,
+   "patched": true,
    "role": "size",
    "va": "000A1A0B",
    "values": [
@@ -49407,7 +49063,7 @@
     "0005BE30"
    ],
    "mnemonic": "mov",
-   "patched": false,
+   "patched": true,
    "role": "size",
    "va": "000A1A40",
    "values": [
@@ -49423,7 +49079,7 @@
     "0005BE30"
    ],
    "mnemonic": "mov",
-   "patched": false,
+   "patched": true,
    "role": "size",
    "va": "000A1A4F",
    "values": [
@@ -49438,7 +49094,7 @@
     "00099060"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "00099103",
    "values": [
@@ -49454,7 +49110,7 @@
     "00099060"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "00099126",
    "values": [
@@ -49469,7 +49125,7 @@
     "0009E6C0"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "0009E84F",
    "values": [
@@ -49484,7 +49140,7 @@
     "0009E6C0"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "0009E8B1",
    "values": [
@@ -49499,7 +49155,7 @@
     "000ABCC0"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "000ABE8E",
    "values": [
@@ -49514,7 +49170,7 @@
     "00079180"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "000791C5",
    "values": [
@@ -49529,7 +49185,7 @@
     "0009DBE0"
    ],
    "mnemonic": "mov",
-   "patched": false,
+   "patched": true,
    "role": "protocol",
    "va": "0009DC42",
    "values": [
@@ -49545,7 +49201,7 @@
     "000319FD"
    ],
    "mnemonic": "mov",
-   "patched": false,
+   "patched": true,
    "role": "protocol",
    "va": "00031A00",
    "values": [
@@ -49560,7 +49216,7 @@
     "0002E780"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "0002E8E1",
    "values": [
@@ -49575,7 +49231,7 @@
     "00031020"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "0002CA2C",
    "values": [
@@ -49590,7 +49246,7 @@
     "00031150"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "0002E02A",
    "values": [
@@ -49605,7 +49261,7 @@
     "00030D90"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "00038DA6",
    "values": [
@@ -49620,7 +49276,7 @@
     "00025EC0"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "00025FE5",
    "values": [
@@ -49635,7 +49291,7 @@
     "00026000"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "00026276",
    "values": [
@@ -49650,7 +49306,7 @@
     "001A9000"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "001A9089",
    "values": [
@@ -49665,7 +49321,7 @@
     "001A91B0"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "001A9260",
    "values": [
@@ -49680,7 +49336,7 @@
     "001B3C00"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "001B3F2A",
    "values": [
@@ -49695,7 +49351,7 @@
     "001B5A90"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "001B5ACC",
    "values": [
@@ -49711,7 +49367,7 @@
     "001B8379"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "001B839A",
    "values": [
@@ -49726,7 +49382,7 @@
     "001B85F0"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "001B86B3",
    "values": [
@@ -49741,7 +49397,7 @@
     "000EF130"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "000EF1A7",
    "values": [
@@ -49821,7 +49477,7 @@
     "00102DB0"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "00102DB0",
    "values": [
@@ -49898,7 +49554,7 @@
     "00143CB0"
    ],
    "mnemonic": "push",
-   "patched": false,
+   "patched": true,
    "role": "size",
    "va": "0014401B",
    "values": [
@@ -49944,7 +49600,7 @@
     "00150960"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "engine-limit",
    "va": "001509B3",
    "values": [
@@ -49991,7 +49647,7 @@
     "00030940"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "protocol",
    "va": "00030945",
    "values": [
@@ -50006,7 +49662,7 @@
     "0002E780"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "protocol",
    "va": "0002E822",
    "values": [
@@ -50021,7 +49677,7 @@
     "00098C60"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "protocol",
    "va": "00098C78",
    "values": [
@@ -50112,7 +49768,7 @@
     "001B57A0"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "001B5890",
    "values": [
@@ -50127,7 +49783,7 @@
     "001B59D0"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "001B5A20",
    "values": [
@@ -50142,7 +49798,7 @@
     "001D5A50"
    ],
    "mnemonic": "cmp",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "001D5AAA",
    "values": [
@@ -50225,7 +49881,7 @@
     "001A9000"
    ],
    "mnemonic": "mov",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "001A909A",
    "values": [
@@ -50240,7 +49896,7 @@
     "001B7DD0"
    ],
    "mnemonic": "mov",
-   "patched": false,
+   "patched": true,
    "role": "size",
    "va": "001B7E52",
    "values": [
@@ -50255,7 +49911,7 @@
     "001B7FA0"
    ],
    "mnemonic": "mov",
-   "patched": false,
+   "patched": true,
    "role": "size",
    "va": "001B7FCE",
    "values": [
@@ -50270,7 +49926,7 @@
     "001B90C0"
    ],
    "mnemonic": "mov",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "001B91AC",
    "values": [
@@ -50285,7 +49941,7 @@
     "00102DB0"
    ],
    "mnemonic": "mov",
-   "patched": false,
+   "patched": true,
    "role": "limit",
    "va": "00102DB8",
    "values": [
@@ -50504,6 +50160,610 @@
     "11"
    ],
    "what": "weapon id 17 (Glock)"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "000242F0"
+   ],
+   "mnemonic": "cmp",
+   "patched": false,
+   "role": "engine-limit",
+   "va": "00024660",
+   "values": [
+    "FB00",
+    "24"
+   ],
+   "what": "client: 256 packet entities (0xFB00 bytes) a frame, MAX_PACKET_ENTITIES (heap storage sized by count)"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "000242F0"
+   ],
+   "mnemonic": "cmp",
+   "patched": false,
+   "role": "engine-limit",
+   "va": "000247BB",
+   "values": [
+    "100"
+   ],
+   "what": "client: 256 packet entities a frame (delta)"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "000242F0"
+   ],
+   "mnemonic": "cmp",
+   "patched": false,
+   "role": "engine-limit",
+   "va": "00024A10",
+   "values": [
+    "FB00",
+    "7C"
+   ],
+   "what": "client: 256 packet entities a frame (0xFB00 bytes)"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "00097060"
+   ],
+   "mnemonic": "mov",
+   "patched": true,
+   "role": "protocol",
+   "va": "000970F0",
+   "values": [
+    "2E",
+    "0"
+   ],
+   "what": "server: svc_serverinfo writes the protocol version"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "000254B0"
+   ],
+   "mnemonic": "cmp",
+   "patched": true,
+   "role": "limit",
+   "va": "00025897",
+   "values": [
+    "7C0C"
+   ],
+   "what": "CL_LinkPlayers: cl_entities 1..17 (17 x 0x74C), found in checkpoint 2"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "000133D0"
+   ],
+   "mnemonic": "push",
+   "patched": false,
+   "role": "not-player",
+   "va": "000133E8",
+   "values": [
+    "11"
+   ],
+   "what": "a string length argument (17)"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "00045020"
+   ],
+   "mnemonic": "mov",
+   "patched": false,
+   "role": "not-player",
+   "va": "000450B3",
+   "values": [
+    "11"
+   ],
+   "what": "a copy of 17 dwords (a 0x44-byte record)"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "000461F0"
+   ],
+   "mnemonic": "push",
+   "patched": false,
+   "role": "not-player",
+   "va": "0004621F",
+   "values": [
+    "11"
+   ],
+   "what": "a cvar registration argument"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "0005F830"
+   ],
+   "mnemonic": "mov",
+   "patched": false,
+   "role": "not-player",
+   "va": "0005F9DD",
+   "values": [
+    "11"
+   ],
+   "what": "a return code (17)"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "0006CDE0"
+   ],
+   "mnemonic": "push",
+   "patched": false,
+   "role": "not-player",
+   "va": "0006CDEE",
+   "values": [
+    "11"
+   ],
+   "what": "a call argument (17)"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "000725E0"
+   ],
+   "mnemonic": "mov",
+   "patched": false,
+   "role": "not-player",
+   "va": "00072641",
+   "values": [
+    "11"
+   ],
+   "what": "a 17-byte string copy"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "000BFA40"
+   ],
+   "mnemonic": "mov",
+   "patched": false,
+   "role": "not-player",
+   "va": "000BFFAF",
+   "values": [
+    "11",
+    "C"
+   ],
+   "what": "a front end value (17)"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "000E88B0"
+   ],
+   "mnemonic": "mov",
+   "patched": false,
+   "role": "not-player",
+   "va": "000E899C",
+   "values": [
+    "11"
+   ],
+   "what": "a voice codec return value"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "000E9FA0"
+   ],
+   "mnemonic": "mov",
+   "patched": false,
+   "role": "not-player",
+   "va": "000E9FAC",
+   "values": [
+    "11",
+    "A"
+   ],
+   "what": "a voice codec packet byte"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "000EBA50"
+   ],
+   "mnemonic": "push",
+   "patched": false,
+   "role": "not-player",
+   "va": "000EBB49",
+   "values": [
+    "11"
+   ],
+   "what": "a socket call argument"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "000F5EC0"
+   ],
+   "mnemonic": "mov",
+   "patched": false,
+   "role": "not-player",
+   "va": "000F64E9",
+   "values": [
+    "11",
+    "34"
+   ],
+   "what": "a front end table value"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "000F79F0",
+    "000F82B9",
+    "000F84CD"
+   ],
+   "mnemonic": "mov",
+   "patched": false,
+   "role": "not-player",
+   "va": "000F8A5F",
+   "values": [
+    "11",
+    "AFC"
+   ],
+   "what": "a front end value"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "000FEDB0",
+    "000FF42D"
+   ],
+   "mnemonic": "mov",
+   "patched": false,
+   "role": "not-player",
+   "va": "000FF6FB",
+   "values": [
+    "11",
+    "C0"
+   ],
+   "what": "a front end byte value"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "001045B0"
+   ],
+   "mnemonic": "cmp",
+   "patched": false,
+   "role": "limit",
+   "va": "001046FD",
+   "values": [
+    "11"
+   ],
+   "what": "Xbox communicator voice playback: players 1..16 (positional voice records [17] in its object at +0xD4); bounded, no PC voice device: left as it is"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "00105340"
+   ],
+   "mnemonic": "mov",
+   "patched": false,
+   "role": "limit",
+   "va": "00105409",
+   "values": [
+    "11"
+   ],
+   "what": "Xbox communicator voice playback: its 17 records cleared; left as it is (see 0x1046FD)"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "00108470"
+   ],
+   "mnemonic": "mov",
+   "patched": false,
+   "role": "not-player",
+   "va": "001084BF",
+   "values": [
+    "11",
+    "30"
+   ],
+   "what": "a front end value"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "0011A340"
+   ],
+   "mnemonic": "push",
+   "patched": false,
+   "role": "not-player",
+   "va": "0011ADF8",
+   "values": [
+    "11"
+   ],
+   "what": "a call argument (17)"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "0014C980"
+   ],
+   "mnemonic": "cmp",
+   "patched": false,
+   "role": "not-player",
+   "va": "0014CB3F",
+   "values": [
+    "11"
+   ],
+   "what": "a switch value"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "0015A180"
+   ],
+   "mnemonic": "mov",
+   "patched": false,
+   "role": "not-player",
+   "va": "0015A222",
+   "values": [
+    "11",
+    "15C"
+   ],
+   "what": "an entity field value"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "00162390"
+   ],
+   "mnemonic": "mov",
+   "patched": false,
+   "role": "not-player",
+   "va": "001623B8",
+   "values": [
+    "11"
+   ],
+   "what": "the bot name table's row range (difficulty)"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "00175340"
+   ],
+   "mnemonic": "mov",
+   "patched": false,
+   "role": "not-player",
+   "va": "0017551C",
+   "values": [
+    "11"
+   ],
+   "what": "a bot state value"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "00184B20"
+   ],
+   "mnemonic": "mov",
+   "patched": false,
+   "role": "not-player",
+   "va": "00185184",
+   "values": [
+    "11"
+   ],
+   "what": "a bot state value"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "00185FE0"
+   ],
+   "mnemonic": "cmp",
+   "patched": false,
+   "role": "not-player",
+   "va": "00185FF1",
+   "values": [
+    "11"
+   ],
+   "what": "a bot state value"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "0018DB10"
+   ],
+   "mnemonic": "cmp",
+   "patched": false,
+   "role": "not-player",
+   "va": "0018DE21",
+   "values": [
+    "11"
+   ],
+   "what": "a weapon id (17)"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "001A32E0"
+   ],
+   "mnemonic": "mov",
+   "patched": false,
+   "role": "not-player",
+   "va": "001A33CD",
+   "values": [
+    "11"
+   ],
+   "what": "a copy of 17 dwords (a 0x44-byte record)"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "001A9BD0"
+   ],
+   "mnemonic": "mov",
+   "patched": true,
+   "role": "limit",
+   "va": "001A9C09",
+   "values": [
+    "11"
+   ],
+   "what": "the spectator overview's player positions cleared: N + 1 (moved to hud_spectator_positions)"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "001B1910"
+   ],
+   "mnemonic": "mov",
+   "patched": false,
+   "role": "not-player",
+   "va": "001B26E0",
+   "values": [
+    "11",
+    "234"
+   ],
+   "what": "a local value (17)"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "001BB190",
+    "001BB2AD"
+   ],
+   "mnemonic": "mov",
+   "patched": false,
+   "role": "not-player",
+   "va": "001BB3C3",
+   "values": [
+    "11",
+    "50"
+   ],
+   "what": "a VGUI field value"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "001C2930"
+   ],
+   "mnemonic": "push",
+   "patched": false,
+   "role": "not-player",
+   "va": "001C2C8F",
+   "values": [
+    "11"
+   ],
+   "what": "a call argument (17)"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "001C6210"
+   ],
+   "mnemonic": "mov",
+   "patched": false,
+   "role": "not-player",
+   "va": "001C6236",
+   "values": [
+    "11",
+    "B8"
+   ],
+   "what": "a VGUI field value"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "001C6410"
+   ],
+   "mnemonic": "mov",
+   "patched": false,
+   "role": "not-player",
+   "va": "001C642A",
+   "values": [
+    "11"
+   ],
+   "what": "a VGUI field value"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "001CBD00"
+   ],
+   "mnemonic": "mov",
+   "patched": false,
+   "role": "not-player",
+   "va": "001CBD3D",
+   "values": [
+    "11",
+    "4"
+   ],
+   "what": "a VGUI field value"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "001CC390"
+   ],
+   "mnemonic": "mov",
+   "patched": true,
+   "role": "limit",
+   "va": "001CC3B7",
+   "values": [
+    "11"
+   ],
+   "what": "the HUD's per player field of view reset: N + 2 (moved to hud_player_fov)"
+  },
+  {
+   "evidence": "verified",
+   "found": true,
+   "funcs": [
+    "001D97E0",
+    "001D9B2D"
+   ],
+   "mnemonic": "push",
+   "patched": false,
+   "role": "not-player",
+   "va": "001DA40A",
+   "values": [
+    "11"
+   ],
+   "what": "a VGUI call argument (17)"
   }
  ],
  "tables": [
@@ -50517,7 +50777,7 @@
    "functions": 8,
    "layout": "verified",
    "name": "sv_truepositions",
-   "patched": 0,
+   "patched": 18,
    "plan": "relocate",
    "range": [
     "4E46C0",
@@ -50534,7 +50794,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "000AA9DB",
      "value": "4E46C0"
     },
@@ -50548,7 +50808,7 @@
      "mnemonic": "mov",
      "offset": "4",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "000AA9E5",
      "value": "4E46C4"
     },
@@ -50562,7 +50822,7 @@
      "mnemonic": "mov",
      "offset": "14",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "000AA9EF",
      "value": "4E46D4"
     },
@@ -50576,7 +50836,7 @@
      "mnemonic": "mov",
      "offset": "18",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "000AA9F7",
      "value": "4E46D8"
     },
@@ -50590,7 +50850,7 @@
      "mnemonic": "mov",
      "offset": "1C",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "000AAA00",
      "value": "4E46DC"
     },
@@ -50604,7 +50864,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "000AAA5B",
      "value": "4E46C0"
     },
@@ -50618,7 +50878,7 @@
      "mnemonic": "mov",
      "offset": "4",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "000AAA65",
      "value": "4E46C4"
     },
@@ -50632,7 +50892,7 @@
      "mnemonic": "lea",
      "offset": "2C",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "000AAA73",
      "value": "4E46EC"
     },
@@ -50646,7 +50906,7 @@
      "mnemonic": "lea",
      "offset": "38",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "000AAA7F",
      "value": "4E46F8"
     },
@@ -50660,7 +50920,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "000AAAC3",
      "value": "4E46C0"
     },
@@ -50674,7 +50934,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "000AAAD7",
      "value": "4E46C0"
     },
@@ -50688,7 +50948,7 @@
      "mnemonic": "mov",
      "offset": "18",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "000AAB6C",
      "value": "4E46D8"
     },
@@ -50703,7 +50963,7 @@
      "mnemonic": "add",
      "offset": "18",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "000AAE75",
      "value": "4E46D8"
     },
@@ -50716,7 +50976,7 @@
      "kind": "alias",
      "mnemonic": "lea",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "000AB07F",
      "value": "4E4668"
     },
@@ -50731,7 +50991,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "000AB146",
      "value": "4E46C0"
     },
@@ -50746,7 +51006,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "000AB169",
      "value": "4E46C0"
     },
@@ -50759,7 +51019,7 @@
      "kind": "alias",
      "mnemonic": "lea",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "000AB266",
      "value": "4E4668"
     },
@@ -50773,7 +51033,7 @@
      "mnemonic": "mov",
      "offset": "4",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "000AB41F",
      "value": "4E46C4"
     },
@@ -51036,7 +51296,7 @@
     }
    ],
    "source": "player_slots_engine_server.md 1",
-   "unpatched": 36,
+   "unpatched": 18,
    "what": "lag compensation positions, one per client (SV_SetupMove)"
   },
   {
@@ -51047,7 +51307,7 @@
    "functions": 1,
    "layout": "verified",
    "name": "sv_lastping",
-   "patched": 0,
+   "patched": 2,
    "plan": "relocate",
    "range": [
     "4E0448",
@@ -51064,7 +51324,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0009DA86",
      "value": "4E0448"
     },
@@ -51078,13 +51338,13 @@
      "mnemonic": "movzx",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0009DAA2",
      "value": "4E0448"
     }
    ],
    "source": "player_slots_engine_server.md 1",
-   "unpatched": 2,
+   "unpatched": 0,
    "what": "last ping per client, u16 (SV_GetNetInfo 0x9DA40)"
   },
   {
@@ -51095,7 +51355,7 @@
    "functions": 1,
    "layout": "verified",
    "name": "sv_lastloss",
-   "patched": 0,
+   "patched": 2,
    "plan": "relocate",
    "range": [
     "4E449C",
@@ -51112,7 +51372,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0009DA9C",
      "value": "4E449C"
     },
@@ -51126,13 +51386,13 @@
      "mnemonic": "movzx",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0009DAB0",
      "value": "4E449C"
     }
    ],
    "source": "player_slots_engine_server.md 1",
-   "unpatched": 2,
+   "unpatched": 0,
    "what": "last packet loss per client, u8 (SV_GetNetInfo)"
   },
   {
@@ -51144,7 +51404,7 @@
    "functions": 155,
    "layout": "verified",
    "name": "svs_clients",
-   "patched": 0,
+   "patched": 1,
    "plan": "scales",
    "range": [
     "636CE4",
@@ -55691,7 +55951,7 @@
      "mnemonic": "mov",
      "offset": "8",
      "operand": "disp",
-     "patched": false,
+     "patched": true,
      "va": "000A1A10",
      "value": "636CEC"
     },
@@ -56386,7 +56646,7 @@
     }
    ],
    "source": "player_slots_engine_server.md 1",
-   "unpatched": 349,
+   "unpatched": 348,
    "what": "the client_t block (heap, malloc at 0xA1A2C): its size constants and stride"
   },
   {
@@ -56420,7 +56680,7 @@
      "kind": "field",
      "mnemonic": "mov",
      "offset": "5008",
-     "patched": false,
+     "patched": true,
      "va": "000AC3E5"
     },
     {
@@ -56431,7 +56691,7 @@
      "kind": "field",
      "mnemonic": "lea",
      "offset": "5008",
-     "patched": false,
+     "patched": true,
      "va": "000AC443"
     }
    ],
@@ -56461,7 +56721,7 @@
      ],
      "kind": "stride",
      "mnemonic": "imul",
-     "patched": false,
+     "patched": true,
      "stride": "1B60",
      "va": "0001D282"
     },
@@ -56495,7 +56755,7 @@
      ],
      "kind": "stride",
      "mnemonic": "imul",
-     "patched": false,
+     "patched": true,
      "stride": "1B60",
      "va": "00023C7C"
     },
@@ -56813,7 +57073,7 @@
      ],
      "kind": "stride",
      "mnemonic": "imul",
-     "patched": false,
+     "patched": true,
      "stride": "1B60",
      "va": "000254B8"
     },
@@ -56836,7 +57096,7 @@
      ],
      "kind": "stride",
      "mnemonic": "imul",
-     "patched": false,
+     "patched": true,
      "stride": "1B60",
      "va": "00025ECB"
     },
@@ -56847,7 +57107,7 @@
      ],
      "kind": "stride",
      "mnemonic": "imul",
-     "patched": false,
+     "patched": true,
      "stride": "1B60",
      "va": "00025F5E"
     },
@@ -56869,7 +57129,7 @@
      ],
      "kind": "stride",
      "mnemonic": "imul",
-     "patched": false,
+     "patched": true,
      "stride": "1B60",
      "va": "00026034"
     },
@@ -57147,7 +57407,7 @@
      ],
      "kind": "stride",
      "mnemonic": "imul",
-     "patched": false,
+     "patched": true,
      "stride": "1B60",
      "va": "000323D2"
     },
@@ -57237,7 +57497,7 @@
      ],
      "kind": "stride",
      "mnemonic": "imul",
-     "patched": false,
+     "patched": true,
      "stride": "1B60",
      "va": "0004D15B"
     },
@@ -57261,7 +57521,7 @@
      ],
      "kind": "stride",
      "mnemonic": "imul",
-     "patched": false,
+     "patched": true,
      "stride": "1B60",
      "va": "0004D1D6"
     },
@@ -57305,7 +57565,7 @@
      ],
      "kind": "stride",
      "mnemonic": "imul",
-     "patched": false,
+     "patched": true,
      "stride": "1B60",
      "va": "0008F109"
     },
@@ -57316,7 +57576,7 @@
      ],
      "kind": "stride",
      "mnemonic": "imul",
-     "patched": false,
+     "patched": true,
      "stride": "1B60",
      "va": "00092BA6"
     },
@@ -57349,7 +57609,7 @@
      ],
      "kind": "stride",
      "mnemonic": "imul",
-     "patched": false,
+     "patched": true,
      "stride": "1B60",
      "va": "000937E1"
     },
@@ -57371,7 +57631,7 @@
      ],
      "kind": "stride",
      "mnemonic": "imul",
-     "patched": false,
+     "patched": true,
      "stride": "1B60",
      "va": "00093862"
     },
@@ -57437,7 +57697,7 @@
    "functions": 27,
    "layout": "verified",
    "name": "cl_players",
-   "patched": 0,
+   "patched": 57,
    "plan": "relocate",
    "range": [
     "7791F0",
@@ -57454,7 +57714,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "0001C15D",
      "value": "7791F0"
     },
@@ -57479,7 +57739,7 @@
      "mnemonic": "add",
      "offset": "104",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "0001C1B7",
      "value": "7792F4"
     },
@@ -57515,7 +57775,7 @@
      "mnemonic": "add",
      "offset": "104",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "0001C1E8",
      "value": "7792F4"
     },
@@ -57540,7 +57800,7 @@
      "mnemonic": "mov",
      "offset": "128",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0001C1FD",
      "value": "779318"
     },
@@ -57565,7 +57825,7 @@
      "mnemonic": "mov",
      "offset": "124",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0001C216",
      "value": "779314"
     },
@@ -57590,7 +57850,7 @@
      "mnemonic": "mov",
      "offset": "12C",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0001C22D",
      "value": "77931C"
     },
@@ -57615,7 +57875,7 @@
      "mnemonic": "mov",
      "offset": "170",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0001C258",
      "value": "779360"
     },
@@ -57640,7 +57900,7 @@
      "mnemonic": "mov",
      "offset": "174",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0001C271",
      "value": "779364"
     },
@@ -57665,7 +57925,7 @@
      "mnemonic": "add",
      "offset": "130",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "0001C28A",
      "value": "779320"
     },
@@ -57690,7 +57950,7 @@
      "mnemonic": "add",
      "offset": "104",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "0001D9CF",
      "value": "7792F4"
     },
@@ -57726,7 +57986,7 @@
      "mnemonic": "mov",
      "offset": "4",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0001DA58",
      "value": "7791F4"
     },
@@ -57740,7 +58000,7 @@
      "mnemonic": "mov",
      "offset": "104",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0001DA62",
      "value": "7792F4"
     },
@@ -57754,7 +58014,7 @@
      "mnemonic": "lea",
      "offset": "238",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0001DA6C",
      "value": "779428"
     },
@@ -57779,7 +58039,7 @@
      "mnemonic": "mov",
      "offset": "4",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0001DAB9",
      "value": "7791F4"
     },
@@ -57793,7 +58053,7 @@
      "mnemonic": "mov",
      "offset": "104",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0001DAC3",
      "value": "7792F4"
     },
@@ -57807,7 +58067,7 @@
      "mnemonic": "mov",
      "offset": "248",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0001DACD",
      "value": "779438"
     },
@@ -57821,7 +58081,7 @@
      "mnemonic": "mov",
      "offset": "104",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "0001DAF4",
      "value": "7792F4"
     },
@@ -57835,7 +58095,7 @@
      "mnemonic": "cmp",
      "offset": "104",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "0001DB1D",
      "value": "77BA00"
     },
@@ -57874,7 +58134,7 @@
      "mnemonic": "mov",
      "offset": "234",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0002857A",
      "value": "779424"
     },
@@ -57901,7 +58161,7 @@
      "mnemonic": "add",
      "offset": "194",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "000285C3",
      "value": "779384"
     },
@@ -57915,7 +58175,7 @@
      "mnemonic": "mov",
      "offset": "194",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "00028E0A",
      "value": "779384"
     },
@@ -57929,7 +58189,7 @@
      "mnemonic": "cmp",
      "offset": "194",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "00028E21",
      "value": "77BA90"
     },
@@ -57954,7 +58214,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0002CA54",
      "value": "7791F0"
     },
@@ -57968,7 +58228,7 @@
      "mnemonic": "lea",
      "offset": "4",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0002CA68",
      "value": "7791F4"
     },
@@ -57982,7 +58242,7 @@
      "mnemonic": "mov",
      "offset": "103",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0002CA9B",
      "value": "7792F3"
     },
@@ -57996,7 +58256,7 @@
      "mnemonic": "lea",
      "offset": "238",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0002CAB8",
      "value": "779428"
     },
@@ -58010,7 +58270,7 @@
      "mnemonic": "lea",
      "offset": "104",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0002CAE5",
      "value": "7792F4"
     },
@@ -58024,7 +58284,7 @@
      "mnemonic": "mov",
      "offset": "123",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0002CB0F",
      "value": "779313"
     },
@@ -58038,7 +58298,7 @@
      "mnemonic": "lea",
      "offset": "130",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0002CB27",
      "value": "779320"
     },
@@ -58052,7 +58312,7 @@
      "mnemonic": "mov",
      "offset": "16F",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0002CB4F",
      "value": "77935F"
     },
@@ -58066,7 +58326,7 @@
      "mnemonic": "mov",
      "offset": "170",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0002CB68",
      "value": "779360"
     },
@@ -58080,7 +58340,7 @@
      "mnemonic": "mov",
      "offset": "174",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0002CB80",
      "value": "779364"
     },
@@ -58094,7 +58354,7 @@
      "mnemonic": "mov",
      "offset": "124",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0002CB98",
      "value": "779314"
     },
@@ -58108,7 +58368,7 @@
      "mnemonic": "mov",
      "offset": "248",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0002CBAD",
      "value": "779438"
     },
@@ -58122,7 +58382,7 @@
      "mnemonic": "mov",
      "offset": "104",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0002CBBB",
      "value": "7792F4"
     },
@@ -58136,7 +58396,7 @@
      "mnemonic": "lea",
      "offset": "194",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0002CBC5",
      "value": "779384"
     },
@@ -58161,7 +58421,7 @@
      "mnemonic": "mov",
      "offset": "234",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0002DE76",
      "value": "779424"
     },
@@ -58186,7 +58446,7 @@
      "mnemonic": "add",
      "offset": "194",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "0002DEAE",
      "value": "779384"
     },
@@ -58211,7 +58471,7 @@
      "mnemonic": "mov",
      "offset": "234",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0002E17B",
      "value": "779424"
     },
@@ -58238,7 +58498,7 @@
      "mnemonic": "add",
      "offset": "194",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "0002E1E2",
      "value": "779384"
     },
@@ -58252,7 +58512,7 @@
      "mnemonic": "mov",
      "offset": "194",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "0002E94D",
      "value": "779384"
     },
@@ -58266,7 +58526,7 @@
      "mnemonic": "cmp",
      "offset": "194",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "0002E963",
      "value": "77BA90"
     },
@@ -58323,7 +58583,7 @@
      "mnemonic": "mov",
      "offset": "12C",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "00031A2A",
      "value": "77931C"
     },
@@ -58338,7 +58598,7 @@
      "mnemonic": "mov",
      "offset": "128",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "00031A35",
      "value": "779318"
     },
@@ -58363,7 +58623,7 @@
      "mnemonic": "mov",
      "offset": "234",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "00038DB3",
      "value": "779424"
     },
@@ -58388,7 +58648,7 @@
      "mnemonic": "mov",
      "offset": "234",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "000431D1",
      "value": "779424"
     },
@@ -58402,7 +58662,7 @@
      "mnemonic": "lea",
      "offset": "104",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "00043222",
      "value": "7792F4"
     },
@@ -58427,7 +58687,7 @@
      "mnemonic": "mov",
      "offset": "170",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0004D479",
      "value": "779360"
     },
@@ -58452,7 +58712,7 @@
      "mnemonic": "mov",
      "offset": "174",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0004D499",
      "value": "779364"
     },
@@ -58477,7 +58737,7 @@
      "mnemonic": "lea",
      "offset": "130",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0008F8A4",
      "value": "779320"
     },
@@ -58502,7 +58762,7 @@
      "mnemonic": "add",
      "offset": "0",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "0008F9F5",
      "value": "7791F0"
     },
@@ -58527,7 +58787,7 @@
      "mnemonic": "mov",
      "offset": "17C",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0008FA91",
      "value": "77936C"
     },
@@ -58552,7 +58812,7 @@
      "mnemonic": "add",
      "offset": "0",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "0008FAF5",
      "value": "7791F0"
     },
@@ -58577,7 +58837,7 @@
      "mnemonic": "add",
      "offset": "0",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "0008FC4D",
      "value": "7791F0"
     },
@@ -58602,7 +58862,7 @@
      "mnemonic": "add",
      "offset": "0",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "00092B86",
      "value": "7791F0"
     },
@@ -58627,7 +58887,7 @@
      "mnemonic": "mov",
      "offset": "130",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "00092DE4",
      "value": "779320"
     },
@@ -58641,13 +58901,13 @@
      "mnemonic": "lea",
      "offset": "130",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "00092DEC",
      "value": "779320"
     }
    ],
    "source": "player_slots_engine_client.md 1a",
-   "unpatched": 60,
+   "unpatched": 3,
    "what": "cl.players[17], player_info_t 0x24C, inside cl"
   },
   {
@@ -58659,7 +58919,7 @@
    "functions": 4,
    "layout": "verified",
    "name": "cl_predicted_players",
-   "patched": 0,
+   "patched": 2,
    "plan": "relocate",
    "range": [
     "3AE3D0",
@@ -58676,7 +58936,7 @@
      "mnemonic": "mov",
      "offset": "C",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "00025EEC",
      "value": "3AE3DC"
     },
@@ -58690,7 +58950,7 @@
      "mnemonic": "mov",
      "offset": "8",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "00026054",
      "value": "3AE3D8"
     },
@@ -58738,7 +58998,7 @@
     }
    ],
    "source": "player_slots_engine_client.md 1a",
-   "unpatched": 5,
+   "unpatched": 3,
    "what": "predicted_players[17], 0x28 each"
   },
   {
@@ -58751,7 +59011,7 @@
    "functions": 7,
    "layout": "verified",
    "name": "dm_playerstate",
-   "patched": 0,
+   "patched": 14,
    "plan": "relocate",
    "range": [
     "6A38A0",
@@ -58838,7 +59098,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0008F8BB",
      "value": "6A38A0"
     },
@@ -58852,7 +59112,7 @@
      "mnemonic": "cmp",
      "offset": "208",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0008F8C8",
      "value": "6A3AA8"
     },
@@ -58866,7 +59126,7 @@
      "mnemonic": "mov",
      "offset": "208",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0008F8D4",
      "value": "6A3AA8"
     },
@@ -58891,7 +59151,7 @@
      "mnemonic": "lea",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0008F8E5",
      "value": "6A38A0"
     },
@@ -58905,7 +59165,7 @@
      "mnemonic": "lea",
      "offset": "104",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0008F930",
      "value": "6A39A4"
     },
@@ -58919,7 +59179,7 @@
      "mnemonic": "mov",
      "offset": "103",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0008F93C",
      "value": "6A39A3"
     },
@@ -58944,7 +59204,7 @@
      "mnemonic": "add",
      "offset": "104",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "0008F956",
      "value": "6A39A4"
     },
@@ -58969,7 +59229,7 @@
      "mnemonic": "mov",
      "offset": "208",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0008F986",
      "value": "6A3AA8"
     },
@@ -58983,7 +59243,7 @@
      "mnemonic": "mov",
      "offset": "208",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0008F999",
      "value": "6A3AA8"
     },
@@ -58997,7 +59257,7 @@
      "mnemonic": "mov",
      "offset": "208",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0008F99F",
      "value": "6A3AA8"
     },
@@ -59022,7 +59282,7 @@
      "mnemonic": "mov",
      "offset": "208",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0008FBBD",
      "value": "6A3AA8"
     },
@@ -59047,7 +59307,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0008FBFB",
      "value": "6A38A0"
     },
@@ -59061,7 +59321,7 @@
      "mnemonic": "mov",
      "offset": "208",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0008FC05",
      "value": "6A3AA8"
     },
@@ -59131,13 +59391,13 @@
      "mnemonic": "add",
      "offset": "0",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "00092DAD",
      "value": "6A38A0"
     }
    ],
    "source": "player_slots_engine_client.md 1a",
-   "unpatched": 21,
+   "unpatched": 7,
    "what": "the studio renderer's player model cache [17], 0x20C each"
   },
   {
@@ -59149,7 +59409,7 @@
    "functions": 39,
    "layout": "verified",
    "name": "hud_player_extra_info",
-   "patched": 0,
+   "patched": 97,
    "plan": "relocate",
    "range": [
     "57E978",
@@ -59166,7 +59426,7 @@
      "mnemonic": "mov",
      "offset": "48",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "000EF1BC",
      "value": "57E9C0"
     },
@@ -59180,7 +59440,7 @@
      "mnemonic": "mov",
      "offset": "1C",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0018B918",
      "value": "57E994"
     },
@@ -59194,7 +59454,7 @@
      "mnemonic": "mov",
      "offset": "20",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0018B924",
      "value": "57E998"
     },
@@ -59208,7 +59468,7 @@
      "mnemonic": "mov",
      "offset": "24",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0018B92E",
      "value": "57E99C"
     },
@@ -59222,7 +59482,7 @@
      "mnemonic": "mov",
      "offset": "1C",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0018B940",
      "value": "57E994"
     },
@@ -59236,7 +59496,7 @@
      "mnemonic": "mov",
      "offset": "20",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0018B94A",
      "value": "57E998"
     },
@@ -59250,7 +59510,7 @@
      "mnemonic": "mov",
      "offset": "24",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0018B954",
      "value": "57E99C"
     },
@@ -59264,7 +59524,7 @@
      "mnemonic": "movsx",
      "offset": "2A",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "0018C72D",
      "value": "57E9A2"
     },
@@ -59292,7 +59552,7 @@
      "mnemonic": "movsx",
      "offset": "2A",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "00192B27",
      "value": "57E9A2"
     },
@@ -59306,7 +59566,7 @@
      "mnemonic": "cmp",
      "offset": "C",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "00192B39",
      "value": "57E984"
     },
@@ -59320,7 +59580,7 @@
      "mnemonic": "movsx",
      "offset": "2A",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001A5C81",
      "value": "57E9A2"
     },
@@ -59334,7 +59594,7 @@
      "mnemonic": "mov",
      "offset": "20",
      "operand": "disp",
-     "patched": false,
+     "patched": true,
      "va": "001A5E22",
      "value": "57E998"
     },
@@ -59348,7 +59608,7 @@
      "mnemonic": "mov",
      "offset": "24",
      "operand": "disp",
-     "patched": false,
+     "patched": true,
      "va": "001A5E27",
      "value": "57E99C"
     },
@@ -59362,7 +59622,7 @@
      "mnemonic": "mov",
      "offset": "1C",
      "operand": "disp",
-     "patched": false,
+     "patched": true,
      "va": "001A5E2C",
      "value": "57E994"
     },
@@ -59376,7 +59636,7 @@
      "mnemonic": "mov",
      "offset": "44",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001A73DA",
      "value": "57E9BC"
     },
@@ -59390,7 +59650,7 @@
      "mnemonic": "mov",
      "offset": "44",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001A73E9",
      "value": "57E9BC"
     },
@@ -59404,7 +59664,7 @@
      "mnemonic": "cmp",
      "offset": "44",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001A73F5",
      "value": "57EEC8"
     },
@@ -59418,7 +59678,7 @@
      "mnemonic": "fstp",
      "offset": "40",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001A9406",
      "value": "57E9B8"
     },
@@ -59432,7 +59692,7 @@
      "mnemonic": "movsx",
      "offset": "2A",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001AA6AD",
      "value": "57E9A2"
     },
@@ -59446,7 +59706,7 @@
      "mnemonic": "mov",
      "offset": "C",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001AA6D0",
      "value": "57E984"
     },
@@ -59460,7 +59720,7 @@
      "mnemonic": "mov",
      "offset": "8",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001AA6E0",
      "value": "57E980"
     },
@@ -59488,7 +59748,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001B0A84",
      "value": "57E978"
     },
@@ -59502,7 +59762,7 @@
      "mnemonic": "fld",
      "offset": "40",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001B4195",
      "value": "57E9B8"
     },
@@ -59516,7 +59776,7 @@
      "mnemonic": "mov",
      "offset": "44",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001B41F9",
      "value": "57E9BC"
     },
@@ -59530,7 +59790,7 @@
      "mnemonic": "movsx",
      "offset": "2A",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001B4203",
      "value": "57E9A2"
     },
@@ -59544,7 +59804,7 @@
      "mnemonic": "mov",
      "offset": "44",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001B42BF",
      "value": "57E9BC"
     },
@@ -59558,7 +59818,7 @@
      "mnemonic": "mov",
      "offset": "2",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001B589C",
      "value": "57E97A"
     },
@@ -59572,7 +59832,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001B58A7",
      "value": "57E978"
     },
@@ -59586,7 +59846,7 @@
      "mnemonic": "mov",
      "offset": "28",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001B58AE",
      "value": "57E9A0"
     },
@@ -59600,7 +59860,7 @@
      "mnemonic": "lea",
      "offset": "2C",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001B5A2F",
      "value": "57E9A4"
     },
@@ -59614,7 +59874,7 @@
      "mnemonic": "mov",
      "offset": "2A",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001B5A53",
      "value": "57E9A2"
     },
@@ -59628,7 +59888,7 @@
      "mnemonic": "mov",
      "offset": "2A",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001B5A71",
      "value": "57E9A2"
     },
@@ -59642,7 +59902,7 @@
      "mnemonic": "movsx",
      "offset": "2A",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001B5D25",
      "value": "57E9A2"
     },
@@ -59656,7 +59916,7 @@
      "mnemonic": "movsx",
      "offset": "2A",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001B5D2F",
      "value": "57E9A2"
     },
@@ -59670,7 +59930,7 @@
      "mnemonic": "mov",
      "offset": "1C",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001B83D7",
      "value": "57E9E0"
     },
@@ -59685,7 +59945,7 @@
      "mnemonic": "cmp",
      "offset": "1C",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001B85CD",
      "value": "57EEEC"
     },
@@ -59699,7 +59959,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001B9272",
      "value": "57E978"
     },
@@ -59713,7 +59973,7 @@
      "mnemonic": "mov",
      "offset": "2A",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001B93B6",
      "value": "57E9EE"
     },
@@ -59728,7 +59988,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001B95AA",
      "value": "57E9C4"
     },
@@ -59742,7 +60002,7 @@
      "mnemonic": "mov",
      "offset": "2C",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001B96FE",
      "value": "57E9F0"
     },
@@ -59756,7 +60016,7 @@
      "mnemonic": "movsx",
      "offset": "2A",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001BA0ED",
      "value": "57E9A2"
     },
@@ -59770,7 +60030,7 @@
      "mnemonic": "movsx",
      "offset": "2A",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001BA158",
      "value": "57E9A2"
     },
@@ -59784,7 +60044,7 @@
      "mnemonic": "cmp",
      "offset": "3C",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001BA1F6",
      "value": "57E9B4"
     },
@@ -59798,7 +60058,7 @@
      "mnemonic": "cmp",
      "offset": "8",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001BA213",
      "value": "57E980"
     },
@@ -59812,7 +60072,7 @@
      "mnemonic": "cmp",
      "offset": "2A",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001BA3BD",
      "value": "57E9A2"
     },
@@ -59826,7 +60086,7 @@
      "mnemonic": "movsx",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001BA3CA",
      "value": "57E978"
     },
@@ -59840,7 +60100,7 @@
      "mnemonic": "movsx",
      "offset": "2",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001BA44F",
      "value": "57E97A"
     },
@@ -59854,7 +60114,7 @@
      "mnemonic": "mov",
      "offset": "48",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001BA4D4",
      "value": "57E9C0"
     },
@@ -59868,7 +60128,7 @@
      "mnemonic": "mov",
      "offset": "3C",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001BA6F6",
      "value": "57E9B4"
     },
@@ -59882,7 +60142,7 @@
      "mnemonic": "mov",
      "offset": "8",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001BA700",
      "value": "57E980"
     },
@@ -59896,7 +60156,7 @@
      "mnemonic": "fstp",
      "offset": "10",
      "operand": "disp",
-     "patched": false,
+     "patched": true,
      "va": "001CC434",
      "value": "57E988"
     },
@@ -59910,7 +60170,7 @@
      "mnemonic": "fstp",
      "offset": "14",
      "operand": "disp",
-     "patched": false,
+     "patched": true,
      "va": "001CC43F",
      "value": "57E98C"
     },
@@ -59924,7 +60184,7 @@
      "mnemonic": "fstp",
      "offset": "18",
      "operand": "disp",
-     "patched": false,
+     "patched": true,
      "va": "001CC44A",
      "value": "57E990"
     },
@@ -59938,7 +60198,7 @@
      "mnemonic": "mov",
      "offset": "1C",
      "operand": "disp",
-     "patched": false,
+     "patched": true,
      "va": "001CC461",
      "value": "57E994"
     },
@@ -59952,7 +60212,7 @@
      "mnemonic": "mov",
      "offset": "20",
      "operand": "disp",
-     "patched": false,
+     "patched": true,
      "va": "001CC46E",
      "value": "57E998"
     },
@@ -59966,7 +60226,7 @@
      "mnemonic": "mov",
      "offset": "24",
      "operand": "disp",
-     "patched": false,
+     "patched": true,
      "va": "001CC478",
      "value": "57E99C"
     },
@@ -59980,7 +60240,7 @@
      "mnemonic": "mov",
      "offset": "2C",
      "operand": "disp",
-     "patched": false,
+     "patched": true,
      "va": "001CC482",
      "value": "57E9A4"
     },
@@ -59994,7 +60254,7 @@
      "mnemonic": "mov",
      "offset": "30",
      "operand": "disp",
-     "patched": false,
+     "patched": true,
      "va": "001CC487",
      "value": "57E9A8"
     },
@@ -60008,7 +60268,7 @@
      "mnemonic": "mov",
      "offset": "34",
      "operand": "disp",
-     "patched": false,
+     "patched": true,
      "va": "001CC48D",
      "value": "57E9AC"
     },
@@ -60022,7 +60282,7 @@
      "mnemonic": "mov",
      "offset": "3C",
      "operand": "disp",
-     "patched": false,
+     "patched": true,
      "va": "001CC494",
      "value": "57E9B4"
     },
@@ -60092,7 +60352,7 @@
      "mnemonic": "lea",
      "offset": "2C",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D5341",
      "value": "57E9A4"
     },
@@ -60106,7 +60366,7 @@
      "mnemonic": "cmp",
      "offset": "3C",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D535B",
      "value": "57E9B4"
     },
@@ -60120,7 +60380,7 @@
      "mnemonic": "lea",
      "offset": "2C",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D53AE",
      "value": "57E9A4"
     },
@@ -60134,7 +60394,7 @@
      "mnemonic": "mov",
      "offset": "3C",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D53E9",
      "value": "57E9B4"
     },
@@ -60148,7 +60408,7 @@
      "mnemonic": "fld",
      "offset": "10",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D53F7",
      "value": "57E988"
     },
@@ -60162,7 +60422,7 @@
      "mnemonic": "fld",
      "offset": "14",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D5405",
      "value": "57E98C"
     },
@@ -60176,7 +60436,7 @@
      "mnemonic": "fld",
      "offset": "18",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D5413",
      "value": "57E990"
     },
@@ -60190,7 +60450,7 @@
      "mnemonic": "mov",
      "offset": "8",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D55A1",
      "value": "57E980"
     },
@@ -60204,7 +60464,7 @@
      "mnemonic": "mov",
      "offset": "C",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D55AB",
      "value": "57E984"
     },
@@ -60218,7 +60478,7 @@
      "mnemonic": "cmp",
      "offset": "1C",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D561F",
      "value": "57E994"
     },
@@ -60232,7 +60492,7 @@
      "mnemonic": "fcomp",
      "offset": "1C",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D562F",
      "value": "57E994"
     },
@@ -60246,7 +60506,7 @@
      "mnemonic": "mov",
      "offset": "24",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D563C",
      "value": "57E99C"
     },
@@ -60260,7 +60520,7 @@
      "mnemonic": "mov",
      "offset": "20",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D564A",
      "value": "57E998"
     },
@@ -60274,7 +60534,7 @@
      "mnemonic": "fstp",
      "offset": "1C",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D565E",
      "value": "57E994"
     },
@@ -60288,7 +60548,7 @@
      "mnemonic": "mov",
      "offset": "20",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D5664",
      "value": "57E998"
     },
@@ -60302,7 +60562,7 @@
      "mnemonic": "mov",
      "offset": "24",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D566A",
      "value": "57E99C"
     },
@@ -60316,7 +60576,7 @@
      "mnemonic": "cmp",
      "offset": "20",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D5670",
      "value": "57E998"
     },
@@ -60330,7 +60590,7 @@
      "mnemonic": "mov",
      "offset": "24",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D5679",
      "value": "57E99C"
     },
@@ -60344,7 +60604,7 @@
      "mnemonic": "add",
      "offset": "10",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001D59F0",
      "value": "57E988"
     },
@@ -60358,7 +60618,7 @@
      "mnemonic": "mov",
      "offset": "3C",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D5AC8",
      "value": "57E9B4"
     },
@@ -60372,7 +60632,7 @@
      "mnemonic": "mov",
      "offset": "8",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D5ACE",
      "value": "57E980"
     },
@@ -60386,7 +60646,7 @@
      "mnemonic": "mov",
      "offset": "C",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D5AD4",
      "value": "57E984"
     },
@@ -60400,7 +60660,7 @@
      "mnemonic": "movsx",
      "offset": "2A",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D6723",
      "value": "57E9A2"
     },
@@ -60414,7 +60674,7 @@
      "mnemonic": "movsx",
      "offset": "2A",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D6D9D",
      "value": "57E9A2"
     },
@@ -60428,7 +60688,7 @@
      "mnemonic": "movsx",
      "offset": "2A",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D6E1F",
      "value": "57E9A2"
     },
@@ -60442,7 +60702,7 @@
      "mnemonic": "mov",
      "offset": "3C",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001D7AA0",
      "value": "57E9B4"
     },
@@ -60456,7 +60716,7 @@
      "mnemonic": "cmp",
      "offset": "3C",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001D7AB9",
      "value": "57EEC0"
     },
@@ -60470,7 +60730,7 @@
      "mnemonic": "mov",
      "offset": "1C",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D8241",
      "value": "57E994"
     },
@@ -60484,7 +60744,7 @@
      "mnemonic": "mov",
      "offset": "20",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D8247",
      "value": "57E998"
     },
@@ -60498,7 +60758,7 @@
      "mnemonic": "mov",
      "offset": "24",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D8251",
      "value": "57E99C"
     },
@@ -60512,7 +60772,7 @@
      "mnemonic": "mov",
      "offset": "1C",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D8349",
      "value": "57E994"
     },
@@ -60526,7 +60786,7 @@
      "mnemonic": "mov",
      "offset": "20",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D834F",
      "value": "57E998"
     },
@@ -60540,7 +60800,7 @@
      "mnemonic": "mov",
      "offset": "24",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D8359",
      "value": "57E99C"
     },
@@ -60554,7 +60814,7 @@
      "mnemonic": "mov",
      "offset": "40",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001D8493",
      "value": "57E9B8"
     },
@@ -60568,7 +60828,7 @@
      "mnemonic": "cmp",
      "offset": "40",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001D84A9",
      "value": "57EEC4"
     },
@@ -60582,7 +60842,7 @@
      "mnemonic": "fstp",
      "offset": "40",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D86F6",
      "value": "57E9B8"
     },
@@ -60596,13 +60856,13 @@
      "mnemonic": "mov",
      "offset": "44",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D86FD",
      "value": "57E9BC"
     }
    ],
    "source": "player_slots_engine_client.md 1b",
-   "unpatched": 103,
+   "unpatched": 6,
    "what": "g_PlayerExtraInfo[18], 0x4C each (the Radar handler writes it unchecked)"
   },
   {
@@ -60614,7 +60874,7 @@
    "functions": 17,
    "layout": "verified",
    "name": "hud_player_info_list",
-   "patched": 0,
+   "patched": 25,
    "plan": "relocate",
    "range": [
     "5487B0",
@@ -60631,7 +60891,7 @@
      "mnemonic": "cmp",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "00104647",
      "value": "5487B0"
     },
@@ -60645,7 +60905,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001A8A6A",
      "value": "5487C4"
     },
@@ -60659,7 +60919,7 @@
      "mnemonic": "cmp",
      "offset": "0",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001A8C35",
      "value": "548918"
     },
@@ -60673,7 +60933,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001A90CF",
      "value": "5487B0"
     },
@@ -60687,7 +60947,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001A9246",
      "value": "5487B0"
     },
@@ -60701,7 +60961,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001A9767",
      "value": "5487B0"
     },
@@ -60715,7 +60975,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001B3CE5",
      "value": "5487B0"
     },
@@ -60729,7 +60989,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001B3DA5",
      "value": "5487B0"
     },
@@ -60743,7 +61003,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001B3EB7",
      "value": "5487B0"
     },
@@ -60757,7 +61017,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001B41DD",
      "value": "5487B0"
     },
@@ -60771,7 +61031,7 @@
      "mnemonic": "mov",
      "offset": "6",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001B4E37",
      "value": "5487CA"
     },
@@ -60785,7 +61045,7 @@
      "mnemonic": "cmp",
      "offset": "6",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001B4E64",
      "value": "54890A"
     },
@@ -60799,7 +61059,7 @@
      "mnemonic": "add",
      "offset": "0",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001B92B7",
      "value": "548918"
     },
@@ -60813,7 +61073,7 @@
      "mnemonic": "mov",
      "offset": "4",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001B93BF",
      "value": "5487C8"
     },
@@ -60827,7 +61087,7 @@
      "mnemonic": "cmp",
      "offset": "4",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001B945F",
      "value": "548908"
     },
@@ -60842,7 +61102,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001B95AF",
      "value": "5487C4"
     },
@@ -60857,7 +61117,7 @@
      "mnemonic": "cmp",
      "offset": "0",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001B962D",
      "value": "548904"
     },
@@ -60871,7 +61131,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001B96EF",
      "value": "5487C4"
     },
@@ -60885,7 +61145,7 @@
      "mnemonic": "cmp",
      "offset": "0",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001B97C1",
      "value": "548904"
     },
@@ -60899,7 +61159,7 @@
      "mnemonic": "lea",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001BA049",
      "value": "5487B0"
     },
@@ -60913,7 +61173,7 @@
      "mnemonic": "mov",
      "offset": "6",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001D5A17",
      "value": "5487CA"
     },
@@ -60927,7 +61187,7 @@
      "mnemonic": "cmp",
      "offset": "6",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001D5A3B",
      "value": "54890A"
     },
@@ -60941,7 +61201,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D6D7C",
      "value": "5487B0"
     },
@@ -60955,7 +61215,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D6E05",
      "value": "5487B0"
     },
@@ -60969,13 +61229,13 @@
      "mnemonic": "lea",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001D865D",
      "value": "5487B0"
     }
    ],
    "source": "player_slots_engine_client.md 1b",
-   "unpatched": 25,
+   "unpatched": 0,
    "what": "g_PlayerInfoList[18], 0x14 each"
   },
   {
@@ -60986,7 +61246,7 @@
    "functions": 1,
    "layout": "inferred",
    "name": "hud_is_spectator",
-   "patched": 0,
+   "patched": 2,
    "plan": "relocate",
    "range": [
     "548750",
@@ -61003,7 +61263,7 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001B5AE2",
      "value": "548750"
     },
@@ -61017,13 +61277,13 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001B5AFB",
      "value": "548750"
     }
    ],
    "source": "player_slots_engine_client.md 1b",
-   "unpatched": 2,
+   "unpatched": 0,
    "what": "per player int (g_IsSpectator, inferred name), room for 24"
   },
   {
@@ -61035,7 +61295,7 @@
    "functions": 8,
    "layout": "inferred",
    "name": "hud_player_record",
-   "patched": 0,
+   "patched": 2,
    "plan": "relocate",
    "range": [
     "548918",
@@ -61052,7 +61312,7 @@
      "mnemonic": "cmp",
      "offset": "0",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001A8C35",
      "value": "548918"
     },
@@ -61094,7 +61354,7 @@
      "mnemonic": "add",
      "offset": "0",
      "operand": "imm",
-     "patched": false,
+     "patched": true,
      "va": "001B92B7",
      "value": "548918"
     },
@@ -61143,7 +61403,7 @@
     }
    ],
    "source": "player_slots_engine_client.md 1b",
-   "unpatched": 7,
+   "unpatched": 5,
    "what": "a 16-byte record per player (Xbox Live id, inferred) [17]"
   },
   {
@@ -61154,7 +61414,7 @@
    "functions": 1,
    "layout": "inferred",
    "name": "hud_player_flag",
-   "patched": 0,
+   "patched": 1,
    "plan": "relocate",
    "range": [
     "548D40",
@@ -61171,13 +61431,13 @@
      "mnemonic": "mov",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "001B92AA",
      "value": "548D40"
     }
    ],
    "source": "player_slots_engine_client.md 1b",
-   "unpatched": 1,
+   "unpatched": 0,
    "what": "a byte flag per player beside the record"
   },
   {
@@ -61335,7 +61595,7 @@
    "functions": 16,
    "layout": "verified",
    "name": "hud_voice_status",
-   "patched": 0,
+   "patched": 1,
    "plan": "grow-object",
    "range": [
     "56D70C",
@@ -61352,7 +61612,7 @@
      "mnemonic": "fstp",
      "offset": "0",
      "operand": "indexed-disp",
-     "patched": false,
+     "patched": true,
      "va": "000EF1B2",
      "value": "576C28"
     },
@@ -61419,7 +61679,7 @@
      "kind": "field",
      "mnemonic": "mov",
      "offset": "24",
-     "patched": false,
+     "patched": true,
      "va": "001B7DE7"
     },
     {
@@ -61430,7 +61690,7 @@
      "kind": "field",
      "mnemonic": "mov",
      "offset": "28",
-     "patched": false,
+     "patched": true,
      "va": "001B7DEA"
     },
     {
@@ -61441,7 +61701,7 @@
      "kind": "field",
      "mnemonic": "mov",
      "offset": "2C",
-     "patched": false,
+     "patched": true,
      "va": "001B7DED"
     },
     {
@@ -61452,7 +61712,7 @@
      "kind": "field",
      "mnemonic": "mov",
      "offset": "30",
-     "patched": false,
+     "patched": true,
      "va": "001B7DF7"
     },
     {
@@ -61463,7 +61723,7 @@
      "kind": "field",
      "mnemonic": "lea",
      "offset": "7C68",
-     "patched": false,
+     "patched": true,
      "va": "001B7E57"
     },
     {
@@ -61564,7 +61824,7 @@
      "kind": "field",
      "mnemonic": "or",
      "offset": "24",
-     "patched": false,
+     "patched": true,
      "va": "001B86F3"
     },
     {
@@ -61575,7 +61835,7 @@
      "kind": "field",
      "mnemonic": "mov",
      "offset": "2C",
-     "patched": false,
+     "patched": true,
      "va": "001B86F7"
     },
     {
@@ -61586,7 +61846,7 @@
      "kind": "field",
      "mnemonic": "mov",
      "offset": "2C",
-     "patched": false,
+     "patched": true,
      "va": "001B86FF"
     },
     {
@@ -61597,7 +61857,7 @@
      "kind": "field",
      "mnemonic": "mov",
      "offset": "24",
-     "patched": false,
+     "patched": true,
      "va": "001B8800"
     },
     {
@@ -61608,7 +61868,7 @@
      "kind": "field",
      "mnemonic": "lea",
      "offset": "24",
-     "patched": false,
+     "patched": true,
      "va": "001B8804"
     },
     {
@@ -61641,7 +61901,7 @@
      "kind": "field",
      "mnemonic": "mov",
      "offset": "7C68",
-     "patched": false,
+     "patched": true,
      "va": "001B8B11"
     },
     {
@@ -61652,7 +61912,7 @@
      "kind": "field",
      "mnemonic": "mov",
      "offset": "24",
-     "patched": false,
+     "patched": true,
      "va": "001B8B6C"
     },
     {
@@ -61663,7 +61923,7 @@
      "kind": "field",
      "mnemonic": "mov",
      "offset": "2C",
-     "patched": false,
+     "patched": true,
      "va": "001B8B7F"
     },
     {
@@ -61751,12 +62011,12 @@
      "kind": "field",
      "mnemonic": "lea",
      "offset": "7C68",
-     "patched": false,
+     "patched": true,
      "va": "001B91A6"
     }
    ],
    "source": "player_slots_engine_client.md 1b, 2",
-   "unpatched": 1,
+   "unpatched": 0,
    "what": "CVoiceStatus (static at 0x56D6E8): masks at +0x24..+0x30, pointer[17] at +0x7C68, talk times at +0x9544"
   },
   {
@@ -61780,7 +62040,7 @@
      "kind": "field",
      "mnemonic": "mov",
      "offset": "1A0",
-     "patched": false,
+     "patched": true,
      "va": "001B9534"
     },
     {
@@ -61792,7 +62052,7 @@
      "kind": "field",
      "mnemonic": "mov",
      "offset": "20C",
-     "patched": false,
+     "patched": true,
      "va": "001B9541"
     },
     {
@@ -61804,7 +62064,7 @@
      "kind": "field",
      "mnemonic": "mov",
      "offset": "278",
-     "patched": false,
+     "patched": true,
      "va": "001B95C4"
     },
     {
@@ -61816,7 +62076,7 @@
      "kind": "field",
      "mnemonic": "mov",
      "offset": "20C",
-     "patched": false,
+     "patched": true,
      "va": "001B9653"
     },
     {
@@ -61828,7 +62088,7 @@
      "kind": "field",
      "mnemonic": "mov",
      "offset": "1A0",
-     "patched": false,
+     "patched": true,
      "va": "001B966B"
     },
     {
@@ -61840,7 +62100,7 @@
      "kind": "field",
      "mnemonic": "mov",
      "offset": "278",
-     "patched": false,
+     "patched": true,
      "va": "001B9672"
     },
     {
@@ -61852,7 +62112,7 @@
      "kind": "field",
      "mnemonic": "mov",
      "offset": "20C",
-     "patched": false,
+     "patched": true,
      "va": "001B9697"
     },
     {
@@ -61863,7 +62123,7 @@
      "kind": "field",
      "mnemonic": "mov",
      "offset": "1A0",
-     "patched": false,
+     "patched": true,
      "va": "001B9A07"
     },
     {
@@ -61874,7 +62134,7 @@
      "kind": "field",
      "mnemonic": "mov",
      "offset": "1A0",
-     "patched": false,
+     "patched": true,
      "va": "001BA03F"
     },
     {
@@ -61885,7 +62145,7 @@
      "kind": "field",
      "mnemonic": "mov",
      "offset": "1A0",
-     "patched": false,
+     "patched": true,
      "va": "001BA0E3"
     },
     {
@@ -61896,7 +62156,7 @@
      "kind": "field",
      "mnemonic": "mov",
      "offset": "1A0",
-     "patched": false,
+     "patched": true,
      "va": "001BA209"
     },
     {
@@ -61907,7 +62167,7 @@
      "kind": "field",
      "mnemonic": "mov",
      "offset": "1A0",
-     "patched": false,
+     "patched": true,
      "va": "001BA3B3"
     },
     {
@@ -61918,7 +62178,7 @@
      "kind": "field",
      "mnemonic": "mov",
      "offset": "1A0",
-     "patched": false,
+     "patched": true,
      "va": "001BA445"
     },
     {
@@ -61929,13 +62189,52 @@
      "kind": "field",
      "mnemonic": "mov",
      "offset": "1A0",
-     "patched": false,
+     "patched": true,
      "va": "001BA4CA"
     }
    ],
    "source": "player_slots_engine_client.md 1b, 3",
    "unpatched": 0,
    "what": "ScorePanel (heap): sorted rows [27] +0x1A0, is-a-team [27] +0x20C, has-been-sorted [17] +0x278"
+  },
+  {
+   "area": "hud",
+   "counts": {
+    "field": 2
+   },
+   "functions": 1,
+   "layout": "verified",
+   "name": "studio_player_state",
+   "patched": 0,
+   "plan": "grow-object",
+   "range": null,
+   "references": [
+    {
+     "evidence": "inferred",
+     "funcs": [
+      "00190D80"
+     ],
+     "kind": "field",
+     "mnemonic": "cmp",
+     "offset": "40B0",
+     "patched": true,
+     "va": "00190E53"
+    },
+    {
+     "evidence": "inferred",
+     "funcs": [
+      "00190D80"
+     ],
+     "kind": "field",
+     "mnemonic": "mov",
+     "offset": "40B0",
+     "patched": true,
+     "va": "00190E77"
+    }
+   ],
+   "source": "checkpoint 2",
+   "unpatched": 0,
+   "what": "g_StudioRenderer (0x5693D0) +0x40B0: a dword per player [17] (found in checkpoint 2 by a crash at 65 players)"
   },
   {
    "area": "game",
@@ -63558,31 +63857,7 @@
  "unresolved": [
   {
    "source": "manifest",
-   "what": "the server's write of the protocol version (svc_serverinfo or the connect reply)"
-  },
-  {
-   "source": "manifest",
-   "what": "the scoreboard list widget's visible rows and scrolling (0xDD520 family, layout data)"
-  },
-  {
-   "source": "manifest",
-   "what": "frame_t pointers: code that walks a frame's player states through a register (see the inventory's frame section)"
-  },
-  {
-   "source": "manifest",
-   "what": "the client's MAX_PACKET_ENTITIES check (string 0x32AED8)"
-  },
-  {
-   "source": "audit",
-   "what": "34 compares or loads of 17 not classified: 000133E8 000450B3 0004621F 0005F9DD 0006CDEE 00072641 000BFFAF 000E899C 000E9FAC 000EBB49 000F64E9 000F8A5F 000FF6FB 001046FD 00105409 001084BF 0011ADF8 0014CB3F 0015A222 001623B8 0017551C 00185184 00185FF1 0018DE21 001A33CD 001A9C09 001B26E0 001BB3C3 001C2C8F 001C6236 001C642A 001CBD3D 001CC3B7 001DA40A"
-  },
-  {
-   "source": "audit",
-   "what": "frame ring: 50 player state accesses through a frame-derived register, in 0001D270 00023B70 00023B9D 00023D8D 000242F0 00024FE0 000254B0 00025BF0 00025C4D 00025EC0 00026000 00030900 00031420 0003158D 000323B0 00032EB0 00092B90"
-  },
-  {
-   "source": "audit",
-   "what": "frame ring, wider net: 275 register-relative accesses past the first player state in frame functions (00023B70 00023B9D 00024FE0 000254B0 00025BF0 00025C4D 00026000 000311D0 00032EB0 0004D0D0 0004D0FD 0008F0A0 00093600) and 127 within it"
+   "what": "the scoreboard list widget's visible rows and scrolling (0xDD520 family, layout data): checked in the window"
   }
  ]
 }

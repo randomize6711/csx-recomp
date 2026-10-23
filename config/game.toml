@@ -751,3 +751,78 @@ on_false = 0x31A3B
 at = 0x26094
 call = "SlotsPhysentRoom"
 on_false = 0x2626C
+
+# the client HUD (src/game/player_slots_hud.cpp): player indices from the server's messages checked where the
+# original writes a table with them unchecked; the clears the unrolled stores cannot reach
+[[hook]]
+at = 0x1A7423
+call = "SlotsHudFovIndex"
+on_false = 0x1A742E
+
+[[hook]]
+at = 0x1A73D3
+call = "SlotsHudFovExtraIndex"
+on_false = 0x1A73E0
+
+[[hook]]
+at = 0x1A7469
+call = "SlotsHudFovAll"
+
+[[hook]]
+at = 0x1D59F0
+call = "SlotsHudRadarIndex"
+on_false = 0x1D59FE
+
+[[hook]]
+at = 0x1D6C9D
+call = "SlotsHudDeathMsg"
+on_false = 0x1D724E
+
+[[hook]]
+at = 0x1D823C
+call = "SlotsHudTalkIndexEsi"
+on_false = 0x1D825B
+
+[[hook]]
+at = 0x1D8344
+call = "SlotsHudTalkIndexEdi"
+on_false = 0x1D8363
+
+[[hook]]
+at = 0x1B9354
+call = "SlotsScoreSortedClear"
+
+# the game DLL (src/game/player_slots_game.cpp): StatShot's reset and index check, trigger_hurt's touched players,
+# the team sizes (spawn points no longer cap a team)
+[[hook]]
+at = 0x153804
+call = "SlotsStatShotReset"
+
+[[hook]]
+at = 0x1538CE
+call = "SlotsStatShotIndex"
+on_false = 0x1538D8
+
+[[hook]]
+at = 0x16B9B2
+call = "SlotsHurtTouched"
+on_true = 0x16BADB
+on_false = 0x16BA22
+
+[[hook]]
+at = 0x16B9DD
+call = "SlotsHurtNewTick"
+
+[[hook]]
+at = 0x16B9F5
+call = "SlotsHurtMark"
+
+[[hook]]
+at = 0x14837E
+call = "SlotsSpawnCounts"
+
+# StudioDrawPlayer's per player state (moved to studio_player_state): only for entity numbers that are players
+[[hook]]
+at = 0x190E53
+call = "SlotsStudioPlayerIndex"
+on_false = 0x190E7E

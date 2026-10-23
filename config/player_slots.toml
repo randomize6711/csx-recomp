@@ -111,6 +111,14 @@ stride = 0xFB
 count = 17
 slack = 0
 frame = { base = 0x74A2A0, stride = 0x1B60, count = 16, field = 0x18 }
+# checkpoint 2's review, function by function, of every function that computes a frame address (FINDINGS.md "Player
+# slots, 65"): each frame multiply that feeds a player state is a [[change]], the two that share the frame pointer are
+# hooks (0x23FAE, 0x32F81), the clears are hooks; the others touch only the frame's own fields or the packet entities
+# (heap, frame + 0x1B44), which the trace's offsets mistook for player states. A frame function not in this list makes
+# the audit report it again
+reviewed = [0x1D270, 0x23510, 0x23B70, 0x23B9D, 0x23D8D, 0x242F0, 0x24FE0, 0x254B0, 0x25BF0, 0x25C4D, 0x25EC0,
+            0x26000, 0x264E0, 0x28D50, 0x290F0, 0x2A920, 0x2AA4A, 0x2E2E0, 0x30260, 0x30900, 0x31100, 0x311D0,
+            0x31420, 0x3158D, 0x31B80, 0x323B0, 0x32EB0, 0x4D0D0, 0x4D0FD, 0x6DD00, 0x8F0A0, 0x92B90, 0x93600]
 strides = [0xFB, 0x1B60]
 plan = "relocate-out"
 relocate = "cl_frame_playerstates"
@@ -172,6 +180,11 @@ base = 0x57E978
 stride = 0x4C
 count = 18
 plan = "relocate"
+relocate = "hud_extra_info"
+new_count = 67
+# loops to the end: [18] indexed 1..17 or 0..16; moved by the 49 elements added (the HUD's MAX_PLAYERS N + 1)
+ends = [0x1A73F5, 0x1D7AB9, 0x1D84A9, 0x1B85CD]
+others = [0x18F5F4, 0x1AE5FF, 0x1CC5D2, 0x1D3921, 0x1D3930, 0x1CD310]   # 0x57EEF0..: the next object
 layout = "verified"
 source = "player_slots_engine_client.md 1b"
 
@@ -183,6 +196,10 @@ base = 0x5487B0
 stride = 0x14
 count = 18
 plan = "relocate"
+relocate = "hud_info_list"
+new_count = 67
+ends = [0x1A8C35, 0x1B4E64, 0x1B945F, 0x1B962D, 0x1B97C1, 0x1D5A3B]
+others = [0x1B92B7]                  # 0x548918: the player record table after it
 layout = "verified"
 source = "player_slots_engine_client.md 1b"
 
@@ -194,6 +211,8 @@ base = 0x548750
 stride = 4
 count = 18
 plan = "relocate"
+relocate = "hud_is_spectator"
+new_count = 67
 layout = "inferred"
 source = "player_slots_engine_client.md 1b"
 
@@ -205,6 +224,10 @@ base = 0x548918
 stride = 0x10
 count = 17
 plan = "relocate"
+relocate = "hud_player_record"
+new_count = 67
+# 0x1A8C35 compares the info list's end, which is this table's address; 0x548A28 is g_TeamInfo after it
+others = [0x1A8C35, 0x1B0A90, 0x1B927E, 0x1B94FE, 0x1B9789, 0x1B9A11]
 layout = "inferred"
 source = "player_slots_engine_client.md 1b"
 
@@ -216,6 +239,8 @@ base = 0x548D40
 stride = 1
 count = 18
 plan = "relocate"
+relocate = "hud_player_flag"
+new_count = 67
 layout = "inferred"
 source = "player_slots_engine_client.md 1b"
 
@@ -258,6 +283,16 @@ layout = "inferred"
 source = "player_slots_engine_client.md 1b, 3"
 
 # --- game DLL ---
+
+[[table]]
+name = "studio_player_state"
+area = "hud"
+what = "g_StudioRenderer (0x5693D0) +0x40B0: a dword per player [17] (found in checkpoint 2 by a crash at 65 players)"
+fields = [[0x40B0, 0x40F4]]
+code = [[0x190D80, 0x192000]]
+plan = "grow-object"
+layout = "verified"
+source = "checkpoint 2"
 
 [[table]]
 name = "game_voice_masks"
@@ -678,15 +713,37 @@ role = "not-player"
 what = "weapon id 17 (Glock)"
 evidence = "verified"
 
-# known open items: located by the audit's unresolved list, not by an address yet
+# known open items, and how checkpoint 2 settled the earlier ones: the server's protocol version is written at 0x970F0
+# (svc_serverinfo, patched); the client's MAX_PACKET_ENTITIES checks are 0x24660, 0x247BB, 0x24A10 (sites below); the
+# frame ring's register accesses were reviewed function by function (docs/player_slots_plan.md section 7)
 [[unresolved]]
-what = "the server's write of the protocol version (svc_serverinfo or the connect reply)"
-[[unresolved]]
-what = "the scoreboard list widget's visible rows and scrolling (0xDD520 family, layout data)"
-[[unresolved]]
-what = "frame_t pointers: code that walks a frame's player states through a register (see the inventory's frame section)"
-[[unresolved]]
-what = "the client's MAX_PACKET_ENTITIES check (string 0x32AED8)"
+what = "the scoreboard list widget's visible rows and scrolling (0xDD520 family, layout data): checked in the window"
+
+[[site]]
+at = 0x24660
+role = "engine-limit"
+what = "client: 256 packet entities (0xFB00 bytes) a frame, MAX_PACKET_ENTITIES (heap storage sized by count)"
+evidence = "verified"
+[[site]]
+at = 0x247BB
+role = "engine-limit"
+what = "client: 256 packet entities a frame (delta)"
+evidence = "verified"
+[[site]]
+at = 0x24A10
+role = "engine-limit"
+what = "client: 256 packet entities a frame (0xFB00 bytes)"
+evidence = "verified"
+[[site]]
+at = 0x970F0
+role = "protocol"
+what = "server: svc_serverinfo writes the protocol version"
+evidence = "verified"
+[[site]]
+at = 0x25897
+role = "limit"
+what = "CL_LinkPlayers: cl_entities 1..17 (17 x 0x74C), found in checkpoint 2"
+evidence = "verified"
 
 # --- changes: the engine server (G8.2B checkpoint 2) ---
 
@@ -1049,3 +1106,686 @@ at = 0x218A6
 old = 46
 new = "PROTOCOL"
 why = "protocol version: demo playback: the protocol in its message"
+
+# --- changes: the client HUD (its MAX_PLAYERS is N + 1, arrays N + 2) ---
+
+[[change]]
+at = 0x1B0A7F
+old = 0x156
+new = "(N + 2) * 0x4C // 4"
+why = "g_PlayerExtraInfo cleared: N + 2 entries in dwords"
+[[change]]
+at = 0x1B926D
+old = 0x156
+new = "(N + 2) * 0x4C // 4"
+why = "g_PlayerExtraInfo cleared: N + 2 entries in dwords"
+[[change]]
+at = 0x1B5890
+old = 0x11
+new = "N"
+why = "ScoreInfo: player index 1..N"
+[[change]]
+at = 0x1B5A20
+old = 0x11
+new = "N"
+why = "TeamInfo: player index 1..N"
+[[change]]
+at = 0x1D5AAA
+old = 0x11
+new = "N"
+why = "ScoreAttrib: player index 1..N"
+[[change]]
+at = 0x1A5C79
+old = 0x12
+new = "N + 2"
+why = "a player's team colour: index below N + 2 (the table's size)"
+[[change]]
+at = 0xEF1A7
+old = 0x11
+new = "N"
+why = "voice talk time: player 1..N"
+[[change]]
+at = 0x1B5ACC
+old = 0x11
+new = "N"
+why = "Spectator message: player index 1..N"
+[[change]]
+at = 0x1A9089
+old = 0x11
+new = "N"
+why = "spectator next / previous player: wraps at N"
+[[change]]
+at = 0x1A909A
+old = 0x11
+new = "N"
+why = "spectator next / previous player: wraps to N"
+[[change]]
+at = 0x1A9260
+old = 0x11
+new = "N + 1"
+why = "spectator find by name: players 1..N"
+[[change]]
+at = 0x1B3F2A
+old = 0x11
+new = "N + 1"
+why = "spectator menu: players 1..N"
+# the spectator overview's player positions: gHUD.m_Spectator is one static object (0x562670), so its this-relative
+# accesses to m_vPlayerPos (+0xF30, 12 bytes each) are pointed at the guest table by their displacements
+[[change]]
+at = 0x1A9C03
+operand = "disp"
+old = 0xF38
+new = "hud_spectator_positions - 0x562670 + 8"
+why = "spectator overview: player positions cleared (moved table)"
+[[change]]
+at = 0x1A9C09
+old = 0x11
+new = "N + 1"
+why = "spectator overview: N + 1 player positions cleared"
+[[change]]
+at = 0x1AA21D
+operand = "disp"
+old = 0x3CC
+new = "(hud_spectator_positions - 0x562670) // 4"
+why = "spectator overview: a player's position (moved table, in dwords)"
+[[change]]
+at = 0x1AA24F
+operand = "disp"
+old = 0xF38
+new = "hud_spectator_positions - 0x562670 + 8"
+why = "spectator overview: a player's position (moved table)"
+[[change]]
+at = 0x1AA259
+operand = "disp"
+old = 0xF34
+new = "hud_spectator_positions - 0x562670 + 4"
+why = "spectator overview: a player's position (moved table)"
+[[change]]
+at = 0x1A8A7B
+operand = "disp"
+old = 0xF34
+new = "hud_spectator_positions - 0x562670 + 4"
+why = "spectator overview: the positions' reader (moved table)"
+# the HUD's per player field of view: gHUD (0x5623D0, one static object) +0xAC
+[[change]]
+at = 0x1A7427
+operand = "disp"
+old = 0xAC
+new = "hud_player_fov - 0x5623D0"
+why = "per player field of view (moved table)"
+[[change]]
+at = 0x1A7437
+operand = "disp"
+old = 0xAC
+new = "hud_player_fov - 0x5623D0"
+why = "per player field of view, every player (moved table; the rest past 17 by a hook)"
+[[change]]
+at = 0x1AE525
+operand = "disp"
+old = 0xAC
+new = "hud_player_fov - 0x5623D0"
+why = "per player field of view, the spectated player's (moved table)"
+[[change]]
+at = 0x1CC3B1
+operand = "disp"
+old = 0xAC
+new = "hud_player_fov - 0x5623D0"
+why = "per player field of view reset (moved table)"
+[[change]]
+at = 0x1CC3B7
+old = 0x11
+new = "N + 2"
+why = "per player field of view reset: N + 2 entries"
+# CVoiceStatus (g_VoiceStatus, one static object at 0x56D6E8): its bit vectors, talk times, labels and speaker
+# icons moved to guest tables, reached by this-relative displacements
+[[change]]
+at = 0x1B7DE7
+operand = "disp"
+old = 0x24
+new = "voice_status_masks - 0x56D6E8 + 0x0"
+why = "CVoiceStatus bit vector +0x24: 3 dwords (moved table)"
+[[change]]
+at = 0x1B7DEA
+operand = "disp"
+old = 0x28
+new = "voice_status_masks - 0x56D6E8 + 0xC"
+why = "CVoiceStatus bit vector +0x28: 3 dwords (moved table)"
+[[change]]
+at = 0x1B7DED
+operand = "disp"
+old = 0x2C
+new = "voice_status_masks - 0x56D6E8 + 0x18"
+why = "CVoiceStatus bit vector +0x2C: 3 dwords (moved table)"
+[[change]]
+at = 0x1B7DF7
+operand = "disp"
+old = 0x30
+new = "voice_status_masks - 0x56D6E8 + 0x24"
+why = "CVoiceStatus bit vector +0x30: 3 dwords (moved table)"
+[[change]]
+at = 0x1B7DFF
+operand = "disp"
+old = 0x958C
+new = "voice_status_masks - 0x56D6E8 + 0x30"
+why = "CVoiceStatus bit vector +0x958C: 3 dwords (moved table)"
+[[change]]
+at = 0x1B86F3
+operand = "disp"
+old = 0x24
+new = "voice_status_masks - 0x56D6E8 + 0x0"
+why = "CVoiceStatus bit vector +0x24: 3 dwords (moved table)"
+[[change]]
+at = 0x1B86F7
+operand = "disp"
+old = 0x2C
+new = "voice_status_masks - 0x56D6E8 + 0x18"
+why = "CVoiceStatus bit vector +0x2C: 3 dwords (moved table)"
+[[change]]
+at = 0x1B86FF
+operand = "disp"
+old = 0x2C
+new = "voice_status_masks - 0x56D6E8 + 0x18"
+why = "CVoiceStatus bit vector +0x2C: 3 dwords (moved table)"
+[[change]]
+at = 0x1B8800
+operand = "disp"
+old = 0x24
+new = "voice_status_masks - 0x56D6E8 + 0x0"
+why = "CVoiceStatus bit vector +0x24: 3 dwords (moved table)"
+[[change]]
+at = 0x1B8804
+operand = "disp"
+old = 0x24
+new = "voice_status_masks - 0x56D6E8 + 0x0"
+why = "CVoiceStatus bit vector +0x24: 3 dwords (moved table)"
+[[change]]
+at = 0x1B8B6C
+operand = "disp"
+old = 0x24
+new = "voice_status_masks - 0x56D6E8 + 0x0"
+why = "CVoiceStatus bit vector +0x24: 3 dwords (moved table)"
+[[change]]
+at = 0x1B8B7F
+operand = "disp"
+old = 0x2C
+new = "voice_status_masks - 0x56D6E8 + 0x18"
+why = "CVoiceStatus bit vector +0x2C: 3 dwords (moved table)"
+[[change]]
+at = 0x1B8438
+operand = "disp"
+old = 0x958C
+new = "voice_status_masks - 0x56D6E8 + 0x30"
+why = "CVoiceStatus bit vector +0x958C: 3 dwords (moved table)"
+[[change]]
+at = 0x1B844D
+operand = "disp"
+old = 0x958C
+new = "voice_status_masks - 0x56D6E8 + 0x30"
+why = "CVoiceStatus bit vector +0x958C: 3 dwords (moved table)"
+[[change]]
+at = 0x1B8458
+operand = "disp"
+old = 0x958C
+new = "voice_status_masks - 0x56D6E8 + 0x30"
+why = "CVoiceStatus bit vector +0x958C: 3 dwords (moved table)"
+[[change]]
+at = 0x1B84C9
+operand = "disp"
+old = 0x958C
+new = "voice_status_masks - 0x56D6E8 + 0x30"
+why = "CVoiceStatus bit vector +0x958C: 3 dwords (moved table)"
+[[change]]
+at = 0x1B84D6
+operand = "disp"
+old = 0x958C
+new = "voice_status_masks - 0x56D6E8 + 0x30"
+why = "CVoiceStatus bit vector +0x958C: 3 dwords (moved table)"
+[[change]]
+at = 0x1B7FD3
+operand = "disp"
+old = 0x9544
+new = "voice_talk_time - 0x56D6E8 + 4"
+why = "CVoiceStatus talk times cleared (moved table)"
+[[change]]
+at = 0x1B7FCE
+old = 0x11
+new = "N + 1"
+why = "CVoiceStatus talk times cleared: N + 1"
+[[change]]
+at = 0x1B83DF
+operand = "disp"
+old = 0x9544
+new = "voice_talk_time - 0x56D6E8 + 4"
+why = "CVoiceStatus talk times (moved table)"
+[[change]]
+at = 0xEF1B2
+operand = "disp"
+old = 0x576C28
+new = "voice_talk_time"
+why = "voice talk time of player 1..N (moved table)"
+[[change]]
+at = 0x1B7E57
+operand = "disp"
+old = 0x7C68
+new = "voice_labels - 0x56D6E8"
+why = "CVoiceStatus labels cleared (moved table)"
+[[change]]
+at = 0x1B7E52
+old = 0x11
+new = "N + 1"
+why = "CVoiceStatus labels cleared: N + 1"
+[[change]]
+at = 0x1B8B11
+operand = "disp"
+old = 0x7C68
+new = "voice_labels - 0x56D6E8"
+why = "CVoiceStatus a player's label (moved table)"
+[[change]]
+at = 0x1B91A6
+operand = "disp"
+old = 0x7C68
+new = "voice_labels - 0x56D6E8"
+why = "CVoiceStatus labels released (moved table)"
+[[change]]
+at = 0x1B91AC
+old = 0x11
+new = "N + 1"
+why = "CVoiceStatus labels released: N + 1"
+[[change]]
+at = 0x1B83DC
+operand = "disp"
+old = 0x34
+new = "voice_heads - 0x56D6E8"
+why = "CVoiceStatus speaker icon entities (moved table)"
+[[change]]
+at = 0x1B839A
+old = 0x11
+new = "N"
+why = "CVoiceStatus: each player's label updated"
+[[change]]
+at = 0x1B86B3
+old = 0x11
+new = "N"
+why = "CVoiceStatus UpdateSpeakerStatus: player 1..N"
+# the ScorePanel (heap, new 0x294): its rows and sorted flags moved after the object's own fields, the allocation
+# grown: rows [N + 11] at 0x294, is-a-team [N + 11] after them, has-been-sorted [N + 2] bytes after those
+[[change]]
+at = 0x1B4747
+operand = "imm"
+old = 0x294
+new = "0x294 + 2 * (N + 11) * 4 + 0x44"
+why = "ScorePanel allocation: its rows and sorted flags after its fields"
+[[change]]
+at = 0x1B9309
+operand = "disp"
+old = 0x20C
+new = "(0x294 + (N + 11) * 4)"
+why = "SortTeams: is-a-team cleared (moved)"
+[[change]]
+at = 0x1B9320
+operand = "disp"
+old = "-0x6C"
+new = "-(N + 11) * 4"
+why = "SortTeams: rows cleared (moved, before is-a-team)"
+[[change]]
+at = 0x1B930F
+operand = "imm"
+old = 0x1B
+new = "N + 11"
+why = "SortTeams: N + 11 rows cleared"
+[[change]]
+at = 0x1B9335
+operand = "disp"
+old = 0x278
+new = "(0x294 + 2 * (N + 11) * 4)"
+why = "SortTeams: sorted flags cleared (moved; all of them by a hook)"
+[[change]]
+at = 0x1B933B
+operand = "disp"
+old = 0x27C
+new = "(0x294 + 2 * (N + 11) * 4) + 4"
+why = "SortTeams: sorted flags cleared (moved)"
+[[change]]
+at = 0x1B9341
+operand = "disp"
+old = 0x280
+new = "(0x294 + 2 * (N + 11) * 4) + 8"
+why = "SortTeams: sorted flags cleared (moved)"
+[[change]]
+at = 0x1B9347
+operand = "disp"
+old = 0x284
+new = "(0x294 + 2 * (N + 11) * 4) + 12"
+why = "SortTeams: sorted flags cleared (moved)"
+[[change]]
+at = 0x1B934D
+operand = "disp"
+old = 0x288
+new = "(0x294 + 2 * (N + 11) * 4) + 16"
+why = "SortTeams: sorted flags cleared (moved)"
+[[change]]
+at = 0x1B9534
+operand = "disp"
+old = 0x1A0
+new = "0x294"
+why = "SortTeams: a team row (moved)"
+[[change]]
+at = 0x1B9541
+operand = "disp"
+old = 0x20C
+new = "(0x294 + (N + 11) * 4)"
+why = "SortTeams: a team row is a team (moved)"
+[[change]]
+at = 0x1B95C4
+operand = "disp"
+old = 0x278
+new = "(0x294 + 2 * (N + 11) * 4)"
+why = "SortPlayers: sorted flag (moved)"
+[[change]]
+at = 0x1B9653
+operand = "disp"
+old = 0x20C
+new = "(0x294 + (N + 11) * 4)"
+why = "SortPlayers: row kind (moved)"
+[[change]]
+at = 0x1B966B
+operand = "disp"
+old = 0x1A0
+new = "0x294"
+why = "SortPlayers: a player row (moved)"
+[[change]]
+at = 0x1B9672
+operand = "disp"
+old = 0x278
+new = "(0x294 + 2 * (N + 11) * 4)"
+why = "SortPlayers: sorted flag (moved)"
+[[change]]
+at = 0x1B9697
+operand = "disp"
+old = 0x20C
+new = "(0x294 + (N + 11) * 4)"
+why = "SortPlayers: row kind (moved)"
+[[change]]
+at = 0x1B9890
+operand = "disp"
+old = 0x20C
+new = "(0x294 + (N + 11) * 4)"
+why = "FillGrid: row kinds (moved)"
+[[change]]
+at = 0x1B9A07
+operand = "disp"
+old = 0x1A0
+new = "0x294"
+why = "a team row (moved)"
+[[change]]
+at = 0x1BA03F
+operand = "disp"
+old = 0x1A0
+new = "0x294"
+why = "a player row (moved)"
+[[change]]
+at = 0x1BA0E3
+operand = "disp"
+old = 0x1A0
+new = "0x294"
+why = "a player row (moved)"
+[[change]]
+at = 0x1BA209
+operand = "disp"
+old = 0x1A0
+new = "0x294"
+why = "a player row (moved)"
+[[change]]
+at = 0x1BA3B3
+operand = "disp"
+old = 0x1A0
+new = "0x294"
+why = "a player row (moved)"
+[[change]]
+at = 0x1BA445
+operand = "disp"
+old = 0x1A0
+new = "0x294"
+why = "a player row (moved)"
+[[change]]
+at = 0x1BA4CA
+operand = "disp"
+old = 0x1A0
+new = "0x294"
+why = "a player row (moved)"
+
+# --- changes: the game DLL ---
+
+[[change]]
+at = 0x102DB0
+old = 0x11
+new = "N"
+why = "CVoiceGameMgr::Init: N players (its other functions are host code, src/game/player_slots_voice.cpp)"
+[[change]]
+at = 0x102DB8
+old = 0x11
+new = "N"
+why = "CVoiceGameMgr::Init: N players"
+[[change]]
+at = 0x102DCB
+old = 0x08
+new = 24
+why = "VoiceMask message: two masks of 3 dwords"
+[[change]]
+at = 0x14401B
+old = 0x54
+new = "0x10 + 4 * N"
+why = "StatShot block: damage per player 1..N at +0x10"
+[[change]]
+at = 0x116EAD
+old = 0x07
+new = 27
+why = "StatShot message: two masks of 3 dwords and three bytes"
+[[change]]
+at = 0x150B18
+old = 0x8A4
+new = "0xA4 + (64 + N) * 0x20"
+why = "CSoundEnt: 64 world sounds and one per client"
+[[change]]
+at = 0x1509B3
+old = 0x40
+new = "64 + N"
+why = "CSoundEnt::Initialize: 64 + N sounds"
+[[change]]
+at = 0x150AAA
+old = 0x3F
+new = "63 + N"
+why = "CSoundEnt::SoundPointerForIndex: 64 + N sounds"
+[[change]]
+at = 0x11BFC0
+old = 0x3F
+new = "63 + N"
+why = "a client's reserved sound: 64 + N sounds"
+
+# --- the 34 compares and loads of 17 the checkpoint 1 audit left open (classified in checkpoint 2) ---
+[[site]]
+at = 0x133E8
+role = "not-player"
+what = "a string length argument (17)"
+evidence = "verified"
+[[site]]
+at = 0x450B3
+role = "not-player"
+what = "a copy of 17 dwords (a 0x44-byte record)"
+evidence = "verified"
+[[site]]
+at = 0x4621F
+role = "not-player"
+what = "a cvar registration argument"
+evidence = "verified"
+[[site]]
+at = 0x5F9DD
+role = "not-player"
+what = "a return code (17)"
+evidence = "verified"
+[[site]]
+at = 0x6CDEE
+role = "not-player"
+what = "a call argument (17)"
+evidence = "verified"
+[[site]]
+at = 0x72641
+role = "not-player"
+what = "a 17-byte string copy"
+evidence = "verified"
+[[site]]
+at = 0xBFFAF
+role = "not-player"
+what = "a front end value (17)"
+evidence = "verified"
+[[site]]
+at = 0xE899C
+role = "not-player"
+what = "a voice codec return value"
+evidence = "verified"
+[[site]]
+at = 0xE9FAC
+role = "not-player"
+what = "a voice codec packet byte"
+evidence = "verified"
+[[site]]
+at = 0xEBB49
+role = "not-player"
+what = "a socket call argument"
+evidence = "verified"
+[[site]]
+at = 0xF64E9
+role = "not-player"
+what = "a front end table value"
+evidence = "verified"
+[[site]]
+at = 0xF8A5F
+role = "not-player"
+what = "a front end value"
+evidence = "verified"
+[[site]]
+at = 0xFF6FB
+role = "not-player"
+what = "a front end byte value"
+evidence = "verified"
+[[site]]
+at = 0x1046FD
+role = "limit"
+what = "Xbox communicator voice playback: players 1..16 (positional voice records [17] in its object at +0xD4); bounded, no PC voice device: left as it is"
+evidence = "verified"
+[[site]]
+at = 0x105409
+role = "limit"
+what = "Xbox communicator voice playback: its 17 records cleared; left as it is (see 0x1046FD)"
+evidence = "verified"
+[[site]]
+at = 0x1084BF
+role = "not-player"
+what = "a front end value"
+evidence = "verified"
+[[site]]
+at = 0x11ADF8
+role = "not-player"
+what = "a call argument (17)"
+evidence = "verified"
+[[site]]
+at = 0x14CB3F
+role = "not-player"
+what = "a switch value"
+evidence = "verified"
+[[site]]
+at = 0x15A222
+role = "not-player"
+what = "an entity field value"
+evidence = "verified"
+[[site]]
+at = 0x1623B8
+role = "not-player"
+what = "the bot name table's row range (difficulty)"
+evidence = "verified"
+[[site]]
+at = 0x17551C
+role = "not-player"
+what = "a bot state value"
+evidence = "verified"
+[[site]]
+at = 0x185184
+role = "not-player"
+what = "a bot state value"
+evidence = "verified"
+[[site]]
+at = 0x185FF1
+role = "not-player"
+what = "a bot state value"
+evidence = "verified"
+[[site]]
+at = 0x18DE21
+role = "not-player"
+what = "a weapon id (17)"
+evidence = "verified"
+[[site]]
+at = 0x1A33CD
+role = "not-player"
+what = "a copy of 17 dwords (a 0x44-byte record)"
+evidence = "verified"
+[[site]]
+at = 0x1A9C09
+role = "limit"
+what = "the spectator overview's player positions cleared: N + 1 (moved to hud_spectator_positions)"
+evidence = "verified"
+[[site]]
+at = 0x1B26E0
+role = "not-player"
+what = "a local value (17)"
+evidence = "verified"
+[[site]]
+at = 0x1BB3C3
+role = "not-player"
+what = "a VGUI field value"
+evidence = "verified"
+[[site]]
+at = 0x1C2C8F
+role = "not-player"
+what = "a call argument (17)"
+evidence = "verified"
+[[site]]
+at = 0x1C6236
+role = "not-player"
+what = "a VGUI field value"
+evidence = "verified"
+[[site]]
+at = 0x1C642A
+role = "not-player"
+what = "a VGUI field value"
+evidence = "verified"
+[[site]]
+at = 0x1CBD3D
+role = "not-player"
+what = "a VGUI field value"
+evidence = "verified"
+[[site]]
+at = 0x1CC3B7
+role = "limit"
+what = "the HUD's per player field of view reset: N + 2 (moved to hud_player_fov)"
+evidence = "verified"
+[[site]]
+at = 0x1DA40A
+role = "not-player"
+what = "a VGUI call argument (17)"
+evidence = "verified"
+
+# the client's studio model renderer (g_StudioRenderer, one static object at 0x5693D0): a per player dword [17] at
+# +0x40B0 (a player's last weapon animation state, StudioDrawPlayer 0x190D80, indexed by entity - 1), found by a
+# crash with 65 players: player 65 wrote past it into the renderer's mesh batch vector (0x56D564)
+[[change]]
+at = 0x190E53
+operand = "disp"
+old = 0x40B0
+new = "studio_player_state - 0x5693D0"
+why = "studio renderer: a player's previous state (moved table)"
+[[change]]
+at = 0x190E77
+operand = "disp"
+old = 0x40B0
+new = "studio_player_state - 0x5693D0"
+why = "studio renderer: a player's previous state (moved table)"

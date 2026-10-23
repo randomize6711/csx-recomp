@@ -66,6 +66,82 @@ elem = 0x20C
 count = 65
 what = "the studio renderer's player model cache [65] (was 17 at 0x6A38A0)"
 
+# --- client HUD: arrays [MAX_PLAYERS + 1] with the HUD's MAX_PLAYERS = N + 1 (its loops that run i < MAX_PLAYERS
+# then reach player N, which the original's 17 did not: those loops left out player 17) ---
+
+[[table]]
+name = "hud_extra_info"
+elem = 0x4C
+count = 67
+what = "g_PlayerExtraInfo[N + 2] (was [18] at 0x57E978)"
+
+[[table]]
+name = "hud_info_list"
+elem = 0x14
+count = 67
+what = "g_PlayerInfoList[N + 2] (was [18] at 0x5487B0)"
+
+[[table]]
+name = "hud_is_spectator"
+elem = 4
+count = 67
+what = "the Spectator message's per player value [N + 2] (was 18 at 0x548750)"
+
+[[table]]
+name = "hud_player_record"
+elem = 0x10
+count = 67
+what = "a 16-byte record per player [N + 2] (was 17 at 0x548918)"
+
+[[table]]
+name = "hud_player_flag"
+elem = 1
+count = 67
+align = 1
+what = "a byte flag per player [N + 2] (was 18 at 0x548D40)"
+
+[[table]]
+name = "hud_spectator_positions"
+elem = 12
+count = 66
+what = "the spectator overview's player positions [N + 1] (was 17 in gHUD.m_Spectator at 0x5635A0)"
+
+[[table]]
+name = "hud_player_fov"
+elem = 4
+count = 67
+what = "the HUD's per player field of view [N + 2] (was 17 in gHUD at 0x56247C)"
+
+[[table]]
+name = "voice_status_masks"
+elem = 0x3C
+count = 1
+what = "CVoiceStatus' five player bit vectors, 3 dwords each (were 1 dword at +0x24, +0x28, +0x2C, +0x30, +0x958C)"
+
+[[table]]
+name = "voice_talk_time"
+elem = 4
+count = 67
+what = "CVoiceStatus' talk times [N + 2], indexed from 1 (were 17 at +0x9544)"
+
+[[table]]
+name = "voice_labels"
+elem = 4
+count = 66
+what = "CVoiceStatus' per player label pointers [N + 1] (were 17 at +0x7C68)"
+
+[[table]]
+name = "voice_heads"
+elem = 0x74C
+count = 66
+what = "CVoiceStatus' speaker icon entities [N + 1] (were 17 at +0x34)"
+
+[[table]]
+name = "studio_player_state"
+elem = 4
+count = 66
+what = "the studio renderer's per player value [N + 1] (was 17 at +0x40B0 in g_StudioRenderer, 0x5693D0)"
+
 # --- the match's command line (the title's templates at 0x33AA60 and 0x33A9F0 say -maxplayers 17) ---
 
 [[table]]

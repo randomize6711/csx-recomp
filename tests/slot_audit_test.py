@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Tests tools/slot_audit.py on a small synthetic listing (each kind of reference it reports), then on the real
 program: the committed inventory matches a fresh audit (no unexpected or missing references), the audit gives the
-same output twice, --require-patched fails while no table is patched.
+same output twice, every relocated table's references are patched (G8.2B checkpoint 2) and the generated patch file
+matches its configs.
 
 Usage: python3 -I tests/slot_audit_test.py   (about 30 s; exit status 0 when every case passes)
 """
@@ -171,8 +172,17 @@ def main():
         check('real program: matches the committed inventory', rc == 0, text[-1500:])
         rc2, _ = run('--out', real2)
         check('real program: the same inventory twice', rc2 == 0 and open(real1).read() == open(real2).read())
-        rc, text = run('--out', '-', '--require-patched', 'cl_players')
-        check('real program: no table is patched yet', rc != 0 and 'not patched' in text)
+        import tomllib
+        relocated = [t['name'] for t in tomllib.load(open(os.path.join(ROOT, 'config', 'player_slots.toml'), 'rb'))['table']
+                     if t.get('relocate') and t.get('frame') is None]
+        args = ['--out', '-']
+        for name in relocated:
+            args += ['--require-patched', name]
+        rc, text = run(*args)
+        check('real program: every relocated table is patched (%d tables)' % len(relocated), rc == 0, text[-1500:])
+        r = subprocess.run([sys.executable, '-I', os.path.join(ROOT, 'tools', 'slot_patches.py'), '--check'],
+                           capture_output=True, text=True)
+        check('the generated patch file matches its configs', r.returncode == 0, r.stdout[-800:])
     print('%d failed' % len(failed) if failed else 'all passed')
     return 1 if failed else 0
 

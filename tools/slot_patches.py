@@ -128,6 +128,8 @@ def generate(slots, layout_cfg, insns):
         seen = set()
         for va in sorted(insns):
             bytes_, text, ops = insns[va]
+            if va in others:
+                continue  # another object's reference (or this table's address used as another one's end)
             for kind, index, v in ops:
                 if base <= v < base + size + slack and va in ends:
                     # a loop's end: [base + count * stride + field) for a table indexed from 0, or inside the
@@ -138,8 +140,6 @@ def generate(slots, layout_cfg, insns):
                     what = 'direct'
                     new = tva + (v - base)
                 elif base + size <= v < base + size + slack:
-                    if va in others:
-                        continue
                     raise Error('%s: %08X "%s" refers to 0x%X, past the table\'s end: list it in ends or others'
                                 % (t['name'], va, text, v))
                 elif base - stride <= v < base:
@@ -149,11 +149,12 @@ def generate(slots, layout_cfg, insns):
                     new = tva + (v - base)
                 else:
                     continue
-                if va in others:
-                    raise Error('%s: %08X is listed in others but refers to 0x%X inside the table' % (t['name'], va, v))
                 seen.add(va)
                 counts[what] += 1
                 add(va, kind, index, v, new, '%s: %s 0x%X -> %s+0x%X' % (t['name'], what, v, target, new - tva))
+        for va in sorted(others):
+            if not any(base - stride <= v < base + size + slack for _, _, v in insns.get(va, ('', '', []))[2]):
+                raise Error('%s: %08X is listed in others but refers to nothing in or near the table' % (t['name'], va))
         for va in sorted((ends | below) - seen):
             raise Error('%s: %08X is listed but refers to nothing in or near the table' % (t['name'], va))
         summary.append('%-24s -> %-24s %08X  %d direct, %d end pointers, %d aliases' % (

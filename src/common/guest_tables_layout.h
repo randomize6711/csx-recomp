@@ -14,8 +14,20 @@ constexpr Table kTables[] = {
     {"cl_players", 0x70049AB4u, 0x24Cu, 65u, 4u},  // cl.players[65], player_info_t (was 17 inside cl at 0x7791F0)
     {"cl_predicted_players", 0x700545D8u, 0x28u, 65u, 4u},  // predicted_players[65] (was 17 at 0x3AE3D0)
     {"dm_playerstate", 0x70056AF4u, 0x20Cu, 65u, 4u},  // the studio renderer's player model cache [65] (was 17 at 0x6A38A0)
-    {"cmdline_cstrike", 0x70060F80u, 0x1u, 128u, 1u},  // the match's command line template, 65 player slots
-    {"cmdline_launcher", 0x70062F80u, 0x1u, 128u, 1u},  // the front end's command line template, 65 player slots
+    {"hud_extra_info", 0x70060C1Cu, 0x4Cu, 67u, 4u},  // g_PlayerExtraInfo[N + 2] (was [18] at 0x57E978)
+    {"hud_info_list", 0x70063AC4u, 0x14u, 67u, 4u},  // g_PlayerInfoList[N + 2] (was [18] at 0x5487B0)
+    {"hud_is_spectator", 0x70065EF4u, 0x4u, 67u, 4u},  // the Spectator message's per player value [N + 2] (was 18 at 0x548750)
+    {"hud_player_record", 0x70067BD0u, 0x10u, 67u, 4u},  // a 16-byte record per player [N + 2] (was 17 at 0x548918)
+    {"hud_player_flag", 0x70069FBDu, 0x1u, 67u, 1u},  // a byte flag per player [N + 2] (was 18 at 0x548D40)
+    {"hud_spectator_positions", 0x7006BCE8u, 0xCu, 66u, 4u},  // the spectator overview's player positions [N + 1] (was 17 in gHUD.m_Spectator at 0x5635A0)
+    {"hud_player_fov", 0x7006DEF4u, 0x4u, 67u, 4u},  // the HUD's per player field of view [N + 2] (was 17 in gHUD at 0x56247C)
+    {"voice_status_masks", 0x7006FFC4u, 0x3Cu, 1u, 4u},  // CVoiceStatus' five player bit vectors, 3 dwords each (were 1 dword at +0x24, +0x28, +0x2C, +0x30, +0x958C)
+    {"voice_talk_time", 0x70071EF4u, 0x4u, 67u, 4u},  // CVoiceStatus' talk times [N + 2], indexed from 1 (were 17 at +0x9544)
+    {"voice_labels", 0x70073EF8u, 0x4u, 66u, 4u},  // CVoiceStatus' per player label pointers [N + 1] (were 17 at +0x7C68)
+    {"voice_heads", 0x70075E68u, 0x74Cu, 66u, 4u},  // CVoiceStatus' speaker icon entities [N + 1] (were 17 at +0x34)
+    {"studio_player_state", 0x70095EF8u, 0x4u, 66u, 4u},  // the studio renderer's per player value [N + 1] (was 17 at +0x40B0 in g_StudioRenderer, 0x5693D0)
+    {"cmdline_cstrike", 0x70097F80u, 0x1u, 128u, 1u},  // the match's command line template, 65 player slots
+    {"cmdline_launcher", 0x70099F80u, 0x1u, 128u, 1u},  // the front end's command line template, 65 player slots
 };
 constexpr size_t kTableCount = sizeof(kTables) / sizeof(kTables[0]);
 
@@ -27,13 +39,25 @@ constexpr size_t k_cl_frame_playerstates = 3;
 constexpr size_t k_cl_players = 4;
 constexpr size_t k_cl_predicted_players = 5;
 constexpr size_t k_dm_playerstate = 6;
-constexpr size_t k_cmdline_cstrike = 7;
-constexpr size_t k_cmdline_launcher = 8;
+constexpr size_t k_hud_extra_info = 7;
+constexpr size_t k_hud_info_list = 8;
+constexpr size_t k_hud_is_spectator = 9;
+constexpr size_t k_hud_player_record = 10;
+constexpr size_t k_hud_player_flag = 11;
+constexpr size_t k_hud_spectator_positions = 12;
+constexpr size_t k_hud_player_fov = 13;
+constexpr size_t k_voice_status_masks = 14;
+constexpr size_t k_voice_talk_time = 15;
+constexpr size_t k_voice_labels = 16;
+constexpr size_t k_voice_heads = 17;
+constexpr size_t k_studio_player_state = 18;
+constexpr size_t k_cmdline_cstrike = 19;
+constexpr size_t k_cmdline_launcher = 20;
 
 // tables that start with a text (a NUL-terminated string the recompiled code is pointed at)
 constexpr TableText kTexts[] = {
-    {7, "-dev -console +set developer 1 -game cstrike -maxplayers 65 +maxplayers 65 +hideradar +hostname XBOX %s"},
-    {8, "-dev -console +set developer 1 -game launcher -maxplayers 65 +maxplayers 65 +hideradar +hostname XBOX %s"},
+    {19, "-dev -console +set developer 1 -game cstrike -maxplayers 65 +maxplayers 65 +hideradar +hostname XBOX %s"},
+    {20, "-dev -console +set developer 1 -game launcher -maxplayers 65 +maxplayers 65 +hideradar +hostname XBOX %s"},
 };
 constexpr size_t kTextCount = sizeof(kTexts) / sizeof(kTexts[0]);
 

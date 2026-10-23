@@ -1,0 +1,33 @@
+# 65 player slots (G8.2B): 64 bots and the player on de_aztec (16 Counter-Terrorist and 18 Terrorist spawn points,
+# reused: a team is no longer full at its spawn count), headless, Player Collision On (the title's own). Rounds of 1
+# minute with 3 s of freeze time: 65 players in the match, the bots walk (at least 32 of them 100 units or more in
+# 20 s), fight (kills in the game's log), two rounds end and the next starts with 65, the teams within one player of
+# each other (32 and 33), the bots joining one every 0.3 s or so (25 s are given), no guest trap and no guest table overrun. Players sharing a spawn point may overlap or die
+# at the start (accepted: Player Collision Off is the setting for crowded maps), so no spacing is asserted.
+#   --env FPS=30 --env CSX_LOG_SERVERTIME=1 --env CSX_LOG_MEMORY=1 --launch tests/launch/de_aztec_bots64
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 25
+players start
+expect playercount start 65 65
+spawns s
+sleep 20
+players walking
+expect bodiesmoved start walking 100 32
+count game:.*killed 2
+count game:.World.triggered."Round_End" 3
+sleep 6.5
+players freeze
+expect playercount freeze 65 65
+count game:.World.triggered."Round_Start" 3
+expect teams 1 32
+expect nolog guest trap
+expect nolog guest table overrun

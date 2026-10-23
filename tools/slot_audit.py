@@ -192,15 +192,24 @@ def audit(manifest, insns):
     if open17:
         unresolved.append(dict(what='%d compares or loads of 17 not classified: %s' % (len(open17), ' '.join(open17)),
                                source='audit'))
-    traced = [r for r in frame_sec.get('frame_register_accesses', []) if r['kind'] == 'playerstate']
+    frame_t = next((t for t in manifest.get('table', []) if 'frame' in t), {})
+    reviewed = {'%08X' % f for f in frame_t.get('reviewed', [])}
+    frame_sec['reviewed'] = sorted(reviewed)
+    open_funcs = [f for f in frame_sec.get('frame_functions', []) if f not in reviewed]
+    if open_funcs:
+        unresolved.append(dict(what='frame ring: %d functions compute frame addresses and were not reviewed: %s'
+                                    % (len(open_funcs), ' '.join(open_funcs)), source='audit'))
+    traced = [r for r in frame_sec.get('frame_register_accesses', []) if r['kind'] == 'playerstate'
+              and r['function'] not in reviewed]
     if traced:
         unresolved.append(dict(what='frame ring: %d player state accesses through a frame-derived register, in %s'
                                     % (len(traced), ' '.join(sorted({r['function'] for r in traced}))), source='audit'))
-    strong = [r for r in frame_sec['pointer_candidates'] if r['signal'] == 'frame-pointer']
-    if frame_sec['pointer_candidates']:
+    strong = [r for r in frame_sec['pointer_candidates'] if r['signal'] == 'frame-pointer'
+              and not set(r['funcs']) <= reviewed]
+    if strong:
         unresolved.append(dict(what='frame ring, wider net: %d register-relative accesses past the first player state in frame '
-                                    'functions (%s) and %d within it' % (len(strong), ' '.join(sorted({f for r in strong for f in r['funcs']})),
-                                                      len(frame_sec['pointer_candidates']) - len(strong)), source='audit'))
+                                    'functions (%s)' % (len(strong), ' '.join(sorted({f for r in strong for f in r['funcs']}))),
+                               source='audit'))
     return dict(format=1, instructions=len(insns), functions=len({f for i in insns.values() for f in i.funcs}),
                 tables=tables, frame_ring=frame_sec, sites=sites, candidates=candidates, unresolved=unresolved)
 
@@ -405,8 +414,9 @@ def main():
             print('no table %s' % name)
             status = 1
             continue
+        others = {'%08X' % v for v in next((m.get('others', []) for m in manifest.get('table', []) if m['name'] == name), [])}
         for r in t['references']:
-            if r['kind'] in ('direct', 'end-pointer', 'alias') and not r['patched']:
+            if r['kind'] in ('direct', 'end-pointer', 'alias') and not r['patched'] and r['va'] not in others:
                 print('%s: %s %s not patched' % (name, r['va'], r['kind']))
                 status = 1
     return status
