@@ -483,3 +483,19 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   the weapon and the flashbang's white-out with the master Off). The menu tests follow the new row.
 - Headless 31 of 31, window 38 of 38; performance the same as G6.1 within noise (master Off 0.03 to 0.05 ms less GPU
   time); validation no new messages.
+
+## 2026-10-23 — Player collision (G8.1)
+
+- Custom Game > Player Collision (On / Off, default On): a tenth row in the single player match's Custom Options, its
+  "+pc_player_collision 0|1" on the match's command line as the other rows' choices (FINDINGS.md "Player
+  collision"). Bodies meet only in pm_shared's PM_Move (0x1A5B20), the one movement code of the server's players
+  and bots and of the client's prediction, against pmove's physents; Off leaves the other players out of that list
+  at PM_Move's entry (src/game/pc_collision.cpp). Shots, grenades, damage, hitboxes, the world, doors and hostages
+  unchanged. Fixed for the match from its start (refused once a player has moved); kept by the game's own Custom
+  Options memory and through Change Map. Not offered for system link or Live (untested; a remote client's
+  prediction would not know it).
+- Probe and drive.py: place, players, expect apart / bodymoved / bodyz / health / healthdrop / spawnapart; fixtures
+  de_aztec_2bots and de_aztec_2bots_nocollide; tests regress_player_collision_on/_off and vk_player_collision_43/169/
+  219.
+- Headless 33 of 33 (regress_pc_bindings once flaky, passing alone), window 41 of 41; performance as G7 within noise;
+  validation no new messages.

@@ -44,4 +44,5 @@
   cleanup, Auto Exposure Off from the map's first frame ✅ 2026-10-22; G6.1 — the weapon over the HUD at a
   wide FOV (Vulkan's depth clamp) ✅ 2026-10-23; G7 — Xbox Graphical Effects, the master over Bloom and Auto
   Exposure ✅ 2026-10-23
+- G8.1 — Custom Game > Player Collision (single player Custom Options) ✅ 2026-10-23
 - M8 — PC feature set complete

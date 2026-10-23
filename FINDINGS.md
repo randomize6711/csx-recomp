@@ -1862,6 +1862,85 @@ other build had a switch for them is unknown (none in this XBE). The bloom's int
 cvar held: a map whose light config set no cl_hdrbloom would keep the previous one (de_aztec, de_airstrip and the
 other maps run in the tests set it).
 
+## Player collision (2026-10-23, G8.1)
+
+The question: can players' bodies be kept from blocking each other (Custom Game > Player Collision Off) without
+touching combat, the world or the bots' navigation. Answered from the XBE's code (the engine and the game DLL are one
+image) and checked in matches.
+
+- **Where bodies meet.** One movement function moves every player: pm_shared's PM_Move (0x1A5B20: pmove = ppmove
+  (0x552C34), PM_PlayerMove (0x1A5490), the ground flag, the friction). The server reaches it through a function pointer
+  (0x37BE38) for the player and for each bot (bots are clients; their moves run the same
+  code), the client through its prediction table (HUD_PlayerMove 0x18B700, set at 0x1C74A). It moves against
+  pmove's physents (count at +0x240, the array at +0x244, 0xD4 bytes each: name, player +0x20, origin, model,
+  studiomodel, mins, maxs, info +0x50, angles, solid +0x60...), which the engine fills before each move: the world
+  (entry 0), the solid entities near the move, and the other players (player != 0). The engine's trace over them
+  (_PM_PlayerTrace 0x756D0, called through pmove's function pointers) and its point and stuck tests read only that
+  list. Player against player, against a bot and bot against bot are therefore one mechanism: the other bodies in
+  the mover's physents. Doors, platforms and other moving brushes are physents too (player 0); hostages are
+  (player 0).
+- **What else meets a player.** In GoldSrc shots, the knife, grenades in flight and their blast, and every
+  non-player entity's movement go through the engine's SV_Move on the edicts' own solidity and the studio hitboxes,
+  not through physents (checked here by the result: shots and an HE grenade hurt a bot with collision Off as On).
+  Hit detection, damage and hitboxes do not depend on the movement list.
+- **Prediction.** The client predicts its own player with the same PM_Move against physents it fills itself (the
+  other players from the last update); on the single process here the client and the server read
+  the same setting, so the prediction and the server agree.
+- **The setting.** The single player match's Custom Options become the match's command line: 0xE2270 joins the
+  table's selected values ("+mp_timelimit 60 +mp_maxrounds 7 ...") when Match Options is Custom (the presets use
+  fixed strings) and the front end relaunches the title with it (Z:\releasemap.txt). A tenth row, Player Collision
+  (On / Off, default On; "+pc_player_collision 1" / "0"), goes after the nine (the screen's own code, 0xE1DE0,
+  reaches them by position, so the row must come last), in the screen's format (src/game/pc_menu.cpp
+  ExtendCustomOptions). In the match the command (served before the engine's lookup, PcConsoleCommand) sets the
+  value during the map load, before any player spawns; once a player has moved it is fixed: the command is refused
+  ("set at the match's start"), so there is no live toggle and no change within or between rounds. No setting on the
+  command line (the presets, Training, a match started otherwise) is the title's own behaviour, logged as such.
+- **Off** (src/game/pc_collision.cpp, a hook at PM_Move's entry): the other players' physents are taken out of the
+  list (the world and every other entry kept, in order, so the indices the move reports for the ground and the
+  touched entities stay consistent within the move); the server's move of each player and bot and the client's
+  prediction alike. Bodies pass through each other and cannot stand on each other. Unchanged: the world, brushes and
+  doors, hostages (they block as before), every trace, damage and hitbox, spawn selection (the game's own checks for
+  an occupied spawn point), the bots' navigation (their own logic; they may still slow for a teammate ahead, which is
+  their behaviour, not a collision).
+- **Persistence.** The game keeps the Custom Options' choices from one front end to the next (a later match's
+  command line still has Friendly Fire On and the row's Off after a match, Quit and a new front end); the row's
+  choice is kept the same way. Reset (X) gives its default, On, as for the other rows. The in-match Change Map
+  relaunches with the same options (Off held on de_aztec after de_airstrip).
+- **Multiplayer.** The row is in the single player Custom Options only. System link and Xbox Live hosts have their
+  own Custom Options screens (SuperLauncher_LocalServerCustomOptions, LiveServerCustomOptions); the row is not added
+  there: a remote client is a separate process that never sees the host's command line, so its prediction would
+  still collide while the host's server lets players pass (a correction each time they meet), and system link
+  between two instances has not been run here at all. The server-side change is authoritative (a client cannot set
+  it: the command is the host's own and refused once the match runs), but network play with it is untested and not
+  offered.
+
+- **Tests.** regress_player_collision_on (tests/launch/de_aztec_2bots, no setting) and _off
+  (de_aztec_2bots_nocollide, "+pc_player_collision 0"): two Counter-Terrorist bots held with bot_stop 1 (their
+  movement physics still run), bodies placed with the probe (drive.py place, players). The player walking at a bot
+  from 256 units: On stops 32.0 from it, Off walks 556.8 (as on open floor) and ends 300.8 past it. The player
+  dropped onto a bot's head: On stands at -179.9 (72 up), Off falls to the floor (-252.0); bot 2 dropped onto bot
+  1: the same (the log shows client 2's move leaving the other players out). A Glock shot at bot 1 (100 to 90 On,
+  100 to 44 Off) and an HE grenade bought through the buy menu (90 to 50, 44 to 7) hurt it either way. A wall stops
+  the player 160 units on either way. sv_restartround: everyone spawns at least 173 apart, the setting is applied
+  once, a drop onto a bot's head after the restart behaves as before it; the command typed during the match is
+  refused. vk_player_collision_43 / _219 (FOV 120): the tenth row by the mouse, the match it starts with collision
+  off. _169: by the keys, kept through Change Map (de_aztec), Quit and the next front end (the next match Off again),
+  Reset gives On. The HUD at FOV 120 as before (vk_viewmodel_hud_43/169/219 pass; the play shots).
+  Headless 33 of 33 (regress_pc_bindings failed once in the full run at its PC Controls Reset step and passed alone
+  three times: pad timing, unrelated: the change touches no in-game menu), window 41 of 41.
+- Performance (de_aztec's three held views, the window at 60, 120 and 240, G7 against G8.1): GPU time per frame
+  1.016 to 1.237 / 0.779 to 0.952 / 0.917 to 1.082 ms in both (the same views within 0.07 ms either way), CPU
+  recording 3.11 to 4.18 ms in both, 60 and 120 at the limit, 240 (CPU bound) 160.0 / 179.6 / 195.4 against 163.8 /
+  187.7 / 199.5, the 95th percentile within noise; peak memory 167 to 169 MB in both. The hook is one check per
+  player move with collision On; Off adds a pass over at most the move's physents. Validation (the layers through
+  vk_viewmodel_hud_169 on G7 and G8.1, and vk_player_collision_43 through the front end and a match on G8.1): the
+  same message kinds as G7 (gamescope's WSI layer, OutputNotConsumed, the device extension message once per
+  process), nothing new.
+
+Remaining uncertainty: the bots' avoidance of teammates is their own logic and was not changed (with collision Off
+they can still pause behind each other); hostages keep blocking (they are not players); network play is untested and
+the option is not offered there.
+
 ## Buy menu taps (2026-10-22)
 
 - The title opens the buy menu on +buymenu's release (0x18FCB0, then 0xE62C0), and only for a tap: held 0.05 to 0.5
