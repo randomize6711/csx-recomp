@@ -680,3 +680,20 @@ at = 0xE1D2B
 call = "PcBotCountLimit"
 on_true = 0xE1D63
 
+# CSX_LOG_SERVERTIME=1 (src/game/server_timing.cpp): the server frame (SV_Frame's call in the host frame) and, within
+# it, PM_Move (each player's and bot's move), timed for the bot count benchmarks
+[[hook]]
+at = 0x5D3CD
+call = "ServerFrameBegin"
+
+[[hook]]
+at = 0x5D3D2
+call = "ServerFrameEnd"
+
+[[hook]]
+at = 0x1A5B24
+call = "ServerMoveBegin"
+
+[[hook]]
+at = 0x1A5B7B
+call = "ServerMoveEnd"
