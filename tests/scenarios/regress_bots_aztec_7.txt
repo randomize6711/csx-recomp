@@ -1,0 +1,34 @@
+# Bot count: 7 bots, the original's default, headless (FINDINGS.md "Bot count"). Rounds of 1 minute with 3 s of freeze
+# time (the fixture's +mp_roundtime 1 +mp_freezetime 3): 8 players in the match (tools/drive.py players), spawned apart
+# (no two closer than 31 units, a body is 32 wide: touching, not in each other, at the start and in the freeze time
+# after two round ends), the bots walk (at least 3 of them 100 units or more in 20 s), fight (kills in the game's log),
+# two rounds end and the next starts, the teams within one player of each other, the map's spawn points and edicts
+# logged (tools/drive.py spawns).
+#   --env FPS=30 --env CSX_LOG_SERVERTIME=1 --launch tests/launch/de_aztec_bots7
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 1
+players start
+expect playercount start 8 8
+expect spawnapart start 31
+spawns s
+sleep 20
+players walking
+expect bodiesmoved start walking 100 3
+count game:.*killed 2
+count game:.World.triggered."Round_End" 3
+sleep 6.5
+players freeze
+expect playercount freeze 8 8
+expect spawnapart freeze 31
+count game:.World.triggered."Round_Start" 3
+expect teams 1 3
+expect nolog guest trap

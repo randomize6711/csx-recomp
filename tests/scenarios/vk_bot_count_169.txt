@@ -1,0 +1,173 @@
+# Custom Game > Number of Bots through the front end and a relaunch, in the Vulkan window at 16:9, FOV 120 (FINDINGS.md
+# "Bot count", src/game/pc_menu.cpp ExtendBotCount, PcBotCountLimit): the single player match's Match Options list 0 to
+# 16 bots (the original 1 to 11); 16 chosen with the arrow keys; Bot Team on one team caps it at 8 as the original did
+# ("9 bots" and up disabled: the right arrow passes over them to the first choice, now "0 bots", as the original's went
+# to "1 bot"), Both lets 16 be chosen again; de_aztec starts with 17 players (16 bots and the player); Quit returns to
+# the front end, which keeps the choice (the game's own memory of the screen): the next match on de_aztec has 17 players
+# again. The play and scoreboard shots at FOV 120.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --pc aspect=16:9 --pc fov=120
+wait log renderer: vulkan
+wait log open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+key Down
+sleep 2
+key Space
+sleep 5
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Space
+sleep 5
+expect log pc mouse: screen SuperLauncher_SinglePlayerMatchOptions, 4 rows
+windowshot options
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+windowshot options16
+key Down
+sleep 1
+key Down
+sleep 1
+key Right
+sleep 2
+expect log pc menu: Number of Bots 16 capped at 8 \(the bots on one team\)
+key Up
+sleep 1
+key Up
+sleep 1
+key Right
+sleep 1
+windowshot options_one_team
+expect log pc menu: Number of Bots 16 capped at 8
+key Down
+sleep 1
+key Down
+sleep 1
+key Left
+sleep 1
+key Up
+sleep 1
+key Up
+sleep 1
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+windowshot options16_again
+key Space
+sleep 3
+expect log pc mouse: screen SuperLauncher_SinglePlayerMatchMapList
+point 175 197
+sleep 0.5
+click 1
+sleep 1
+key Space
+wait log relaunching into
+wait log open D:\\de_aztec.sxwad
+sleep 20
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 20
+key Left_Ctrl
+sleep 10
+players p
+expect playercount p 17 17
+windowshot play
+expect image play 20
+pckey cmd +showscores
+sleep 1.5
+windowshot scores
+pckey cmd -showscores
+expect image scores 8
+key Escape
+sleep 2
+point 300 297
+sleep 0.5
+click 1
+sleep 2
+expect log pc mouse: screen InGame_ConfirmQuit
+point 320 273
+sleep 0.5
+click 1
+count relaunching.into 2
+sleep 25
+expect count pc.mouse:.screen.SuperLauncher_SinglePlayerMatchOptions, 2
+windowshot options_kept
+key Space
+sleep 3
+point 175 197
+sleep 0.5
+click 1
+sleep 1
+key Space
+count relaunching.into 3
+sleep 20
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 20
+key Left_Ctrl
+sleep 10
+players p2
+expect playercount p2 17 17
+expect nolog guest trap

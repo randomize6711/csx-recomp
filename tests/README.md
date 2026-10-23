@@ -179,6 +179,19 @@ spawns everyone apart and keeps the setting, and typing the command during the m
 the mouse (43, 219) or the keys (169), the match started with it; 169 also keeps it through Change Map, Quit and the
 next front end, then Reset gives On.
 
+## Bot count
+
+Custom Game > Number of Bots, 0 to 16 (FINDINGS.md "Bot count": 17 player slots). Fixtures tests/launch/de_aztec_bots7,
+_bots11, _bots16, _bots24 and de_dust2_bots16, _bots16_nocollide (1 minute rounds, 3 s of freeze time).
+`regress_bots_aztec_7.txt`, `_11`, `_16`, `regress_bots_dust2_16.txt` (8 spawn points a team: 15 bots join),
+`regress_bots_dust2_16_nocollide.txt` and `regress_bots_aztec_24.txt` (more than the slots: 16 join): the players
+counted (`expect playercount`), spawned apart (not with collision Off, where bodies may stand in each other), the bots
+walking (`expect bodiesmoved A B MIN N`), kills and two round ends in the game's log, the teams within one
+(`expect teams MAXDIFF MIN`, from the log's "joined team" lines), the spawn points and edicts logged (`spawns NAME`).
+`vk_bot_count_43.txt`, `_169.txt` and `_219.txt` (the window, FOV 120): the Match Options list to 16 bots, a match on
+de_aztec with 17 players, the play and scoreboard shots; 169 also caps one team at 8 as the original and keeps 16
+through Quit and the next front end. CSX_LOG_SERVERTIME=1 logs the server frame's time once a second (benchmarks).
+
 ## Rounds
 
 `rounds_direct.txt` plays complete rounds from the direct start of any map fixture (`de_airstrip_beginner`,

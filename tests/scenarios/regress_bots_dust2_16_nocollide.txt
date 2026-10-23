@@ -1,0 +1,36 @@
+# Bot count: 16 bots asked on de_dust2, 8 spawn points a team: the game takes 15 (a team is full at its spawn points)
+# and refuses the sixteenth, with player collision Off (G8.1) and the bodies left out of every mover's moves, headless
+# (FINDINGS.md "Bot count"). Rounds of 1 minute with 3 s of freeze time (the fixture's +mp_roundtime 1 +mp_freezetime
+# 3): 16 players in the match (tools/drive.py players), spawned apart (not checked: see below), the bots walk (at least
+# 7 of them 100 units or more in 20 s), fight (kills in the game's log), two rounds end and the next starts, the teams
+# within one player of each other, the map's spawn points and edicts logged (tools/drive.py spawns). Player collision
+# Off: the log shows the bodies left out of at least 12 movers' moves. No spacing checks: with Off bodies may stand in
+# each other, and when a team fills every spawn point the game can put two players on one (with collision On they are
+# pushed apart at once, regress_bots_dust2_16; Off leaves them, harmlessly, and they walk off).
+#   --env FPS=30 --env CSX_LOG_SERVERTIME=1 --launch tests/launch/de_dust2_bots16_nocollide
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 1
+players start
+expect playercount start 16 16
+spawns s
+sleep 20
+players walking
+expect bodiesmoved start walking 100 7
+count game:.*killed 2
+count game:.World.triggered."Round_End" 3
+sleep 6.5
+players freeze
+expect playercount freeze 16 16
+count game:.World.triggered."Round_Start" 3
+expect teams 1 7
+count pc:.player.bodies:.*client.[0-9]+'s.move 12
+expect nolog guest trap
