@@ -51,6 +51,10 @@
 1c. Player-driven objectives (defuse, plant) with scripted movement per map.
 1d. Player Collision for system link / Live hosts (G8.1 offers it in single player only): the remote client's
    prediction would need the host's value (e.g. a replicated server cvar) and two instances on a link to test it.
+1e. Player slots past 17 (G8.2's goal, 64 bots and the player): docs/player_slots_plan.md (tooling to relocate the
+   per-player tables, the engine server and game DLL, the engine client and HUD, svc_pings' slot width, spawn points
+   for 32 a team); waiting for approval. Expanded matches must stay off system link and Live (an original console
+   refuses maxclients > 17). Separate Counter-Terrorist and Terrorist bot counts (one bot_quota today) not done.
 2. Compare in-game rendering with xemu (dark sky/wall area on de_airstrip, lightmaps, fog, rain, colours).
 2a. Thin vertical rain streaks over de_airstrip in the Vulkan window that the reference renderer's frames do not show
    (seen during G6.1, not investigated). Without VK_EXT_depth_clip_enable and VK_EXT_depth_clamp_control the depth

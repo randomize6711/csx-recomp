@@ -1941,6 +1941,88 @@ Remaining uncertainty: the bots' avoidance of teammates is their own logic and w
 they can still pause behind each other); hostages keep blocking (they are not players); network play is untested and
 the option is not offered there.
 
+## Bot count (2026-10-23, G8.2)
+
+The question: how many bots a single player match can hold, against a target of 64, and what limits it. Answered
+from the XBE (engine and game DLL in one image), then checked in matches.
+
+- **The original.** The single player match's Match Options offer "Number of Bots" 1 to 11 (default 7; "+wait
+  +bot_quota N" on the match's command line, joined by 0xE2270); the quick matches' presets use 7, 7, 9 and 11. With
+  Bot Team on one team the screen's code (0xE1D10) caps the list at "8 bots" and disables "9 bots" and up (its loop
+  runs to the fifteenth choice: the list was laid out for more).
+- **Player slots: 17.** The title starts every match with "-maxplayers 17 +maxplayers 17" (its command line template
+  at 0x33AA60). The engine's SV_Init (0xA1960) takes -maxplayers, clamps it to 1..17 and sets svs.maxclientslimit to
+  17 (0xA1A10), allocating 17 client_t of 0x5010 bytes. The client is built for the same 17: svc_updateuserinfo
+  refuses a slot of 17 or more (0x2CA2C, "svc_updateuserinfo > MAX_CLIENTS"), "Bad maxclients" checks the server's.
+  56 compares against 17 in the code (27 in the engine: per-player loops such as one over 0x74C-byte records at
+  0x25FE5; 20 in the game DLL; 9 elsewhere) are that constant. Every map ran with maxclients 17.
+- **Bots.** The bot manager adds bots while bot_quota asks and slots remain ("Unable to create bot: Server is full
+  (%d/%d clients)"), and while the bot's team has room ("Could not add bot to the game: Team is full": a team is full
+  at its map's spawn points, the title's rule). bot_quota 24 gives 16 bots and nothing past the slots.
+- **Spawn points** (info_player_start the Counter-Terrorists', info_player_deathmatch the Terrorists', counted with
+  the probe's spawns request on all 20 maps): 8 and 8 on cs_havana, de_airstrip, de_dust, de_dust2, de_fastline,
+  de_piranesi, de_tides, de_truth; cs_italy and cs_office 10 / 10; cs_militia 8 / 10; cs_miami 16 / 8; de_cbble 11 /
+  8; de_prodigy 10 / 8; de_vostok 12 / 12; de_aztec 16 / 18; de_chateau 18 / 17; de_corruption, de_inferno and
+  de_stadium 16 / 16. So 17 players fit every map whose two teams together have 17 spawn points; on the 8 / 8 maps the
+  game takes 15 bots with the player and refuses the sixteenth (the team is full), which is the title's own guard
+  against two players in one spawn.
+- **Edicts.** sv.max_edicts is 1040; de_airstrip uses 640 without bots, de_aztec 353 with 16 bots: room to spare.
+- **Network.** A match here is one process (the client on the loopback). The protocol carries player slots in bytes
+  and the original clients (the same engine) accept slots below 17 only; 17 players is the title's own maximum, so a
+  17-slot match is what an original console expects. Beyond 17 every client would have to change with the server.
+  System link and Live were not run (not in this work).
+- **Past 17 slots** the engine, the HUD and the game DLL need their per-player storage moved to larger tables (17 is
+  compiled into all three; the recompilation adds no limit of its own), svc_pings needs a wider slot field, and the
+  maps need more spawn points: investigated in docs/player_slots_plan.md (with analysis/player_slots_*.md), not
+  implemented yet. This part of G8.2 is the baseline: 16 bots (with the player, the original 17 slots).
+- **The setting** (src/game/pc_menu.cpp ExtendBotCount, PcBotCountLimit): the list becomes "0 bots" to "16 bots"
+  (default still "7 bots"; "0 bots" first, "12 bots" to "16 bots" after "11 bots"), with a second help line ("16 bots
+  and you fill the game's 17 player slots."). The screen's code reads the list by position, so its cap is redone for
+  the longer list by a hook at 0xE1D2B (the table and the Bot Team choice in hand, it leaves at 0xE1D63): bots on one
+  team are capped at "8 bots" and "9 bots" to "16 bots" are disabled, as the original; the arrows pass over disabled
+  choices to the first one ("0 bots" now, "1 bot" before). Keyboard, mouse and pad drive the list as before. The game
+  keeps the screen's choices from one front end to the next (after a match and Quit, 16 is still chosen). Separate
+  Counter-Terrorist and Terrorist counts: the bot manager has one bot_quota and bot_join_team (any, ct, t), so separate
+  counts would need a second quota in the bot code; not done (not needed by the architecture).
+
+- **Spawns with every spawn point in use.** On de_dust2 with 16 bots (8 and 8, every point taken) the game's spawn
+  choice (unchanged) can put a player on an occupied point at the match's first spawn: with collision Off, two
+  players stood exactly in one spot in 2 of 8 first spawns, and bodies passing through each other came within 31
+  units in most runs (Off allows that); with collision On no two within 31 units in 7 runs (presumably the movement's
+  stuck check moving a player placed in another out at once: inferred, the placement itself was not caught On). In the freeze times after round ends none in any run. Collision Off leaves two
+  players in one spot until they walk off, harmlessly (they pass through each other). After four round ends (the win
+  limit) the match restarts and every configuration, the original's 8 bots on one team included, showed players on
+  one spot for a moment: the title's own restart.
+- **Tests.** regress_bots_aztec_7 (the original default: 8 players), _11 (the original's most: 12), _16 (17),
+  regress_bots_dust2_16 (16: the sixteenth bot refused, 8 / 8), _dust2_16_nocollide (16, collision Off: the bodies
+  left out of at least 12 movers' moves) and regress_bots_aztec_24 (24 asked: 17, the rest refused): the players
+  counted, spawned apart at the start and in the freeze time after two round ends (not with collision Off), every
+  bot walking 100 units or more in 20 s, kills and two round ends in the game's log (1 minute rounds), the teams within
+  one (8 and 9, 8 and 8, 6 and 6, 4 and 4), edicts 324 to 360 of 1040 on de_aztec. vk_bot_count_43 / _169 / _219 (FOV
+  120): the list to 16, de_aztec with 17 players, the scoreboard showing all 17 (CT Forces 8, Terrorist Forces 9, no
+  row cut), the HUD at FOV 120; _169 also the one team cap at 8 and the choice kept after Quit.
+- **Performance** (the window, 1920x1080, VSync off, limit 240, 60 s measured after joining; CSX_LOG_SERVERTIME for
+  the server frame: every player's and bot's move, the bots' AI and navigation, the game rules and the loopback
+  messages). de_aztec with the view held (setview, the same picture): 0 / 7 / 11 / 16 bots: 147.6 / 145.3 / 141.9 /
+  137.0 frames/s, 95th percentile 7.46 / 7.69 / 8.07 / 8.83 ms, 99th 8.42 / 8.74 / 9.23 / 10.03 ms, GPU 1.109 to 1.133
+  ms (the same), CPU recording 4.26 to 4.36 ms (the same), server frame 0.100 / 0.206 / 0.264 / 0.384 ms mean (worst
+  0.22 / 3.72 / 5.12 / 5.94), of which moves 0.005 / 0.015 / 0.020 / 0.031 ms, peak memory 170.1 / 172.6 / 172.6 /
+  172.7 MB. With the player's own view (de_aztec, de_dust2, cs_havana; the frame rate follows what the player looks
+  at, 74 to 227 frames/s): server frame 0.08 to 0.13 ms without bots, 0.14 to 0.55 ms with 7 to 16 (worst 8.6 ms),
+  memory +2 to +5 MB. The cost of 16 bots is about 0.3 ms of server time a frame on average: 7 % of the frame rate
+  at 140 frames/s, nothing on the GPU. AI and navigation are not timed apart (they share the bots' think functions);
+  the network is the loopback here.
+
+Remaining uncertainty (this part): system link and Live with more bots were not run. Grenade use and objectives with many bots are
+not asserted: in the tests' and benchmarks' minutes the logs show kills in every run with bots and one bomb plant (de_dust2,
+16 bots), no grenade kill; whether bots throw grenades as often with 16 as with 7 was not measured. The 8 / 8 maps take
+15 bots by the title's own team-full rule.
+
+Suites (part one): headless 39 of 39, window 44 of 44; Vulkan validation of the HUD scenario and a 16 bot match: no
+new messages (the swapchain present mode and shader output warnings seen since G6 only); the perf scenarios as G7
+within noise at 60, 120 and 240 frames/s (one
+low sky view at 120, 117.8 frames/s, was not there on a rerun: 119.5 against G7's 119.7), peak memory the same.
+
 ## Buy menu taps (2026-10-22)
 
 - The title opens the buy menu on +buymenu's release (0x18FCB0, then 0xE62C0), and only for a tap: held 0.05 to 0.5

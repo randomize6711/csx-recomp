@@ -45,4 +45,6 @@
   wide FOV (Vulkan's depth clamp) ✅ 2026-10-23; G7 — Xbox Graphical Effects, the master over Bloom and Auto
   Exposure ✅ 2026-10-23
 - G8.1 — Custom Game > Player Collision (single player Custom Options) ✅ 2026-10-23
+- G8.2 — Custom Game > Number of Bots: 0 to 16 in the original 17 slots ✅ 2026-10-23; past 17 slots (64 bots and
+  the player) planned in docs/player_slots_plan.md, not started
 - M8 — PC feature set complete

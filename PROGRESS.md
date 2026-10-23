@@ -499,3 +499,18 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   219.
 - Headless 33 of 33 (regress_pc_bindings once flaky, passing alone), window 41 of 41; performance as G7 within noise;
   validation no new messages.
+
+## 2026-10-23 — Bot count, part one: 16 bots in the 17 slots (G8.2)
+
+- Custom Game > Number of Bots "0 bots" to "16 bots" (default still 7; the original offered 1 to 11), a help line
+  naming the 17 player slots; the screen's one-team cap (8) redone for the longer list by a hook at 0xE1D2B
+  (FINDINGS.md "Bot count"). The bot manager's own rules unchanged: full slots and full teams (a team is full at its
+  map's spawn points, 8 / 8 maps take 15 bots with the player).
+- CSX_LOG_SERVERTIME=1 (server frame and player move times); probe `spawns`, drive.py playercount / bodiesmoved /
+  teams; tests regress_bots_* (7, 11, 16, 24 asked on de_aztec; 16 on de_dust2 with collision On and Off) and
+  vk_bot_count_43/169/219 (the list, 17 players, the scoreboard at FOV 120, the choice kept).
+- Headless 39 of 39, window 44 of 44; 16 bots cost about 0.3 ms of server time a frame; validation no new messages.
+- Past 17 slots (the goal: 64 bots and the player): investigated, not implemented. 17 is the original game's
+  MAX_CLIENTS in the engine, the HUD and the voice manager (the recompilation adds no limit); the per-player tables,
+  svc_pings' 5-bit slot and the maps' spawn points have to change. Plan in docs/player_slots_plan.md, evidence in
+  analysis/player_slots_*.md; waiting for approval.
