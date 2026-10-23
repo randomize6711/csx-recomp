@@ -37,8 +37,8 @@ def config(tmp, name, patches, sha=SHA):
     d = os.path.join(tmp, 'configs', name, 'config')
     os.makedirs(d)
     text = 'includes = ["%s"]\n' % GAME
-    if sha is not None:
-        text += '[xbe]\nsha256 = "%s"\n' % sha
+    # game.toml names the image's hash; None clears it (an including config's values override the included ones)
+    text += '[xbe]\nsha256 = "%s"\n' % (sha or '')
     path = os.path.join(d, 'test.toml')
     open(path, 'w').write(text + ''.join(patches))
     return path
