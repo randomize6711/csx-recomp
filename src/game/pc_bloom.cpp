@@ -4,7 +4,8 @@
 // the client's map start runs "exec <map>-light.cfg" (0xC3E90, the command at 0xC4089), which sets cl_hdrbloom (0.5
 // on de_aztec; 0.6 is the cvar's default). Off sets the cvar to 0 when chosen and again after every map's light
 // config; On gives back the intensity the cvar last held (the map's, or one set in the console). A console change
-// stands until the setting changes or the next map starts.
+// stands until the setting changes or the next map starts. PC Options > Xbox Graphical Effects Off turns it off as
+// Bloom Off does, its own setting kept (pc::XboxEffect); On gives back what Bloom holds.
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -46,9 +47,9 @@ void PcBloomFrame(X86Context&) {
     if (pc::Version() != seen) {
         bool first = seen == ~0u;
         seen = pc::Version();
-        bool on = pc::Get("bloom", "1") != "0";
+        bool on = pc::XboxEffect("bloom");
         if (first || on != g_want) {
-            LOGI("pc: Bloom %s", on ? "on" : "off");
+            LOGI("pc: Bloom %s%s", on ? "on" : "off", pc::XboxEffectsMaster() ? "" : " (Xbox Graphical Effects off)");
             g_pending = !first || !on;
         }
         g_want = on;

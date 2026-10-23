@@ -71,4 +71,7 @@ void Save() {
 
 unsigned Version() { return g_version; }
 
+bool XboxEffectsMaster() { return Get("xbox_effects", "1") != "0"; }
+bool XboxEffect(const std::string& name) { return XboxEffectsMaster() && Get(name, "1") != "0"; }
+
 }  // namespace pc

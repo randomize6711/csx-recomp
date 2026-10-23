@@ -12,7 +12,8 @@
 // skips the measurement, which would leave whatever ramp it set last; the title's own identity ramp (0xBF030, what it
 // sets on its other ways out of a match, through 0xBF0E0) is set once as it goes off, so Off is one fixed brightness
 // whenever it is chosen (PcAutoExposureFrame). Each map's light config sets cl_dynamicgamma 1 as the map starts; Off
-// takes it back there (PcAutoExposureMapConfig).
+// takes it back there (PcAutoExposureMapConfig). PC Options > Xbox Graphical Effects Off turns it off as Auto
+// Exposure Off does, its own setting kept (pc::XboxEffect); On gives back what Auto Exposure holds.
 //
 // The hook at 0xBE777, where 0xBE760 loads the surface (ebp = this), asks for the surface as a NOOVERWRITE lock does
 // (d3d::ReadLate, SDK patch 0031): the newest finished copy goes to guest memory and a new copy is started after the
@@ -95,8 +96,10 @@ void PcAutoExposureFrame(X86Context& ctx) {
     static auto sent = std::chrono::steady_clock::time_point{};
     if (pc::Version() != seen) {
         seen = pc::Version();
-        bool on = pc::Get("auto_exposure", "1") != "0";
-        if (on != g_want || !g_pending) LOGI("pc: Auto Exposure %s (cl_dynamicgamma %d)", on ? "on" : "off", on ? 1 : 0);
+        bool on = pc::XboxEffect("auto_exposure");
+        if (on != g_want || !g_pending)
+            LOGI("pc: Auto Exposure %s (cl_dynamicgamma %d)%s", on ? "on" : "off", on ? 1 : 0,
+                 pc::XboxEffectsMaster() ? "" : ", Xbox Graphical Effects off");
         g_want = on;
         g_pending = true;
     }

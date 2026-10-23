@@ -12,4 +12,10 @@ void Set(const std::string& name, const std::string& value);
 void Save();         // writes pc_settings.ini
 unsigned Version();  // bumped by every Set, for readers that cache
 
+// an optional Xbox graphical effect's setting ("bloom", "auto_exposure"; On by default) as it takes effect: On only
+// while PC Options > Xbox Graphical Effects ("xbox_effects", On by default) is On too. The effect's own saved value
+// is never changed by the master; Off of the master turns the effect off, On gives back what its setting holds.
+bool XboxEffect(const std::string& name);
+bool XboxEffectsMaster();
+
 }  // namespace pc
