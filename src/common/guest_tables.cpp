@@ -187,9 +187,27 @@ const Table* GuardBefore(uint32_t va, uint32_t* before_start) {
     return nullptr;
 }
 
+bool WriteTexts(const Table* tables, size_t count, const TableText* texts, size_t text_count) {
+    for (size_t i = 0; i < text_count; i++) {
+        const TableText& x = texts[i];
+        size_t n = std::strlen(x.text) + 1;
+        if (x.table >= count || n > size_t(tables[x.table].elem) * tables[x.table].count) {
+            LOGE("guest tables: text %zu does not fit its table", i);
+            return false;
+        }
+        std::memcpy(mem::Base() + tables[x.table].va, x.text, n);
+    }
+    return true;
+}
+
+const Table& Production(size_t k) {
+    static const Table none{"none", 0, 1, 0, 1};
+    return k < kTableCount ? kTables[k] : none;
+}
+
 void Start() {
     if (!kTableCount) return;
-    if (!Map(kRegion, kTables, kTableCount)) {
+    if (!Map(kRegion, kTables, kTableCount) || !WriteTexts(kTables, kTableCount, kTexts, kTextCount)) {
         std::fprintf(stderr, "guest tables could not be mapped (see the log): the program cannot run safely\n");
         std::exit(70);
     }

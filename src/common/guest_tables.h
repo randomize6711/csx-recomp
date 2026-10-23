@@ -20,6 +20,12 @@ struct Table {
     uint32_t align;
 };
 
+// a table's initial content: a NUL-terminated text (config/guest_tables.toml `text`), written after mapping
+struct TableText {
+    size_t table;  // its index in the layout
+    const char* text;
+};
+
 // a layout's problem, "" when it is sound: the region in the user range on 64 KB boundaries, each table aligned,
 // inside the region, ending at a page boundary, with an unused page before it and after it, no overlap, no 32-bit
 // overflow
@@ -36,6 +42,12 @@ uint32_t Element(const Table& table, uint32_t index, const char* caller);
 const Table* GuardOwner(uint32_t va, uint32_t* past_end);
 // the mapped table whose first page follows the guard page holding va, with how far before its first element va is
 const Table* GuardBefore(uint32_t va, uint32_t* before_start);
+
+// writes each text into its table (after Map); false when a text does not fit (logged)
+bool WriteTexts(const Table* tables, size_t count, const TableText* texts, size_t text_count);
+
+// the production table k (guest_tables_layout.h k_NAME), for host code
+const Table& Production(size_t k);
 
 // the production layout (guest_tables_layout.h): mapped before the title starts; nothing while it has no table.
 // A layout that cannot be mapped stops the program with the reason (patched code would use unmapped memory)

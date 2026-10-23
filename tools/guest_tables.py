@@ -49,6 +49,9 @@ def layout(cfg):
         va = end - total  # ends exactly at the guard page: elem is a multiple of align, so va is aligned too
         if end + PAGE > base + size:
             raise LayoutError('%s: the region is full (0x%X bytes needed past 0x%X)' % (name, total, base + size))
+        text = t.get('text')
+        if text is not None and (not isinstance(text, str) or len(text.encode()) + 1 > total):
+            raise LayoutError('%s: its text needs %d bytes, the table has %d' % (name, len(str(text).encode()) + 1, total))
         out.append((name, va, elem, count, align, t.get('what', '')))
         cursor = end + PAGE
     return out
@@ -66,9 +69,27 @@ def header(cfg, tables):
             lines.append('    {"%s", 0x%08Xu, 0x%Xu, %du, %du},  // %s' % (name, va, elem, count, align, what))
         lines.append('};')
         lines.append('constexpr size_t kTableCount = sizeof(kTables) / sizeof(kTables[0]);')
+        lines.append('')
+        lines.append('// each table by name, for host code: kTables[k_NAME]')
+        for k, (name, va, elem, count, align, what) in enumerate(tables):
+            lines.append('constexpr size_t k_%s = %d;' % (name, k))
+        texts = [(k, t['text']) for k, t in enumerate(cfg.get('table', [])) if 'text' in t]
+        lines.append('')
+        lines.append('// tables that start with a text (a NUL-terminated string the recompiled code is pointed at)')
+        if texts:
+            lines.append('constexpr TableText kTexts[] = {')
+            for k, text in texts:
+                lines.append('    {%d, %s},' % (k, '"' + text.replace('\\', '\\\\').replace('"', '\\"') + '"'))
+            lines.append('};')
+            lines.append('constexpr size_t kTextCount = sizeof(kTexts) / sizeof(kTexts[0]);')
+        else:
+            lines.append('constexpr const TableText* kTexts = nullptr;')
+            lines.append('constexpr size_t kTextCount = 0;')
     else:
         lines.append('constexpr const Table* kTables = nullptr;  // none yet')
         lines.append('constexpr size_t kTableCount = 0;')
+        lines.append('constexpr const TableText* kTexts = nullptr;')
+        lines.append('constexpr size_t kTextCount = 0;')
     lines += ['', '}  // namespace guest_tables', '']
     return '\n'.join(lines)
 
