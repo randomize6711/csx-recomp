@@ -56,6 +56,10 @@ per line, executed in order:
     expect bodyz NAME N MIN MAX    client N's origin height in players step NAME
     expect healthdrop A B N MIN MAX  client N's health fell MIN..MAX from players step A to B
     expect spawnapart NAME MIN     every two clients at least MIN apart in players step NAME
+    expect playercount NAME MIN MAX  the number of clients (the player and the bots) in players step NAME
+    expect bodiesmoved A B MIN N   at least N clients moved MIN or more from players step A to B
+    expect teams MAXDIFF [MIN]     the players' last joined teams (the game's log): CT and T within MAXDIFF, each
+                                   at least MIN
     expect effects BLOOM GAMMA     within 5 s the cvars the optional Xbox effects are read cl_hdrbloom BLOOM and
                                    cl_dynamicgamma GAMMA (as logged, %g: 0, 0.5, 1; needs CSX_LOG_EFFECTS=1)
     expect movetime MIN MAX        the movement commands' milliseconds per real second (the last two "pc frame" lines,
@@ -71,6 +75,7 @@ per line, executed in order:
     look RIGHT UP           turn the view by degrees through the mouse look hook (src/game/mouse_look.cpp)
     place N X Y Z           client N (0 the player, then the bots) put at that origin once, no velocity
     players NAME            every active client's origin and health logged and kept as NAME
+    spawns NAME             the map's spawn points per team, the edicts in use and maxclients logged
     setview X Y Z YAW PITCH the player held at that origin (server side, no velocity) with those view angles
                             (src/game/state_probe.cpp): a fixed camera for picture tests; setview off lets go
     pokefile FILE           every "VA FLOAT" line of FILE (relative to the repository) written at once
@@ -429,6 +434,10 @@ def main():
                             rosters[st[1]][int(m.group(1))] = tuple(float(v) for v in m.groups()[1:])
                     print('     ' + '; '.join('%d: %.1f %.1f %.1f health %.0f' % ((n,) + v)
                                               for n, v in sorted(rosters[st[1]].items())))
+            elif kind == 'spawns':
+                # spawns NAME: the map's spawn points per team, the edicts in use and maxclients, logged
+                send_file('spawns', st[1])
+                good = wait_until(lambda: log.match(r'spawns ' + re.escape(st[1]) + ' ct'))
             elif kind == 'state':
                 send_file('state', st[1])
                 rx = re.compile(r'state ' + re.escape(st[1]) + r' (\S+) (\S+) (\S+) (\S+) (-?\d+)(?: (\S+) (\S+))?(?: (-?\d+))?')
@@ -787,7 +796,8 @@ def main():
                             saved[k.strip()] = v.strip()
                 print('     %s = %s' % (st[2], saved.get(st[2], '(none)')))
                 good = saved.get(st[2]) == ' '.join(st[3:])
-            elif kind == 'expect' and st[1] in ('apart', 'bodymoved', 'bodyz', 'health', 'healthdrop', 'spawnapart'):
+            elif kind == 'expect' and st[1] in ('apart', 'bodymoved', 'bodyz', 'health', 'healthdrop', 'spawnapart',
+                                                'playercount'):
                 # expect apart NAME N M MIN MAX: clients N and M horizontally that far apart in players step NAME;
                 # expect bodymoved A B N MIN MAX: client N moved that far (horizontally) from players A to B;
                 # expect healthdrop A B N MIN MAX: client N's health fell that much from A to B;
@@ -801,6 +811,8 @@ def main():
                         r = rosters[st[2]]; v = flat(r[int(st[3])], r[int(st[4])]); lo, hi = st[5], st[6]
                     elif st[1] == 'bodymoved':
                         v = flat(rosters[st[2]][int(st[4])], rosters[st[3]][int(st[4])]); lo, hi = st[5], st[6]
+                    elif st[1] == 'playercount':
+                        v = len(rosters[st[2]]); lo, hi = st[3], st[4]
                     elif st[1] == 'healthdrop':
                         v = rosters[st[2]][int(st[4])][3] - rosters[st[3]][int(st[4])][3]; lo, hi = st[5], st[6]
                     elif st[1] in ('health', 'bodyz'):
@@ -814,6 +826,27 @@ def main():
                 except KeyError as e:
                     print('     no such step or client: %s' % e)
                     good = False
+            elif kind == 'expect' and st[1] == 'teams':
+                # expect teams MAXDIFF [MIN]: the players' teams as the game's log last has them (game: "NAME<..>"
+                # joined team "CT" / "TERRORIST"), the two within MAXDIFF of each other, each at least MIN
+                log.poll()
+                last = {}
+                for l in log.lines:
+                    m = re.search(r'game: "(.*?)<\d+><[^>]*><[^>]*>" joined team "(\w+)"', l)
+                    if m:
+                        last[m.group(1)] = m.group(2)
+                ct = sum(v == 'CT' for v in last.values())
+                tt = sum(v == 'TERRORIST' for v in last.values())
+                print('     CT %d, T %d' % (ct, tt))
+                good = abs(ct - tt) <= int(st[2]) and min(ct, tt) >= (int(st[3]) if len(st) > 3 else 0)
+            elif kind == 'expect' and st[1] == 'bodiesmoved':
+                # expect bodiesmoved A B MIN COUNT: at least COUNT clients moved MIN or more (horizontally) from
+                # players step A to B (the bots walk)
+                a, b = rosters.get(st[2], {}), rosters.get(st[3], {})
+                moved = sorted(n for n in a if n in b and
+                               ((a[n][0] - b[n][0]) ** 2 + (a[n][1] - b[n][1]) ** 2) ** 0.5 >= float(st[4]))
+                print('     %d moved %s or more: %s' % (len(moved), st[4], ' '.join(map(str, moved))))
+                good = len(moved) >= int(st[5])
             elif kind == 'expect' and st[1] == 'effects':
                 # expect effects BLOOM GAMMA: within 5 s the last "pc effects" line (CSX_LOG_EFFECTS=1, src/game/
                 # pc_bloom.cpp: the cvars' values each time one changes) reads cl_hdrbloom BLOOM, cl_dynamicgamma GAMMA

@@ -14,13 +14,17 @@
 // svs.maxclients at 0x636CE8) at that origin once, with no velocity, and lets it go (tools/drive.py "place": bodies
 // put in each other's way for the player collision tests). A file named players holding a name logs one line per
 // active client (client_t +0 active): "players NAME N x y z health" (entvars health at edict +0x1E0) and ends with
-// "players NAME end".
+// "players NAME end". A file named spawns holding a name logs the map's spawn points and the edicts in use: "spawns
+// NAME ct C t T, edicts N of M, maxclients K" (info_player_start the Counter-Terrorists', info_player_deathmatch the
+// Terrorists'; the classname at entvars +0, a string_t from the base 0x329F2B; sv.num_edicts 0x62B418,
+// sv.max_edicts 0x62B41C, sv.edicts 0x62B420, 0x318 bytes each).
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <string>
 #include <thread>
 
 #include "app/app.h"
@@ -44,6 +48,21 @@ float F(uint32_t va) {
 void WF(uint32_t va, float f) { std::memcpy(kernel::HostPtr(va), &f, 4); }
 constexpr uint32_t kClients = 0x636CE4, kClientEdict = 0x4B9C, kEdictOrigin = 0x88, kEdictVelocity = 0xA0;
 constexpr uint32_t kMaxClients = 0x636CE8, kClientSize = 0x5010, kEdictHealth = 0x1E0;
+constexpr uint32_t kNumEdicts = 0x62B418, kMaxEdicts = 0x62B41C, kEdicts = 0x62B420, kEdictSize = 0x318,
+                   kEdictClassname = 0x80;
+constexpr uint32_t kStringBase = 0x329F2B;  // string_t's base (STRING(x) = base + x): the player edict's classname
+                                            // 0x1D6A9 is the static "player" at 0x3475D4
+
+// the guest's NUL-terminated string at va, empty when va is 0
+std::string GuestString(uint32_t va) {
+    std::string s;
+    for (uint32_t i = 0; va && i < 64; i++) {
+        char c = static_cast<const char*>(kernel::HostPtr(va + i))[0];
+        if (!c) break;
+        s += c;
+    }
+    return s;
+}
 
 // client N's edict, 0 when there is no such active client
 uint32_t ClientEdict(uint32_t n) {
@@ -128,6 +147,27 @@ void StartStateProbe() {
                         LOGI("players %s %u %.3f %.3f %.3f %.0f", name, n, F(e + kEdictOrigin), F(e + kEdictOrigin + 4),
                              F(e + kEdictOrigin + 8), F(e + kEdictHealth));
                 LOGI("players %s end", name);
+                logx::Flush();
+            }
+            const fs::path spawns = app::ExeDir() / "spawns";
+            if (fs::exists(spawns, ec)) {
+                char name[64] = "spawns";
+                if (FILE* f = std::fopen(spawns.string().c_str(), "r")) {
+                    if (std::fscanf(f, "%63s", name) != 1) std::snprintf(name, sizeof name, "spawns");
+                    std::fclose(f);
+                }
+                fs::remove(spawns, ec);
+                uint32_t n = kernel::R32(kNumEdicts), base = kernel::R32(kEdicts), ct = 0, tt = 0;
+                for (uint32_t i = 0; base && i < n; i++) {
+                    uint32_t e = base + i * kEdictSize;
+                    if (kernel::R32(e)) continue;  // free
+                    uint32_t cls_id = kernel::R32(e + kEdictClassname);
+                    std::string cls = cls_id ? GuestString(kStringBase + cls_id) : std::string();
+                    ct += cls == "info_player_start";
+                    tt += cls == "info_player_deathmatch";
+                }
+                LOGI("spawns %s ct %u t %u, edicts %u of %u, maxclients %u", name, ct, tt, n, kernel::R32(kMaxEdicts),
+                     kernel::R32(kMaxClients));
                 logx::Flush();
             }
             if (held && edict)
