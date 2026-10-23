@@ -42,5 +42,6 @@
   water (its cube texture in Vulkan) ✅ 2026-10-22; G4 — the cube texture and Auto Exposure checks ✅ 2026-10-22;
   G5 — the bloom: GAUSSIANCUBIC, the composite's scissor, Bloom in PC Options ✅ 2026-10-22; G6 — Vulkan validation
   cleanup, Auto Exposure Off from the map's first frame ✅ 2026-10-22; G6.1 — the weapon over the HUD at a
-  wide FOV (Vulkan's depth clamp) ✅ 2026-10-23
+  wide FOV (Vulkan's depth clamp) ✅ 2026-10-23; G7 — Xbox Graphical Effects, the master over Bloom and Auto
+  Exposure ✅ 2026-10-23
 - M8 — PC feature set complete

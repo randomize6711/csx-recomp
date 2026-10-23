@@ -1776,6 +1776,92 @@ Exposure cause is the title's own (its light configs, read in the title), the fi
 Remaining uncertainty: that the NV2A stores a depth below 0 as 0 (and does not wrap it) is the integer buffer's
 behaviour as the reference models it, not measured on a console; the HUD's order and depth test are the title's own.
 
+## Xbox Graphical Effects (2026-10-23, G7)
+
+The question: which of the title's graphical effects a master "Xbox Graphical Effects" On / Off in PC Options can
+switch off without taking away part of the original picture's correctness. Answered from the earlier audits ("Graphics
+fidelity audit", "Bloom", "Dynamic gamma", "Auto Exposure at the start", "Water", "Flashbang", "Weapon over the HUD"):
+the title's render cvars and the passes it submits, read in both renderers; nothing new was assumed optional because
+PC Counter-Strike 1.6 lacks it.
+
+- **Optional, switched by the master** (each is a post pass the title itself skips while its cvar is 0, and each is
+  already a PC Options setting):
+
+  | Effect | Cvar | What Off leaves |
+  |---|---|---|
+  | Bloom: bright pass (2 t0 - 1 through GAUSSIANCUBIC) into 320x240, two blurs, the ONE / ONE composite with the map's intensity (0.5 on de_aztec and de_airstrip) | cl_hdrbloom (cl_hdrblur scales the blur's offsets, only while the bloom runs) | the frame without the glow (the title's 0) |
+  | Auto Exposure: the 40x60 luminance measurement, its histogram and the gamma ramp that follows it | cl_dynamicgamma | the title's identity ramp (0xBF030), one fixed brightness |
+
+- **Always on** (not effects that can be left out, or not the title's to switch):
+
+  | Kept | Why |
+  |---|---|
+  | GAUSSIANCUBIC as the 3x3 Gaussian (SDK patch 0035) | the filter the title asks for; its only user is the bloom's first pass, so with the bloom off nothing samples with it |
+  | The composite's scissor cleared at SetRenderTarget (patch 0034) | the XDK's behaviour (a fix, not an effect) |
+  | The flashbang's white-out (screen fade, G3; over the whole frame at every aspect) | gameplay: what blinds the player |
+  | de_aztec's water (the cube texture, the bump map's dependent reads, G4) | terms of the water's own pixel shader |
+  | Shadows (r_shadows' blob quads), lamp glows and light sprites, smoke, explosions, decals, de_airstrip's fog and mist sprites, the muzzle flash | the title's content; shadows are legibility ("Graphics fidelity audit") |
+  | Texture filtering (anisotropy x4, mipmaps), blending, alpha test, polygon offset | render state the title sets on each draw |
+  | Vulkan's depth clamp (G6.1), the depth range, resolution and aspect handling | rendering correctness and PC display settings, not Xbox effects |
+  | The brightness setting's own ramp | the title's options (the identity ramp follows them) |
+
+  Not emulated either way: DXT1 noise (a hardware dither). No new effect was added.
+
+- **Settings.** pc_settings.ini holds the saved preferences: "xbox_effects" (new, On by default), "bloom",
+  "auto_exposure" (On by default). What takes effect is master AND setting (src/common/pc_settings.cpp
+  pc::XboxEffect): pc_bloom.cpp and dynamic_gamma.cpp read it where they read their own setting before, so the
+  master is one more input to the code that already sets each cvar, takes the map's value back and gives it back.
+  The master never writes "bloom" or "auto_exposure"; Off then On with Bloom saved Off leaves the bloom off. The row
+  is the ninth of thirteen in PC Options, above Auto Exposure and Bloom (both menus' lists scroll).
+- **Precedence**, from the earliest to the latest word in a frame:
+  1. The cvars' defaults (cl_hdrbloom 0.6, cl_dynamicgamma 1) as the client registers them.
+  2. The map's light config ("exec <map>-light.cfg" at the client's map start) sets the map's cl_hdrbloom and
+     cl_dynamicgamma 1.
+  3. Right after it (the hook at 0xC408E) an effect that is off (master Off or its own setting Off) is set back to 0
+     before the map's first frame (Auto Exposure with the identity ramp); an effect that is on keeps the map's value,
+     which is also what On gives back later (map-specific intensities are kept, not stored by the master).
+  4. A setting changed while playing (the master, Bloom or Auto Exposure) sets the cvar through the console's own
+     command: Off 0 (and the identity ramp), On the intensity the cvar last held (the map's, or a console value) and
+     cl_dynamicgamma 1.
+  5. A console command (cl_hdrbloom X, cl_dynamicgamma X) is the title's own and stands as typed, also while the
+     master is Off: cl_hdrbloom until the Bloom setting's effect changes (the master or Bloom switched so that the
+     bloom goes on or off) or the next map; cl_dynamicgamma until any PC setting is changed (Auto Exposure re-asserts
+     itself on every change, as before G7) or the next map. A console intensity is what On gives back while it is
+     the last the cvar held; the next map's light config replaces it with the map's.
+  Every map start is a relaunch (a new process reading pc_settings.ini), so the master, as the other settings, holds
+  across map changes and restarts with nothing carried over in memory: no temporary override accumulates.
+- **Tests.** regress_xbox_effects (headless; started with the master saved Off): all eight combinations of master,
+  Bloom and Auto Exposure changed while playing at one held view; the cvars follow master AND setting (drive.py
+  `expect effects`, CSX_LOG_EFFECTS=1 logs the two cvars when either changes), the saved values stay as set, the
+  adjustment runs only with both On, and every frame with the master Off is the frame with the master On and both
+  effects Off (mean luminance within 0.0 of 60.8); the bloom brightens the sky with the master On (+7.6 levels in
+  the upper right quarter). vk_xbox_effects_43 / _219 (4:3, 21:9, FOV 120, the master saved Off): both effects off
+  from the first frame, the reserve ammunition over the K&M SMG within vk_viewmodel_hud's bounds (0.149 and 0.044,
+  the reference renderer's values) with the master Off, On and Off again (Off's frame unchanged, the identity ramp),
+  the flashbang's white-out full and even over the whole frame. vk_xbox_effects_169 (16:9 from the front end): the
+  relaunch into de_airstrip with both off, the pause menu's row turning the master On (saved; the map's 0.5 and the
+  adjustment back), a console cl_hdrbloom 0.8 kept through Off and On, Change Map to de_aztec with the master Off
+  (taken back before its first frame), On giving de_aztec's 0.5 rather than the console's 0.8, a console
+  cl_dynamicgamma 1 standing while Off until the next setting change. The menu tests' clicks follow the new row
+  (Auto Exposure now row 10, Bloom 11, Display Mode 12).
+
+- Performance (de_aztec's three held views, the window at 60, 120 and 240 frames per second; G6.1, G7 with the master
+  On, G7 with it Off): with the master On the GPU time per frame is G6.1's (1.009 to 1.031 / 0.786 to 0.795 / 0.914
+  to 0.927 ms against 1.018 to 1.027 / 0.790 to 0.801 / 0.912 to 0.929), the frame rate at 60 and 120 the limit;
+  at 240 (CPU bound) 153.1 / 174.4 / 186.4 against 152.8 / 181.9 / 196.5, recording 4.50 / 3.44 / 3.63 ms against
+  4.25 / 3.17 / 3.29: run to run noise of these views (G6.1's own run in G6.1 measured 150.8 / 172.6 / 186.6); the
+  change adds no per-frame work beyond two reads of settings on a change. With the master Off the GPU time drops
+  0.03 to 0.05 ms (the bloom's passes and the measurement skipped), 155.2 / 176.1 / 192.2 at 240. Memory 167 to 169
+  MB in all. Validation (the layers through vk_viewmodel_hud_169 on G6.1 and G7, and vk_xbox_effects_169 on G7): the
+  same message kinds as G6.1 (gamescope's WSI layer, OutputNotConsumed; the device extension message once per
+  process, three in vk_xbox_effects_169's relaunches), in proportion to the frames presented; nothing new.
+  Tests: headless 31 of 31, window 38 of 38.
+
+Remaining uncertainty: the optional set is the title's own two post passes; whether the console's dashboard or any
+other build had a switch for them is unknown (none in this XBE). The bloom's intensity On gives back is the last the
+cvar held: a map whose light config set no cl_hdrbloom would keep the previous one (de_aztec, de_airstrip and the
+other maps run in the tests set it).
+
 ## Buy menu taps (2026-10-22)
 
 - The title opens the buy menu on +buymenu's release (0x18FCB0, then 0xE62C0), and only for a tap: held 0.05 to 0.5

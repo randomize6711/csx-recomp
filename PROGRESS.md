@@ -469,3 +469,17 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
 - The radar's blue circle and de_airstrip's grey mist rectangles: the title's own, the same in both renderers.
 - Tests vk_viewmodel_hud_43, 169 and 219 (drive.py `expect bluefrac`; they fail on G6). Headless 30 of 30, window
   35 of 35; performance the same within noise at 60, 120 and 240; validation no new messages.
+
+## 2026-10-23 — Xbox Graphical Effects (G7)
+
+- PC Options > Xbox Graphical Effects (On / Off, default On; pc_settings.ini "xbox_effects"), above Auto Exposure and
+  Bloom: the master over the title's two optional post passes, Bloom (cl_hdrbloom) and Auto Exposure
+  (cl_dynamicgamma), found to be the only optional effects (FINDINGS.md "Xbox Graphical Effects": the rest is the
+  title's content, its own shader terms, gameplay or rendering fixes). What takes effect is master AND setting
+  (pc::XboxEffect); the saved Bloom and Auto Exposure are never rewritten; map intensities and console values behave
+  as with the individual settings.
+- CSX_LOG_EFFECTS=1 and drive.py `expect effects`; tests regress_xbox_effects (all eight combinations),
+  vk_xbox_effects_43/169/219 (persistence through relaunches, Change Map, the menu row, console values, the HUD over
+  the weapon and the flashbang's white-out with the master Off). The menu tests follow the new row.
+- Headless 31 of 31, window 38 of 38; performance the same as G6.1 within noise (master Off 0.03 to 0.05 ms less GPU
+  time); validation no new messages.
