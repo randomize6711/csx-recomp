@@ -1,0 +1,27 @@
+# 65 player slots (G8.2B): 64 bots and the player on de_dust2 (8 Counter-Terrorist and 8 Terrorist spawn points:
+# every point reused by about four players), headless, Player Collision On. Players sharing a point overlap or push
+# apart (a death at spawn is accepted: FINDINGS.md "Player slots, 65"). 65 players, the teams 32 and 33, the bots
+# walking, kills; no guest trap and no guest table overrun. (A new map is a new match: the front end relaunches the
+# title; the console's changelevel and map do not change maps in this Xbox build, with 17 players as with 65.)
+#   --env FPS=30 --env CSX_LOG_SERVERTIME=1 --env CSX_LOG_MEMORY=1 --launch tests/launch/de_dust2_bots64
+wait log open D:\\de_dust2\.sxwad
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 25
+players d2start
+expect playercount d2start 65 65
+spawns d2
+sleep 20
+players d2walk
+expect bodiesmoved d2start d2walk 100 32
+count game:.*killed 2
+expect teams 1 32
+expect nolog guest trap
+expect nolog guest table overrun

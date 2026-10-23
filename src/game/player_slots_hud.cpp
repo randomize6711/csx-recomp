@@ -3,6 +3,8 @@
 // where the original writes a table with them unchecked (a malformed or hostile message must not write past a
 // table), clear what the original's unrolled stores cannot reach, and read and write the voice masks, which are 3
 // dwords now (VoiceMask, vban).
+#include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -220,4 +222,35 @@ X86_FUNC(sub_001A5FC0) {
 // an entity number past it skips the state (0x190E7E) instead of indexing out of the table
 bool SlotsStudioPlayerIndex(X86Context& ctx, uint8_t*) {
     return ctx.ecx < guest_tables::Production(guest_tables::k_studio_player_state).count;
+}
+
+// --- the scoreboard's pages ---
+
+namespace {
+constexpr uint32_t kPageRows = 20;       // the rows the scoreboard's list shows (the HUD's 640x480 layout)
+constexpr double kPageSeconds = 5.0;     // a page shown this long before the next
+std::chrono::steady_clock::time_point g_scores_seen, g_page_start;
+uint32_t g_page = 0;
+}  // namespace
+
+// [[hook]] at 0x1B98A0 (ScorePanel::FillGrid's row loop, ebp = the panel, [esp+0x44] = the row): with 65 players the
+// rows (two team headers, the players, spacers) pass what the list shows (about 20; it does not scroll), so the
+// scoreboard pages: 20 rows at a time, the next page every 5 s while it stays open, the first page each time it opens;
+// a row off the page is skipped (false: 0x1B9979, the loop's next row)
+bool SlotsScoreRowShown(X86Context& ctx, uint8_t*) {
+    auto now = std::chrono::steady_clock::now();
+    uint32_t row = R32(ctx.esp + 0x44), rows = R32(ctx.ebp + 0x19C) + 1;
+    if (row == 0) {
+        if (now - g_scores_seen > std::chrono::milliseconds(500)) g_page = 0, g_page_start = now;  // just opened
+        g_scores_seen = now;
+        uint32_t pages = (rows + kPageRows - 1) / kPageRows;
+        if (pages <= 1) {
+            g_page = 0;
+        } else if (std::chrono::duration<double>(now - g_page_start).count() >= kPageSeconds) {
+            g_page = (g_page + 1) % pages;
+            g_page_start = now;
+        }
+        g_page %= std::max<uint32_t>(pages, 1);
+    }
+    return row / kPageRows == g_page;
 }

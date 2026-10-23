@@ -19,6 +19,8 @@ begins at the map load (about 45 s headless to a moving player instead of about 
 | de_aztec_2bots_nocollide | de_aztec_2bots with "+pc_player_collision 0" at the end, as Custom Options > Player Collision Off gives it | the same, player collision Off |
 | de_aztec_bots7, _bots11, _bots16, _bots24 | de_aztec_nobots with "+bot_quota N" (7, 11, 16, 24) and "+mp_roundtime 1 +mp_freezetime 3" | bot counts on de_aztec (16 / 18 spawn points): the original default, the original's most, the 17 slots full, more asked than the slots hold |
 | de_dust2_bots16 | the same on de_dust2 with "+bot_quota 16" | 8 / 8 spawn points: the sixteenth bot is refused (team full) |
+| de_aztec_bots64, _bots64_nocollide | de_aztec_bots16 with "+bot_quota 64" (and "+pc_player_collision 0" at the end) | 64 bots and the player: the 65 player slots full (G8.2B) |
+| de_dust2_bots64 | de_dust2_bots16 with "+bot_quota 64" | 64 bots on 8 / 8 spawn points (each point reused by four players) |
 | de_dust2_bots16_nocollide | de_dust2_bots16 with "+pc_player_collision 0" at the end | the same, player collision Off |
 
 The profile the front end creates (E:\UDATA, E:\TDATA) is not needed for the match. Started this way, the player spawns

@@ -826,3 +826,9 @@ call = "SlotsSpawnCounts"
 at = 0x190E53
 call = "SlotsStudioPlayerIndex"
 on_false = 0x190E7E
+
+# the scoreboard pages through its rows when they pass what its list shows (src/game/player_slots_hud.cpp)
+[[hook]]
+at = 0x1B98A0
+call = "SlotsScoreRowShown"
+on_false = 0x1B9979

@@ -1,0 +1,25 @@
+# Performance with 16 bots (G8.2B, FINDINGS.md "Player slots, 65"): de_aztec in the Vulkan window at 1920x1080,
+# VSync Off, Frame Rate Limit 240, the player joining the Counter-Terrorists and held at one view (setview: the same
+# picture in every run) for 60 s after the bots joined; the log's frame timing (frames/s, the 95th and 99th percentile
+# interval), the renderer's GPU and CPU recording time a frame, CSX_LOG_SERVERTIME's server frame and CSX_LOG_MEMORY's
+# memory are what the benchmark reads (no limits asserted: a measurement).
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --env CSX_LOG_SERVERTIME=1 --env CSX_LOG_MEMORY=1 --launch tests/launch/de_aztec_bots16 --pc vsync=0 --pc frame_rate=240
+wait log open D:\\de_aztec.sxwad
+sleep 15
+key Down
+sleep 2
+key Down
+sleep 2
+key Space
+sleep 6
+key Left_Ctrl
+sleep 30
+players p
+expect playercount p 17 17
+setview 2600 -288 -180 180 0
+sleep 60
+windowshot view
+setview off
+expect nolog guest trap
+expect nolog guest table overrun
