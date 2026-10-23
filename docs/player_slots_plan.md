@@ -1,7 +1,13 @@
-# Player slots past 17: investigation and plan (2026-10-23)
+# Player slots past 17: investigation and plan (2026-10-23, revised for G8.2B)
 
-Goal: 64 bots plus the human (65 slots) in a single player Custom Game, if it can be done safely. G8.2's first
-part (16 bots in the original 17 slots, commits on branch g8.2) is the baseline this builds on.
+Goal (G8.2B): **65 player slots** for any mix of humans and bots, with networking designed for future PC
+multiplayer. The baseline is G8.2's first part: 16 bots in the original 17 slots, committed on branch g8.2.
+
+The project is PC first (ARCHITECTURE.md "Direction: PC first"), which shapes this plan:
+- **65 is the only target.** There is no 17-slot legacy mode and no intermediate 33-slot milestone.
+- **Original Xbox networking compatibility is dropped.**
+- **Player Collision stays independent of the player count.**
+- **The maps' own spawn points are reused** when there are more players than spawn points.
 
 Evidence: static disassembly of `build/ghidra/default_flat.exe`. Nothing in this document was changed in code. The
 detailed tables, with the address behind every claim and P (proved from the code) / I (inferred from HL1 source)
@@ -90,7 +96,7 @@ The game's other limits that matter for 64 bots:
 **Protocol**
 
 - **svc_pings sends the slot in 5 bits** (writer 0x9DC42, reader 0x319A0 with no bounds check). That is already broken
-  at 33, so it needs 7 bits for 65.
+  at 33, so it becomes a byte (step 3).
 - **VoiceMask is two 32-bit longs**, and the client's ban sender loops to 32 and sends one dword.
 
 ### Only matters at 65
@@ -133,19 +139,21 @@ The game's other limits that matter for 64 bots:
 2. **Dependents.** Section 2. These are the analysis files' tables.
 3. **Origin.** The original game. The framework only lacks a tool.
 4. **32 / 64 / 65 slots.**
-   - **33** needs every item in "for any count above 17".
-   - **65** adds the items in "only at 65". Those are small next to the frame and HUD relocation.
-   - **No hard blocker was found for either.** Nothing fixed by the wire format stops below 65, apart from svc_pings
-     and VoiceMask, which both ends can be changed for.
-   - The work is the same for 33 and 65 if every table is sized by one constant N. So the plan builds for N = 65 and
-     tests at 33 and 65.
-5. **Protocol.**
-   - **Required.** svc_pings goes from 5 to 7 bits. Voice masks are clamped (no voice in a local match). Both ends are
-     this binary over loopback, so that is safe locally.
-   - **System link and Live.** An original console rejects maxclients > 17 (0x2E8E1) and decodes svc_pings with 5
-     bits. So an expanded match must never be offered or hosted over system link or Live, and the front end has to
-     refuse that. Joining a 17-slot server from this build stays compatible only if the wider svc_pings is used for
-     expanded matches only (the slot count in svc_serverinfo selects it).
+   - **No hard blocker was found.** 65 needs every item in section 2, including the ones that only matter at 65.
+   - Every table is sized by one constant N = 65 (`kMaxPlayers`). 33 is not a separate milestone, but a 33-player
+     match is still a useful extra test case.
+5. **Protocol.** It is designed for PC multiplayer between builds of this port. Original Xbox compatibility is dropped.
+   - **Player slot fields become a full byte everywhere**, room for 255 slots; svc_pings' 5-bit field is the one
+     that has to change. Every other player index on the wire is already a byte.
+   - **Voice masks are sized for N on both ends**, not clamped, so voice can work in future online play.
+     That covers VoiceMask, the ban mask sender and the server's voice tables. StatShot's 16-bit masks are widened
+     the same way.
+   - **The protocol version is raised.** Both ends already check it (the server's SV_CheckProtocol, the client's
+     CL_Parse_Version: strings at 0x3277C0 and 0x31BE98). An original console or an older build is then refused
+     cleanly instead of misreading packets.
+   - **System link and Live are not kept compatible with the console.** Future PC online play needs its own
+     transport and matchmaking; that is a later milestone, not this one.
+   - **One wire format** for every match, with no per-match 5-bit mode.
 6. **Plan.** Section 4.
 
 ## 4. Implementation plan
@@ -182,12 +190,9 @@ of corrupting memory.
 
 - The constants and the client_t block, and the four loops bounded by 17.
 - Relocate the lag compensation, ping and loss tables.
-- Voice manager:
-  - clamp ClientConnected to its maximum;
-  - keep voice at most 32 players;
-  - move the client_t voice bits out for 65.
-- StatShot: grow the block to N+1 ints, and clamp the Send loop and the 16-bit masks so players past 16 are left out
-  of that statistic rather than overflowing.
+- Voice manager: relocate its tables to [N] with ceil(N/32) = 3 dwords per mask, raise its limit to N, give
+  ClientConnected a bounds check, and move the client_t listen bits (64 today) out to an N-bit table.
+- StatShot: grow the block to N+1 ints, the Send loop to N, and its masks to N bits.
 - Grow CSoundEnt's pool to 64 + N.
 - Give trigger_hurt's mask a host-side side table through a hook (at 33 and up).
 
@@ -207,44 +212,59 @@ of corrupting memory.
 
 ### Step 3: Protocol
 
-- svc_pings uses 7 bits when maxclients > 17, and 5 bits otherwise, so a 17-slot match is unchanged on the wire.
-- Hosting or joining system link and Live is limited to 17 slots. A server with more refuses the original
-  client's connection.
+- svc_pings' slot becomes 8 bits. VoiceMask, the ban mask and StatShot carry N-bit masks.
+- The client's limits are raised to N: Bad maxclients, updateuserinfo, customization.
+- The protocol version is raised. One format for every match.
+- The menu's server options, which offer up to 17 players for a hosted game (0xE3DE0), offer up to N. Hosting over
+  the console's system link and Live transport is left as it is today; PC online play is a later milestone.
 
-**Complexity: small.**
+**Complexity: small to medium.**
 
-### Step 4: Spawn capacity (needs a gameplay decision)
+### Step 4: Spawn capacity: the original spawn points reused
 
-No map has more than 18 spawns a team, so 64 bots cannot join under the game's own team-full rule.
+No map has more than 18 spawns a team, and the game treats a team as full at its spawn count. So 64 bots cannot
+join under that rule.
 
-- **Option A (recommended): extra spawn points at map load.** The host creates additional `info_player_start` /
-  `info_player_deathmatch` entities next to the map's own. Positions are tested with the game's hull trace, so nothing
-  is stuck in walls. The assets are not modified. TeamFull then counts them, unchanged.
-- **Option B: lift TeamFull.** Players then stack on occupied spawns, which G8.2 showed leaves two players in one spot.
-  Not recommended.
+**The team-full test changes.** TeamFull (0x146E00) and its three inline copies, at 0x13B3CC, 0x162C0F and 0x162693,
+stop counting spawn points. A team is full only when the slots are; mp_limitteams and team balance stay as they are.
 
-**Complexity: medium.**
+**When a team has more players than spawn points, the original points are reused.** No points are generated, and the
+assets are not modified. The game's own spawn choice already passes over occupied points and then falls back to one
+(the fallback is inferred from the SDK, around 0x11EB00; to be checked).
+
+**Player Collision stays independent of the count.**
+- **Collision Off:** players on a reused point pass through each other and walk off, as G8.2 saw.
+- **Collision On:** they must not end up stuck inside one another. G8.2 saw no two players within 31 units in 7
+  collision-On runs with every point taken, but that was with 16 players. 32 players on a team of 8 points is 4 per
+  point. If the game's own unsticking does not separate them in the first moments, players on a reused point are
+  placed at hull-tested positions around it. Those positions are checked with the game's own hull trace, so no one
+  lands in a wall or another player. Spawn protection and freeze time are unchanged.
+
+**Complexity: medium.** The unknown is how the game's unsticking behaves with four players on one point; it is
+measured first.
 
 ### Step 5: Menu, tests, measurements
 
 **Menu**
 
-- "Number of Bots" goes up to the verified maximum.
-- The limit should be set by spawn capacity as well as slots. The map is chosen after the bot count, so the screen
-  states the maximum, and the game reports bots that cannot join.
+- "Number of Bots" offers 0 to 64. The maximum is the slots minus the humans in the match, and the screen states it.
+- Spawn points no longer limit the count (step 4).
 
 **Tests**
 
-- Regression tests at 33 and 65 slots with guard pages on:
+- Regression tests with 65 slots and guard pages on, at 64 bots and at a smaller count:
   - joining, movement, kills, rounds and team balance;
   - the scoreboard at 65 (the list widget's scrolling is not analysed yet);
   - collision On and Off.
-- A 17-slot match must be unchanged: the existing suites, plus svc_pings still 5 bits.
+- The existing suites must pass with 65 slots. Their 17-player expectations, such as regress_bots_aztec_24's
+  "17 of 24", are updated to the new capacity. That is the feature changing, not a test being weakened, and each such
+  change is listed in the report.
 
 **Measurements**
 
-- Benchmarks of server and bot time and memory at 17, 33 and 65 slots.
-- The guest heap's headroom at 65, measured.
+- Benchmarks of server and bot time and memory at 16, 32 and 64 bots.
+- The guest heap's headroom at 65, measured. If it is short, the guest memory is enlarged (an SDK patch on
+  mem::kPhysicalSize, 64 MB today) rather than lowering the slot count.
 
 ## 5. Unknowns, to be settled by steps 0 to 2
 
@@ -258,9 +278,9 @@ No map has more than 18 spawns a team, so 64 bots cannot join under the game's o
 
 | Checkpoint | Work | Ends with |
 |---|---|---|
+| 0 | This investigation and plan | Approval to begin implementation (the current boundary) |
 | 1 | Step 0 | The tool, the manifest and its test. Nothing in the game changes; the existing suites pass. |
-| 2 | Steps 1 to 3 at N = 33 | A 33-slot match (32 bots, on maps with spawns added under step 4, or on de_aztec / de_chateau with 34 to 35 points). The 17-slot suites unchanged. |
-| 3 | N = 65 and step 4 | 64 bots plus the player, measured. |
-| 4 | Step 5 | The menu, docs, report. |
+| 2 | Steps 1 to 4 at N = 65 | 64 bots plus the player in a match, with guard pages on and the audit clean |
+| 3 | Step 5 | The menu, tests, benchmarks, docs and report |
 
 Each checkpoint stops for approval.

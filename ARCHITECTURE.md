@@ -6,6 +6,26 @@ A standalone native PC executable built by statically recompiling Counter-Strike
 (x86 → C++), linked with a host implementation of the Xbox kernel and XDK APIs. The original XBE remains the
 authoritative source of game behaviour; it is supplied by the user at build/run time and never committed.
 
+## Direction: PC first (2026-10-23)
+
+The port is developed as a native, modern PC game. **Compatibility with the original Xbox is not a requirement.**
+Xbox hardware limits, networking protocols (system link, Live), memory limits, rendering constraints and engine
+capacity limits are not kept only for compatibility with the console.
+
+Decisions are weighed in this order:
+1. Modern PC hardware and operating systems.
+2. Performance, stability and memory safety.
+3. A maintainable, extensible engine architecture.
+4. Future PC online multiplayer.
+5. Expanded gameplay and modding.
+6. Modern rendering and graphical improvements.
+7. The desirable Counter-Strike gameplay behaviour (not obsolete technical restrictions).
+
+Working systems are not rewritten merely because they come from the Xbox. They are modernized when that gives a
+concrete benefit or removes a relevant limit. The XBE stays the source of the game's behaviour (Goal). The other
+rules (assets unmodified, SDK changes as patches, simulation timing untouched, each milestone's own requirements)
+still apply unless a milestone changes them. Applied first in G8.2B (65 player slots, docs/player_slots_plan.md).
+
 ## Layers
 
 ```
