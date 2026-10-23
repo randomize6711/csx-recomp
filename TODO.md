@@ -50,6 +50,10 @@
 1b. The gamma fade after a long frame is the dynamic gamma (FINDINGS.md "Graphics fidelity audit"): see G2 above.
 1c. Player-driven objectives (defuse, plant) with scripted movement per map.
 2. Compare in-game rendering with xemu (dark sky/wall area on de_airstrip, lightmaps, fog, rain, colours).
+2a. Thin vertical rain streaks over de_airstrip in the Vulkan window that the reference renderer's frames do not show
+   (seen during G6.1, not investigated). Without VK_EXT_depth_clip_enable and VK_EXT_depth_clamp_control the depth
+   clamp is skipped (logged) and the HUD can be lost behind the weapon at a wide FOV (FINDINGS.md "Weapon over the
+   HUD").
 4. Prove the 8 register-convention D3D functions and the 12 unproven ones (analysis/missing_symbols_5659.md).
 5. Relative paths without a drive ("valve/gfx/vgui/mouse.tga", "launcher/voice_ban.dt"): console semantics.
 6. Unhandled DSOUND export B0080 at 0x246488 (still runs original code); MultiSampleMode adjustment (logged only).

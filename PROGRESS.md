@@ -458,3 +458,14 @@ Current blocker: 5659 D3D [data]/[layout] values and 15 LTCG [abi] maps (paralle
   percentile.
 - Tests: headless 30 of 30, window 32 of 32. Performance against G5 the same within noise at 60, 120 and 240;
   memory 0.6 to 2 MB lower.
+
+## 2026-10-23 — Weapon over the HUD (G6.1)
+
+- At a wide FOV (120) the first-person weapon hid parts of the money, ammunition and timer in Vulkan (FINDINGS.md
+  "Weapon over the HUD"): the cull range below 0 (since G3) kept the weapon's parts 2 to 4 units from the eye at a
+  negative depth in the float buffer, and the HUD, depth tested at 0, failed against them. The console's integer
+  buffer and the reference renderer store them at 0. Fix: depth clamped to 0 to 1 (VK_EXT_depth_clamp_control's user
+  range, clipping kept by VK_EXT_depth_clip_enable). The weapon, its FOV, placement and the HUD's layout unchanged.
+- The radar's blue circle and de_airstrip's grey mist rectangles: the title's own, the same in both renderers.
+- Tests vk_viewmodel_hud_43, 169 and 219 (drive.py `expect bluefrac`; they fail on G6). Headless 30 of 30, window
+  35 of 35; performance the same within noise at 60, 120 and 240; validation no new messages.

@@ -1711,6 +1711,71 @@ the write-after-write and destroy-in-use hazards never showed on screen here, an
 them (a black or stale frame, a fault). Nothing in this section depends on the console or on xemu: the Auto
 Exposure cause is the title's own (its light configs, read in the title), the fixes are Vulkan usage.
 
+## Weapon over the HUD (2026-10-23, G6.1)
+
+- Seen in play (16:9 full screen at 3840x2160, FOV 120, de_airstrip, the K&M SMG): parts of the money and ammunition
+  numbers hidden behind the first-person weapon, others drawn over it. Not every number, not every weapon: a depth
+  test, not an order. Reproduced in the Vulkan window on de_aztec at a held view (tools/drive.py setview) at 4:3, 16:9
+  and 21:9 with FOV 120 and the K&M SMG; not at FOV 90 (the default), not in the reference renderer at any setting.
+- The title's order and state (CSX_VK_STEPSHOTS' per-draw log of the frame): the 3D view (the world, the player
+  models, then the weapon: fixed function fans and strips, depth tested and written, the viewport's MinZ -1, MaxZ 1,
+  the GL layer's glDepthRange(0, 1)), the post pass (bloom), then the HUD: textured quads, blended, depth test on
+  (ZEnable 1, LEQUAL), depth writes off, an orthographic projection with z 0 and MinZ 0, MaxZ 1. So the HUD is drawn
+  last and is depth tested against the view: it shows wherever the view's depth is at or above 0. The weapon uses the
+  world's projection and depth range (FINDINGS.md "FOV and widescreen": there is no viewmodel FOV or depth hack).
+- The depth. With the view's projection (its z row -1.00025, -2.00025) and MinZ -1, MaxZ 1, screen z is
+  1.0005 - 4.0005 / d times the Z scale for an eye distance d: -1 at 2 units, 0 at 4 (the probe's vertices below fit
+  it: w 3.189, z -0.254 of the Z scale). The console's cull range for the fixed function is MinZ to MaxZ (-1 to 1,
+  FINDINGS.md "Flashbang", SDK patch 0033), so what lies 2 to 4 units from the eye is kept, below 0. The console's
+  depth buffer is a 24 bit integer (0 to the Z scale): it cannot hold a value below 0, which is stored (and compared)
+  as 0. The reference renderer does that (it culls at MinZ to MaxZ, then
+  clamps to 0 to the Z scale for the test and the store): at a lost digit of the reserve ammunition its probe saw the
+  weapon's triangle at screen z +1.28M to -4.75M (Z scale 16.78M), stored 0, and the HUD's quad at 0 pass (LEQUAL).
+  Vulkan's depth buffer is D32F and its viewport took the cull range as it is (VK_EXT_depth_range_unrestricted): the
+  weapon's fragments kept their negative depth and the HUD's 0 failed against them. At FOV 90 the weapon's parts that
+  close to the eye are outside the frame; at FOV 120 the frame reaches them (the arm, the magazine and the receiver at
+  the bottom right, where the money and ammunition are).
+- Not the HUD's layout, the weapon's projection or placement, the draw order or an aspect ratio handling: the same
+  frame in the reference renderer draws every number over the weapon, at every aspect.
+- Since G3 (5a80764, the flashbang's white-out: the cull range at MinZ to MaxZ through the unrestricted depth range):
+  before it Vulkan clipped at 0 to 1, so those weapon parts were not drawn at all and the HUD showed. Present in G5
+  and G6 (the G5 build loses the same digit, 12,12,14 against the reference's 46,62,67).
+- The fix (src/vulkan/vk_backend.cpp): every pipeline clamps fragment depth to 0 to 1 (rasterization's
+  depthClampEnable with a user defined clamp range [0, 1], VK_EXT_depth_clamp_control) and keeps clipping at the
+  viewport's depth range, the cull range (VK_EXT_depth_clip_enable, which a clamp would otherwise turn off): culled at
+  MinZ to MaxZ, then stored and compared within the buffer's range, as on the console. Depth bias comes before the
+  clamp, as in the reference. A range of 0 to 1 is unchanged (its fragments are already within it).
+  VK_EXT_depth_clamp_zero_one was tried first and does not do it: with a float buffer and the unrestricted range its
+  clamp leaves values outside 0 to 1 as they are. Without the two extensions the log says so and depth is not clamped
+  (the HUD can then be lost behind a weapon at a wide FOV, as before).
+- Checked (the Vulkan window against the reference renderer, the same steps and held view, de_aztec, FOV 120 at 4:3,
+  16:9, 21:9 and FOV 90 at 16:9): the Glock, the knife, the K&M SMG at rest and after a burst, its reload, a switch part
+  way, the CV-47. HUD pixels the reference has and Vulkan lost in the bottom band (rows 800 to 900 of 960, more than 40
+  levels darker): the K&M SMG at rest 219 to 220 before, 3 to 4 after; after a burst 756 to 768 before, 3 to 4 after;
+  the Glock, the knife and the CV-47 0 to 10 either way; at FOV 90 none either way. The reload and the switch differ
+  by their animation frame (the two renderers' shots are not the same instant), with the HUD over the weapon in both.
+  The weapon itself, its animations, proportions and placement are unchanged (the same model, projection and
+  position; only depth values below 0 change, to 0).
+
+- Performance (de_aztec's three held views, the window at 60, 120 and 240 frames per second, G6 against G6.1): GPU
+  time per frame 0.82 to 1.07 ms in both, recording 3.3 to 4.4 ms in both, the frame rate and its 95th percentile the
+  same within noise (240: 150.8 to 186.6 against 151.5 to 181.5), memory within 1 MB. Validation (the layers through
+  vk_viewmodel_hud_169): no new message; the gamescope WSI layer's and OutputNotConsumed as after G6 (FINDINGS.md
+  "Vulkan validation"). Tests: headless 30 of 30, window 35 of 35 (vk_viewmodel_hud_43, 169 and 219 new; they fail
+  on G6, the log line and the share of the ammunition's blue).
+
+- The translucent shapes in the same screenshot: the blue circle at the top left is the radar (the title's, translucent
+  with the view cone; the same in both renderers). The large translucent grey rectangles across the scene, with
+  straight edges, are de_airstrip's mist sprites over the water: camera facing quads (one depth per quad), grey 0.29
+  at alpha 0.12 to 0.16, SRC_ALPHA / INV_SRC_ALPHA (the reference's probe at a mist pixel: draws 696 and 737), their
+  straight edges where the quad meets the ground and the water under the depth test, as GoldSrc sprites do. The same
+  in the reference renderer; intended (the title's content), not changed.
+- Seen on the way, not investigated: thin vertical rain streaks over de_airstrip in Vulkan that the reference
+  renderer's frames do not show.
+
+Remaining uncertainty: that the NV2A stores a depth below 0 as 0 (and does not wrap it) is the integer buffer's
+behaviour as the reference models it, not measured on a console; the HUD's order and depth test are the title's own.
+
 ## Buy menu taps (2026-10-22)
 
 - The title opens the buy menu on +buymenu's release (0x18FCB0, then 0xE62C0), and only for a tap: held 0.05 to 0.5
