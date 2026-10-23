@@ -15,6 +15,8 @@ begins at the map load (about 45 s headless to a moving player instead of about 
 | Fixture | Made from | Contents |
 |---|---|---|
 | de_airstrip_beginner | regress_boot_to_spawn (Single Player, de_airstrip, Beginner defaults) | the launch page (only the image path and binary fields; no profile name) and releasemap.txt |
+| de_aztec_2bots | de_aztec_nobots with "+bot_quota 2 +bot_join_team ct +mp_autoteambalance 0 +mp_limitteams 0" | two Counter-Terrorist bots against the player (the player collision tests; no collision setting: the title's own) |
+| de_aztec_2bots_nocollide | de_aztec_2bots with "+pc_player_collision 0" at the end, as Custom Options > Player Collision Off gives it | the same, player collision Off |
 
 The profile the front end creates (E:\UDATA, E:\TDATA) is not needed for the match. Started this way, the player spawns
 at the same position as after the full boot (regress_player_control's 765.1 unit run reproduced exactly).

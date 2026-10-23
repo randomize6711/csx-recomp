@@ -1,0 +1,170 @@
+# Custom Game > Player Collision through the front end, map changes and relaunches, in the Vulkan window at 16:9, FOV
+# 120 (FINDINGS.md "Player collision", src/game/pc_menu.cpp, pc_collision.cpp): the single player match's Custom Options
+# show the row last (ten rows); Off (the arrow keys) goes with the match's command line into de_airstrip (a relaunch)
+# before anyone spawns; the pause menu's Change Map keeps it (de_aztec, a relaunch with the same options); Quit returns
+# to the front end, which keeps the Custom Options' choices (the game's own, this row's with them): the next match is
+# Off again; Reset (the help bar's X) gives the row its default, On, and the match after it has collision on. The HUD in
+# play (FOV 120) as before.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --pc aspect=16:9 --pc fov=120
+wait log renderer: vulkan
+wait log open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+key Down
+sleep 2
+key Space
+sleep 5
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Space
+sleep 5
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Right
+sleep 1
+key Right
+sleep 1
+key Right
+sleep 1
+key Space
+sleep 4
+expect log pc mouse: screen SuperLauncher_SinglePlayerMatchCustomOptions, 10 rows
+windowshot custom
+expect image custom 20
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Right
+sleep 1
+windowshot custom_off
+key Space
+sleep 3
+expect log pc mouse: screen SuperLauncher_SinglePlayerMatchMapList
+key Space
+wait log relaunching into
+wait log open D:\\de_airstrip.sxwad
+expect log pc: player collision off \(Custom Options\)
+sleep 20
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 20
+key Left_Ctrl
+sleep 10
+windowshot play
+expect image play 20
+key Escape
+sleep 2
+point 300 193
+sleep 0.5
+click 1
+sleep 3
+point 320 142
+sleep 0.5
+click 1
+sleep 2
+expect log pc mouse: screen InGame_ConfirmChangeMap
+point 320 273
+sleep 1
+click 1
+wait log open D:\\de_aztec.sxwad
+count pc:.player.collision.off.\(Custom.Options\) 2
+sleep 25
+expect log pc mouse: screen TeamSelect_RootSinglePlayer
+point 318 249
+sleep 0.5
+click 1
+sleep 4
+key Left_Ctrl
+sleep 10
+expect count pc:.player.bodies:.*client.0's.move 2
+key Escape
+sleep 2
+point 300 297
+sleep 0.5
+click 1
+sleep 2
+expect log pc mouse: screen InGame_ConfirmQuit
+point 320 273
+sleep 0.5
+click 1
+count relaunching.into 3
+sleep 25
+expect log pc mouse: screen SuperLauncher_SinglePlayerMatchOptions
+key Space
+sleep 4
+expect count pc.mouse:.screen.SuperLauncher_SinglePlayerMatchCustomOptions, 2
+windowshot custom_kept
+key Space
+sleep 3
+key Space
+count relaunching.into 4
+count pc:.player.collision.off.\(Custom.Options\) 3
+sleep 20
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 20
+key Left_Ctrl
+sleep 10
+key Escape
+sleep 2
+point 300 297
+sleep 0.5
+click 1
+sleep 2
+point 320 273
+sleep 0.5
+click 1
+count relaunching.into 5
+sleep 25
+key Space
+sleep 4
+expect count pc.mouse:.screen.SuperLauncher_SinglePlayerMatchCustomOptions, 3
+point 335 428
+sleep 0.5
+click 1
+sleep 1
+windowshot custom_reset
+key Space
+sleep 3
+key Space
+count relaunching.into 6
+wait log pc: player collision on \(Custom Options\)
+expect count pc:.player.collision.off.\(Custom.Options\) 3
+expect nolog guest trap

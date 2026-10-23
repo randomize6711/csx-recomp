@@ -1,0 +1,122 @@
+# Custom Game > Player Collision Off, headless (FINDINGS.md "Player collision", src/game/pc_collision.cpp): bodies pass
+# through each other, nothing else changes. On de_aztec with two Counter-Terrorist bots held still (bot_stop 1: no
+# thinking; their movement physics still run) and the player on the other team, bodies are put in each other's way
+# (tools/drive.py place, players):
+# - the player walks at bot 1 (+forward 2 s from 256 units away; the open floor reaches 557): it walks through and on as
+#   far as on open floor (520 to 620 units)
+# - the player dropped from 110 units onto bot 1's head: it falls through to the floor
+# - bot 2 dropped onto bot 1's head: it falls through to the floor
+# - shots: a Glock shot at bot 1 from 128 units hurts it; an HE grenade (bought through the buy menu) thrown at it hurts
+#   it again: damage and hit detection are the title's
+# - the world: walking at the wall 176 units behind stops at it (160 units on)
+# - a round restart (sv_restartround 1): everyone spawns apart, the setting is not applied again, a player dropped on
+#   bot 1's head still falls through
+# - "pc_player_collision" typed once the match runs is refused (the setting is the match's, from its start).
+#   --env FPS=30 --launch tests/launch/de_aztec_2bots_nocollide
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+expect log pc: player collision off \(Custom Options\): players and bots pass through each other
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 3
+pckey tap +buymenu 0.2
+sleep 1.5
+pckey pointer 227 351
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 286 321
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey mclick 2
+sleep 1
+pckey mclick 2
+sleep 12
+pckey cmd bot_stop 1
+sleep 1
+place 1 2352 0 -251.969
+place 2 2352 400 -251.969
+setview 2352 -256 -251.969 90 0
+sleep 2
+setview off
+sleep 1
+players walk0
+pckey cmd +forward
+sleep 2
+pckey cmd -forward
+sleep 1
+players walk1
+expect bodymoved walk0 walk1 0 520 620
+expect apart walk1 0 1 250 999
+expect bodymoved walk0 walk1 1 0 1
+place 0 2352 0 -141.969
+sleep 2
+players drop
+expect bodyz drop 0 -253 -251
+place 0 2352 -400 -251.969
+place 2 2352 0 -141.969
+sleep 2
+players botdrop
+expect bodyz botdrop 2 -253 -251
+expect log pc: player bodies: [0-9]+ of [0-9]+ physents \(players\) left out of client 2's move
+expect bodyz botdrop 1 -271 -251
+place 2 2352 400 -251.969
+setview 2352 -128 -251.969 90 0
+sleep 2
+players preshot
+expect health preshot 1 100 100
+pckey cmd +attack
+sleep 0.1
+pckey cmd -attack
+sleep 1
+players shot
+expect healthdrop preshot shot 1 1 99
+pckey key 52 1
+sleep 0.1
+pckey key 52 0
+sleep 1.5
+state nade
+expect weapon nade 4
+setview 2352 -200 -251.969 90 25
+sleep 1.5
+pckey cmd +attack
+sleep 0.4
+pckey cmd -attack
+sleep 4
+players nade
+setview off
+expect healthdrop shot nade 1 1 999
+setview 2352 -256 -251.969 270 0
+sleep 2
+setview off
+sleep 1
+players wall0
+pckey cmd +forward
+sleep 2
+pckey cmd -forward
+sleep 1
+players wall1
+expect bodymoved wall0 wall1 0 159 161
+pckey cmd sv_restartround 1
+sleep 5
+players round2
+expect spawnapart round2 32
+expect count pc:.player.collision.o[nf] 1
+sleep 12
+place 1 2352 0 -251.969
+place 2 2352 400 -251.969
+sleep 1
+place 0 2352 0 -141.969
+sleep 2
+players drop2
+expect bodyz drop2 0 -253 -251
+pckey cmd pc_player_collision 1
+wait log pc: player collision is set at the match's start \(Custom Options\): stays off
+expect nolog guest trap

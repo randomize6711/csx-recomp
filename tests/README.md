@@ -165,6 +165,20 @@ frame, the HUD over the weapon (`expect bluefrac`, vk_viewmodel_hud's bounds) an
 (`expect coverage`) unchanged by the master, On and Off again while playing. `vk_xbox_effects_169.txt` (from the front
 end): the relaunch into de_airstrip, the pause menu's row (the mouse), console values, Change Map with the master Off.
 
+## Player collision
+
+Custom Game > Player Collision (FINDINGS.md "Player collision"). The probe puts bodies where a test wants them:
+`place N X Y Z` (client N: 0 the player, then the bots) and `players NAME` (every client's origin and health), checked
+with `expect apart`, `bodymoved`, `bodyz`, `health`, `healthdrop` and `spawnapart`. `regress_player_collision_on.txt`
+(tests/launch/de_aztec_2bots, no setting: the title's own) and `_off.txt` (de_aztec_2bots_nocollide, "+pc_player_collision
+0"): two bots held with bot_stop 1; the player walks at a bot (On: stops 32 units from it; Off: walks through, as far
+as on open floor), is dropped on its head (On: stands on it; Off: falls through), a bot is dropped on the other's head
+(the same), a shot and an HE grenade hurt the bot either way, a wall stops the player either way, a round restart
+spawns everyone apart and keeps the setting, and typing the command during the match is refused.
+`vk_player_collision_43.txt`, `_169.txt` and `_219.txt` (the window, FOV 120): the Custom Options' tenth row, Off by
+the mouse (43, 219) or the keys (169), the match started with it; 169 also keeps it through Change Map, Quit and the
+next front end, then Reset gives On.
+
 ## Rounds
 
 `rounds_direct.txt` plays complete rounds from the direct start of any map fixture (`de_airstrip_beginner`,

@@ -1,0 +1,74 @@
+# Custom Game > Player Collision in the Vulkan window at 4:3, FOV 120 (FINDINGS.md "Player collision",
+# src/game/pc_menu.cpp, pc_collision.cpp): the single player match's Custom Options show the Player Collision row last
+# (ten rows, the original's nine above it, in its style: help lines, arrows); a click on its right arrow makes it Off,
+# Accept on the help bar opens the map list, and the match the front end starts (a relaunch, the Custom Options as its
+# command line) has player collision off before anyone spawns. The HUD in play (FOV 120) as before.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), with
+#   --pc aspect=4:3 --pc fov=120
+wait log renderer: vulkan
+wait log open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+key Down
+sleep 2
+key Space
+sleep 5
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Space
+sleep 5
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Right
+sleep 1
+key Right
+sleep 1
+key Right
+sleep 1
+key Space
+sleep 4
+expect log pc mouse: screen SuperLauncher_SinglePlayerMatchCustomOptions, 10 rows
+windowshot custom
+expect image custom 20
+point 545 355
+sleep 0.5
+click 1
+sleep 1
+windowshot custom_off
+point 430 428
+sleep 0.5
+click 1
+sleep 3
+expect log pc mouse: screen SuperLauncher_SinglePlayerMatchMapList
+key Space
+wait log relaunching into
+wait log open D:\\de_airstrip.sxwad
+expect log pc: player collision off \(Custom Options\): players and bots pass through each other
+sleep 20
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 20
+key Left_Ctrl
+sleep 10
+windowshot play
+expect image play 20
+expect log pc: player bodies: [0-9]+ of [0-9]+ physents \(players\) left out of client 0's move
+expect nolog guest trap
