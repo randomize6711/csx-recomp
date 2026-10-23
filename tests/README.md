@@ -145,6 +145,15 @@ Map to de_aztec, each a relaunch of the title: in each instance Off is in the cv
 frame (`expect before A B`: this instance's first line matching A comes before its first matching B; B is the bloom's
 GAUSSIANCUBIC line, logged once per instance) and no adjustment runs; On and Off then work while playing.
 
+## The weapon over the HUD
+
+`vk_viewmodel_hud_43.txt`, `_169.txt` and `_219.txt` (the Vulkan window at FOV 120, de_aztec, the player held; FINDINGS.md
+"Weapon over the HUD"): the Glock and the knife in hand (`expect weapon`), a K&M SMG bought through the buy menu, at
+rest and after a burst, its reload and a switch part way, then a CV-47. The HUD is depth tested at 0 after the view;
+the weapon's parts close to the eye must not hide it. `expect bluefrac NAME X0 Y0 X1 Y1 MIN MAX` (the share of a box's
+pixels whose blue exceeds red by 12) measures the HUD's blue-grey numbers over the dark weapon in the bottom right
+box: as in the reference renderer (0.149, 0.090, 0.044 at 4:3, 16:9, 21:9), about half before the fix.
+
 ## Rounds
 
 `rounds_direct.txt` plays complete rounds from the direct start of any map fixture (`de_airstrip_beginner`,

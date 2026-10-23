@@ -73,6 +73,8 @@ per line, executed in order:
     snap NAME               draw the next two frames and keep them as build/run/snaps/NAME_1.tga / NAME_2.tga
     expect region NAME X0 Y0 X1 Y1 MIN MAX  mean luminance of that box of snaps/NAME_2.tga (or shots/NAME.bmp) in [MIN, MAX]
     expect darkfrac NAME X0 Y0 X1 Y1 LUM MIN MAX  share of that box's pixels darker than LUM in [MIN, MAX]
+    expect bluefrac NAME X0 Y0 X1 Y1 MIN MAX  share of that box's pixels whose blue exceeds red by 12 or more in
+                                   [MIN, MAX] (the HUD's blue-grey numbers over a dark weapon; ground and weapon have none)
     expect chroma NAME X0 Y0 X1 Y1 MIN MAX  mean chroma (max - min of RGB) of that box in [MIN, MAX]: how much of a
                             surface's colour shows through a blended layer over it (water)
     expect probealpha NAME X Y MIN MAX  the first SRCALPHA blended draw at back buffer pixel X,Y in each of snap NAME's
@@ -614,6 +616,19 @@ def main():
                     frac = sum(1 for v in px if v < int(st[7])) / max(1, len(px))
                     print(f'     {st[2]} {box}: {frac:.3f} of pixels below {st[7]} (want {st[8]}..{st[9]})')
                     good = float(st[8]) <= frac <= float(st[9])
+            elif kind == 'expect' and st[1] == 'bluefrac':
+                # expect bluefrac NAME X0 Y0 X1 Y1 MIN MAX: share of that box's pixels whose blue exceeds red by 12 or more
+                from PIL import Image
+                path = os.path.join(RUN, 'snaps', st[2] + '_2.tga')
+                if not os.path.exists(path):
+                    path = os.path.join(RUN, 'shots', st[2] + '.bmp')
+                good = os.path.exists(path)
+                if good:
+                    box = tuple(int(v) for v in st[3:7])
+                    px = list(Image.open(path).convert('RGB').crop(box).getdata())
+                    frac = sum(1 for p in px if p[2] - p[0] >= 12) / max(1, len(px))
+                    print(f'     {st[2]} {box}: {frac:.3f} of pixels blue over red (want {st[7]}..{st[8]})')
+                    good = float(st[7]) <= frac <= float(st[8])
             elif kind == 'expect' and st[1] == 'region':
                 # expect region NAME X0 Y0 X1 Y1 MIN MAX: mean luminance of that box of the snap (or window shot)
                 from PIL import Image, ImageStat

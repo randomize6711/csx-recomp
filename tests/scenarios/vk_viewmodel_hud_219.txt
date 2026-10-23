@@ -1,0 +1,97 @@
+# The first-person weapon and the HUD in the Vulkan window at 21:9, FOV 120 (FINDINGS.md "Weapon over the HUD"): the
+# title draws the HUD after the 3D view with the depth test on (LEQUAL at depth 0, no depth writes); the view's cull
+# range is MinZ -1 to MaxZ 1, so what lies 2 to 4 units from the eye (the weapon, in the frame at a wide FOV) is kept
+# below depth 0, and the console's integer buffer (as the reference renderer) stores it as 0, under the HUD. Vulkan
+# kept it below 0 (D32F, VK_EXT_depth_range_unrestricted) and the HUD's numbers vanished behind the weapon; depth is now
+# clamped to 0 to 1 (VK_EXT_depth_clamp_control) after the cull range's clip (VK_EXT_depth_clip_enable).
+# The player held (tools/drive.py setview, no bots): the Glock and the knife; a K&M SMG (MP5) bought, at rest and
+# after a burst: the reserve ammunition's box (its blue-grey numbers over the dark weapon) as in the reference
+# renderer (before: about half of them gone); its reload and the switch to the Glock part way; a CV-47 bought.
+# Window shots 2275x960, the 1138x480 frame drawn at 2275x960.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 2560 -H 1080), with
+#   --launch tests/launch/de_aztec_nobots --pc auto_exposure=0 --pc aspect=21:9 --pc fov=120
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+expect log vulkan: depth within the cull range clamped to the buffer's 0 to 1
+sleep 20
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 20
+key Left_Ctrl
+wait log pc keys: menu T_BuyMenuRoot
+sleep 24
+pckey cmd mp_buytime 60
+sleep 1
+setview 2352 -256 -251.969 135 -10
+sleep 3
+state p
+expect weapon p 17
+windowshot pistol
+pckey cmd slot3
+sleep 2
+state k
+expect weapon k 29
+windowshot knife
+setview off
+pckey tap +buymenu 0.2
+sleep 1.5
+pckey pointer 125 282
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 125 245
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey mclick 2
+sleep 1
+pckey mclick 2
+sleep 3
+state m
+expect weapon m 19
+setview 2352 -256 -251.969 135 -10
+sleep 3
+windowshot mp5
+expect bluefrac mp5 1491 800 2024 900 0.035 0.065
+pckey cmd +attack
+sleep 0.4
+pckey cmd -attack
+sleep 1.5
+windowshot mp5fired
+expect bluefrac mp5fired 1491 800 2024 900 0.035 0.065
+pckey cmd +reload
+sleep 0.1
+pckey cmd -reload
+sleep 0.8
+windowshot mp5reload
+sleep 3
+pckey cmd slot2
+sleep 0.15
+windowshot switching
+sleep 2
+pckey cmd slot1
+sleep 2
+setview off
+pckey tap +buymenu 0.2
+sleep 1.5
+pckey pointer 325 282
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 325 260
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey mclick 2
+sleep 1
+pckey mclick 2
+sleep 3
+state a
+expect weapon a 28
+setview 2352 -256 -251.969 135 -10
+sleep 3
+windowshot ak
+setview off
+expect nolog guest trap
