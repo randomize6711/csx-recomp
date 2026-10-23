@@ -1,0 +1,61 @@
+diff --git i/runtime/kernel/memory.cpp w/runtime/kernel/memory.cpp
+index be024fa..d9fd5c2 100644
+--- i/runtime/kernel/memory.cpp
++++ w/runtime/kernel/memory.cpp
+@@ -193,6 +193,14 @@ public:
+         return it == used_.end() ? 0 : it->second;
+     }
+ 
++    void FreeStats(uint64_t& total, uint64_t& largest) const {
++        total = largest = 0;
++        for (auto& [a, z] : free_) {
++            total += z;
++            largest = std::max<uint64_t>(largest, z);
++        }
++    }
++
+     uint64_t Used() const {
+         uint64_t n = 0;
+         for (auto& u : used_) n += u.second;
+@@ -438,4 +446,21 @@ Stats Query() {
+     return s;
+ }
+ 
++UserSpace QueryUserSpace() {
++    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    EnsureRanges();
++    UserSpace u;
++    for (auto& [a, r] : g_reserved) {
++        u.reserved += r.size;
++        for (uint8_t c : r.commit) u.committed += c ? kPage : 0;
++        u.reservations++;
++        if (!u.lowest || a < u.lowest) u.lowest = a;
++        u.highest = std::max<uint32_t>(u.highest, a + r.size);
++    }
++    g_user.FreeStats(u.free, u.largest_free);
++    u.contiguous_used = g_contig.Used();
++    u.system_used = g_system.Used();
++    return u;
++}
++
+ }  // namespace mem
+diff --git i/runtime/kernel/memory.h w/runtime/kernel/memory.h
+index 019aaff..6c12e45 100644
+--- i/runtime/kernel/memory.h
++++ w/runtime/kernel/memory.h
+@@ -39,6 +39,15 @@ uint32_t AllocContiguous(uint32_t size, uint32_t lowest, uint32_t highest, uint3
+ void FreeContiguous(uint32_t va);
+ uint32_t AllocationSize(uint32_t va);  // any allocator, 0 if unknown
+ 
++// the user range (NtAllocateVirtualMemory): what is reserved and committed, in how many reservations, and what is
++// free, with its largest block (fragmentation); the contiguous pool's use, for diagnostics
++struct UserSpace {
++    uint64_t reserved = 0, committed = 0, free = 0, largest_free = 0, contiguous_used = 0, system_used = 0;
++    uint32_t reservations = 0;
++    uint32_t lowest = 0, highest = 0;  // the lowest reservation's start and the highest one's end
++};
++UserSpace QueryUserSpace();
++
+ uint32_t AllocSystem(uint32_t size, uint32_t align = 16);
+ void FreeSystem(uint32_t va);
+ 

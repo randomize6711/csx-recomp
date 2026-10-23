@@ -11,6 +11,8 @@ void StartApuClock();
 void StartMemoryDumps();
 // local player state logged on request (src/game/state_probe.cpp)
 void StartStateProbe();
+// guest memory use logged every 10 s, CSX_LOG_MEMORY=1 (memory_stats.cpp)
+void StartMemoryStats();
 // diagnostic write watch on guest pages, CSX_WATCH=VA[:BYTES] (write_watch.cpp, Linux only)
 void StartWriteWatch();
 // the launch data a relaunch left, copied to launch_seen.bin (launch_capture.cpp)

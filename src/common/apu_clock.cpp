@@ -11,6 +11,7 @@
 #include <thread>
 
 #include "common/csx.h"
+#include "common/guest_tables.h"
 #include "core/log.h"
 #include "kernel/memory.h"
 
@@ -42,6 +43,8 @@ void StartApuClock() {
 }
 
 void Loaded() {
+    guest_tables::Start();  // before the title allocates: its region comes out of the user space first
+    StartMemoryStats();
     KeepLaunchData();
     StartApuClock();
     StartMemoryDumps();

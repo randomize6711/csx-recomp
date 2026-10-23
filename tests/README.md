@@ -214,6 +214,18 @@ the same listing passes) and `--require-patched` (fails until every direct refer
 program: the committed analysis/player_slots_inventory.json matches a fresh audit, two audits are identical, and no
 table is patched yet.
 
+## Guest tables (about 20 s with the build, no game run, Linux)
+
+`python3 -I tests/guest_tables_test.py`: the production header src/common/guest_tables_layout.h matches
+config/guest_tables.toml; tools/guest_tables.py lays out a test config (a 1040 x 0xFB table with align 1, 65 x 0x24C,
+65 x 2, 3 x 16 with align 16) with every table aligned, ending at a page and a guard page before it, the same header
+twice, `--check` failing on an edited header, and five refusals with their reasons. Then it builds
+tests/guest_tables_test.cpp against the runtime's guest memory (sdk/runtime/kernel/memory.cpp): eight bad layouts
+and an overlap refused, a region already in use refused, the layout mapped (aligned, zeroed, writable to the last
+byte, guard pages uncommitted, the region owned by the guest allocator), Element() for the last index and refusing
+the next and a huge one, and faults (in child processes) one byte and one element past a table's end and before its
+first page, each reported with the table, while an access inside a table and a fault elsewhere are not.
+
 ## Rounds
 
 `rounds_direct.txt` plays complete rounds from the direct start of any map fixture (`de_airstrip_beginner`,

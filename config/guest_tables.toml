@@ -1,0 +1,17 @@
+# Guest tables: guest-addressable tables the host maps for code that needs more room than the image's own data
+# (first use: the per-player tables of the 65-slot expansion, docs/player_slots_plan.md). tools/guest_tables.py lays
+# them out and writes src/common/guest_tables_layout.h; the [[patch]] entries that point the recompiled code at them
+# are generated from the same layout, so the addresses exist in one place.
+#
+# The region is part of the guest's user space (below 2 GB: pointers to it compare correctly as signed numbers, and
+# it is outside the 64 MB physical windows the D3D code masks addresses into), taken out of the game's allocator
+# before the title starts. Each table ends at a page boundary with an uncommitted guard page after it, so an access
+# past its last element faults at once (and is reported with the table and element by the host's fault handler);
+# an access before the first element faults only when it leaves the table's first page.
+
+[region]
+base = 0x70000000
+size = 0x01000000        # 16 MB of address space; only the tables' own pages are committed
+
+# [[table]] name, elem (bytes), count, align (a power of two dividing elem; default 4), what
+# No production table yet: Checkpoint 2 adds the player tables here.
