@@ -294,6 +294,35 @@ std::string InGameScreen(const PcScreen& s) {
            "\t\t}\r\n" + ListRows(s, false) + "\t}\r\n}\r\n";
 }
 
+// Custom Game > Player Collision (src/game/pc_collision.cpp): a last row in the single player match's Custom Options,
+// written as its rows are. The screen's choices are the match's command line (0xE2270 joins the table's values when
+// Match Options is Custom), so the row's "+pc_player_collision" reaches the match before anyone spawns. It goes last:
+// the screen's own code reaches its nine rows by position (0xE1DE0). The game keeps the screen's choices from one
+// front end to the next (after a match the next match's command line still has them), this row's with them; Reset
+// (X) gives On, the default, as for the other rows
+std::string CollisionRow() {
+    static const std::string help[2] = {"Choose whether players and bots block each other.",
+                                        "Off lets them pass through; shots still hit."};
+    return "\t\tRow\r\n\t\t{\r\n" + HelpTable(help, 2, "\t\t\t") +
+           "\r\n\t\t\tCellFixed \"Player Collision\"\r\n\t\t\tCellList\r\n\t\t\t{\r\n"
+           "\t\t\t\tListDefault \"On\"\t\t\t\"+pc_player_collision 1\"\r\n"
+           "\t\t\t\tListOption \"Off\"\t\t\t\"+pc_player_collision 0\"\r\n\t\t\t}\r\n\t\t}\r\n";
+}
+
+// the single player Custom Options screen's table with the Player Collision row after its last; the text unchanged
+// when the screen is not laid out as expected
+std::string ExtendCustomOptions(const std::string& text) {
+    size_t screen = text.find("\nSuperLauncher_SinglePlayerMatchCustomOptions\r\n");
+    size_t next = screen == std::string::npos ? screen : text.find("\nSuperLauncher_", screen + 1);
+    // the screen ends "\t\t}\r\n\t}\r\n}\r\n": the last row, the table, the screen
+    size_t end = next == std::string::npos ? next : text.rfind("\t}\r\n}\r\n", next);
+    if (end == std::string::npos || end < screen || text.find("+mp_c4timer", screen) > end) {
+        LOGW("pc menu: the single player Custom Options not as expected, no Player Collision row");
+        return text;
+    }
+    return text.substr(0, end) + CollisionRow() + text.substr(end);
+}
+
 // the front end text: before View Credits in SuperLauncher_Options a row per screen (as its rows are written, with
 // help), then the screens; empty when its layout is not the one expected
 std::string ExtendFrontEnd(const std::string& text) {
@@ -575,6 +604,7 @@ void PcUiLoadSize(X86Context& ctx, uint8_t*) {
 }
 
 void PcMouseLearnUi(const std::string& text);  // pc_mouse.cpp
+void PcPlayerCollisionCommand(const std::string& arg);  // pc_collision.cpp
 
 // [[hook]] at 0xCDB1A: read and closed, esi = the buffer (ebp + 1 bytes, the file's text first); the extended text
 // replaces it and ebp becomes its length (the size the caller is told)
@@ -587,7 +617,7 @@ void PcUiLoadText(X86Context& ctx, uint8_t*) {
         std::filesystem::create_directories(app::ExeDir() / "uidump");
         std::ofstream(app::ExeDir() / "uidump" / name, std::ios::binary) << text;
     }
-    std::string out = name.rfind("FrontEndUI", 0) == 0 ? ExtendFrontEnd(text) : ExtendInGame(text);
+    std::string out = name.rfind("FrontEndUI", 0) == 0 ? ExtendFrontEnd(ExtendCustomOptions(text)) : ExtendInGame(text);
     PcMouseLearnUi(out.empty() ? text : out);
     if (out.empty() || out.size() > room) {
         LOGW("pc menu: %s left as it is (%s)", name.c_str(), out.empty() ? "layout not recognised" : "no room");
@@ -612,6 +642,10 @@ bool PcListChoiceEnabled(X86Context& ctx, uint8_t*) { return ctx.edx >= 0x27; }
 bool PcConsoleCommand(X86Context&, uint8_t*) {
     if (!R32(0x4253E8)) return false;
     std::string cmd = GuestString(R32(0x4251A8));
+    if (cmd == "pc_player_collision") {
+        PcPlayerCollisionCommand(R32(0x4253E8) > 1 ? GuestString(R32(0x4251AC)) : std::string());
+        return true;
+    }
     if (cmd != "pc_options_load" && cmd != "pc_options_save" && cmd != "pc_options_defaults") return false;
     std::string name = R32(0x4253E8) > 1 ? GuestString(R32(0x4251AC)) : std::string();  // argument 1: the screen
     const PcScreen* s = FindScreen(name);

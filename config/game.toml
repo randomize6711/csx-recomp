@@ -666,3 +666,9 @@ call = "PcWideOverlay"
 [[hook]]
 at = 0x55F99
 call = "PcConsoleOverMenus"
+
+# Custom Game > Player Collision (src/game/pc_collision.cpp): PM_Move's entry, the one movement entry of the server's
+# player moves and the client's prediction; Off leaves the other players out of pmove's physents
+[[hook]]
+at = 0x1A5B20
+call = "PcPlayerCollisionMove"
