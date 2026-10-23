@@ -50,6 +50,8 @@ per line, executed in order:
     expect fade NAME FIELD MIN MAX  a fade step's FIELD in [MIN, MAX]
     expect fadediff A B FIELD MIN MAX  FIELD of fade B less that of fade A in [MIN, MAX]
     expect setting NAME VALUE      the run's pc_settings.ini holds NAME = VALUE (what PC Options saved)
+    expect effects BLOOM GAMMA     within 5 s the cvars the optional Xbox effects are read cl_hdrbloom BLOOM and
+                                   cl_dynamicgamma GAMMA (as logged, %g: 0, 0.5, 1; needs CSX_LOG_EFFECTS=1)
     expect movetime MIN MAX        the movement commands' milliseconds per real second (the last two "pc frame" lines,
                                    src/game/pc_frame.cpp) in [MIN, MAX]: the game's movement keeps real time
     expect weapon A ID             the weapon in hand at A (17 Glock, 29 knife, 4 HE grenade, 25 flashbang, 9 smoke)
@@ -759,6 +761,20 @@ def main():
                             saved[k.strip()] = v.strip()
                 print('     %s = %s' % (st[2], saved.get(st[2], '(none)')))
                 good = saved.get(st[2]) == ' '.join(st[3:])
+            elif kind == 'expect' and st[1] == 'effects':
+                # expect effects BLOOM GAMMA: within 5 s the last "pc effects" line (CSX_LOG_EFFECTS=1, src/game/
+                # pc_bloom.cpp: the cvars' values each time one changes) reads cl_hdrbloom BLOOM, cl_dynamicgamma GAMMA
+                def effects():
+                    log.poll()
+                    last = [m for m in (re.search(r'pc effects: cl_hdrbloom (\S+), cl_dynamicgamma (\S+)$', l)
+                                        for l in log.lines) if m][-1:]
+                    return last[0].groups() if last else None
+                deadline = time.time() + 5
+                while effects() != (st[2], st[3]) and time.time() < deadline:
+                    time.sleep(0.2)
+                now = effects()
+                print('     cl_hdrbloom %s, cl_dynamicgamma %s' % now if now else '     no effects line')
+                good = now == (st[2], st[3])
             elif kind == 'expect' and st[1] == 'movetime':
                 # expect movetime MIN MAX: milliseconds of movement a second over the last two "pc frame" lines
                 time.sleep(2.2)

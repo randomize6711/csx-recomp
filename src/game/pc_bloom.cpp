@@ -9,6 +9,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "common/csx.h"
@@ -34,6 +35,21 @@ float Value() {
     return v;
 }
 
+// CSX_LOG_EFFECTS=1 (for tests, tools/drive.py's `expect effects`): the values of the two cvars the optional Xbox
+// effects are, cl_hdrbloom and cl_dynamicgamma (0x37A2FC), logged each time one changes, wherever the change came
+// from (PC Options, a map's light config, the console)
+void LogEffects() {
+    static const bool log = std::getenv("CSX_LOG_EFFECTS") && *std::getenv("CSX_LOG_EFFECTS") == '1';
+    if (!log) return;
+    static float last[2] = {-1.0f, -1.0f};
+    float now[2] = {Value(), 0.0f};
+    std::memcpy(&now[1], kernel::HostPtr(0x37A2FC), 4);
+    if (now[0] == last[0] && now[1] == last[1]) return;
+    last[0] = now[0];
+    last[1] = now[1];
+    LOGI("pc effects: cl_hdrbloom %g, cl_dynamicgamma %g", now[0], now[1]);
+}
+
 }  // namespace
 
 // on the game thread every frame (pc_keys.cpp's PcKeysFrame): a changed setting set into cl_hdrbloom through the
@@ -41,6 +57,7 @@ float Value() {
 // title's own state), once the client has registered the cvar (its value is 0 before, whatever the setting); each
 // map's light config sets it again afterwards, which PcBloomMapConfig takes back.
 void PcBloomFrame(X86Context&) {
+    LogEffects();
     static unsigned seen = ~0u;
     float v = Value();
     if (v != 0) g_intensity = v;
