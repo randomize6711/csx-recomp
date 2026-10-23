@@ -1,30 +1,36 @@
 #!/bin/bash
-# Interactive play: the Linux window build (SDL3, Vulkan renderer, SDL audio, keyboard/mouse/gamepad) started directly
-# in an offline match against bots, as the front end's Beginner match would start it. No scenario, no timeout: the
-# game runs until the window is closed.
-#   ./run_game.sh [--build] [MAP]     MAP: de_airstrip (default), de_dust, cs_italy (fixtures in tests/launch)
+# Interactive play: the Linux window build (SDL3, Vulkan renderer, SDL audio, keyboard/mouse/gamepad). By default the
+# title boots as on the console: the intro movies, the title screen and the front end, from which a match is started
+# in the game's own menus. --match goes straight into an offline match against bots instead, as the front end's
+# Beginner match would start it. No scenario, no timeout: the game runs until the window is closed.
+#   ./run_game.sh [--build] [--match [MAP]]     MAP: de_airstrip (default), de_dust, cs_italy (fixtures in tests/launch)
 #   --build   rebuild first (tools/iterate.sh 1, which also boots the headless harness for a second, then
 #             tools/build_window.sh)
 # Environment passed through: FPS (default 30, the console's rate; FPS=0 runs at the game's own 72 cap),
 # CSX_MOUSE_SENS (default 3), CSX_MOUSE_INVERT=1, CSX_AUDIO=null (silent), CSX_RENDERER=software (reference renderer,
 # about 3 frames/s in a match).
-# Runs in build/play: logs in build/play/logs, the emulated hard disk in build/play/hdd (fresh each launch).
+# Runs in build/play (its pc_settings.ini kept): logs in build/play/logs, the emulated hard disk in build/play/hdd
+# (fresh each launch).
 set -e
 root=$(cd "$(dirname "$0")" && pwd)
 cd "$root"
 
 build=0
+match=0
 map=de_airstrip
 for a in "$@"; do
     case "$a" in
         --build) build=1 ;;
-        -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
-        *) map=$a ;;
+        --match) match=1 ;;
+        -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
+        *) map=$a; match=1 ;;
     esac
 done
 
 launch=tests/launch/${map}_beginner
-[ -d "$launch" ] || { echo "no match fixture $launch (have: $(ls tests/launch | grep _beginner | sed 's/_beginner//' | tr '\n' ' '))"; exit 1; }
+if [ $match = 1 ]; then
+    [ -d "$launch" ] || { echo "no match fixture $launch (have: $(ls tests/launch | grep _beginner | sed 's/_beginner//' | tr '\n' ' '))"; exit 1; }
+fi
 [ -d build/gamedata ] || { echo "make build/gamedata first: cp -r --reflink=always <game dir>/. build/gamedata/"; exit 1; }
 
 if [ $build = 1 ] || [ ! -x build/window/CounterStrike ]; then
@@ -32,11 +38,19 @@ if [ $build = 1 ] || [ ! -x build/window/CounterStrike ]; then
     tools/build_window.sh > build/window_build.log 2>&1 || { echo "window build failed: build/window_build.log"; exit 1; }
 fi
 
-# what the front end leaves for its relaunch into a match: the launch page and the command line on the cache
-# partition Z:, plus the sound banks it caches there (build/zcache, tools/make_zcache.sh; without it no weapon sounds)
 run=build/play
 rm -rf "$run/logs" "$run/hdd"
 mkdir -p "$run/hdd"
+if [ $match = 0 ]; then
+    export CSX_RENDERER=${CSX_RENDERER:-vulkan}
+    unset CSX_TEST_INPUT_ONLY
+    echo "starting from the intro movies (log: $run/run.out); click the window to capture the mouse, F1 releases it, close the window to quit"
+    cd "$run"
+    # no network namespace access (offline, as the tests run it); the front end caches its own sound banks on Z:
+    exec unshare -rn ../window/CounterStrike ../gamedata > run.out 2>&1
+fi
+# what the front end leaves for its relaunch into a match: the launch page and the command line on the cache
+# partition Z:, plus the sound banks it caches there (build/zcache, tools/make_zcache.sh; without it no weapon sounds)
 if [ -d build/zcache ]; then
     cp -r build/zcache "$run/hdd/Z"
 else
