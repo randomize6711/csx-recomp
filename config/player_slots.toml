@@ -1,0 +1,657 @@
+# Player slot audit input (tools/slot_audit.py): every structure, constant and protocol field tied to the 17 player
+# slots, from analysis/player_slots_engine_server.md, _engine_client.md, _game_dll.md and docs/player_slots_plan.md.
+# The audit finds the instructions that reference each one in the code xbe_recomp generates (its --listing) and
+# writes analysis/player_slots_inventory.json. Addresses are guest VAs of assets/default.xbe (the sha256 in game.toml).
+#
+# layout:   "verified" = base, stride and count read from the code; "inferred" = from HL1 / CS source structure
+# plan:     relocate      a standalone table moved to a larger one (Checkpoint 2)
+#           relocate-out  an array embedded in a larger struct moved out to its own table (the frame ring)
+#           grow-object   an array inside a heap or static object whose layout has to grow or be split
+#           field         a per-player field inside another per-player record
+#           scales        sized from maxclients at run time: listed to show it was checked
+# fields/code: offsets [lo, hi) off a base register in the code ranges that handle the object (inferred matches).
+# A table's references are the instructions with an absolute address in [base, base + stride * count + slack); slack
+# (default one element) catches pointers to a field of the element past the end, as loop ends use.
+
+[audit]
+# code the scans cover: the engine, the front end and its voice code, the game DLL, the client HUD
+ranges = [[0x12000, 0xBF000, "engine"], [0xBF000, 0x116000, "ui"], [0x116000, 0x18B300, "game"],
+          [0x18B300, 0x1E0000, "hud"]]
+# constants whose compares and loads are candidates for a player count (17, its neighbours and 32)
+count_constants = [0x10, 0x11, 0x12, 0x20, 0x21]
+
+# --- engine server ---
+
+[[table]]
+name = "sv_truepositions"
+area = "engine server"
+what = "lag compensation positions, one per client (SV_SetupMove)"
+base = 0x4E46C0
+stride = 0x58
+count = 17
+also = [0x4E4668]                  # base - 0x58: indexed by client number from 1
+plan = "relocate"
+layout = "verified"
+source = "player_slots_engine_server.md 1"
+
+[[table]]
+name = "sv_lastping"
+area = "engine server"
+what = "last ping per client, u16 (SV_GetNetInfo 0x9DA40)"
+base = 0x4E0448
+stride = 2
+count = 17
+plan = "relocate"
+layout = "verified"
+source = "player_slots_engine_server.md 1"
+
+[[table]]
+name = "sv_lastloss"
+area = "engine server"
+what = "last packet loss per client, u8 (SV_GetNetInfo)"
+base = 0x4E449C
+stride = 1
+count = 17
+plan = "relocate"
+layout = "verified"
+source = "player_slots_engine_server.md 1"
+
+[[table]]
+name = "svs_clients"
+area = "engine server"
+what = "the client_t block (heap, malloc at 0xA1A2C): its size constants and stride"
+base = 0x636CE4
+stride = 0xC
+count = 1                           # the pointer, maxclients and the limit
+slack = 0
+strides = [0x5010]
+plan = "scales"
+layout = "verified"
+source = "player_slots_engine_server.md 1"
+
+[[table]]
+name = "client_voice_bits"
+area = "engine server"
+what = "voice listen bits in client_t at +0x5008 (64 bits with padding; 65 needs more)"
+fields = [[0x5008, 0x5010]]
+code = [[0xAB000, 0xAC500]]
+plan = "field"
+layout = "verified"
+source = "player_slots_engine_server.md 1, 2"
+
+# --- engine client ---
+
+[[table]]
+name = "cl_frames_playerstate"
+area = "engine client"
+what = "cl.frames[16].playerstate[17] (0xFB each at frame+0x18, frame 0x1B60): the highest risk item"
+base = 0x74A2B8
+stride = 0xFB
+count = 17
+slack = 0
+frame = { base = 0x74A2A0, stride = 0x1B60, count = 16, field = 0x18 }
+strides = [0xFB, 0x1B60]
+plan = "relocate-out"
+layout = "verified"
+source = "player_slots_engine_client.md 1a"
+
+[[table]]
+name = "cl_players"
+area = "engine client"
+what = "cl.players[17], player_info_t 0x24C, inside cl"
+base = 0x7791F0
+stride = 0x24C
+count = 17
+strides = [0x24C]
+plan = "relocate"
+layout = "verified"
+source = "player_slots_engine_client.md 1a"
+
+[[table]]
+name = "cl_predicted_players"
+area = "engine client"
+what = "predicted_players[17], 0x28 each"
+base = 0x3AE3D0
+stride = 0x28
+count = 17
+plan = "relocate"
+layout = "verified"
+source = "player_slots_engine_client.md 1a"
+
+[[table]]
+name = "dm_playerstate"
+area = "engine client"
+what = "the studio renderer's player model cache [17], 0x20C each"
+base = 0x6A38A0
+stride = 0x20C
+count = 17
+strides = [0x20C]
+plan = "relocate"
+layout = "verified"
+source = "player_slots_engine_client.md 1a"
+
+# --- client HUD ---
+
+[[table]]
+name = "hud_player_extra_info"
+area = "hud"
+what = "g_PlayerExtraInfo[18], 0x4C each (the Radar handler writes it unchecked)"
+base = 0x57E978
+stride = 0x4C
+count = 18
+plan = "relocate"
+layout = "verified"
+source = "player_slots_engine_client.md 1b"
+
+[[table]]
+name = "hud_player_info_list"
+area = "hud"
+what = "g_PlayerInfoList[18], 0x14 each"
+base = 0x5487B0
+stride = 0x14
+count = 18
+plan = "relocate"
+layout = "verified"
+source = "player_slots_engine_client.md 1b"
+
+[[table]]
+name = "hud_is_spectator"
+area = "hud"
+what = "per player int (g_IsSpectator, inferred name), room for 24"
+base = 0x548750
+stride = 4
+count = 18
+plan = "relocate"
+layout = "inferred"
+source = "player_slots_engine_client.md 1b"
+
+[[table]]
+name = "hud_player_record"
+area = "hud"
+what = "a 16-byte record per player (Xbox Live id, inferred) [17]"
+base = 0x548918
+stride = 0x10
+count = 17
+plan = "relocate"
+layout = "inferred"
+source = "player_slots_engine_client.md 1b"
+
+[[table]]
+name = "hud_player_flag"
+area = "hud"
+what = "a byte flag per player beside the record"
+base = 0x548D40
+stride = 1
+count = 18
+plan = "relocate"
+layout = "inferred"
+source = "player_slots_engine_client.md 1b"
+
+[[table]]
+name = "hud_radar_seen"
+area = "hud"
+what = "radar / spectator seen flags, bytes 1..32 (already 32)"
+base = 0x562563
+stride = 1
+count = 33
+slack = 0
+plan = "relocate"
+layout = "verified"
+source = "player_slots_engine_client.md 1b"
+
+[[table]]
+name = "hud_voice_status"
+area = "hud"
+what = "CVoiceStatus (static at 0x56D6E8): masks at +0x24..+0x30, pointer[17] at +0x7C68, talk times at +0x9544"
+base = 0x56D70C
+stride = 4
+count = 4
+slack = 0
+parts = [[0x575350, 4, 17], [0x576C28, 4, 18]]
+# its code reaches them through the object pointer: masks +0x24..+0x34, pointer[17] +0x7C68, talk times +0x9540
+fields = [[0x24, 0x34], [0x7C68, 0x7CAC], [0x9540, 0x9588]]
+code = [[0x1B7000, 0x1B9400], [0xEF000, 0xEF300]]
+plan = "grow-object"
+layout = "verified"
+source = "player_slots_engine_client.md 1b, 2"
+
+[[table]]
+name = "hud_score_panel"
+area = "hud"
+what = "ScorePanel (heap): sorted rows [27] +0x1A0, is-a-team [27] +0x20C, has-been-sorted [17] +0x278"
+fields = [[0x1A0, 0x28C]]
+code = [[0x1B9400, 0x1BA600]]
+plan = "grow-object"
+layout = "inferred"
+source = "player_slots_engine_client.md 1b, 3"
+
+# --- game DLL ---
+
+[[table]]
+name = "game_voice_masks"
+area = "game"
+what = "CVoiceGameMgr masks: g_PlayerModEnable, g_SentBanMasks[17], g_SentGameRulesMasks[17], g_BanMasks[17], g_bWantModEnable (1 dword each)"
+base = 0x561FCC
+stride = 4
+count = 55                          # 0x561FCC..0x5620A8
+slack = 0
+plan = "relocate"
+layout = "verified"
+source = "player_slots_game_dll.md 1 A"
+
+[[table]]
+name = "game_statshot"
+area = "game"
+what = "the shot statistics block (heap 0x54: ints for players 0..17 at +0xC; AddDamage indexes it unchecked)"
+fields = [[0xC, 0x54]]
+code = [[0x153800, 0x1539F0]]
+plan = "grow-object"
+layout = "verified"
+source = "player_slots_game_dll.md 1 B"
+
+[[table]]
+name = "game_sound_ent"
+area = "game"
+what = "CSoundEnt's 64-sound pool (heap 0x8A4, one client sound reserved per player)"
+fields = [[0x94, 0x894]]
+code = [[0x150800, 0x150C00]]
+plan = "grow-object"
+layout = "verified"
+source = "player_slots_game_dll.md 1 C"
+
+# --- sites: single instructions, classified ---
+# role: limit (a player count bound), size (an allocation or clear size), protocol (a wire field), engine-limit
+# (a per-frame cap that player count stresses), scales (checked: it uses maxclients), not-player (17 here is not a
+# player count). evidence: verified (read in the code) or inferred.
+
+[[site]]
+at = 0xA19F3
+role = "limit"
+what = "SV_SetMaxclients: clamp maxplayers to 17 (compare)"
+evidence = "verified"
+[[site]]
+at = 0xA19F8
+role = "limit"
+what = "SV_SetMaxclients: clamp maxplayers to 17 (value)"
+evidence = "verified"
+[[site]]
+at = 0xA1A10
+role = "limit"
+what = "svs.maxclientslimit = 17"
+evidence = "verified"
+[[site]]
+at = 0xA1A0B
+role = "size"
+what = "svs.clients block size 17 * 0x5010 + 0x10"
+evidence = "verified"
+[[site]]
+at = 0xA1A40
+role = "size"
+what = "svs.clients block header size"
+evidence = "verified"
+[[site]]
+at = 0xA1A4F
+role = "size"
+what = "svs.clients clear count 0x15444 dwords"
+evidence = "verified"
+[[site]]
+at = 0x99103
+role = "limit"
+what = "duplicate name check loops 17"
+evidence = "verified"
+[[site]]
+at = 0x99126
+role = "limit"
+what = "duplicate name check loops 17"
+evidence = "verified"
+[[site]]
+at = 0x9E84F
+role = "limit"
+what = "userinfo name loop 17"
+evidence = "verified"
+[[site]]
+at = 0x9E8B1
+role = "limit"
+what = "userinfo name loop 17"
+evidence = "verified"
+[[site]]
+at = 0xABE8E
+role = "limit"
+what = "voice relay loop ends at 17 clients (0x55110)"
+evidence = "verified"
+[[site]]
+at = 0x791C5
+role = "limit"
+what = "edict to userinfo lookup, players 1..17"
+evidence = "verified"
+[[site]]
+at = 0x9DC42
+role = "protocol"
+what = "svc_pings writer: slot in 5 bits"
+evidence = "verified"
+[[site]]
+at = 0x31A00
+role = "protocol"
+what = "svc_pings reader: slot in 5 bits, indexes cl.players unchecked"
+evidence = "verified"
+[[site]]
+at = 0x2E8E1
+role = "limit"
+what = "svc_serverinfo: Bad maxclients above 17"
+evidence = "verified"
+[[site]]
+at = 0x2CA2C
+role = "limit"
+what = "svc_updateuserinfo: slot below 17"
+evidence = "verified"
+[[site]]
+at = 0x2E02A
+role = "limit"
+what = "customization: Bogus player index"
+evidence = "verified"
+[[site]]
+at = 0x38DA6
+role = "limit"
+what = "event player lookup: ent - 1 below 17"
+evidence = "verified"
+[[site]]
+at = 0x25FE5
+role = "limit"
+what = "prediction: players 1..17 (cl_entities stride 0x74C)"
+evidence = "verified"
+[[site]]
+at = 0x26276
+role = "limit"
+what = "prediction physents: players 1..17"
+evidence = "verified"
+[[site]]
+at = 0x1A9089
+role = "limit"
+what = "spectator next / previous wraps at 17"
+evidence = "verified"
+[[site]]
+at = 0x1A9260
+role = "limit"
+what = "spectator find by name: 1..16 (skips 17 today)"
+evidence = "verified"
+[[site]]
+at = 0x1B3F2A
+role = "limit"
+what = "spectator menu: 1..16"
+evidence = "verified"
+[[site]]
+at = 0x1B5ACC
+role = "limit"
+what = "Spectator message: index bound 17"
+evidence = "verified"
+[[site]]
+at = 0x1B839A
+role = "limit"
+what = "voice status loop 17"
+evidence = "verified"
+[[site]]
+at = 0x1B86B3
+role = "limit"
+what = "voice status loop 17"
+evidence = "verified"
+[[site]]
+at = 0xEF1A7
+role = "limit"
+what = "voice talk time bound 17"
+evidence = "verified"
+[[site]]
+at = 0x1B89E9
+role = "protocol"
+what = "voice ban state: players 0..31 sent as one dword (vban %x)"
+evidence = "verified"
+[[site]]
+at = 0x1D37DA
+role = "limit"
+what = "radar seen flags: bound 32"
+evidence = "verified"
+[[site]]
+at = 0xE3DE0
+role = "limit"
+what = "front end server options: max players list of 17"
+evidence = "verified"
+[[site]]
+at = 0xE3E5F
+role = "limit"
+what = "front end server options: max players list of 17"
+evidence = "verified"
+[[site]]
+at = 0x102DB0
+role = "limit"
+what = "CVoiceGameMgr::Init: maxplayers clamped to 17 (compare)"
+evidence = "verified"
+[[site]]
+at = 0x102E84
+role = "limit"
+what = "CVoiceGameMgr: 17 bits cleared per mask"
+evidence = "verified"
+[[site]]
+at = 0x102EAF
+role = "limit"
+what = "CVoiceGameMgr: 17 bits cleared per mask"
+evidence = "verified"
+[[site]]
+at = 0x103283
+role = "protocol"
+what = "VOICE_MAX_PLAYERS_DW = 1: VoiceMask dword loop"
+evidence = "verified"
+[[site]]
+at = 0x1032A2
+role = "protocol"
+what = "VOICE_MAX_PLAYERS_DW = 1: VoiceMask dword loop"
+evidence = "verified"
+[[site]]
+at = 0x14401B
+role = "size"
+what = "StatShot block 0x54 (ints for players 0..17)"
+evidence = "verified"
+[[site]]
+at = 0x1538D4
+role = "limit"
+what = "StatShot AddDamage: dmg[ENTINDEX] with no bound"
+evidence = "verified"
+[[site]]
+at = 0x153911
+role = "limit"
+what = "StatShot Send: loops 17"
+evidence = "verified"
+[[site]]
+at = 0x1509B3
+role = "engine-limit"
+what = "CSoundEnt: 64 sounds, one reserved per player"
+evidence = "verified"
+[[site]]
+at = 0x9DDED
+role = "engine-limit"
+what = "256 packet entities per client frame"
+evidence = "verified"
+[[site]]
+at = 0x9562A
+role = "engine-limit"
+what = "1024 distinct entity states per server frame (Sys_Error past it)"
+evidence = "verified"
+[[site]]
+at = 0x30945
+role = "protocol"
+what = "client: protocol version 46 (CL_Parse_Version)"
+evidence = "verified"
+[[site]]
+at = 0x2E822
+role = "protocol"
+what = "client: svc_serverinfo protocol version 46"
+evidence = "verified"
+[[site]]
+at = 0x98C78
+role = "protocol"
+what = "server: SV_CheckProtocol version 46"
+evidence = "verified"
+[[site]]
+at = 0x8F0BF
+role = "not-player"
+what = "kRenderFxDeadPlayer (17)"
+evidence = "verified"
+[[site]]
+at = 0x1D13DE
+role = "not-player"
+what = "kRenderFxDeadPlayer (17)"
+evidence = "verified"
+[[site]]
+at = 0xE88C4
+role = "not-player"
+what = "voice codec switch table"
+evidence = "verified"
+[[site]]
+at = 0xE8A30
+role = "not-player"
+what = "voice codec switch table"
+evidence = "verified"
+[[site]]
+at = 0x101766
+role = "not-player"
+what = "front end switch"
+evidence = "verified"
+
+[[site]]
+at = 0x1B5890
+role = "limit"
+what = "ScoreInfo handler: player index bound 17 (16-bit compare)"
+evidence = "verified"
+[[site]]
+at = 0x1B5A20
+role = "limit"
+what = "TeamInfo handler: player index bound 17 (16-bit compare)"
+evidence = "verified"
+[[site]]
+at = 0x1D5AAA
+role = "limit"
+what = "ScoreAttrib handler: player index bound 17 (16-bit compare)"
+evidence = "verified"
+[[site]]
+at = 0xE3DF9
+role = "limit"
+what = "front end server options: max players loop 17"
+evidence = "verified"
+[[site]]
+at = 0xE3E0F
+role = "limit"
+what = "front end server options: max players loop 17"
+evidence = "verified"
+[[site]]
+at = 0xE3E26
+role = "limit"
+what = "front end server options: max players loop 17"
+evidence = "verified"
+[[site]]
+at = 0xE3E3E
+role = "limit"
+what = "front end server options: max players loop 17"
+evidence = "verified"
+[[site]]
+at = 0x1A909A
+role = "limit"
+what = "spectator wrap value 17"
+evidence = "verified"
+[[site]]
+at = 0x1B7E52
+role = "size"
+what = "CVoiceStatus: clear of pointer[17] (+0x7C68)"
+evidence = "verified"
+[[site]]
+at = 0x1B7FCE
+role = "size"
+what = "CVoiceStatus: clear of talk times[17] (+0x9544)"
+evidence = "verified"
+[[site]]
+at = 0x1B91AC
+role = "limit"
+what = "CVoiceStatus: loop over pointer[17]"
+evidence = "verified"
+[[site]]
+at = 0x102DB8
+role = "limit"
+what = "CVoiceGameMgr::Init: maxplayers clamped to 17 (value)"
+evidence = "verified"
+[[site]]
+at = 0x9DBF0
+role = "not-player"
+what = "svc_pings message number (17)"
+evidence = "verified"
+[[site]]
+at = 0x4EF94
+role = "not-player"
+what = "modulo 17 (idiv)"
+evidence = "verified"
+[[site]]
+at = 0x43542
+role = "not-player"
+what = "17-byte record step, count from [0x551F24]"
+evidence = "verified"
+[[site]]
+at = 0x9F230
+role = "not-player"
+what = "17-byte record step, count from [0x551F24]"
+evidence = "verified"
+[[site]]
+at = 0x7951C
+role = "not-player"
+what = "17-byte record step, count from [0x551F24]"
+evidence = "verified"
+[[site]]
+at = 0x185FA4
+role = "not-player"
+what = "a bot state value compared with 2, 3 and 17"
+evidence = "inferred"
+[[site]]
+at = 0x13761B
+role = "not-player"
+what = "weapon id 17 (Glock)"
+evidence = "verified"
+[[site]]
+at = 0x1384E9
+role = "not-player"
+what = "weapon id 17 (Glock)"
+evidence = "verified"
+[[site]]
+at = 0x138E0E
+role = "not-player"
+what = "weapon id 17 (Glock)"
+evidence = "verified"
+[[site]]
+at = 0x139595
+role = "not-player"
+what = "weapon id 17 (Glock)"
+evidence = "verified"
+[[site]]
+at = 0x13A167
+role = "not-player"
+what = "weapon id 17 (Glock)"
+evidence = "verified"
+[[site]]
+at = 0x171B5B
+role = "not-player"
+what = "weapon id 17 (Glock)"
+evidence = "verified"
+[[site]]
+at = 0x178CA8
+role = "not-player"
+what = "weapon id 17 (Glock)"
+evidence = "verified"
+[[site]]
+at = 0x178D95
+role = "not-player"
+what = "weapon id 17 (Glock)"
+evidence = "verified"
+
+# known open items: located by the audit's unresolved list, not by an address yet
+[[unresolved]]
+what = "the server's write of the protocol version (svc_serverinfo or the connect reply)"
+[[unresolved]]
+what = "the scoreboard list widget's visible rows and scrolling (0xDD520 family, layout data)"
+[[unresolved]]
+what = "frame_t pointers: code that walks a frame's player states through a register (see the inventory's frame section)"
+[[unresolved]]
+what = "the client's MAX_PACKET_ENTITIES check (string 0x32AED8)"

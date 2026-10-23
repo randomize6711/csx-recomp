@@ -203,6 +203,17 @@ new value too wide, new equal to old, a branch, no or another operand, inside an
 another image hash, two patches for one operand, missing fields, an unknown operand kind) and three together, each
 reported with its reason and nothing generated.
 
+## Player slot audit (about 35 s, no game run)
+
+`python3 -I tests/slot_audit_test.py` runs tools/slot_audit.py on a synthetic listing that holds one of each finding
+(a table's direct, end-pointer and alias references, strides beside a table reference and alone, object fields
+through a pointer, the frame ring's absolute player states and frame fields, a player state reached through a
+frame-derived register until that register is overwritten, a pointer walk, a classified site, a missing site, an
+unreviewed 17, a block copy recognised by its pattern), then `--check` (an unexpected and a vanished reference fail,
+the same listing passes) and `--require-patched` (fails until every direct reference is patched). On the real
+program: the committed analysis/player_slots_inventory.json matches a fresh audit, two audits are identical, and no
+table is patched yet.
+
 ## Rounds
 
 `rounds_direct.txt` plays complete rounds from the direct start of any map fixture (`de_airstrip_beginner`,
