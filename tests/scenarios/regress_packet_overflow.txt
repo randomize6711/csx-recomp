@@ -1,0 +1,70 @@
+# The packet overflow (FINDINGS.md "Packet overflow", src/game/net_buffers.cpp): de_aztec with 64 bots and the player
+# (Player Collision Off), headless. The player dies (kill) and spectates while the round restarts (sv_restartround),
+# ten times: each restart's packet for the spectator carries every entity's new state, past the 4000 bytes the
+# engine's packet had on its stack (the crash: the bit writer wrote on past it, "Buffer overrun detected", KeBugCheck).
+# Expected: a packet past 4000 bytes (6 to 9 KB measured) built and delivered whole over the loopback (no overflow, no
+# dropped datagram), no guest trap, no guest table overrun (the new buffers end at guard pages).
+#   --env FPS=30 --env CSX_LOG_DATAGRAMS=1 --launch tests/launch/de_aztec_bots64_nocollide
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 25
+players start
+expect playercount start 65 65
+pckey cmd kill
+sleep 3
+pckey cmd sv_restartround 1
+sleep 5
+pckey cmd kill
+sleep 3
+pckey cmd sv_restartround 1
+sleep 5
+pckey cmd kill
+sleep 3
+pckey cmd sv_restartround 1
+sleep 5
+pckey cmd kill
+sleep 3
+pckey cmd sv_restartround 1
+sleep 5
+pckey cmd kill
+sleep 3
+pckey cmd sv_restartround 1
+sleep 5
+pckey cmd kill
+sleep 3
+pckey cmd sv_restartround 1
+sleep 5
+pckey cmd kill
+sleep 3
+pckey cmd sv_restartround 1
+sleep 5
+pckey cmd kill
+sleep 3
+pckey cmd sv_restartround 1
+sleep 5
+pckey cmd kill
+sleep 3
+pckey cmd sv_restartround 1
+sleep 5
+pckey cmd kill
+sleep 3
+pckey cmd sv_restartround 1
+sleep 5
+count game:.World.triggered."Round_Start" 10
+expect log net:.[0-9]+.packets.a.second,.the.largest.([4-9][0-9]{3}|[1-9][0-9]{4,}).bytes.*,.0.overflowed
+expect nolog net:.the.packet.for
+expect nolog net:.*overflowed.in.the.bit.writer
+expect nolog net:.a.split.packet
+expect nolog net:.a.packet's.fragments
+expect nolog net:.a.loopback.datagram
+expect nolog net:.*was.asked.for
+expect nolog guest trap
+expect nolog guest table overrun

@@ -1,0 +1,71 @@
+# Extended play with 64 bots (FINDINGS.md "Packet overflow"; not part of tests/run_regression.sh: 17 minutes):
+# de_aztec, the player and 64 bots, Player Collision Off, headless, rounds of 1 minute (the fixture's 7-round match
+# limits lifted from the console). The player dies each minute
+# and spectates through the round ends and starts (the packets past 4000 bytes); five forced restarts while alive
+# halfway. Expected: 15 or more rounds, no overflow anywhere, no dropped packet, no guest trap or table overrun; the
+# memory and server time logged each second for a look at their trend.
+#   --env FPS=30 --env CSX_LOG_DATAGRAMS=1 --env CSX_LOG_MEMORY=1 --env CSX_LOG_SERVERTIME=1 --launch tests/launch/de_aztec_bots64_nocollide
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 25
+players start
+expect playercount start 65 65
+pckey cmd mp_maxrounds 0
+pckey cmd mp_winlimit 0
+pckey cmd mp_timelimit 0
+pckey cmd kill
+sleep 60
+pckey cmd kill
+sleep 60
+pckey cmd kill
+sleep 60
+pckey cmd kill
+sleep 60
+pckey cmd kill
+sleep 60
+pckey cmd kill
+sleep 60
+pckey cmd kill
+sleep 60
+pckey cmd sv_restartround 1
+sleep 8
+pckey cmd sv_restartround 1
+sleep 8
+pckey cmd sv_restartround 1
+sleep 8
+pckey cmd sv_restartround 1
+sleep 8
+pckey cmd sv_restartround 1
+sleep 8
+pckey cmd kill
+sleep 60
+pckey cmd kill
+sleep 60
+pckey cmd kill
+sleep 60
+pckey cmd kill
+sleep 60
+pckey cmd kill
+sleep 60
+pckey cmd kill
+sleep 60
+pckey cmd kill
+sleep 60
+count game:.World.triggered."Round_Start" 15
+players end
+expect playercount end 65 65
+expect log net:.[0-9]+.packets.a.second,.the.largest.([4-9][0-9]{3}|[1-9][0-9]{4,}).bytes
+expect nolog net:.the.packet.for
+expect nolog net:.*overflowed.in.the.bit.writer
+expect nolog net:.a.loopback.datagram
+expect nolog net:.*was.asked.for
+expect nolog guest trap
+expect nolog guest table overrun

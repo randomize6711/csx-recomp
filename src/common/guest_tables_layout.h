@@ -28,6 +28,9 @@ constexpr Table kTables[] = {
     {"studio_player_state", 0x70095EF8u, 0x4u, 66u, 4u},  // the studio renderer's per player value [N + 1] (was 17 at +0x40B0 in g_StudioRenderer, 0x5693D0)
     {"cmdline_cstrike", 0x70097F80u, 0x1u, 128u, 1u},  // the match's command line template, 65 player slots
     {"cmdline_launcher", 0x70099F80u, 0x1u, 128u, 1u},  // the front end's command line template, 65 player slots
+    {"net_client_datagram", 0x7009B000u, 0x1u, 61440u, 1u},  // SV_SendClientDatagram's message for a loopback client, 60 KB (was 4000 bytes on its stack at 0x9DF54)
+    {"net_transmit", 0x700AB000u, 0x1u, 65536u, 1u},  // Netchan_Transmit's datagram on a loopback channel, 64 KB as net_message (was 4037 bytes on its stack at 0x698E2)
+    {"net_getspace_scratch", 0x700BC000u, 0x1u, 65536u, 1u},  // SZ_GetSpace's answer to a request larger than a whole overflowing buffer (it returned the buffer's start)
 };
 constexpr size_t kTableCount = sizeof(kTables) / sizeof(kTables[0]);
 
@@ -53,6 +56,9 @@ constexpr size_t k_voice_heads = 17;
 constexpr size_t k_studio_player_state = 18;
 constexpr size_t k_cmdline_cstrike = 19;
 constexpr size_t k_cmdline_launcher = 20;
+constexpr size_t k_net_client_datagram = 21;
+constexpr size_t k_net_transmit = 22;
+constexpr size_t k_net_getspace_scratch = 23;
 
 // tables that start with a text (a NUL-terminated string the recompiled code is pointed at)
 constexpr TableText kTexts[] = {

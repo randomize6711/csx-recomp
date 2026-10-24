@@ -945,3 +945,122 @@ call = "SoundWaitBegin"
 at = 0x106408
 call = "SoundWaitDone"
 on_true = 0x106444
+
+# the packet overflow (src/game/net_buffers.cpp, FINDINGS.md "Packet overflow"): the bit writer replaced by a bounded
+# one, the end of a bit write kept inside its buffer
+[[hook]]
+at = 0x3E220
+call = "NetWriteBits"
+on_true = 0x3E2DF
+
+[[hook]]
+at = 0x3E160
+call = "NetWriteOneBit"
+on_true = 0x3E1CC
+
+[[hook]]
+at = 0x3E36F
+call = "NetWriteSignBit"
+on_true = 0x3E40C
+
+[[hook]]
+at = 0x3E1FA
+call = "NetEndBitStore"
+on_true = 0x3E1FC
+
+[[hook]]
+at = 0x2D1E6
+call = "NetEndBitStore"
+on_true = 0x2D1E8
+
+[[hook]]
+at = 0x96BE7
+call = "NetEndBitStore"
+on_true = 0x96BE9
+
+[[hook]]
+at = 0x9768F
+call = "NetEndBitStore"
+on_true = 0x97691
+
+[[hook]]
+at = 0x97B21
+call = "NetEndBitStore"
+on_true = 0x97B23
+
+[[hook]]
+at = 0x9CEDC
+call = "NetEndBitStore"
+on_true = 0x9CEDE
+
+[[hook]]
+at = 0x9D9C1
+call = "NetEndBitStore"
+on_true = 0x9D9C3
+
+[[hook]]
+at = 0x9DCB0
+call = "NetEndBitStore"
+on_true = 0x9DCB2
+
+[[hook]]
+at = 0x9F7B0
+call = "NetEndBitStore"
+on_true = 0x9F7B2
+
+[[hook]]
+at = 0xB27AE
+call = "NetEndBitStore"
+on_true = 0xB27B0
+
+# SZ_GetSpace: a request larger than a whole overflowing buffer, a negative length
+[[hook]]
+at = 0x3ED73
+call = "NetGetSpaceCheck"
+on_true = 0x3ED7D
+
+# a loopback client's packet and datagram built in guest tables (60 KB, 64 KB), the loopback queue holding them whole
+[[hook]]
+at = 0x9DF73
+call = "SvDatagramBuffer"
+
+[[hook]]
+at = 0x9DFB9
+call = "SvDatagramEntitiesBegin"
+
+[[hook]]
+at = 0x9DFC5
+call = "SvDatagramEntitiesEnd"
+
+[[hook]]
+at = 0x9E027
+call = "SvDatagramOverflowed"
+
+[[hook]]
+at = 0x9E052
+call = "SvDatagramTransmit"
+
+[[hook]]
+at = 0x6996E
+call = "NetchanSendBuffer"
+
+[[hook]]
+at = 0x6BBF1
+call = "NetLoopSend"
+on_true = 0x6BBF6
+
+[[hook]]
+at = 0x6BB49
+call = "NetLoopGet"
+on_true = 0x6BB4E
+
+# from the network: a split packet's part and a packet's fragments checked
+[[hook]]
+at = 0x6C1FB
+call = "NetSplitCheck"
+on_true = 0x6C2E4
+
+[[hook]]
+at = 0x6A71D
+call = "NetFragmentsCheck"
+on_true = 0x6A3A1

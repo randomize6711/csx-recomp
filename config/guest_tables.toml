@@ -159,3 +159,26 @@ count = 128
 align = 1
 what = "the front end's command line template, 65 player slots"
 text = "-dev -console +set developer 1 -game launcher -maxplayers 65 +maxplayers 65 +hideradar +hostname XBOX %s"
+
+# --- network buffers (G8.2B, the packet overflow: src/game/net_buffers.cpp, FINDINGS.md "Packet overflow") ---
+
+[[table]]
+name = "net_client_datagram"
+elem = 1
+count = 0xF000
+align = 1
+what = "SV_SendClientDatagram's message for a loopback client, 60 KB (was 4000 bytes on its stack at 0x9DF54)"
+
+[[table]]
+name = "net_transmit"
+elem = 1
+count = 0x10000
+align = 1
+what = "Netchan_Transmit's datagram on a loopback channel, 64 KB as net_message (was 4037 bytes on its stack at 0x698E2)"
+
+[[table]]
+name = "net_getspace_scratch"
+elem = 1
+count = 0x10000
+align = 1
+what = "SZ_GetSpace's answer to a request larger than a whole overflowing buffer (it returned the buffer's start)"
