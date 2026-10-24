@@ -1941,6 +1941,45 @@ Remaining uncertainty: the bots' avoidance of teammates is their own logic and w
 they can still pause behind each other); hostages keep blocking (they are not players); network play is untested and
 the option is not offered there.
 
+## PC multiplayer investigation (2026-10-24, N0)
+
+Read-only investigation of the engine's netcode, dedicated server and browser feasibility and split-screen, plus a
+two-process system link test. Design and roadmap: docs/pc_multiplayer.md; evidence with addresses:
+analysis/netcode_engine.md, analysis/dedicated_server_browser.md, analysis/splitscreen.md.
+
+- **Netcode**: the 2003 GoldSrc netchan and delta snapshots, almost unchanged (8-byte header, 1-bit reliable
+  stream resent implicitly, two fragment streams, no qport, no reordering, rate pacing by cleartime). Defaults:
+  rate 4000 B/s (clamped 1000..20000 in code), cl_updaterate 20 (10..60), cl_cmdrate 30, ex_interp 0.1,
+  sv_maxunlag 0.5, sv_timeout 15, cl_timeout 10, sv_failuretime 0.5.
+- **Found in the engine** (each read in the disassembly): SV_CheckChallenge (0x98CE0) returns 1 on every path, so
+  the connect challenge is never checked; "uniqueid" is -1 for every client, no persistent identity; the info /
+  details / infostring replies carry the session's XNKID, XNKEY and host XNADDR; SV_DropClient sends no reason;
+  a listen host disconnecting shuts the server down; clients in the front end's player list are never timed out
+  (0x9C896); lag compensation skips entity number == maxclients (0xAB06F `n < maxclients`), so the last slot is
+  never rewound; `changelevel` is disabled ("E3 HACK", 0x60270) and every map change is a title relaunch on the
+  host and, through lobby message 0x0B, on every client, which then rejoins through discovery.
+- **Dedicated**: GoldSrc's ca_dedicated path is in the image but never enabled (CEngine::Load(0), 0xADA64); the
+  Xbox "Dedicated Server" host option (mp_dedicated_server 1) is a listen server whose own client does not play
+  (no 3D view or HUD, bots without waiting for a human), still taking a slot.
+- **Split-screen**: the XBE has none. Four controller ports are polled to choose one active pad (0x3852F8); `cl`,
+  `cls`, gHUD and the loopback client side exist once; one audio listener. The renderer can draw several views
+  into sub-rectangles per frame (V_RenderView's nextView, used by the spectator picture-in-picture).
+- **Two processes** (headless, `--instance 1` and `2` in one private network namespace, tools/drive.py with the
+  namespace shared): no path connects them. (1) System link: after Host a Match relaunches the host into the match,
+  its lobby sockets 1101-1104 fail to bind (10048): the Linux relaunch (sdk/runtime/kernel/boot.cpp:208, execl)
+  leaves the old image's sockets open (only the Windows branch calls xnet::CloseSockets; the sockets are not
+  close-on-exec), so the joiner's list stays "Searching". The same bind failures are in every Linux log after a
+  relaunch. (2) With the sockets made close-on-exec (an LD_PRELOAD shim outside the project), discovery works (the
+  host is listed with its details) but joining shows "This game session is no longer available" and the joiner makes
+  no connection and sends no unicast packet. (3) `+connect 127.0.0.1:1001` on the launch line goes into the lobby's
+  rejoin logic (same message); the console `connect 127.0.0.1:1001` in a running match shuts the client's own server
+  down and sends nothing (consistent with CL_Connect_f's use of the lobby address 0x554334; inferred). Method in
+  docs/pc_multiplayer.md section 2.
+- **Snapshot sizes** with 64 bots (loopback, soak_bots64_nocollide, the largest packet of each of 909 seconds):
+  median 457 bytes, p90 813, p99 2.6 KB, largest 8.6 KB.
+- **Test tooling checked**: `tc qdisc ... netem` (delay, loss, reordering, duplication) works on the loopback of a
+  user network namespace without root (50 ms delay and 5% loss seen with ping).
+
 ## Packet overflow (2026-10-24, G8.2B)
 
 Found in play: 64 bots, Player Collision Off, the player dead and spectating; at the next round restart the game

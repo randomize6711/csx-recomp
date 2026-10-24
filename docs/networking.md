@@ -59,6 +59,10 @@ wider fields. System link and Xbox Live are not kept compatible with the console
 
 ## 4. Opportunities for PC multiplayer (not done in G8.2B)
 
+Investigated in N0 (2026-10-24): docs/pc_multiplayer.md has the current architecture, the remaining limits, the
+recommended design (a host transport under the engine's netchan) and the N1-N4 roadmap; it supersedes the list below
+where they differ.
+
 Ordered by value for online play; none blocks the 65-slot single player match.
 
 1. **Transport.** The engine's netchan runs on the Xbox socket layer (XNet HLE): a PC UDP transport with NAT traversal

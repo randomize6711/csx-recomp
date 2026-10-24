@@ -51,4 +51,7 @@
   player, protocol 47, the scoreboard's pages) ✅ 2026-10-24, waiting for approval; checkpoint 3: the menu to 64 bots ✅
   2026-10-24 (with the XACT / DPC race fix), the benchmarks and high population performance (-O2, the round restart
   wait) ✅ 2026-10-24, the scoreboard for 65 (Ping, BOT, scrolling) ✅ 2026-10-24; waiting for the user's play-test
+- N0 — PC multiplayer architecture investigation (docs/pc_multiplayer.md) ✅ 2026-10-24, waiting for approval of the
+  architecture; then N1 — PC transport and remote clients, N2 — dedicated server, N3 — server browser, N4 —
+  split-screen (one client process per local player), each after the user's approval
 - M8 — PC feature set complete

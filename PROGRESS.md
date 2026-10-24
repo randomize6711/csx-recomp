@@ -610,3 +610,23 @@ after the overflow (and wrote whole dwords past the bits).
   fails it with the crash), soak_bots64_nocollide (19 rounds, not in the regression run).
   Results: headless regression 45 of 45; window default suite 27 of 27; vk_scoreboard_169 / _43 / _219 and
   vk_bot_count_169 pass; benchmarks within their earlier spread.
+
+## 2026-10-24 — N0: PC multiplayer architecture investigation
+
+Approved by the user after the scoreboard test (investigation only; N1 waits for approval of the architecture).
+- Read: the engine's netcode (connecting, netchan, snapshots, delta, prediction, interpolation, lag compensation,
+  voice, timeouts, map changes, queries, rcon), the dedicated server remnants and the Xbox Dedicated Server host
+  option, system link discovery and the menus, split-screen. Evidence: analysis/netcode_engine.md,
+  analysis/dedicated_server_browser.md, analysis/splitscreen.md.
+- Tested: two headless processes in one private network namespace. No path connects them today: the Linux
+  relaunch leaks the host's lobby sockets (system link host not found); with that worked around, discovery works
+  and the join fails in the joiner's front end; the engine's connect is steered by the lobby.
+- Found: the connect challenge is never checked; the info replies leak the session keys; no player identity; the
+  last slot is never lag-compensated; changelevel disabled (map change = relaunch everywhere); the Xbox game has no
+  split-screen; GoldSrc's dedicated path is in the image but off.
+- Proposed (docs/pc_multiplayer.md): keep the engine's netcode, replace the transport under the netchan (MTU-sized
+  datagrams, message fragmentation with limits, cookie handshake, connection ids), PC sessions instead of system
+  link, a dedicated mode through ca_dedicated, the browser in the System Link Matches screen, split-screen as one
+  client process per local player. Roadmap N1 transport, N2 dedicated server, N3 browser, N4 split-screen.
+- Docs: docs/pc_multiplayer.md (new), FINDINGS "PC multiplayer investigation", ARCHITECTURE decision 16, ROADMAP,
+  TODO 1e4, docs/networking.md. No code changed.

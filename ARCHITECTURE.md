@@ -92,6 +92,12 @@ still apply unless a milestone changes them. Applied first in G8.2B (65 player s
    CSoundEnt, the StatShot block) grow their allocation with the arrays at the end.
 15. **One PC network protocol (version 47)**, no Xbox compatibility mode: docs/networking.md lists the changes, the
    validation added for player indices from the wire, and the opportunities for PC multiplayer.
+16. **PC multiplayer keeps the engine's netcode and replaces what is below and beside it** (N0, docs/pc_multiplayer.md,
+   proposed, waiting for approval): the netchan, delta snapshots, prediction and lag compensation stay; a host-side
+   transport replaces the engine's UDP split code under the netchan (MTU-sized datagrams, message fragmentation with
+   limits, a cookie handshake, connection ids); PC sessions (direct address, a browser, a replaceable master server)
+   replace system-link discovery; a dedicated mode uses the engine's own ca_dedicated path; split-screen, which the
+   Xbox game never had, is one client process per local player composited in one window.
 
 ## Workspace
 
