@@ -842,3 +842,33 @@ call = "TraceLineCount"
 [[hook]]
 at = 0xB79C0
 call = "TraceLinkCount"
+
+# XACT's event heap: which thread is inside, on every insert, pop and remove (src/game/xact_check.cpp): two threads at
+# once is the race SDK patch 0038 closed (FINDINGS.md "Number of Bots to 64, one team, DISPATCH_LEVEL")
+[[hook]]
+at = 0x30250D
+call = "XactHeapEnterEax"
+
+[[hook]]
+at = 0x30251E
+call = "XactHeapLeave"
+
+[[hook]]
+at = 0x302560
+call = "XactHeapLeave"
+
+[[hook]]
+at = 0x302487
+call = "XactHeapEnterEax"
+
+[[hook]]
+at = 0x30250C
+call = "XactHeapLeave"
+
+[[hook]]
+at = 0x30240B
+call = "XactHeapEnterEcx"
+
+[[hook]]
+at = 0x302448
+call = "XactHeapLeave"

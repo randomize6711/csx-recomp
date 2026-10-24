@@ -1,0 +1,32 @@
+# The XACT / DPC race (G8.2B, FINDINGS.md "Number of Bots to 64, one team, DISPATCH_LEVEL"): XACT's timer DPC and the
+# game thread's sound work both change XACT's event heap, which XACT guards by raising to DISPATCH_LEVEL. Before SDK
+# patch 0038 the runtime ran the two at once and the heap's count wrapped (a crash in 0x3023A4 about 40 s into 64 bots
+# on one team at de_aztec's Counter-Terrorist spawn, the most sound in one place). src/game/xact_check.cpp notes which
+# thread is inside the heap on every insert, pop and remove: every change holds the DISPATCH_LEVEL lock (the rule that
+# keeps the race out; the overlap itself is too rare to wait for), no second thread enters while one is inside, the
+# count stays within the capacity, no thread waits while it holds DISPATCH_LEVEL (patch 0039's check), and the threads
+# did meet at the lock (some raise found it held: the race's conditions were there). Its own check: with the lock off
+# (CSX_DISPATCH_LOCK set to 0 in the environment) it fails on "changed without the DISPATCH_LEVEL lock".
+#   --env FPS=30 --env CSX_LOG_LOCKS=1 --launch tests/launch/de_aztec_bots64_ct
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 25
+players start
+expect playercount start 65 65
+expect log xact:.event.heap.checks.on
+count game:.World.triggered."Round_End" 3
+expect nolog without.the.DISPATCH_LEVEL.lock
+expect nolog two.threads.in.the.event.heap
+expect nolog over.its.capacity
+expect nolog holding.the.DISPATCH_LEVEL.lock
+expect nolog guest trap
+expect nolog guest table overrun
+expect log dispatch.level:.[0-9]+.raises.in.[0-9.]+.s,.[1-9][0-9]*.found.it.held
