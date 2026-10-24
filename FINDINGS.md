@@ -1941,6 +1941,41 @@ Remaining uncertainty: the bots' avoidance of teammates is their own logic and w
 they can still pause behind each other); hostages keep blocking (they are not players); network play is untested and
 the option is not offered there.
 
+## Number of Bots to 64, one team, DISPATCH_LEVEL (2026-10-24, G8.2B)
+
+- **The setting** (src/game/pc_menu.cpp ExtendBotCount, PcBotCountLimit): Custom Game > Match Options' Number of
+  Bots lists "0 bots" to "16 bots", then "20 bots" to "64 bots" in fours (29 choices; 64 is 21 steps from the default
+  7, not 57); the help line says "64 bots and you fill the game's 65 player slots.". The choices stay within the list
+  cell's 0x27 enable bytes.
+- **Bot Team on one team is no longer capped at 8.** The original's cap was the spawn point team limit (8 points a
+  team on the smallest maps), which the 65 slots removed. The one-team choices already give "+mp_autoteambalance 0
+  +mp_limitteams 0".
+- **mp_limitteams 0 meant 20** (CHalfLifeMultiplay 0x143C7A): the game clamps the cvar to MAX_TEAM_DIFF (20, for
+  32 players) and makes 0 (and anything under 1) that maximum, so 64 bots on one team stopped at 21 against the
+  player ("Could not add bot to the game: Team is stacked", printed to the console, not the log). MAX_TEAM_DIFF is now
+  N - 1 (three [[change]] in config/player_slots.toml: the compare, the clamp's float, the value; tools/slot_patches.py
+  gained F32() for the float).
+- **XACT's event queue raced with the DPC thread** (a crash, SIGSEGV in 0x3023A4, seen first with 64 bots on one team
+  crowded at de_aztec's Counter-Terrorist spawn): XACT keeps its timed events in a binary heap (engine +0x160: array,
+  capacity 50, count; insert 0x30250D, pop 0x302487, remove 0x30240B) and guards it by raising the IRQL to
+  DISPATCH_LEVEL (0x2F916B, KfRaiseIrql), which on the single processor Xbox keeps every other thread and DPC out.
+  The runtime only recorded the IRQL, and ran DPCs at IRQL 0 on its own host thread: XACT's timer DPC (0x303391 ->
+  0x302B04) popped the heap while the game thread's XACT work (0x107040 -> 0x2FB105 ... 0x302B2C) popped it too. The
+  core showed both threads in 0x302487 and the heap's count at 0xFFFFFFFF with every slot cleared. More sound
+  (64 players in one place) made it likely; it is not specific to 65 slots. SDK patch 0038: DISPATCH_LEVEL is one
+  recursive host mutex, taken when a thread raises from below 2 to 2 or above and released when it lowers below 2
+  (KfRaiseIrql, KfLowerIrql, KeRaiseIrqlToDpcLevel, KeRaiseIrqlToSynchLevel); DPCs run at DISPATCH_LEVEL under it.
+  Code at DISPATCH_LEVEL never waits on the console, so the lock adds no wait it did not have. Not covered: the
+  vertical blank callback, which the runtime runs on its own thread at IRQL 0 (as before).
+- **run_game.sh** --bots N (0..64) and --nocollide start a match on any map straight away; the command line is the
+  Beginner match's, with the options before its closing NUL (after it the game does not read them).
+- **Tests**: regress_bots_aztec_64_oneteam (headless, tests/launch/de_aztec_bots64_ct: 64 Counter-Terrorist bots and
+  the player: 65 players, CT 64 and T 1, kills, three round ends and starts, no "Team is stacked", no guest trap);
+  vk_bot_count_43 / _169 / _219 (the window: 64 chosen with the arrows, the one-team choice not capped, 65 players on
+  de_aztec, the teams even, and in 169 the choice kept through Quit and a second match with the bots on one team: 65).
+  All pass: the full headless regression (43 scenarios, with the DISPATCH_LEVEL lock) and the three window tests (159
+  steps each); the screenshots show 64 bots, its help row, and Counter-Terrorist chosen with 64 bots.
+
 ## Player slots, 65 (2026-10-23, G8.2B checkpoint 2)
 
 The engine, the client, the HUD and the game DLL hold 65 player slots (svs.maxclientslimit 65, the match's command
@@ -2138,6 +2173,7 @@ from the XBE (engine and game DLL in one image), then checked in matches.
   keeps the screen's choices from one front end to the next (after a match and Quit, 16 is still chosen). Separate
   Counter-Terrorist and Terrorist counts: the bot manager has one bot_quota and bot_join_team (any, ct, t), so separate
   counts would need a second quota in the bot code; not done (not needed by the architecture).
+  Since G8.2B the list goes to 64 and one team is not capped (FINDINGS "Number of Bots to 64").
 
 - **Spawns with every spawn point in use.** On de_dust2 with 16 bots (8 and 8, every point taken) the game's spawn
   choice (unchanged) can put a player on an occupied point at the match's first spawn: with collision Off, two

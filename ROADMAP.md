@@ -48,6 +48,6 @@
 - G8.2 — Custom Game > Number of Bots: 0 to 16 in the original 17 slots ✅ 2026-10-23; G8.2B, 65 player slots
   (any mix of humans and bots), planned in docs/player_slots_plan.md: checkpoint 1 (recompiler [[patch]], the player
   slot audit, guest tables, the memory investigation) ✅ 2026-10-23; checkpoint 2 (the 65 slots: 64 bots and the
-  player, protocol 47, the scoreboard's pages) ✅ 2026-10-24, waiting for approval; checkpoint 3 (the menu to 64 bots,
-  tests, benchmarks) next
+  player, protocol 47, the scoreboard's pages) ✅ 2026-10-24, waiting for approval; checkpoint 3: the menu to 64 bots ✅
+  2026-10-24 (with the XACT / DPC race fix), benchmarks next
 - M8 — PC feature set complete

@@ -555,3 +555,16 @@ match. Waiting for approval (checkpoint 3: the menu's Number of Bots to 64, the 
 - Open for checkpoint 3 or later: the menu's Number of Bots (to 64), the bots' think time at 64 (not optimized),
   TextMsg / death notice name reads unchecked against the wire, the Xbox communicator's 16 voice records (no PC voice),
   in-process map changes (the title never did them: each match is a relaunch).
+
+## 2026-10-24 — G8.2B: Number of Bots to 64 in the menu
+
+Branch g8.2b, at the user's request after playing 64 bots ("I just need to be able to set that higher number of bots
+when in the game"): the menu part of checkpoint 3. The benchmarks at 16 / 32 / 64 are not part of it.
+- Custom Game > Match Options > Number of Bots: 0 to 16, then 20 to 64 in fours; Bot Team on one team not capped at 8
+  (src/game/pc_menu.cpp).
+- mp_limitteams 0 allowed 20 more on one team (MAX_TEAM_DIFF): now N - 1 (config/player_slots.toml, 404 patches).
+- SDK patch 0038: DISPATCH_LEVEL is a host lock and DPCs run at it (XACT's event queue raced between the DPC thread
+  and the game thread: a crash with 64 bots on one team; FINDINGS "Number of Bots to 64").
+- run_game.sh --bots N, --nocollide, any map.
+- Tests: regress_bots_aztec_64_oneteam (new, fixture de_aztec_bots64_ct), vk_bot_count_43 / _169 / _219 (to 64).
+  Results: the full headless regression passes (43 scenarios), and so do vk_bot_count_43, _169 and _219 (159 steps each).

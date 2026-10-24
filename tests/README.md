@@ -189,14 +189,16 @@ all 24 join; before it the 17 slots took 16): the players
 counted (`expect playercount`), spawned apart (not with collision Off, where bodies may stand in each other), the bots
 walking (`expect bodiesmoved A B MIN N`), kills and two round ends in the game's log, the teams within one
 (`expect teams MAXDIFF MIN`, from the log's "joined team" lines), the spawn points and edicts logged (`spawns NAME`).
-`vk_bot_count_43.txt`, `_169.txt` and `_219.txt` (the window, FOV 120): the Match Options list to 16 bots, a match on
-de_aztec with 17 players, the play and scoreboard shots; 169 also caps one team at 8 as the original and keeps 16
-through Quit and the next front end. CSX_LOG_SERVERTIME=1 logs the server frame's time once a second (benchmarks).
+`vk_bot_count_43.txt`, `_169.txt` and `_219.txt` (the window, FOV 120): the Match Options list to 64 bots (0 to 16,
+then 20 to 64 in fours), a match on de_aztec with 65 players, the play and scoreboard shots, Bot Team on one team not
+capped (since G8.2B), the choice kept through Quit and the next front end, whose match puts the 64 bots on one team. CSX_LOG_SERVERTIME=1 logs the server frame's time once a second (benchmarks).
 
 65 player slots (G8.2B, FINDINGS.md "Player slots, 65"): `regress_bots_aztec_64.txt` and `_64_nocollide.txt` (64 bots
 and the player on de_aztec, collision On and Off), `regress_bots_dust2_64.txt` (64 bots on 8 / 8 spawn points): 65
 players, the teams 32 and 33, the bots walking, kills, round ends, no guest trap and no guest table overrun (the bots
-join one every 0.3 s or so: 25 s are given). `vk_bots64_scoreboard.txt` (the window): the HUD at 65 players and the
+join one every 0.3 s or so: 25 s are given). `regress_bots_aztec_64_oneteam.txt` (64 bots on the Counter-Terrorists, the
+player a Terrorist: Bot Team on one team, mp_limitteams 0 no longer stopping at 21; the XACT event queue race found
+by it, SDK patch 0038). `vk_bots64_scoreboard.txt` (the window): the HUD at 65 players and the
 scoreboard's four pages. `vk_perf_bots16.txt` / `_bots64.txt` (the window, VSync Off): measurements only.
 
 ## Recompiler instruction patches (about 10 s, no game run)

@@ -52,7 +52,7 @@
 1d. Player Collision for system link / Live hosts (G8.1 offers it in single player only): the remote client's
    prediction would need the host's value (e.g. a replicated server cvar) and two instances on a link to test it.
 1e. G8.2B, 65 player slots (any mix of humans and bots): checkpoint 2 (the 65-slot engine) implemented on branch
-   g8.2b, waiting for approval; checkpoint 3 (menu: Number of Bots to 64, tests, benchmarks) after it. Open: the
+   g8.2b, waiting for approval; checkpoint 3: the menu's Number of Bots to 64 done (2026-10-24), the benchmarks at 16 / 32 / 64 open. Open: the
    scoreboard's scrolling past its visible rows (checked in the window), TextMsg's and the death notices' player name
    reads not checked against the wire (docs/networking.md 4.7), the Xbox communicator voice playback's 16 player
    records (no PC voice device), separate Counter-Terrorist and Terrorist bot counts.
