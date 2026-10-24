@@ -872,3 +872,18 @@ call = "XactHeapEnterEcx"
 [[hook]]
 at = 0x302448
 call = "XactHeapLeave"
+
+# the sound system's stop-everything wait (src/game/sound_wait.cpp): it ends once the sound thread has made a whole pass
+# of its work, not after a fixed 450 ms of spinning
+[[hook]]
+at = 0x103EB9
+call = "SoundThreadPass"
+
+[[hook]]
+at = 0x1063C8
+call = "SoundWaitBegin"
+
+[[hook]]
+at = 0x106408
+call = "SoundWaitDone"
+on_true = 0x106444
