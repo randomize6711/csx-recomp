@@ -568,3 +568,30 @@ when in the game"): the menu part of checkpoint 3. The benchmarks at 16 / 32 / 6
 - run_game.sh --bots N, --nocollide, any map.
 - Tests: regress_bots_aztec_64_oneteam (new, fixture de_aztec_bots64_ct), vk_bot_count_43 / _169 / _219 (to 64).
   Results: the full headless regression passes (43 scenarios), and so do vk_bot_count_43, _169 and _219 (159 steps each).
+
+## 2026-10-24 — G8.2B: high population performance, the scoreboard for 65
+
+Branch g8.2b, approved by the user after testing 65 players: optimise high bot counts without changing gameplay, and
+modernise the scoreboard (CS 1.6 / Condition Zero's information, the Xbox look) with real ping and BOT. Earlier work of
+the day committed first (2b29f10 .. a1f7952).
+- Tools: benchmarks vk_perf_{aztec,dust2}_{16,32,64} (fixtures *_nocollide), tools/perf_summary.py, CSX_LOG_INTERVALS,
+  the sampling profiler CSX_PROFILE (src/game/profiler.cpp) and tools/profile_report.py, CSX_LOG_LOCKS (SDK patch
+  0039), CSX_LOG_TRACES, run_window_tests.py --exe / --tag / $RUN.
+- Found (FINDINGS "High population performance"): one game thread is the limit; bots' line-of-sight traces are the
+  largest server cost; a fixed 450 ms busy-wait in the sound system froze every round restart; the generated code
+  was built at -O1.
+- Changed: generated code at -O2 (SDK patch 0040; -O3 no better); the sound system's stop wait ends after one pass of
+  its thread (src/game/sound_wait.cpp). de_aztec 64 bots: 67 to 84 frames/s, server frame 6.1 to 3.8 ms, worst frame
+  543 to ~150 ms; 0.1% lows two to three times higher everywhere. Renderer upload dedupe tried, no gain, reverted.
+- Scoreboard (FINDINGS "Scoreboard"): Ping column (BOT from a server-set *bot key, measured pings, "-" before one),
+  25 lines, scrolling (wheel, Page Up / Down, Home, End) with the section header kept and a "more below" line, rows
+  padded to the column count (the original's spectators' header now shows), the 5 s paging removed.
+- XACT race: regress_xact_dispatch_level (lockset check on XACT's event heap; fails with CSX_DISPATCH_LOCK=0);
+  SDK patch 0039 also logs a wait at DISPATCH_LEVEL (none seen).
+- Found, not fixed: bot_kick mid-round crashes the original game too (G7 build): StatShot AddDamage on released memory.
+- Tests: scoreboard_rows_test.py, vk_scoreboard_169 / _43 / _219 with tools/check_scoreboard.py, regress_xact_dispatch_level.
+  Results: headless regression 44 of 44; window default suite 27 of 27; vk_bot_count_169 / _43 / _219 (159 steps
+  each); vk_scoreboard_169 / _43 / _219 (59 steps each, check_scoreboard all pass); Vulkan validation on
+  vk_scoreboard_169 only the known gamescope WSI messages; scoreboard_rows_test 1222 checks, 0 failed.
+  Commits: 7dfd293 (build -O2, lock stats), eef344a (benchmarks, profiler), 7b4b19f (XACT test), 0a9cfe3 (sound wait),
+  ee4304e (scoreboard), then these docs.

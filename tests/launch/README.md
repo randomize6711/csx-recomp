@@ -23,6 +23,7 @@ begins at the map load (about 45 s headless to a moving player instead of about 
 | de_aztec_bots64_ct | de_aztec_bots64 with "+bot_join_team ct +mp_autoteambalance 0 +mp_limitteams 0 +teampreference 1" after the quota, as Bot Team > Counter-Terrorist gives it | 64 bots on one team against the player (G8.2B: mp_limitteams 0 allows 64) |
 | de_dust2_bots64 | de_dust2_bots16 with "+bot_quota 64" | 64 bots on 8 / 8 spawn points (each point reused by four players) |
 | de_dust2_bots16_nocollide | de_dust2_bots16 with "+pc_player_collision 0" at the end | the same, player collision Off |
+| de_aztec_bots16_nocollide, _bots32_nocollide, de_dust2_bots32_nocollide, _bots64_nocollide | de_aztec_bots64_nocollide with the map and "+bot_quota N" changed | the benchmarks' 16 / 32 / 64 bots on both maps, player collision Off (G8.2B performance) |
 
 The profile the front end creates (E:\UDATA, E:\TDATA) is not needed for the match. Started this way, the player spawns
 at the same position as after the full boot (regress_player_control's 765.1 unit run reproduced exactly).

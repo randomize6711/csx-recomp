@@ -49,5 +49,6 @@
   (any mix of humans and bots), planned in docs/player_slots_plan.md: checkpoint 1 (recompiler [[patch]], the player
   slot audit, guest tables, the memory investigation) ✅ 2026-10-23; checkpoint 2 (the 65 slots: 64 bots and the
   player, protocol 47, the scoreboard's pages) ✅ 2026-10-24, waiting for approval; checkpoint 3: the menu to 64 bots ✅
-  2026-10-24 (with the XACT / DPC race fix), benchmarks next
+  2026-10-24 (with the XACT / DPC race fix), the benchmarks and high population performance (-O2, the round restart
+  wait) ✅ 2026-10-24, the scoreboard for 65 (Ping, BOT, scrolling) ✅ 2026-10-24; waiting for the user's play-test
 - M8 — PC feature set complete

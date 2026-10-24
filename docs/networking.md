@@ -16,6 +16,7 @@ the 65-slot expansion or safety needs it. A rewrite is not proposed: nothing fou
 | vban (client command) | one hex dword | up to 3 hex dwords | same |
 | StatShot (user message) | two 16-bit masks (players past 16 dropped) | two masks of 3 dwords, then three bytes | same |
 | Player indices in other messages | bytes (ScoreInfo, TeamInfo, DeathMsg, Radar, ...) | unchanged (bytes hold 255) | |
+| Bots in userinfo | the client had no mark of a bot (the engine's fake clients carry name, model, colours) | the server adds "*bot\1" to a fake client's userinfo (FL_FAKECLIENT), sent like any key: the scoreboard's BOT on every client; a client cannot set a * key | hook 0x79F91, src/game/scoreboard.cpp |
 | Malformed indices | several HUD handlers wrote tables with an unchecked byte | Radar, DeathMsg, the field of view message and the two talk messages check the index (src/game/player_slots_hud.cpp); ScoreInfo, TeamInfo, ScoreAttrib, Spectator check against 65 | |
 
 An original console or a build before G8.2B is refused at connect (protocol 46 against 47) instead of misreading the
@@ -64,4 +65,6 @@ Ordered by value for online play; none blocks the 65-slot single player match.
    PC voice would be a new codec and capture path. The voice masks (who hears whom) are already 65-player.
 7. **Security.** Every message handler that indexes a table with a value from the wire should check it (section 3
    covers the ones that write tables; the remaining reads were found in TextMsg's player names and the death
-   notice's name lookups, which read the info list: bounded by its guard page, but not checked yet).
+   notice's name lookups, which read the info list: bounded by its guard page, but not checked yet). A connecting
+   client's own userinfo should be checked for * keys too ("*bot" is the server's to set; setinfo refuses them, the
+   connect string was not checked).

@@ -1941,6 +1941,131 @@ Remaining uncertainty: the bots' avoidance of teammates is their own logic and w
 they can still pause behind each other); hostages keep blocking (they are not players); network play is untested and
 the option is not offered there.
 
+## High population performance (2026-10-24, G8.2B)
+
+Measured before changing anything, with tools made for it (all off unless set): **benchmarks**
+tests/scenarios/vk_perf_{aztec,dust2}_{16,32,64}.txt (Vulkan window 1920x1080, VSync Off, limit 240, Player Collision
+Off, 60 s held after the bots joined; tools/perf_summary.py), **every frame interval** (CSX_LOG_INTERVALS: exact 1% /
+0.1% lows and percentiles), **per-thread CPU** and a **sampling profiler** (CSX_PROFILE, src/game/profiler.cpp: SIGPROF
+on CPU time, host stacks unwound; generated functions keep their guest address, so tools/profile_report.py gives guest
+functions' own and inclusive time, call trees, callers, shared libraries by name), the **DISPATCH_LEVEL lock**
+(CSX_LOG_LOCKS) and **TraceLine counts by caller** (CSX_LOG_TRACES).
+
+- **One thread is the limit.** The game thread uses 96-99% of a core in every run; everything else together ~4% (the
+  mixer ~2.4%, the window ~1.4%, XACT's DPC and the vertical blank thread under 0.3%). GPU time is 0.6-1.2 ms a frame:
+  the game is CPU-bound, on that thread.
+- **Where the game thread goes (de_aztec, 64 bots, -O1):** the server frame 40% (SV_Frame 0xA1D20 -> the game DLL's
+  frame 0x140F30 -> the bot manager 0x1619C0: 37.5%), the client frame 58% (of which Vulkan command recording ~35%:
+  Draw, vertex assembly, hashing, the Radeon driver ~11%). Inside the bots: **line-of-sight traces** dominate.
+  0x1736C0 (CCSBot::Update, 24.5%) -> 0x175C30 -> 0x174830, CCSBot::IsVisible(player): up to five points (gut, head,
+  feet, both sides) per enemy, each 0x174780 (a smoke test, then pfnTraceLine from the eyes, ignoring monsters)
+  14%; bots' other traces 0x1791F0 3.5%; each bot's think (0xA9550 -> 0x11D930 PreThink ... 0x123200) 6.3% more.
+  About 95,000 TraceLines a second with 64 bots (3,100 a frame at 30 fps), 57% from IsVisible, 18% from 0x179580;
+  only ~1% repeat an earlier call's arguments with no entity linked in between, so a result cache would save little.
+  The trace itself is the engine's BSP hull walk (0xB7E80 / 0xB7B80 / 0xB8760 / 0xB8240: 14% own). The cost grows
+  with bots x enemies x 5 (the square of the count).
+- **Every round restart froze the game for 450 ms**, at any bot count (the worst server frame of every benchmark,
+  451-454 ms). The sound system's stop-everything function (0x106380; RestartRound 0x1462B0 calls it first) spins on
+  QueryPerformanceCounter for a fixed 0.45 s (0x3668D0) whenever its sound thread (0x103E60, a 30 ms loop: XACT and
+  DirectSound DoWork under the sound lock) exists, checking nothing else, then stops the sounds. On the Xbox's one
+  processor the spin was how that thread got its turns. Now (src/game/sound_wait.cpp, hooks 0x103EB9, 0x1063C8,
+  0x106408) the wait ends once the sound thread has started two passes after it began: one whole pass of its work in
+  between, 32-48 ms measured; the 0.45 s limit stays, and without a sound thread the original loop runs.
+  CSX_SOUND_WAIT=original keeps the full wait.
+- **The generated code was compiled at -O1** (the harness default). At -O2 (SDK patch 0040: GEN_OPT, objects kept per
+  level; tools/iterate.sh and tools/build_window.sh use -O2) the server frame with 64 bots fell 40% on de_aztec (6.1 ms
+  mean of two -O1 runs to 3.8) and 14% on de_dust2 (2.9 to 2.5); -O3 was no better than -O2 (4.2 / 2.8). Build time:
+  about a minute for all 65 files (the largest 7.2 s against 6.4 s). Same semantics (no fast-math; strict aliasing
+  stays off); the full regression runs on the -O2 build.
+- **The DISPATCH_LEVEL lock costs nothing measurable**: 18,000-50,000 raises a second, held 1.2-3.2 ms a second in all,
+  0.27 contended raises a second at most with 0.002 ms of waiting a second (64 bots).
+- **Memory**: 42 MB of guest memory committed at most in every run (16 or 64 bots), 1.7 GB free in one block.
+- **Tried and dropped** (no measurable change, reverted): skipping a draw's constant upload when it equals the previous
+  draw's, and reusing the vertex assembly's buffers between draws; Vulkan recording stayed 4.8-5.5 ms a frame.
+
+Results (each row the mean of its runs; 64 bots: two runs before, three after; "worst" the longest frame):
+
+| | frames/s | 1% low | 0.1% low | 99% interval | server frame | worst server frame | worst frame |
+|---|---|---|---|---|---|---|---|
+| de_aztec 16, before | 120.1 | 41.7 | 9.8 | 13.9 ms | 0.60 ms | 452 ms | 478 ms |
+| de_aztec 16, after | 120.5 | 60.6 | 34.0 | 14.0 ms | 0.39 ms | 57 ms | 81 ms |
+| de_aztec 32, before | 103.0 | 29.9 | 8.0 | 21.9 ms | 1.38 ms | 452 ms | 497 ms |
+| de_aztec 32, after | 107.9 | 42.2 | 22.5 | 19.3 ms | 1.12 ms | 53 ms | 104 ms |
+| de_aztec 64, before | 67.4 | 13.2 | 4.4 | 53.1 ms | 6.10 ms | 454 ms | 543 ms |
+| de_aztec 64, after | 84.0 | 19.3 | 11.5 | 45.3 ms | 3.82 ms | 48-63 ms | 138-157 ms |
+| de_dust2 16, before | 156.5 | 59.1 | 14.0 | 10.2 ms | 0.49 ms | 452 ms | 473 ms |
+| de_dust2 16, after | 185.5 | 94.9 | 51.0 | 9.0 ms | 0.28 ms | 50 ms | 70 ms |
+| de_dust2 32, before | 161.2 | 47.2 | 12.4 | 13.1 ms | 0.88 ms | 452 ms | 492 ms |
+| de_dust2 32, after | 185.9 | 65.7 | 35.2 | 12.6 ms | 0.60 ms | 50 ms | 101 ms |
+| de_dust2 64, before | 127.1 | 22.1 | 7.8 | 32.8 ms | 2.90 ms | 455 ms | 539 ms |
+| de_dust2 64, after | 142.2 | 27.0 | 14.6 | 28.7 ms | 2.06 ms | 62-66 ms | 131-159 ms |
+
+Noise: the same build varies run to run (de_aztec 64 after: 75.7 / 88.1 / 88.3 frames/s, server 4.3 / 3.6 / 3.6 ms;
+bots fight differently, the player dies at different times and the view becomes the spectator's), so single numbers
+within ~10% are not differences. The runs are in build/perf/baseline and build/wruns/vk_perf_*_after*.
+
+- **What remains**: at 64 bots the game thread is ~3.8 ms server (bots' traces the largest part), ~5 ms Vulkan
+  recording, ~3 ms the rest of the client; the 95th-99th percentile frames (30-50 ms) are the bots thinking in bursts.
+  The next steps are architectural and wait for approval: the trace (a native, bit-exact BSP hull walk instead of the
+  recompiled one: the largest single cost, gameplay-neutral only if exact), spreading each bot's visibility scans
+  evenly over frames (changes when a bot sees, so it changes behaviour), recording Vulkan commands on a second thread
+  (XBE_RENDER_THREAD exists in the runtime), and batching draws.
+- **Found, not fixed (pre-existing):** kicking bots mid-round (bot_kick) crashes the game in 1 of 5 runs with 64 bots
+  and 4 of 6 with 16: SIGSEGV in 0x153890 (StatShot's AddDamage, through CBasePlayer::TakeDamage 0x117EB0 from a
+  bot's damage handler 0x1749A0), a damage record whose memory has been released (decommitted, as on the console).
+  The G7 build (before the player slots) crashes the same way. Normal play has no kicks; a disconnecting player in a
+  future online match would be the same case.
+
+## Scoreboard (2026-10-24, G8.2B)
+
+The original Xbox scoreboard screen (InGameUI*.txt "Scoreboard": a PassiveTable the HUD's ScorePanel fills every
+frame through FillGrid 0x1B9820), kept with its fonts, colours, team colours, dimming of the dead, the local player's
+white and its icons, made to hold 65 players with a Ping column (src/game/scoreboard.cpp, src/game/scoreboard_rows.h).
+
+- **Columns**: bomb icon | Name | Score | Deaths | Ping | voice icon (the layout's sixth column, set as InGameUI loads;
+  text scale 0.62 from 0.75, 25 lines from about 20). Score stays "Score": it is CS's frags (kills less suicides and
+  team kills), not a kill count. A player row's Ping cell is its Deaths cell's code run once more (hook 0x1BA4C3 back
+  to 0x1BA43E) with the text set before the cell is made (0x1BA4AA): the same font, colour and dimming; an unassigned
+  player's blank cell likewise (0x1BA616 / 0x1BA601). **A row is drawn only when it has a cell per column**: the team
+  header (5 cells) makes its blank cell once more (0x1B9CD5 / 0x1B9D59), the spectators' header (4) twice more
+  (0x1B9F5A); its title moves from the narrow first column to Name. (In the original the spectators' header, 4 cells
+  for 5 columns, never showed.) Cell texts are the game's std::wstring: up to 7 characters in place, longer in a block
+  of the game's own heap (malloc 0x22D86A), freed by the game with the string (a heap one replaced is freed first,
+  free 0x22C609).
+- **Ping**: "BOT" for a bot. This build's game DLL asks for "*bot" in a bot's userinfo (0x162C97) but its path is not
+  reached, and the engine's fake client creation (SV_CreateFakeClient) sets only name, model and colours: the clients'
+  userinfo had no mark of a bot. The server now adds "*bot\1" to a fake client's userinfo as it creates one (hook
+  0x79F91; from the engine's own FL_FAKECLIENT 0x2000 in the edict's flags), as the PC engine does; SV_FullClientUpdate
+  sends userinfo with only "_" keys left out, so every client, local or remote, reads it from cl.players[i].userinfo
+  (a client cannot set a * key: "Can't set * keys"). A human's Ping is the server's measurement (svc_pings, 12 bits,
+  cl.players[i].ping +0x128); "-" until one has come for that player (hook 0x31A30 marks each slot svc_pings writes,
+  with its userid: a new player in the slot starts unmeasured). The server sends pings while a client shows the
+  scoreboard: the player's Ping shows "-" for a moment as it opens, then the measurement (0 ms for the listen
+  server's own player on the loopback). No traffic was added.
+- **Rows and scrolling** (scoreboard_rows.h, pure functions): the table shows 25 lines. With more rows, a window from a
+  scroll offset: the section header of the first row stays at the top, the last line says how many players are below
+  ("v 42 more (wheel / Page Down)": that row made as a spectators' header, yellow, its kind pointed at a 2 for the
+  row, 0x1B98A0 / 0x1B9979). Blank spacer rows take no line. The mouse wheel (3 rows a notch), Page Up / Down
+  (22 rows), Home and End scroll while the Scoreboard is open and its rows do not fit; otherwise the keys and wheel
+  stay the game's (the wheel's weapon change). The window opens at the top and keeps its offset while open; it is
+  clamped each frame as players come and go. The window build now sends a wheel event's every notch to the engine
+  (it sent one key per event).
+- **Sorting** is the game's own (score down, then deaths up, then player number), checked in every logged snapshot;
+  the Ping cell takes the row's own player number, so a ping stays with its player whatever the order.
+- **Cost**: FillGrid builds only the rows shown (about 25 instead of all), so the board costs no more than before.
+- The 5-second paging of checkpoint 2 is gone (with it vk_bots64_scoreboard.txt).
+- **Tests**: tests/scoreboard_rows_test.py (1,222 checks), vk_scoreboard_169 / _43 / _219 (59 steps each) with
+  tools/check_scoreboard.py over their logs (60-70 snapshots each, every check passing: order, header counts, BOT
+  for bots only, one row per player, all 65 on screen at some point). Screenshots in build/wruns/vk_scoreboard_*/shots
+  (top, wheel, bottom, longname2 / longname3, names, end) at 16:9, 4:3 and 21:9: no clipping or overlap, the board
+  inside the 4:3 area as the original UI. Not tested in a game: players leaving (kicking bots crashes the original
+  game, above; the window's clamping is in the row test), a second human's ping (one process: the loopback player
+  only).
+- **Final validation** (all builds at -O2 with the sound wait): headless regression 44 of 44 (with
+  regress_xact_dispatch_level), the default window suite 27 of 27, vk_bot_count_169 / _43 / _219 (159 steps each),
+  vk_scoreboard_169 / _43 / _219 (59 each); vk_scoreboard_169 under CSX_VK_VALIDATION=1 passes with only the three
+  known messages from gamescope's WSI layer (VkSwapchainPresentModeInfoKHR swapchainCount, the device extension one).
+
 ## Number of Bots to 64, one team, DISPATCH_LEVEL (2026-10-24, G8.2B)
 
 - **The setting** (src/game/pc_menu.cpp ExtendBotCount, PcBotCountLimit): Custom Game > Match Options' Number of

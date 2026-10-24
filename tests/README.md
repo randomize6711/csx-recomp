@@ -198,8 +198,38 @@ and the player on de_aztec, collision On and Off), `regress_bots_dust2_64.txt` (
 players, the teams 32 and 33, the bots walking, kills, round ends, no guest trap and no guest table overrun (the bots
 join one every 0.3 s or so: 25 s are given). `regress_bots_aztec_64_oneteam.txt` (64 bots on the Counter-Terrorists, the
 player a Terrorist: Bot Team on one team, mp_limitteams 0 no longer stopping at 21; the XACT event queue race found
-by it, SDK patch 0038). `vk_bots64_scoreboard.txt` (the window): the HUD at 65 players and the
-scoreboard's four pages. `vk_perf_bots16.txt` / `_bots64.txt` (the window, VSync Off): measurements only.
+by it, SDK patch 0038). `vk_perf_bots16.txt` / `_bots64.txt` (the window, VSync Off, collision On): measurements only.
+
+`regress_xact_dispatch_level.txt` (64 bots on one team, the most sound in one place; FINDINGS.md "High population
+performance"): every change of XACT's event heap holds the DISPATCH_LEVEL lock (src/game/xact_check.cpp), no two
+threads are inside it at once, its count stays within its capacity, no thread waits while holding the lock, and the
+threads did meet at the lock (CSX_LOG_LOCKS=1). It fails with the lock off (CSX_DISPATCH_LOCK=0: "changed without the
+DISPATCH_LEVEL lock" at once), its own check that it sees the race's cause.
+
+## Benchmarks
+
+`vk_perf_aztec_16.txt`, `_32`, `_64` and `vk_perf_dust2_16.txt`, `_32`, `_64` (the window at 1920x1080, VSync Off,
+limit 240, Player Collision Off: fixtures tests/launch/de_aztec_bots16_nocollide ... de_dust2_bots64_nocollide): the
+player joins and is held at one view for 60 s; nothing asserted. `python3 -I tools/perf_summary.py build/wruns/vk_perf_*`
+summarises each run: mean frames/s, 1% and 0.1% lows and interval percentiles from every frame (CSX_LOG_INTERVALS),
+the renderer's GPU and CPU recording time, the server frame (CSX_LOG_SERVERTIME), the DISPATCH_LEVEL lock
+(CSX_LOG_LOCKS), memory, each thread's CPU use (CSX_PROFILE thread times). `tools/run_window_tests.py --exe PATH --tag
+TAG` runs another build into build/wruns/<scenario>_<TAG> (comparisons, repeats). A sampling profile: the same
+scenario with CSX_PROFILE=$RUN/profile.txt and no CSX_PROFILE_RATE=0, then `tools/profile_report.py EXE PROFILE RUN.OUT
+--from setview [--tree FUNC | --callers FUNC]`. CSX_LOG_TRACES=1 counts the engine's TraceLine by caller.
+
+## Scoreboard
+
+The scoreboard for 65 players (FINDINGS.md "Scoreboard"). `python3 -I tests/scoreboard_rows_test.py` (seconds, no game
+run): the row window on its own (empty, 1, 16, 17, 32, 33, 65 players, one team of 64 or 65, spectators, blank rows,
+scrolling to both ends, clamping when players leave or change teams, the header kept in sight, the "more below" count,
+every player reachable) and the Ping text (BOT, "-", measured) and the userinfo's *bot. `vk_scoreboard_169.txt`,
+`_43.txt`, `_219.txt` (the window, 64 bots, collision Off, CSX_LOG_SCOREBOARD=1): the Ping column and 25 lines, the
+first page (players 1-23, "42 more"), the wheel (3 rows a notch), Page Down, End (the last player), Home, a 31-character
+name and a bot's name for the player ("(1)Walt"), the player's team change at the start, every bot BOT and the player
+never; shots of every page. Then `python3 -I tools/check_scoreboard.py build/wruns/vk_scoreboard_*`: in every logged
+snapshot each section in the game's order (score down, deaths up), the headers' counts, BOT for bots only, one row per
+player, the window's numbers, and every player on screen at some point.
 
 ## Recompiler instruction patches (about 10 s, no game run)
 
