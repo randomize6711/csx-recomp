@@ -15,6 +15,7 @@
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -2303,6 +2304,18 @@ void VulkanBackend::LogFrameTiming() {
         std::nth_element(t.intervals.begin(), t.intervals.begin() + long(k), t.intervals.end());
         return t.intervals[k];
     };
+    // CSX_LOG_INTERVALS=1: every interval of the second as well, for benchmarks (tools/perf_summary.py: exact
+    // percentiles and 1% lows over a whole run, which the per-second percentiles cannot give)
+    static const bool intervals = std::getenv("CSX_LOG_INTERVALS") && *std::getenv("CSX_LOG_INTERVALS") == '1';
+    if (intervals && !t.intervals.empty()) {
+        std::string line;
+        char buf[16];
+        for (float v : t.intervals) {
+            snprintf(buf, sizeof buf, " %.2f", v);
+            line += buf;
+        }
+        LOGI("frame intervals:%s", line.c_str());
+    }
     float p99 = percentile(0.99), p95 = percentile(0.95);
     double paced = double(app::PacedNanoseconds() - t.paced_ns);
     LOGI("frame timing: %.1f frames/s, %.1f presented, interval %.2f ms on average, %.2f at most, 99%% under %.2f, "

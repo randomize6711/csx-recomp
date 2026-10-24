@@ -1,0 +1,30 @@
+# Benchmark (G8.2B performance, FINDINGS.md "High population performance"): de_dust2 with 64 bots and the player, Player
+# Collision Off, in the Vulkan window at 1920x1080, VSync Off, Frame Rate Limit 240; the player joins the
+# Counter-Terrorists and is held at one view (setview: the same picture in every run) for 60 s after the bots joined.
+# tools/perf_summary.py reads the log: every frame interval (CSX_LOG_INTERVALS: mean, 1% low, percentiles), the
+# renderer's GPU and CPU recording time a frame, the server frame (CSX_LOG_SERVERTIME), memory (CSX_LOG_MEMORY),
+# the DISPATCH_LEVEL lock (CSX_LOG_LOCKS) and each thread's CPU use (CSX_PROFILE with CSX_PROFILE_RATE=0: thread
+# times, no sampling). No limits asserted.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --env CSX_LOG_SERVERTIME=1 --env CSX_LOG_MEMORY=1 --env CSX_LOG_LOCKS=1 --env CSX_LOG_INTERVALS=1
+#   --env CSX_PROFILE_RATE=0
+#   --env CSX_PROFILE=$RUN/threads.txt
+#   --launch tests/launch/de_dust2_bots64_nocollide --pc vsync=0 --pc frame_rate=240
+wait log open D:\\de_dust2.sxwad
+sleep 15
+key Down
+sleep 2
+key Down
+sleep 2
+key Space
+sleep 6
+key Left_Ctrl
+sleep 30
+players p
+expect playercount p 65 65
+setview -1024 2688 208 270 0
+sleep 60
+windowshot view
+setview off
+expect nolog guest trap
+expect nolog guest table overrun

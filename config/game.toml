@@ -833,3 +833,12 @@ on_false = 0x190E7E
 at = 0x1B98A0
 call = "SlotsScoreRowShown"
 on_false = 0x1B9979
+
+# CSX_LOG_TRACES=1 (src/game/trace_stats.cpp): the engine's TraceLine counted by caller, repeats since the last link
+[[hook]]
+at = 0x76DE0
+call = "TraceLineCount"
+
+[[hook]]
+at = 0xB79C0
+call = "TraceLinkCount"

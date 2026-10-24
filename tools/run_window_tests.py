@@ -2,12 +2,14 @@
 """Runs window scenarios (tests/scenarios/vk_*.txt) in the Vulkan window build, each in its own headless gamescope
 (nothing on the desktop, no host input: CSX_TEST_INPUT_ONLY as drive.py sets it), no audio device (CSX_AUDIO=null).
 
-Usage: python3 -I tools/run_window_tests.py [SCENARIO ...]   (default: the mouse, binding, console, movement, spectator, display, loading, VSync and raw mouse window tests)
+Usage: python3 -I tools/run_window_tests.py [--exe PATH] [--tag TAG] [SCENARIO ...]   (default: the mouse, binding, console, movement, spectator, display, loading, VSync and raw mouse window tests)
 
 Each scenario's header (its leading # lines) gives its gamescope size ("gamescope --backend headless -W W -H H") and
-its refresh rate when given ("... -H H -r HZ"), and its drive.py options (--env NAME=VALUE, --pc NAME=VALUE, --launch DIR); in values $PWD is the repository and \\n a
-line break. The run folder is build/wruns/<scenario>. Exit status non-zero when any scenario failed; a summary at
-the end. Do not run it while a build or tests/run_regression.sh is running.
+its refresh rate when given ("... -H H -r HZ"), and its drive.py options (--env NAME=VALUE, --pc NAME=VALUE, --launch
+DIR); in values $PWD is the repository, $RUN the run folder and \\n a line break. The run folder is
+build/wruns/<scenario> (<scenario>_<TAG> with --tag); --exe runs another build of the window front end (a benchmark's
+variant). Exit status non-zero when any scenario failed; a summary at the end. Do not run it while a build or
+tests/run_regression.sh is running.
 """
 import os
 import re
@@ -47,18 +49,27 @@ def options(path):
 
 
 def main():
-    names = sys.argv[1:] or DEFAULT
+    args = sys.argv[1:]
     exe = os.path.join(ROOT, 'build', 'window', 'CounterStrike')
+    tag = ''
+    while args and args[0] in ('--exe', '--tag') and len(args) > 1:
+        if args[0] == '--exe':
+            exe = os.path.abspath(args[1])
+        else:
+            tag = '_' + args[1]
+        args = args[2:]
+    names = args or DEFAULT
     if not os.access(exe, os.X_OK):
         sys.exit('no %s: tools/build_window.sh first' % exe)
     results = []
     for name in names:
         path = name if os.path.exists(name) else os.path.join(ROOT, 'tests', 'scenarios', name)
-        base = os.path.splitext(os.path.basename(path))[0]
+        base = os.path.splitext(os.path.basename(path))[0] + tag
         run = os.path.join(ROOT, 'build', 'wruns', base)
         subprocess.run(['rm', '-rf', run])
         os.makedirs(run)
         (w, h, hz), opts = options(path)
+        opts = [o.replace('$RUN', run) for o in opts]
         status = os.path.join(run, 'drive_status')
         drive = [sys.executable, '-I', os.path.join(ROOT, 'tools', 'drive.py'), path, '--exe', exe, '--run', run,
                  '--timeout', '900', '--env', 'CSX_RENDERER=vulkan', '--env', 'FPS=30', '--env', 'CSX_AUDIO=null'] + opts
