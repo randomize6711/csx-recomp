@@ -548,7 +548,7 @@ match. Waiting for approval (checkpoint 3: the menu's Number of Bots to 64, the 
 - Tests added: regress_bots_aztec_64, regress_bots_aztec_64_nocollide, regress_bots_dust2_64 (8/8 spawn points), vk_bots64_scoreboard, vk_perf_bots16 / vk_perf_bots64 (measurements).
 - Spawns: the user's decision (2026-10-23): overlapping or dying at a shared spawn point is accepted (Player Collision
   is the control); no hull-tested placement.
-- Results: headless 42 of 42 (36 in one run; the 6 that read the probe's position after state_probe.cpp read the moved
+- Results: window default suite 27 of 27 and vk_bot_count_169; headless 42 of 42 (36 in one run; the 6 that read the probe's position after state_probe.cpp read the moved
   predicted_players); 64 bots and the player on de_aztec (On and Off) and de_dust2 pass; the scoreboard pages; Vulkan
   validation: nothing new. Performance (window 1920x1080, VSync Off): 16 bots 116.5 frames/s, 64 bots 67.5 (server
   frame 0.67 -> 5.54 ms, the bots' AI); memory 42 MB committed at most.

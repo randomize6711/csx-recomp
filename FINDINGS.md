@@ -2016,7 +2016,8 @@ config/guest_tables.toml), 26 hooks (config/game.toml) and 8 host replacements o
   their expectations changed where the feature changed: regress_bots_dust2_16 and _nocollide (all 16 bots join: 17
   players on 16 points, no spacing asserted On), regress_bots_aztec_24 (all 24 join: 25 players). Tool suites:
   recomp_patches, slot_audit_test (every relocated table patched, the patch file matching its configs),
-  guest_tables_test. Window: vk_bots64_scoreboard, vk_perf_bots16 / _64, the validation run.
+  guest_tables_test. Window: the default suite 27 of 27 (tools/run_window_tests.py), vk_bot_count_169 (the front end
+  to a match and back), vk_bots64_scoreboard, vk_perf_bots16 / _64, the validation run.
 - **Not tested**: voice chat (no voice device on PC: the masks and messages are exercised every update, nothing is
   heard); StatShot's statistics are sent and parsed (the regression scenarios where the player fires), their tracker
   (the Xbox Live statistics) shows nothing on PC; a human second player (one process, the loopback client only).
