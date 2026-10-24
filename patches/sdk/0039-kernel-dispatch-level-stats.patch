@@ -1,0 +1,127 @@
+diff --git a/runtime/kernel/kernel.h b/runtime/kernel/kernel.h
+--- a/runtime/kernel/kernel.h
++++ b/runtime/kernel/kernel.h
+@@ -166,6 +166,9 @@
+ void RunDpcs(X86Context& ctx);
+ // the current thread's IRQL; DISPATCH_LEVEL (2) and above hold the one processor (xboxkrnl.cpp): returns the old
+ uint8_t SetIrql(uint8_t irql);
++void CheckWaitIrql(const char* what, bool timed);
++// the current thread holds the DISPATCH_LEVEL lock (for checks of what the lock guards)
++bool HoldsDispatchLevel();
+ void InitKernelData();
+ void LogGuestStack(X86Context& ctx, int words);
+ X86Context& CurrentContext();
+diff --git a/runtime/kernel/objects.cpp b/runtime/kernel/objects.cpp
+--- a/runtime/kernel/objects.cpp
++++ b/runtime/kernel/objects.cpp
+@@ -232,6 +232,7 @@
+ }
+ 
+ uint32_t Wait(const std::vector<ObjectRef>& objs, bool wait_all, int64_t timeout, bool alertable) {
++    CheckWaitIrql("a wait", timeout != 0);
+     SuspendPoint();
+     uint32_t r = WaitFor(objs, wait_all, timeout, alertable);
+     SuspendPoint();
+diff --git a/runtime/kernel/xboxkrnl.cpp b/runtime/kernel/xboxkrnl.cpp
+--- a/runtime/kernel/xboxkrnl.cpp
++++ b/runtime/kernel/xboxkrnl.cpp
+@@ -2,6 +2,7 @@
+ #include <cctype>
+ #include <chrono>
+ #include <cstdio>
++#include <cstdlib>
+ #include <ctime>
+ #include <mutex>
+ 
+@@ -197,14 +198,81 @@
+ // waits on the Xbox, so holding it while it runs adds no wait the console did not have.
+ static std::recursive_mutex g_dispatch_level;
+ 
++// CSX_LOG_LOCKS=1: every 5 s the raises to DISPATCH_LEVEL, how many found the lock held and how long they waited, and
++// how long it was held in all (the cost of the lock, for benchmarks)
++namespace {
++bool LockStats() {
++    static const bool on = std::getenv("CSX_LOG_LOCKS") && *std::getenv("CSX_LOG_LOCKS") == '1';
++    return on;
++}
++using LockClock = std::chrono::steady_clock;
++std::mutex g_lock_stats;
++uint64_t g_raises, g_contended;
++double g_wait_ms, g_wait_max, g_held_ms;
++LockClock::time_point g_stats_since = LockClock::now();
++thread_local LockClock::time_point t_taken;
++
++// CSX_DISPATCH_LOCK=0: the lock off, as before patch 0038 (only for regress_xact_dispatch_level's check that it sees
++// the race; never for play)
++bool LockOff() {
++    static const bool off = std::getenv("CSX_DISPATCH_LOCK") && *std::getenv("CSX_DISPATCH_LOCK") == '0';
++    return off;
++}
++
++thread_local bool t_holds;  // this thread holds the lock (HoldsDispatchLevel)
++
++void TakeDispatchLevel() {
++    if (LockOff()) return;
++    t_holds = true;
++    if (!LockStats()) return g_dispatch_level.lock();
++    auto t = LockClock::now();
++    bool waited = !g_dispatch_level.try_lock();
++    if (waited) g_dispatch_level.lock();
++    t_taken = LockClock::now();
++    double ms = std::chrono::duration<double, std::milli>(t_taken - t).count();
++    std::lock_guard<std::mutex> lock(g_lock_stats);
++    g_raises++;
++    if (waited) {
++        g_contended++;
++        g_wait_ms += ms;
++        g_wait_max = std::max(g_wait_max, ms);
++    }
++}
++
++void LeaveDispatchLevel() {
++    if (LockOff()) return;
++    t_holds = false;
++    if (!LockStats()) return g_dispatch_level.unlock();
++    auto now = LockClock::now();
++    g_dispatch_level.unlock();
++    std::lock_guard<std::mutex> lock(g_lock_stats);
++    g_held_ms += std::chrono::duration<double, std::milli>(now - t_taken).count();
++    if (now - g_stats_since < std::chrono::seconds(5)) return;
++    LOGI("dispatch level: %llu raises in %.1f s, %llu found it held (waited %.3f ms in all, %.3f at most), held %.3f ms "
++         "in all", (unsigned long long)g_raises, std::chrono::duration<double>(now - g_stats_since).count(),
++         (unsigned long long)g_contended, g_wait_ms, g_wait_max, g_held_ms);
++    g_stats_since = now;
++    g_raises = g_contended = 0;
++    g_wait_ms = g_wait_max = g_held_ms = 0;
++}
++}  // namespace
++
++bool HoldsDispatchLevel() { return t_holds; }
++
+ uint8_t SetIrql(uint8_t irql) {
+     uint8_t old = Irql();
+-    if (old < 2 && irql >= 2) g_dispatch_level.lock();
++    if (old < 2 && irql >= 2) TakeDispatchLevel();
+     Irql() = irql;
+-    if (old >= 2 && irql < 2) g_dispatch_level.unlock();
++    if (old >= 2 && irql < 2) LeaveDispatchLevel();
+     return old;
+ }
+ 
++// a thread at DISPATCH_LEVEL holds the lock: waiting there could stop every other raise (the console forbids a wait
++// with a timeout at DISPATCH_LEVEL, so a title should never do it; logged in case one does)
++void CheckWaitIrql(const char* what, bool timed) {
++    if (timed && Irql() >= 2) LOG_FIRST(8, "kernel: %s at IRQL %u, holding the DISPATCH_LEVEL lock", what, Irql());
++}
++
+ 
+ KERNEL_FASTCALL(160, KfRaiseIrql) { return SetIrql(uint8_t(ctx.ecx)); }
+ 
+@@ -265,6 +333,7 @@
+     bool alertable = a[1] & 0xFF;
+     Thread* t = Current();
+     if (alertable && t && RunApcs(*t)) return kUserApc;
++    CheckWaitIrql("KeDelayExecutionThread", true);
+     int64_t deadline = ToDeadline(interval);
+     auto now = [] {
+         return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
