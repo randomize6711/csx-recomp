@@ -1,0 +1,87 @@
+diff --git i/runtime/kernel/kernel.h w/runtime/kernel/kernel.h
+--- i/runtime/kernel/kernel.h
++++ w/runtime/kernel/kernel.h
+@@ -164,6 +164,8 @@
+ ThreadRef CurrentRef();
+ void StartHostThread(const char* name, std::function<void(X86Context&)> fn);
+ void RunDpcs(X86Context& ctx);
++// the current thread's IRQL; DISPATCH_LEVEL (2) and above hold the one processor (xboxkrnl.cpp): returns the old
++uint8_t SetIrql(uint8_t irql);
+ void InitKernelData();
+ void LogGuestStack(X86Context& ctx, int words);
+ X86Context& CurrentContext();
+diff --git i/runtime/kernel/objects.cpp w/runtime/kernel/objects.cpp
+--- i/runtime/kernel/objects.cpp
++++ w/runtime/kernel/objects.cpp
+@@ -333,7 +333,12 @@
+         uint32_t dpc = d[0];
+         G<uint8_t>(dpc + 2) = 0;  // Inserted
+         uint32_t routine = R32(dpc + 0x0C), context = R32(dpc + 0x10);  // KDPC.DeferredRoutine and DeferredContext
+-        if (routine) CallGuest(ctx, routine, {dpc, context, d[1], d[2]});
++        // at DISPATCH_LEVEL, as the console runs DPCs: alone, and the libraries' own raises inside it are nested
++        if (routine) {
++            uint8_t old = SetIrql(2);
++            CallGuest(ctx, routine, {dpc, context, d[1], d[2]});
++            SetIrql(old);
++        }
+     }
+ }
+ 
+diff --git i/runtime/kernel/xboxkrnl.cpp w/runtime/kernel/xboxkrnl.cpp
+--- i/runtime/kernel/xboxkrnl.cpp
++++ w/runtime/kernel/xboxkrnl.cpp
+@@ -3,6 +3,7 @@
+ #include <chrono>
+ #include <cstdio>
+ #include <ctime>
++#include <mutex>
+ 
+ #include "app/app.h"
+ #include "kernel/crypto.h"
+@@ -189,29 +190,33 @@
+ 
+ // irql, time
+ 
+-KERNEL_FASTCALL(160, KfRaiseIrql) {
++// The Xbox has one processor: a thread at DISPATCH_LEVEL or above (KeRaiseIrql, a DPC) runs alone until it lowers,
++// which the XDK libraries use as their lock (XACT's event queue, DSOUND's lists: raise, change, lower). The host runs
++// guest threads and the DPC thread at once, so DISPATCH_LEVEL is a lock here: one recursive mutex, taken by a thread
++// going from below DISPATCH_LEVEL to it or above and released when it goes back below. Code at DISPATCH_LEVEL never
++// waits on the Xbox, so holding it while it runs adds no wait the console did not have.
++static std::recursive_mutex g_dispatch_level;
++
++uint8_t SetIrql(uint8_t irql) {
+     uint8_t old = Irql();
+-    Irql() = uint8_t(ctx.ecx);
++    if (old < 2 && irql >= 2) g_dispatch_level.lock();
++    Irql() = irql;
++    if (old >= 2 && irql < 2) g_dispatch_level.unlock();
+     return old;
+ }
+ 
++
++KERNEL_FASTCALL(160, KfRaiseIrql) { return SetIrql(uint8_t(ctx.ecx)); }
++
+ KERNEL_FASTCALL(161, KfLowerIrql) {
+-    Irql() = uint8_t(ctx.ecx);
++    SetIrql(uint8_t(ctx.ecx));
+     return 0;
+ }
+ 
+-KERNEL_EXPORT(129, KeRaiseIrqlToDpcLevel, 0) {
+-    uint8_t old = Irql();
+-    Irql() = 2;
+-    return old;
+-}
++KERNEL_EXPORT(129, KeRaiseIrqlToDpcLevel, 0) { return SetIrql(2); }
+ 
+ // one processor: synch level is dispatch level
+-KERNEL_EXPORT(130, KeRaiseIrqlToSynchLevel, 0) {
+-    uint8_t old = Irql();
+-    Irql() = 2;
+-    return old;
+-}
++KERNEL_EXPORT(130, KeRaiseIrqlToSynchLevel, 0) { return SetIrql(2); }
+ 
+ KERNEL_EXPORT(103, KeGetCurrentIrql, 0) { return Irql(); }
+ KERNEL_EXPORT(121, KeIsExecutingDpc, 0) { return 0; }
