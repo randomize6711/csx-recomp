@@ -51,11 +51,11 @@
 1c. Player-driven objectives (defuse, plant) with scripted movement per map.
 1d. Player Collision for system link / Live hosts (G8.1 offers it in single player only): the remote client's
    prediction would need the host's value (e.g. a replicated server cvar) and two instances on a link to test it.
-1e. G8.2B, 65 player slots (any mix of humans and bots): checkpoint 1 (tooling, audit, guest tables, memory
-   investigation) done; checkpoint 2 waits for approval. Its list: docs/player_slots_plan.md section 7 (34 compares of
-   17 and three other audit items still unclassified; the frame ring's 50 traced player state accesses to review
-   first). No 17-slot mode and no original Xbox networking kept (ARCHITECTURE.md "Direction: PC first"). Separate
-   Counter-Terrorist and Terrorist bot counts (one bot_quota today) not done.
+1e. G8.2B, 65 player slots (any mix of humans and bots): checkpoint 2 (the 65-slot engine) implemented on branch
+   g8.2b, waiting for approval; checkpoint 3 (menu: Number of Bots to 64, tests, benchmarks) after it. Open: the
+   scoreboard's scrolling past its visible rows (checked in the window), TextMsg's and the death notices' player name
+   reads not checked against the wire (docs/networking.md 4.7), the Xbox communicator voice playback's 16 player
+   records (no PC voice device), separate Counter-Terrorist and Terrorist bot counts.
 1f. Memory modernization (after G8.2B, docs/memory_modernization.md section 4): a configurable contiguous pool and
    real MmQueryStatistics totals, the engine's fixed pools for larger maps and assets, a second data arena only if
    needed, memory dumps over the whole user range; out of memory reports in G8.2B checkpoint 2.

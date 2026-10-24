@@ -226,16 +226,13 @@ stop counting spawn points. A team is full only when the slots are; mp_limitteam
 assets are not modified. The game's own spawn choice already passes over occupied points and then falls back to one
 (the fallback is inferred from the SDK, around 0x11EB00; to be checked).
 
-**Player Collision stays independent of the count.**
-- **Collision Off:** players on a reused point pass through each other and walk off, as G8.2 saw.
-- **Collision On:** they must not end up stuck inside one another. G8.2 saw no two players within 31 units in 7
-  collision-On runs with every point taken, but that was with 16 players. 32 players on a team of 8 points is 4 per
-  point. If the game's own unsticking does not separate them in the first moments, players on a reused point are
-  placed at hull-tested positions around it. Those positions are checked with the game's own hull trace, so no one
-  lands in a wall or another player. Spawn protection and freeze time are unchanged.
+**Player Collision stays independent of the count.** Decided in checkpoint 2 (the user, 2026-10-23): players placed
+on a shared point may overlap, and may die there with collision On; that is accepted, because Player Collision Off is
+the setting for crowded maps. No hull-tested placement is added. The Xbox build's spawn choice (EntSelectSpawnPoint
+0x11EAA0) does not telefrag: when every point of a team is occupied it collects them and picks one (0x125BF0).
 
-**Complexity: medium.** The unknown is how the game's unsticking behaves with four players on one point; it is
-measured first.
+**As built (checkpoint 2):** a hook after the game rules count the map's points (0x14837E) logs the real counts and
+sets the counts TeamFull compares with to the slot count (a team without points stays closed).
 
 ### Step 5: Menu, tests, measurements
 
@@ -279,28 +276,26 @@ measured first.
 
 Each checkpoint stops for approval.
 
-## 7. What remains for checkpoint 2
+## 7. Checkpoint 2 as built (2026-10-23)
 
-In order; each relocation is a guest table plus generated `[[patch]]` entries, gated by the audit.
+FINDINGS.md "Player slots, 65" has the details and the measurements. Summary of how the plan was carried out:
 
-1. **Classify what the audit leaves open**: the 34 compares or loads of 17 it lists by address; the server's write
-   of the protocol version; the client's MAX_PACKET_ENTITIES check. Add each to config/player_slots.toml.
-2. **A patch generator** (new, tools/): from config/guest_tables.toml's layout and the inventory's direct, end-pointer
-   and alias references, write the `[[patch]]` entries for each relocated table (new address = new base + the same
-   offset; end pointers to the new end), into a config file game.toml includes. Strides stay (elements keep their
-   size); counts and limits are listed patches by hand.
-3. **Engine server and game DLL** (step 1), then **client and HUD** (step 2). The frame ring last and most carefully:
-   its player states move to their own [16][65] table; first review the 50 player state accesses the register trace
-   found in 17 functions, then the wider net, then the 10 pointer walks; every site classified in the manifest.
-4. **Protocol** (step 3): svc_pings' slot to 8 bits (0x9DC42, 0x31A00), N-bit voice and StatShot masks, the protocol
-   version raised from 46 at its checks (0x30945, 0x2E822, 0x98C78) and its writer.
-5. **Spawns** (step 4), unchanged from the approved design.
-6. **Gates**: `slot_audit.py --require-patched` for every relocated table and `--check` against the committed
-   inventory; the guest tables mapped with their guard pages in every test run; the recompiler's patch record
-   reviewed. Then the 64-bot match, with memory, server and bot time measured.
-7. **Out of memory reports** (docs/memory_modernization.md item 3): log the guest's failed allocations and name a
-   page-0 access as a likely failed one.
+1. **Audit open items settled**: the 34 compares of 17 classified (config/player_slots.toml; four were player
+   limits: the spectator overview, the HUD's field of view reset, the Xbox communicator voice playback, left as it
+   is); the server's protocol version writer is 0x970F0; the client's MAX_PACKET_ENTITIES checks are 0x24660,
+   0x247BB, 0x24A10; the 33 functions that compute frame addresses reviewed one by one (the manifest's `reviewed`).
+2. **Patch generator**: tools/slot_patches.py (as proposed; it also takes the hand-classified [[change]] entries).
+3. **Server, game DLL, client, HUD** to 65, the frame ring's states in cl_frame_playerstates [16][65].
+4. **Protocol** 47 (docs/networking.md).
+5. **Spawns**: the team-full test no longer counts spawn points (section 4, step 4 "As built").
+6. **Gates**: `slot_audit.py --require-patched` passes for every relocated table; the guest tables (21) are mapped
+   with guard pages in every run; patches.txt records the 401 patches.
+7. **Out of memory reports**: not needed by the measurements (the heap peaked far below its room, FINDINGS.md);
+   moved to the memory modernization milestone (TODO 1f).
 
-Proposed changes from checkpoint 1: the plan's `[[remap]]` became per-site `[[patch]]` entries generated by a tool
-(item 2), each reviewable; the HUD handler bounds and CVoiceStatus sites join step 2; memory needs no change for 65
-slots (the heap is not the 64 MB pool).
+Found beyond the plan: g_StudioRenderer's per player state (+0x40B0, [17], indexed by entity number - 1) and the
+HUD's per player field of view (gHUD +0xAC) and spectator positions; CVoiceStatus's speaker icon entities [17] x
+0x74C and its fifth bit vector (+0x958C); CL_LinkPlayers' 17 x 0x74C bound.
+
+What checkpoint 3 adds (section 6): the menu's Number of Bots to 64 (the slots minus the humans), the window tests
+of the scoreboard and HUD at 65, the benchmarks at 16, 32 and 64 bots.

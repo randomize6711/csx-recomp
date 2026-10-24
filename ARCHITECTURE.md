@@ -82,6 +82,17 @@ still apply unless a milestone changes them. Applied first in G8.2B (65 player s
    moves, from the recompiler's own listing; a relocation is complete when its references are all patched
    (`--require-patched`) and the committed inventory still matches (`--check`).
 
+14. **65 player slots (G8.2B) are made of three tools, in this order of preference**: operand patches generated from
+   the reviewed audit (tools/slot_patches.py -> config/player_slots_patches.toml) where an address or constant moves;
+   hooks where a register is shared with data that did not move, a clear cannot reach the moved table, or a value
+   from the wire needs checking; host replacements of whole functions (src/game/player_slots_game.cpp, _hud.cpp) only
+   where the original's addressing cannot be widened by an operand (arrays of one-dword masks indexed with a x4
+   scale: CVoiceGameMgr, the voice and StatShot messages). Singleton objects at fixed addresses (gHUD, g_VoiceStatus,
+   gHUD.m_Spectator) have their embedded arrays moved by this-relative displacements; heap objects (ScorePanel,
+   CSoundEnt, the StatShot block) grow their allocation with the arrays at the end.
+15. **One PC network protocol (version 47)**, no Xbox compatibility mode: docs/networking.md lists the changes, the
+   validation added for player indices from the wire, and the opportunities for PC multiplayer.
+
 ## Workspace
 
 ```

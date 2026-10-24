@@ -6,6 +6,8 @@
 // addresses were found by diffing memory dumps (FINDINGS.md, "Player control"): the float triple at 0x3AE3E0 moves by
 // the run speed while the left stick is held and stays put otherwise; 0x3AE3F0 holds the yaw in degrees (it matches
 // the 3D audio listener's forward vector at 0x3038C0); the int at 0x3A2988 drops by one per shot (20 for a full Glock).
+// The triple and the yaw are predicted_players[0]'s origin and angles (+0x10, +0x20), which G8.2B moved to the guest
+// table cl_predicted_players: they are read there.
 // A file named setview holding "X Y Z YAW PITCH" holds the player there (tools/drive.py "setview": a fixed camera for
 // picture tests, e.g. over de_aztec's water, which no spawn sees): the server's origin of client 0's edict (svs.clients
 // 0x636CE4, client_t::edict +0x4B9C, entvars origin +0x88, velocity +0xA0) written every 20 ms with no velocity, so
@@ -29,13 +31,20 @@
 
 #include "app/app.h"
 #include "common/csx.h"
+#include "common/guest_tables.h"
+#include "common/guest_tables_layout.h"
 #include "core/log.h"
 #include "kernel/kernel.h"
 
 namespace csx {
 
 namespace {
-constexpr uint32_t kPosition = 0x3AE3E0, kYaw = 0x3AE3F0, kClip = 0x3A2988, kViewYaw = 0x552C10, kViewPitch = 0x552C14;
+
+// predicted_players[0] (the local player): its origin and yaw, in the guest table it moved to (G8.2B)
+uint32_t Predicted() { return guest_tables::Production(guest_tables::k_cl_predicted_players).va; }
+uint32_t Position() { return Predicted() + 0x10; }
+uint32_t Yaw() { return Predicted() + 0x20; }
+constexpr uint32_t kClip = 0x3A2988, kViewYaw = 0x552C10, kViewPitch = 0x552C14;
 // the weapon in hand (17 Glock, 29 knife, 4 HE grenade, 25 flashbang, 9 smoke grenade, 6 C4...): the client data of
 // the engine's first frame record (static, 0x1B60 bytes each, all of them alike once the weapon has been held a moment)
 constexpr uint32_t kWeapon = 0x74B3D8;
@@ -184,21 +193,21 @@ void StartStateProbe() {
             }
             fs::remove(req, ec);
             if (track > 0) {
-                float x0 = F(kPosition), y0 = F(kPosition + 4), top = F(kPosition + 8), bottom = top;
+                float x0 = F(Position()), y0 = F(Position() + 4), top = F(Position() + 8), bottom = top;
                 auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(int(track * 1000));
                 while (std::chrono::steady_clock::now() < end) {
-                    top = std::max(top, F(kPosition + 8));
-                    bottom = std::min(bottom, F(kPosition + 8));
+                    top = std::max(top, F(Position() + 8));
+                    bottom = std::min(bottom, F(Position() + 8));
                     std::this_thread::sleep_for(std::chrono::milliseconds(5));
                 }
-                float dx = F(kPosition) - x0, dy = F(kPosition + 4) - y0;
+                float dx = F(Position()) - x0, dy = F(Position() + 4) - y0;
                 LOGI("track %s over %.2f s: rose %.2f at most, moved %.2f", name, track, top - bottom,
                      std::sqrt(dx * dx + dy * dy));
             }
             // then the view yaw and pitch the look routine keeps (0x552C10 / 0x552C14, src/game/mouse_look.cpp) and
             // the weapon in hand
-            LOGI("state %s %.3f %.3f %.3f %.3f %d %.3f %.3f %d", name, F(kPosition), F(kPosition + 4), F(kPosition + 8),
-                 F(kYaw), int32_t(kernel::R32(kClip)), F(kViewYaw), F(kViewPitch), int32_t(kernel::R32(kWeapon)));
+            LOGI("state %s %.3f %.3f %.3f %.3f %d %.3f %.3f %d", name, F(Position()), F(Position() + 4), F(Position() + 8),
+                 F(Yaw()), int32_t(kernel::R32(kClip)), F(kViewYaw), F(kViewPitch), int32_t(kernel::R32(kWeapon)));
             logx::Flush();
         }
     }).detach();

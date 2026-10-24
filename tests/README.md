@@ -183,14 +183,21 @@ next front end, then Reset gives On.
 
 Custom Game > Number of Bots, 0 to 16 (FINDINGS.md "Bot count": 17 player slots). Fixtures tests/launch/de_aztec_bots7,
 _bots11, _bots16, _bots24 and de_dust2_bots16, _bots16_nocollide (1 minute rounds, 3 s of freeze time).
-`regress_bots_aztec_7.txt`, `_11`, `_16`, `regress_bots_dust2_16.txt` (8 spawn points a team: 15 bots join),
-`regress_bots_dust2_16_nocollide.txt` and `regress_bots_aztec_24.txt` (more than the slots: 16 join): the players
+`regress_bots_aztec_7.txt`, `_11`, `_16`, `regress_bots_dust2_16.txt` (8 spawn points a team: since G8.2B all 16
+join, two players share a point), `regress_bots_dust2_16_nocollide.txt` and `regress_bots_aztec_24.txt` (since G8.2B
+all 24 join; before it the 17 slots took 16): the players
 counted (`expect playercount`), spawned apart (not with collision Off, where bodies may stand in each other), the bots
 walking (`expect bodiesmoved A B MIN N`), kills and two round ends in the game's log, the teams within one
 (`expect teams MAXDIFF MIN`, from the log's "joined team" lines), the spawn points and edicts logged (`spawns NAME`).
 `vk_bot_count_43.txt`, `_169.txt` and `_219.txt` (the window, FOV 120): the Match Options list to 16 bots, a match on
 de_aztec with 17 players, the play and scoreboard shots; 169 also caps one team at 8 as the original and keeps 16
 through Quit and the next front end. CSX_LOG_SERVERTIME=1 logs the server frame's time once a second (benchmarks).
+
+65 player slots (G8.2B, FINDINGS.md "Player slots, 65"): `regress_bots_aztec_64.txt` and `_64_nocollide.txt` (64 bots
+and the player on de_aztec, collision On and Off), `regress_bots_dust2_64.txt` (64 bots on 8 / 8 spawn points): 65
+players, the teams 32 and 33, the bots walking, kills, round ends, no guest trap and no guest table overrun (the bots
+join one every 0.3 s or so: 25 s are given). `vk_bots64_scoreboard.txt` (the window): the HUD at 65 players and the
+scoreboard's four pages. `vk_perf_bots16.txt` / `_bots64.txt` (the window, VSync Off): measurements only.
 
 ## Recompiler instruction patches (about 10 s, no game run)
 
@@ -211,8 +218,9 @@ through a pointer, the frame ring's absolute player states and frame fields, a p
 frame-derived register until that register is overwritten, a pointer walk, a classified site, a missing site, an
 unreviewed 17, a block copy recognised by its pattern), then `--check` (an unexpected and a vanished reference fail,
 the same listing passes) and `--require-patched` (fails until every direct reference is patched). On the real
-program: the committed analysis/player_slots_inventory.json matches a fresh audit, two audits are identical, and no
-table is patched yet.
+program: the committed analysis/player_slots_inventory.json matches a fresh audit, two audits are identical, every
+relocated table's references are patched (`--require-patched`), and config/player_slots_patches.toml is what
+tools/slot_patches.py makes of its configs.
 
 ## Guest tables (about 20 s with the build, no game run, Linux)
 
