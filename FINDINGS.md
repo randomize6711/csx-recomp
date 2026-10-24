@@ -1941,6 +1941,75 @@ Remaining uncertainty: the bots' avoidance of teammates is their own logic and w
 they can still pause behind each other); hostages keep blocking (they are not players); network play is untested and
 the option is not offered there.
 
+## Packet overflow (2026-10-24, G8.2B)
+
+Found in play: 64 bots, Player Collision Off, the player dead and spectating; at the next round restart the game
+stopped with KeBugCheck 0 from the CRT (0x22DEDF), its stack check's "Buffer overrun detected!" (__report_gsfailure
+0x23908C, from the cookie check at 0x9E069).
+
+- **Cause.** SV_SendClientDatagram (0x9DF30) builds each client's packet (svc_time, the client data, the packet
+  entities, the client's unreliable datagram) in a 4000-byte sizebuf on its stack ("Client Datagram", 0x9DF54), then
+  hands it to Netchan_Transmit. A round restart sends a spectator every entity's new state: measured 6 to 9 KB with
+  65 players (CSX_LOG_DATAGRAMS), the original's 17 players stayed under 4000. The packet entities are written by the
+  engine's bit writer (bfwrite at 0x4319C0: bits used, cursor, buffer; MSG_WriteBits 0x3E220, MSG_WriteOneBit
+  0x3E160, MSG_WriteSBits 0x3E350, MSG_EndBitWriting 0x3E1D0 and nine inlined copies, MSG_StartBitWriting inlined at
+  eleven places), which writes through its own cursor and only reports its progress to SZ_GetSpace. Past the capacity
+  SZ_GetSpace (a buffer allowed to overflow) prints "overflow", marks the buffer overflowed and empties it (cursize 0);
+  MSG_WriteBits never looks at the overflowed flag, so the following reservations succeed again on the empty buffer
+  while the cursor runs on past its end. The core dump of the crash shows the bit-packed entities running through the
+  buffer's end into the cookie; the engine's console ring (0x744060) holds the one "SZ_GetSpace: overflow on Client
+  Datagram" and "WARNING: msg overflowed for empty" of that frame. Two more out-of-bounds writes in the same writer:
+  it writes whole dwords (its mask clears the dword's upper bytes: up to 3 bytes past the bits, 4 more when the bits
+  cross a dword), and the byte under the cursor is reserved only when the cursor leaves it, so at exactly full capacity
+  it writes the byte after the buffer (and MSG_EndBitWriting stores it). SZ_GetSpace itself, asked for more than a
+  whole buffer allowed to overflow, returned the buffer's start for the caller to write the whole request; a negative
+  length passed its check.
+- **Paths.** Every bit write goes through the four functions and the inlined start/end (the only users of the bfwrite
+  globals: 21 places). Byte writes (MSG_WriteByte and kin, SZ_Write) go through SZ_GetSpace with lengths of at most a
+  string or another buffer. Packets built: the client datagram (0x9DF30, all clients), the usercmd packet on the
+  client (0x2CFEB), the signon and baseline buffers (0x9F58C, 0x8000 bytes), delta updates of the client data and
+  weapons (0x96A96, 0x97540, 0x9788B).
+- **Sizes on the way.** Server: the client datagram 4000 (stack), client->datagram 4000 (0x99CC5), sv.datagram,
+  sv.reliable_datagram, sv.multicast 4000 (0xA0303), the netchan's reliable message 3990 (0x69717). Netchan_Transmit:
+  its datagram 4037 on the stack (0x6990D), 1304 for the unreliable part while fragments are sent (0x69EB0); an
+  unreliable message that does not fit is left out (not an overflow). Fragments 1304 (0x6A1A5). Loopback (the local
+  match): four slots of 4040 bytes per side (0x440C00), copied in and out without a length check (0x6BBF1, 0x6BB49).
+  UDP: NET_SendLong (0x6CAB0) splits a datagram past 1304 bytes into parts of 1294 with header 0xFFFFFFFE, NET_GetLong
+  (0x6C1A0) reassembles at most 4010 bytes (0xFAA) in 4020 (0x6A95CC), recvfrom takes 4010. Client: net_message and
+  in_message 64 KB (0x6BA580, 0x6A95A0); a demo message at most 64 KB (0x2288A); the packet entities at most 256 per
+  frame (docs/networking.md).
+- **Fixed** (src/game/net_buffers.cpp, src/game/net_buffers.h; SDK untouched):
+  - the bit writer is the host's: byte by byte, each byte checked to lie inside the buffer before it is written,
+    nothing written once the buffer has overflowed; its output is bit for bit the engine's (tests/net_buffers_test.cpp
+    compares the two). Every MSG_EndBitWriting store outside the buffer is skipped. An overflow is the engine's
+    (flag, empty buffer, its owner drops the message: SV_SendClientDatagram sends the packet without its entities);
+    on a buffer not allowed to overflow it is the engine's fatal error, as before.
+  - SZ_GetSpace: more than a whole overflowing buffer gets a 64 KB scratch area (guest table net_getspace_scratch), a
+    negative or larger length is the engine's fatal error.
+  - capacity, separate from the datagram: a loopback client's packet is built in 60 KB (net_client_datagram), its
+    netchan datagram in 64 KB (net_transmit: the size of net_message and of a demo message, so every consumer takes
+    it), the loopback queue keeps whole datagrams on the host. A network client keeps 4000 and 4037 bytes: what
+    NET_SendLong / NET_GetLong carry. Past them its packet overflows safely and goes without entities, as in the
+    engine; larger snapshots over UDP need a larger split reassembly (docs/networking.md). The new buffers are guest
+    tables, each ending at a guard page.
+  - from the network: NET_GetLong took a part's index and count from a header nibble each and copied the part at
+    index x 1295 into its 4020-byte buffer, checking neither against the count, the five sequence slots (0x378838) or
+    the buffer: a crafted part wrote up to 20 KB past it. Now a part must have count 1 to 5, index below the count,
+    at most 1295 bytes, and end inside the buffer, or the packet is dropped. Netchan_Process copied each fragment
+    (offset and length from the packet) without checking it against the message; a fragment must now lie inside the
+    message, at most 1304 bytes, the second after the first.
+- **Tests.** tests/net_buffers_test.py (18,314 checks: the engine's bits; exactly full, one bit over, after an
+  overflow, from a full buffer, nothing past the buffer; bit counts out of range; SZ_GetSpace's lengths; split and
+  fragment headers valid and malformed; with the bounds check removed 45 fail). regress_packet_overflow (64 bots, the
+  player killed and spectating through ten forced restarts): the largest packets 7.3 to 8.7 KB, delivered whole, no
+  overflow; the build before the fix fails it with the crash (KeBugCheck at 0x22DEDF at the third restart).
+- **Results.** soak_bots64_nocollide (64 bots, Player Collision Off, about 20 minutes: 19 rounds, 5 of them forced
+  restarts, the round and match limits lifted): packets up to 8,643 bytes, none overflowed, memory 41.8 to 41.7 MB, no
+  relaunch. Benchmarks with the fix: vk_perf_aztec_64 81.0 frames/s (1% low 17.6, server frame 3.84 ms, worst 145 ms),
+  vk_perf_dust2_64 143.6 (1% low 25.2, server 2.16 ms), within the spread of the runs before it. The full headless
+  regression passes (45 scenarios), so do the window default suite (27), vk_scoreboard_169 / _43 / _219 (check_scoreboard
+  all pass) and vk_bot_count_169.
+
 ## High population performance (2026-10-24, G8.2B)
 
 Measured before changing anything, with tools made for it (all off unless set): **benchmarks**

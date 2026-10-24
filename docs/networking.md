@@ -29,8 +29,15 @@ wider fields. System link and Xbox Live are not kept compatible with the console
   0x247BB, 0x24A10). 64 visible players plus the map's entities stay below it on the maps measured (FINDINGS.md); past
   it entities are dropped silently, not fatally.
 - **Entity states per server frame**: 1024 distinct entities (0x9562A, Sys_Error past it): measured at 65 players.
-- **Reliable / unreliable buffers**: 4000-byte datagrams, fragmented reliable messages, SV_New_f's 64 KB signon of
-  every client's userinfo: room for 65.
+- **Reliable / unreliable buffers**: fragmented reliable messages, SV_New_f's 64 KB signon of every client's
+  userinfo: room for 65. The unreliable packet (the snapshot) did not have room: see the next item.
+- **Packet capacity and datagram size** (FINDINGS.md "Packet overflow"): building a packet and sending it are separate
+  limits. A loopback client's packet is built in 60 KB and sent as one loopback datagram of up to 64 KB (net_message's
+  size, and a demo message's): a round restart's snapshot for a spectator with 65 players measured 6 to 9 KB, past
+  the 4000 bytes the engine built it in. A network client keeps the engine's 4000-byte packet and 4037-byte datagram,
+  which NET_SendLong splits into 1294-byte parts and NET_GetLong reassembles up to 4010 bytes: a larger snapshot over
+  UDP is not sent as one datagram; it overflows safely and the client gets that frame without its entities, as the
+  engine always did (section 4, item 3). The bit writer that built the snapshot no longer writes past any buffer.
 - **Prediction and lag compensation**: the client predicts against every player's state in its frame ring (now 65
   per frame); the server rewinds every client's position (truepositions, now 65). Unchanged in behaviour.
 
@@ -42,6 +49,13 @@ wider fields. System link and Xbox Live are not kept compatible with the console
 - Guest tables: every relocated per player table ends at a guard page; a write past its end faults and is reported
   with the table and element.
 - The prediction's player physents: never more than the 600 physents (a full array leaves the player out).
+- Split packets (NET_GetLong): a part's count (1 to 5), index (below the count), length (1295 bytes at most) and place
+  (inside the 4020-byte reassembly buffer) are checked; the engine checked none and a crafted part wrote far past the
+  buffer. A bad part drops the packet.
+- Netchan fragments: each fragment's offset and length must lie inside the received message (at most 1304 bytes, the
+  second after the first), or the packet is dropped.
+- Message buffers: the bit writer checks every byte against its buffer; SZ_GetSpace refuses a negative length and
+  answers a request larger than a whole overflowing buffer with a scratch area (FINDINGS.md "Packet overflow").
 
 ## 4. Opportunities for PC multiplayer (not done in G8.2B)
 
@@ -55,7 +69,11 @@ Ordered by value for online play; none blocks the 65-slot single player match.
 3. **Bandwidth.** Snapshots are delta-compressed against the client's acknowledged frame (CL_UPDATE_BACKUP 16 on the
    client, SV_UPDATE_BACKUP 16 in multiplayer). With 64 players the packet entity list per frame grows: per-client
    rate control (rate, cl_updaterate) exists in the engine; a priority by distance / visibility for player entities
-   and a larger MAX_PACKET_ENTITIES with a heap buffer on the server would scale further.
+   and a larger MAX_PACKET_ENTITIES would scale further. A 65-player snapshot passes 4000 bytes at a round restart
+   (6 to 9 KB measured): over UDP that needs either a larger split reassembly (more than 5 parts, a buffer of the new
+   size on both ends, the 4010-byte limit raised at NET_GetLong and recvfrom) or a snapshot that stops adding entities
+   at the datagram's size and records only what it sent (so the next delta is computed against what the client has).
+   The loopback match already sends it whole (section 2).
 4. **Snapshot compression.** The delta description (delta.lst in the SXWad packs) could be tuned for 65 players
    (quantized angles and origins are already 8-16 bits); an entropy coder on the datagram is a further step.
 5. **Interpolation and prediction.** The client interpolates other players between frames (ex_interp) and predicts

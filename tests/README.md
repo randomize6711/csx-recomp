@@ -231,6 +231,18 @@ never; shots of every page. Then `python3 -I tools/check_scoreboard.py build/wru
 snapshot each section in the game's order (score down, deaths up), the headers' counts, BOT for bots only, one row per
 player, the window's numbers, and every player on screen at some point.
 
+## Packet overflow
+
+FINDINGS.md "Packet overflow" (the crash at a round restart with 64 bots and the player spectating).
+`python3 -I tests/net_buffers_test.py` (seconds, no game run): the bounded bit writer of src/game/net_buffers.h gives
+the engine's bits, writes exactly to the capacity, overflows one bit past it and after an overflow writes nothing, never
+past the buffer; bit counts out of range; SZ_GetSpace's lengths; split packet headers and netchan fragments, valid and
+malformed. `regress_packet_overflow.txt` (headless, about 2.5 minutes, CSX_LOG_DATAGRAMS=1): 64 bots, collision Off,
+the player killed and spectating through ten forced restarts; a packet past 4000 bytes delivered whole, no overflow,
+no trap (the build before the fix crashed at the third restart). `soak_bots64_nocollide.txt` (headless, 17 minutes,
+not in run_regression.sh): fourteen minutes of play, the player spectating each round, five forced restarts; 15 rounds
+or more, no overflow, no trap, the memory and server time logged for their trend.
+
 ## Recompiler instruction patches (about 10 s, no game run)
 
 `python3 -I tests/recomp_patches.py` recompiles assets/default.xbe with test configs that include config/game.toml:

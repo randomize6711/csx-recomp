@@ -595,3 +595,18 @@ the day committed first (2b29f10 .. a1f7952).
   vk_scoreboard_169 only the known gamescope WSI messages; scoreboard_rows_test 1222 checks, 0 failed.
   Commits: 7dfd293 (build -O2, lock stats), eef344a (benchmarks, profiler), 7b4b19f (XACT test), 0a9cfe3 (sound wait),
   ee4304e (scoreboard), then these docs.
+
+## 2026-10-24 — G8.2B: the packet overflow at a round restart
+
+Found while play-testing the scoreboard (64 bots, Player Collision Off, the player dead): KeBugCheck at 0x22DEDF, the
+stack check of SV_SendClientDatagram. Cause (FINDINGS "Packet overflow"): a round restart's packet for a spectator is 6
+to 9 KB with 65 players, the engine built it in 4000 bytes on its stack, and its bit writer wrote on past the buffer
+after the overflow (and wrote whole dwords past the bits).
+- Fixed (src/game/net_buffers.cpp/.h): a bounds-checked bit writer (bit for bit the engine's output), the inlined
+  end stores checked, SZ_GetSpace's oversized and negative requests; capacity apart from the datagram: the loopback
+  client's packet built in 60 KB, its netchan datagram 64 KB, the loopback queue on the host; a network client keeps
+  4000 / 4037 bytes (TODO 1e4). From the network: NET_GetLong's split parts and Netchan_Process's fragments checked.
+- Tests: net_buffers_test.py (18,314 checks), regress_packet_overflow (ten restarts while spectating; the build before
+  fails it with the crash), soak_bots64_nocollide (19 rounds, not in the regression run).
+  Results: headless regression 45 of 45; window default suite 27 of 27; vk_scoreboard_169 / _43 / _219 and
+  vk_bot_count_169 pass; benchmarks within their earlier spread.

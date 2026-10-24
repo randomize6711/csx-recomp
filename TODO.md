@@ -61,6 +61,9 @@
    frames (changes behaviour), Vulkan recording on its own thread, draw batching.
 1e3. A pre-existing crash when players leave mid-round (bot_kick: StatShot AddDamage 0x153890 on a released damage
    record; the G7 build too): matters for online play, where players disconnect. Needs its own fix and approval.
+1e4. Snapshots past 4000 bytes over UDP (FINDINGS.md "Packet overflow", docs/networking.md section 4 item 3): the
+   loopback match sends them whole; a network client still gets 4000-byte packets (NET_GetLong reassembles 4010
+   bytes), so a 65-player round restart reaches it without entities for that frame. Part of the PC transport work.
 1f. Memory modernization (after G8.2B, docs/memory_modernization.md section 4): a configurable contiguous pool and
    real MmQueryStatistics totals, the engine's fixed pools for larger maps and assets, a second data arena only if
    needed, memory dumps over the whole user range; out of memory reports in G8.2B checkpoint 2.
