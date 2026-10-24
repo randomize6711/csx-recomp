@@ -263,6 +263,7 @@ void PcWeaponSlotFromHeld(X86Context& ctx, uint8_t*) {
 }
 
 bool PcScreenPassThrough(const std::string& name);  // pc_mouse.cpp
+bool ScoreboardKey(int key, bool down);  // scoreboard.cpp: the wheel and Page keys scroll it
 void PcConsoleFrame(X86Context& ctx);  // pc_console.cpp
 void PcMouseFrame(X86Context& ctx);    // pc_mouse.cpp
 void PcMenuFrame(X86Context& ctx);     // pc_menu.cpp
@@ -315,5 +316,6 @@ void PcKeysFrame(X86Context& ctx, uint8_t*) {
     }
     for (const std::string& c : commands) AddText(ctx, c + "\n");
     TapFrame(ctx);
-    for (auto [key, down] : keys) kernel::CallGuest(ctx, kKeyEvent, {uint32_t(key), down ? 1u : 0u});
+    for (auto [key, down] : keys)
+        if (!ScoreboardKey(key, down)) kernel::CallGuest(ctx, kKeyEvent, {uint32_t(key), down ? 1u : 0u});
 }

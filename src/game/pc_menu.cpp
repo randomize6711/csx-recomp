@@ -663,6 +663,7 @@ void PcUiLoadSize(X86Context& ctx, uint8_t*) {
 }
 
 void PcMouseLearnUi(const std::string& text);  // pc_mouse.cpp
+std::string ExtendScoreboard(const std::string& text);  // scoreboard.cpp
 void PcPlayerCollisionCommand(const std::string& arg);  // pc_collision.cpp
 
 // [[hook]] at 0xCDB1A: read and closed, esi = the buffer (ebp + 1 bytes, the file's text first); the extended text
@@ -678,6 +679,7 @@ void PcUiLoadText(X86Context& ctx, uint8_t*) {
     }
     std::string out = name.rfind("FrontEndUI", 0) == 0 ? ExtendFrontEnd(ExtendBotCount(ExtendCustomOptions(text)))
                                                        : ExtendInGame(text);
+    if (name.rfind("InGameUI", 0) == 0 && !out.empty()) out = ExtendScoreboard(out);
     PcMouseLearnUi(out.empty() ? text : out);
     if (out.empty() || out.size() > room) {
         LOGW("pc menu: %s left as it is (%s)", name.c_str(), out.empty() ? "layout not recognised" : "no room");

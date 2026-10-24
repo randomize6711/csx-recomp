@@ -828,11 +828,69 @@ at = 0x190E53
 call = "SlotsStudioPlayerIndex"
 on_false = 0x190E7E
 
-# the scoreboard pages through its rows when they pass what its list shows (src/game/player_slots_hud.cpp)
+# the scoreboard (src/game/scoreboard.cpp): a window of its rows, scrolled by the wheel and Page Up / Down while they
+# do not fit, the first row's team header kept in sight, the last line the count below
 [[hook]]
 at = 0x1B98A0
-call = "SlotsScoreRowShown"
+call = "ScoreRowShown"
 on_false = 0x1B9979
+
+[[hook]]
+at = 0x1B9979
+call = "ScoreRowNext"
+
+[[hook]]
+at = 0x1B9E63
+call = "ScoreSpectatorTitle"
+
+[[hook]]
+at = 0x1B9ED0
+call = "ScoreSpectatorName"
+
+# its Ping column: a player row's Deaths cell made again as the Ping cell (an unassigned player's blank cell), its
+# text the ping or BOT
+[[hook]]
+at = 0x1BA4C3
+call = "ScorePingCellAgain"
+on_true = 0x1BA43E
+
+[[hook]]
+at = 0x1BA4AA
+call = "ScorePingCellText"
+
+[[hook]]
+at = 0x1BA616
+call = "ScorePingBlankAgain"
+on_true = 0x1BA5C0
+
+[[hook]]
+at = 0x1BA601
+call = "ScorePingCellText"
+
+# a fake client's userinfo gains *bot (src/game/scoreboard.cpp): every client knows its bots
+[[hook]]
+at = 0x79F91
+call = "ScoreBotKey"
+
+# a row shows only with a cell per column: the team header's and the spectators' header's blank cells made again
+[[hook]]
+at = 0x1B9CD5
+call = "ScoreTeamCellSave"
+
+[[hook]]
+at = 0x1B9D59
+call = "ScoreTeamCellAgain"
+on_true = 0x1B9CD5
+
+[[hook]]
+at = 0x1B9F5A
+call = "ScoreSpectatorCellAgain"
+on_true = 0x1B9EF4
+
+# svc_pings stored a slot's ping: that player's ping is measured
+[[hook]]
+at = 0x31A30
+call = "ScorePingMeasured"
 
 # CSX_LOG_TRACES=1 (src/game/trace_stats.cpp): the engine's TraceLine counted by caller, repeats since the last link
 [[hook]]

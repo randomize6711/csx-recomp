@@ -1,0 +1,72 @@
+# The scoreboard for 65 players (G8.2B, FINDINGS.md "Scoreboard", src/game/scoreboard.cpp) in the Vulkan window at
+# 16:9: de_aztec with 64 bots and the player (Player Collision Off), the player a Terrorist, the scoreboard held open
+# (+showscores). Its table: Name, Score, Deaths, Ping (BOT for every bot, the player's measured ping or "-" before
+# one has come), 25 lines; with 65 players it scrolls: the first lines show players 1-23 and "42 more", the wheel moves
+# 3 rows a notch, Page Down a page, End the bottom (the last player, nothing below), Home the top; the team header of
+# the first row stays in sight. Then a long name (the engine keeps 31 characters) and a bot's name for the player (the
+# engine makes the copy unique: "(1)Walt"), the player's own team change (unassigned to Terrorist as the match
+# starts; CS allows one change a round); every bot BOT and the player never BOT throughout (the log of the rows,
+# CSX_LOG_SCOREBOARD). Players leaving are tested by tests/scoreboard_rows_test.py: kicking bots mid-round crashes
+# the original game itself (FINDINGS.md "Scoreboard": the same crash in the G7 build, before the player slots).
+# Shots: top, wheel, bottom, longname2 / longname3 (pages 2 and 3), names, end (End again; the scoreboard), play.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --env FPS=30 --env CSX_LOG_SCOREBOARD=1 --launch tests/launch/de_aztec_bots64_nocollide --pc aspect=16:9
+wait log open D:\\de_aztec.sxwad
+sleep 15
+key Down
+sleep 2
+key Down
+sleep 2
+key Space
+sleep 6
+key Left_Ctrl
+sleep 30
+players p
+expect playercount p 65 65
+windowshot play
+expect image play 20
+expect log scoreboard:.the.Scoreboard.screen.has.a.Ping.column.and.25.lines
+pckey cmd +showscores
+sleep 2
+windowshot top
+expect image top 8
+expect log scoreboard:.65.players.in.[0-9]+.rows,.25.lines,.offset.0:.players.1-23.of.65,.42.below
+wheel -3
+sleep 1
+windowshot wheel
+expect log scoreboard:.65.players.in.[0-9]+.rows,.25.lines,.offset.9:
+key PageDown
+sleep 1
+key End
+sleep 1
+windowshot bottom
+expect image bottom 8
+expect log scoreboard:.65.players.in.[0-9]+.rows,.25.lines,.offset.[0-9]+:.players.[0-9]+-65.of.65,.0.below
+key Home
+sleep 1
+count scoreboard:.65.players.in.[0-9]+.rows,.25.lines,.offset.0: 2
+pckey cmd setinfo name "Abcdefghijklmnopqrstuvwxyz 12345"
+sleep 2
+expect log scoreboard:.*"Abcdefghijklmnopqrstuvwxyz.1234".t[0-9]+.-?[0-9]+.-?[0-9]+.ping=[0-9-]+.human
+key Home
+sleep 1
+key PageDown
+sleep 1
+windowshot longname2
+key PageDown
+sleep 1
+windowshot longname3
+pckey cmd name Walt
+sleep 2
+windowshot names
+expect log scoreboard:.*"(\(1\))?Walt".t[0-9]+.-?[0-9]+.-?[0-9]+.ping=[0-9-]+.human
+key End
+sleep 1
+windowshot end
+pckey cmd -showscores
+expect before scoreboard:.*"empty".t0.-?[0-9]+.-?[0-9]+.ping=[0-9-]+.human scoreboard:.*"empty".t1.-?[0-9]+.-?[0-9]+.ping=[0-9-]+.human
+expect log scoreboard:.*ping=[0-9]+.human
+expect nolog ping=BOT.human
+expect nolog ping=[0-9-]+.bot
+expect nolog guest trap
+expect nolog guest table overrun

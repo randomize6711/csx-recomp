@@ -392,9 +392,13 @@ void HandleEvent(const void* p) {
             } else if (MenuMouse() && e.wheel.y != 0) {  // whole notches (SDL adds up a fine wheel's steps)
                 if (e.wheel.integer_y) csx::MenuWheel(e.wheel.integer_y);
             } else if (!csx::MenuOpen() && e.wheel.y != 0) {
+                // a press and release per whole notch (SDL can join several in one event; a fine wheel's partial
+                // step is still one)
                 int key = e.wheel.y > 0 ? 240 : 239;
-                EngineKeyEvent(key, true);
-                EngineKeyEvent(key, false);
+                for (int n = std::max(1, std::abs(e.wheel.integer_y)); n > 0; n--) {
+                    EngineKeyEvent(key, true);
+                    EngineKeyEvent(key, false);
+                }
             }
             break;
         case SDL_EVENT_MOUSE_MOTION:
