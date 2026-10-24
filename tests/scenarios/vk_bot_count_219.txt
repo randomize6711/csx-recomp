@@ -1,7 +1,11 @@
-# Custom Game > Number of Bots in the Vulkan window at 21:9, FOV 120 (FINDINGS.md "Bot count", src/game/pc_menu.cpp
-# ExtendBotCount): the single player match's Match Options list 0 to 16 bots (the original 1 to 11; 16 and the player
-# fill the engine's 17 slots); 16 chosen with the arrow keys, Accept, de_aztec (16 and 18 spawn points: every bot gets
-# one): 17 players in the match (tools/drive.py players). The play and scoreboard shots at FOV 120.
+# Custom Game > Number of Bots through the front end and a relaunch, in the Vulkan window at 21:9, FOV 120 (FINDINGS.md
+# "Bot count", src/game/pc_menu.cpp ExtendBotCount, PcBotCountLimit): the single player match's Match Options list 0 to
+# 16 bots, then 20 to 64 in fours (the original 1 to 11); 64 chosen with the arrow keys (21 steps from the default 7).
+# Bot Team on one team keeps 64 (the original capped it at 8, the spawn points' team limit that G8.2B removed); the
+# right arrow at 64 wraps to "0 bots" and the left brings 64 back. de_aztec starts with 65 players (64 bots and the
+# player), the teams even; Quit returns to the front end, which keeps the choice (the game's own memory of the
+# screen): the next match, the bots on one team (Counter-Terrorist), has 65 players again, no bot refused (no "Team is
+# full"). The play and scoreboard shots at FOV 120.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 2560 -H 1080), with
 #   --pc aspect=21:9 --pc fov=120
 wait log renderer: vulkan
@@ -47,7 +51,50 @@ key Right
 sleep 0.7
 key Right
 sleep 0.7
-windowshot options16
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+windowshot options64
+key Down
+sleep 1
+key Down
+sleep 1
+key Right
+sleep 2
+windowshot options_one_team
+key Left
+sleep 1
+key Up
+sleep 1
+key Up
+sleep 1
+key Right
+sleep 1
+windowshot options_wrapped
+key Left
+sleep 1
+expect nolog pc menu: Number of Bots .* capped
 key Space
 sleep 3
 expect log pc mouse: screen SuperLauncher_SinglePlayerMatchMapList
@@ -68,7 +115,8 @@ sleep 20
 key Left_Ctrl
 sleep 10
 players p
-expect playercount p 17 17
+expect playercount p 65 65
+expect teams 1 32
 windowshot play
 expect image play 20
 pckey cmd +showscores
@@ -76,4 +124,46 @@ sleep 1.5
 windowshot scores
 pckey cmd -showscores
 expect image scores 8
+key Escape
+sleep 2
+point 300 297
+sleep 0.5
+click 1
+sleep 2
+expect log pc mouse: screen InGame_ConfirmQuit
+point 320 273
+sleep 0.5
+click 1
+count relaunching.into 2
+sleep 25
+expect count pc.mouse:.screen.SuperLauncher_SinglePlayerMatchOptions, 2
+windowshot options_kept
+key Down
+sleep 1
+key Down
+sleep 1
+key Right
+sleep 2
+windowshot options_kept_one_team
+key Space
+sleep 3
+point 175 197
+sleep 0.5
+click 1
+sleep 1
+key Space
+count relaunching.into 3
+sleep 20
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 20
+key Left_Ctrl
+sleep 10
+players p2
+expect playercount p2 65 65
+expect nolog Team is full
 expect nolog guest trap
+expect nolog guest table overrun

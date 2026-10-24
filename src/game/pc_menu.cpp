@@ -30,6 +30,7 @@
 #include "common/pc_settings.h"
 #include "core/log.h"
 #include "cpu/x86_context.h"
+#include "game/player_slots.h"
 #include "kernel/kernel.h"
 
 namespace {
@@ -324,12 +325,18 @@ std::string ExtendCustomOptions(const std::string& text) {
 }
 
 // Custom Game > Number of Bots (FINDINGS.md "Bot count"): the single player match's Match Options list "1 bot" to
-// "11 bots" (+bot_quota N on the match's command line, as its other rows); the engine has 17 player slots
-// (-maxplayers 17 in the title's own command line; svs.maxclientslimit and the client's MAX_CLIENTS are 17), so with
-// the player 16 bots fit. The list gains "0 bots" before its first choice and "12 bots" to "16 bots" after its last;
-// the screen's code that reads it by position (0xE1D10, with the bots on one team at most 8) is replaced by
-// PcBotCountLimit for the longer list
-constexpr int kMaxBots = 16;
+// "11 bots" (+bot_quota N on the match's command line, as its other rows). With the 65 player slots (G8.2B) 64 bots fit
+// with the player. The list gains "0 bots" before its first choice and after its last "12 bots" to "16 bots", then
+// "20 bots" to "64 bots" in fours (21 steps from the default to 64, not 57); the screen's code that reads it by
+// position (0xE1D10, with the bots on one team at most 8) is replaced by PcBotCountLimit for the longer list
+constexpr int kMaxBots = int(slots::kMaxPlayers) - 1;
+
+std::vector<int> BotCounts() {
+    std::vector<int> n;
+    for (int i = 0; i <= 16; i++) n.push_back(i);
+    for (int i = 20; i <= kMaxBots; i += 4) n.push_back(i);
+    return n;
+}
 
 std::string ExtendBotCount(const std::string& text) {
     size_t screen = text.find("\nSuperLauncher_SinglePlayerMatchOptions\r\n");
@@ -345,14 +352,15 @@ std::string ExtendBotCount(const std::string& text) {
         return text;
     }
     std::string more;
-    for (int n = 12; n <= kMaxBots; n++)
-        more += "\t\t\t\tListOption \"" + std::to_string(n) + " bots\"\t\t\"+wait +bot_quota " + std::to_string(n) +
-                "\"\r\n";
+    for (int n : BotCounts())
+        if (n > 11)
+            more += "\t\t\t\tListOption \"" + std::to_string(n) + " bots\"\t\t\"+wait +bot_quota " + std::to_string(n) +
+                    "\"\r\n";
     std::string out = text.substr(0, l + last.size()) + more + text.substr(l + last.size());
     out.insert(f, "\t\t\t\tListOption \"0 bots\"\t\t\t\"+wait +bot_quota 0\"\r\n");
-    out.insert(h + help.size(),
-               "\t\t\t\tRow\r\n\t\t\t\t{\r\n"
-               "\t\t\t\t\tCellFixed \"16 bots and you fill the game's 17 player slots.\"\r\n\t\t\t\t}\r\n");
+    out.insert(h + help.size(), "\t\t\t\tRow\r\n\t\t\t\t{\r\n\t\t\t\t\tCellFixed \"" + std::to_string(kMaxBots) +
+                                    " bots and you fill the game's " + std::to_string(slots::kMaxPlayers) +
+                                    " player slots.\"\r\n\t\t\t\t}\r\n");
     return out;
 }
 
@@ -360,17 +368,15 @@ std::string ExtendBotCount(const std::string& text) {
 
 // [[hook]] at 0xE1D2B (config/game.toml) in the single player Match Options' simulate (0xE1D10), where it has the
 // table (ecx) and the Bot Team row's choice (edi: 0 both teams, 1 or 2 one team): the original then caps Number of
-// Bots at its eighth choice ("8 bots") and disables the ninth to fifteenth while the bots join one team, enables them
-// otherwise (the list's enable bytes at its cell +0x29 + choice). The same for the list ExtendBotCount makes ("0 bots"
-// first: "8 bots" is the ninth choice, "9 bots" to "16 bots" the ones after it); true leaves the function (0xE1D63)
+// Bots at its eighth choice ("8 bots") and disables the ninth to fifteenth while the bots join one team (a team was
+// full at its map's spawn points, 8 on the smallest maps), enables them otherwise (the list's enable bytes at its cell
+// +0x29 + choice). The 65 slots took that team limit away (G8.2B) and Bot Team's one-team choices already turn off
+// auto team balance and mp_limitteams, so every choice of the list ExtendBotCount makes stays enabled with any Bot
+// Team (29 choices, within the cell's 0x27 enable bytes); true leaves the function (0xE1D63) without the original's cap
 bool PcBotCountLimit(X86Context& ctx, uint8_t*) {
     uint32_t list = R32(R32(ctx.ecx + 0x60) + 0xC) + 0x78;  // row 0's cells: the label, then the list
-    bool one_team = ctx.edi != 0;
-    if (one_team && R32(list) > 8) {
-        LOGI("pc menu: Number of Bots %u capped at 8 (the bots on one team)", R32(list));
-        kernel::W32(list, 8);
-    }
-    for (int i = 9; i <= kMaxBots; i++) static_cast<uint8_t*>(kernel::HostPtr(list + 0x29 + i))[0] = one_team ? 0 : 1;
+    for (size_t i = 0; i < BotCounts().size() && i < 0x27; i++)
+        static_cast<uint8_t*>(kernel::HostPtr(list + 0x29 + uint32_t(i)))[0] = 1;
     return true;
 }
 

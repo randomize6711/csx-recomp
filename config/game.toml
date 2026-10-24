@@ -676,7 +676,8 @@ at = 0x1A5B20
 call = "PcPlayerCollisionMove"
 
 # Custom Game > Number of Bots (src/game/pc_menu.cpp PcBotCountLimit): the single player Match Options' simulate,
-# once it has the table (ecx) and the Bot Team choice (edi), caps the longer bot list itself and leaves (0xE1D63)
+# once it has the table (ecx) and the Bot Team choice (edi), enables the longer bot list (0 to 64, no one-team cap)
+# and leaves (0xE1D63)
 [[hook]]
 at = 0xE1D2B
 call = "PcBotCountLimit"
