@@ -1556,6 +1556,29 @@ why = "a player row (moved)"
 
 # --- changes: the game DLL ---
 
+# mp_limitteams (CHalfLifeMultiplay, 0x143C7A): the most players one team may have over the other, which the bot
+# manager's add (0x162B90, "Team is stacked") and the team menu check. Above MAX_TEAM_DIFF (20, for 32 players) the
+# cvar is set back to it; 0 ("no limit", the Bot Team menu's one-team choices give it) became 20 too, so 64 bots on one
+# team against the player stopped at 21. MAX_TEAM_DIFF is N - 1: one team may hold every bot.
+[[change]]
+at = 0x143C80
+operand = "imm"
+old = 0x14
+new = "N - 1"
+why = "mp_limitteams: at most N - 1 (compare)"
+[[change]]
+at = 0x143C85
+operand = "imm"
+old = 0x41A00000
+new = "F32(N - 1)"
+why = "mp_limitteams: set back to N - 1 (a float) above it"
+[[change]]
+at = 0x143CA1
+operand = "imm"
+old = 0x14
+new = "N - 1"
+why = "mp_limitteams: the rules' limit, N - 1 (0 is no limit)"
+
 [[change]]
 at = 0x102DB0
 old = 0x11

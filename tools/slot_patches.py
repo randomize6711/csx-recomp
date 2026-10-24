@@ -15,7 +15,7 @@ generator, so a reference nobody reviewed is never patched silently.
   python3 -I tools/slot_patches.py --check   fail when the file is not what the configs give (the tests use it)
   --listing FILE   use that listing (xbe_recomp --listing) instead of running xbe_recomp
 """
-import argparse, os, subprocess, sys, tempfile, tomllib
+import argparse, os, struct, subprocess, sys, tempfile, tomllib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'tools'))
@@ -97,7 +97,9 @@ def generate(slots, layout_cfg, insns):
     for t in layout_cfg.get('table', []):
         if 'text' in t and '-maxplayers' in t['text'] and '-maxplayers %d +maxplayers %d' % (n, n) not in t['text']:
             raise Error('guest table %s: its command line does not say -maxplayers %d +maxplayers %d' % (t['name'], n, n))
-    names = {'N': n, 'PROTOCOL': slots['slots'].get('protocol_version', 46)}
+    # F32(x): the bits of x as a 32-bit float (an immediate the game pushes as a cvar value)
+    names = {'N': n, 'PROTOCOL': slots['slots'].get('protocol_version', 46),
+             'F32': lambda x: struct.unpack('<I', struct.pack('<f', x))[0]}
     names.update({name: va for name, (va, elem, count) in layout.items()})
     patches, summary = {}, []
 

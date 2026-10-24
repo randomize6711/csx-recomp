@@ -1,0 +1,34 @@
+# 65 player slots (G8.2B): 64 bots on one team (Counter-Terrorist, as the Match Options' Bot Team row gives it:
+# "+bot_join_team ct +mp_autoteambalance 0 +mp_limitteams 0") and the player on de_aztec, headless. mp_limitteams 0 is
+# the game's MAX_TEAM_DIFF, 20 in the original (21 bots against the player, then "Team is stacked"), N - 1 since
+# G8.2B (config/player_slots.toml "mp_limitteams"): 65 players, 64 Counter-Terrorists, the player a Terrorist, the bots
+# walking and fighting, rounds ending, no "Team is stacked", no guest trap and no guest table overrun.
+#   --env FPS=30 --env CSX_LOG_SERVERTIME=1 --env CSX_LOG_MEMORY=1 --launch tests/launch/de_aztec_bots64_ct
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 25
+players start
+expect playercount start 65 65
+spawns s
+sleep 20
+players walking
+expect bodiesmoved start walking 100 32
+count game:.*killed 2
+count game:.World.triggered."Round_End" 3
+sleep 6.5
+players freeze
+expect playercount freeze 65 65
+count game:.World.triggered."Round_Start" 3
+count joined.team."CT" 64
+expect teams 64 1
+expect nolog Team.is.stacked
+expect nolog guest trap
+expect nolog guest table overrun

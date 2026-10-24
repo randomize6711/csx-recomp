@@ -1983,6 +1983,36 @@ new = 0x80
 why = "a client's reserved sound: 64 + N sounds"
 
 [[patch]]
+at = 0x143C80
+bytes = "83 F8 14"
+insn = "cmp eax, 0x14"
+operand = "imm"
+index = 1
+old = 0x14
+new = 0x40
+why = "mp_limitteams: at most N - 1 (compare)"
+
+[[patch]]
+at = 0x143C85
+bytes = "68 00 00 A0 41"
+insn = "push 0x41A00000"
+operand = "imm"
+index = 0
+old = 0x41A00000
+new = 0x42800000
+why = "mp_limitteams: set back to N - 1 (a float) above it"
+
+[[patch]]
+at = 0x143CA1
+bytes = "C7 86 9C 00 00 00 14 00 00 00"
+insn = "mov dword ptr [esi+0x9C], 0x14"
+operand = "imm"
+index = 1
+old = 0x14
+new = 0x40
+why = "mp_limitteams: the rules' limit, N - 1 (0 is no limit)"
+
+[[patch]]
 at = 0x14401B
 bytes = "6A 54"
 insn = "push 0x54"
