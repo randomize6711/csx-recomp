@@ -1,7 +1,8 @@
 # Lag compensation includes the last player slot (N1, src/game/net_security.cpp): SV_SetupMove went over the other
 # players' entity numbers 1 <= n < maxclients, so the player in slot 65 (entity 65 = maxclients) was never moved back
 # to where the shooter saw it. With all 65 slots full (64 bots) the player's moves go through it and slot 65's bot is
-# among the players it handles. Fails on the original bound (no "includes the last player slot" line).
+# among the players it handles (that bot is put in front of the player first: the loop only sees entities in the
+# player's last snapshot, so a bot out of view made the check depend on where it was). Fails on the original bound (no "includes the last player slot" line).
 #   --env FPS=30 --launch tests/launch/de_aztec_bots64_nocollide
 wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
 wait draws>=150
@@ -16,6 +17,9 @@ press B
 sleep 25
 players full
 expect playercount full 65 65
+# entity 65 must be in the player's last snapshot (SV_SetupMove walks its packet entities): its bot put in front
+bring 64 150
+sleep 1
 pckey tap +attack 2
 sleep 10
 pckey tap +attack 2
