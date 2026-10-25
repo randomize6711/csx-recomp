@@ -43,6 +43,24 @@ constexpr uint32_t kRelaunch = 0xBF0E0;  // the title's relaunch (cdecl: the lau
 }
 }  // namespace
 
+namespace csx {
+// the dedicated server's map change (admin map): the title relaunched into "+map NAME" as its own map change does;
+// RelaunchNotify tells the players to rejoin, csx-server rebuilds the match line with the new map
+void RelaunchToMap(X86Context& ctx, const std::string& map) {
+    std::string line = "+map " + map;
+    if (std::string path = kernel::ResolvePath("Z:\\releasemap.txt", 0); !path.empty()) {
+        std::ofstream f(path, std::ios::binary | std::ios::trunc);
+        f.write(line.c_str(), std::streamsize(line.size() + 1));
+    }
+    LOGI("net: relaunching into %s", map.c_str());
+    uint32_t data = guest_tables::kTables[guest_tables::k_net_launch].va;
+    std::memset(kernel::HostPtr(data), 0, 0xC00);
+    kernel::W32(data, 4);
+    kernel::CallGuest(ctx, kRelaunch, {data});
+    std::abort();
+}
+}  // namespace csx
+
 bool ClConnectAddress(X86Context& ctx, uint8_t*) {
     std::string target = kernel::ReadCString(ctx.edx, 240);
     // an address without a port gets the PC port (the engine's default was 1001, the Xbox's)
@@ -127,9 +145,10 @@ void RelaunchNotify(X86Context&, uint8_t*) {
 // [[hook]] at 0x290B3 in CL_Disconnect (0x28F20): a client that was connected opens the Xbox "LostHost" screen
 // (0xE9320), whose own render loop never returns unless the title relaunches. The disconnect that `connect` makes
 // first is not a lost host (also when Host_ShutdownServer calls CL_Disconnect again inside it): true skips the
-// screen (0x290BA).
+// screen (0x290BA). A dedicated server has no client to lose its host: the map command's own CL_Disconnect
+// (0x5FD50) at its start would open the screen and never return.
 bool ClDisconnectLostHost(X86Context&, uint8_t*) {
-    return g_connecting || !g_reconnect.empty();
+    return g_connecting || !g_reconnect.empty() || csx::Dedicated();
 }
 
 // [[hook]] at 0x29DA7 in CL_Connect_f, after its CL_Disconnect (which Host_ShutdownServer re-enters)

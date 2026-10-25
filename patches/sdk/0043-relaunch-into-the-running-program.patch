@@ -1,0 +1,35 @@
+--- a/runtime/kernel/boot.cpp
++++ b/runtime/kernel/boot.cpp
+@@ -85,7 +85,14 @@
+ const xbe::Image* g_image = nullptr;
+ static xbe::Image g_xbe;
+ 
++// the executable of the image this process runs (ImageExe of the booted xbe): a relaunch into the same image
++// restarts this program, whatever its file is called (a second front end, e.g. a dedicated server, built from it)
++namespace {
++std::string g_own_exe;
++}
++
+ bool Boot(std::vector<uint8_t> xbe, const std::string& xbe_name, const std::string& game_dir, const std::string& data_dir) {
++    if (const char* own = ImageExe(xbe_name)) g_own_exe = own;
+     if (!mem::Init()) return false;
+     g_base = mem::Base();
+ 
+@@ -177,7 +184,7 @@
+     wchar_t self[MAX_PATH];
+     GetModuleFileNameW(nullptr, self, MAX_PATH);
+     std::wstring path = self;
+-    path = path.substr(0, path.find_last_of(L'\\') + 1) + std::wstring(exe, exe + std::strlen(exe)) + L".exe";
++    if (g_own_exe != exe) path = path.substr(0, path.find_last_of(L'\\') + 1) + std::wstring(exe, exe + std::strlen(exe)) + L".exe";
+     // the command line keeps its arguments (--instance) behind the new executable
+     std::wstring line = GetCommandLineW();
+     size_t args = line[0] == L'"' ? line.find(L'"', 1) + 1 : line.find(L' ');
+@@ -206,7 +213,7 @@
+     char self[4096] = {};
+     ssize_t n = readlink("/proc/self/exe", self, sizeof(self) - 1);
+     std::string path = std::string(self, n > 0 ? size_t(n) : 0);
+-    path = path.substr(0, path.find_last_of('/') + 1) + exe;
++    if (g_own_exe != exe) path = path.substr(0, path.find_last_of('/') + 1) + exe;
+     // the new image binds the same ports: the sockets are closed here as on Windows (they are close-on-exec too)
+     xnet::CloseSockets();
+     // nothing else this image opened lives on in the next one either (its files, the guest memory's memfd, the

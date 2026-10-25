@@ -3,14 +3,20 @@
 # title boots as on the console: the intro movies, the title screen and the front end, from which a match is started
 # in the game's own menus. --match goes straight into an offline match against bots instead, as the front end's
 # Beginner match would start it. No scenario, no timeout: the game runs until the window is closed.
-#   ./run_game.sh [--build] [--match [MAP]] [--bots N] [--nocollide] [--host [--port P]] [--connect HOST[:PORT]]
+#   ./run_game.sh [--build] [--match [MAP]] [--bots N] [--nocollide] [--host [--port P]]
+#                 [--connect HOST[:PORT] [--password P] [--server-key KEY]]
 #   MAP       any map in build/gamedata (de_airstrip by default, de_aztec, de_dust2, cs_italy, ...)
 #   --bots N  bot count, 0..64 (default 7, the Beginner match's; the front end's menu stops at 16); implies --match
 #   --nocollide  Player Collision Off (the setting for crowded matches); implies --match
 #   --host    the match takes network players: a listen server on UDP port 27015 (or --port P) of every interface
 #             (docs/pc_multiplayer.md); implies --match. Not for the open internet yet (see the doc's limits)
-#   --connect HOST[:PORT]  join a server (a --host match on this PC or another): boots straight into it, in its own
-#             run folder (build/play-client), so it can run beside a --host on the same PC
+#   --connect HOST[:PORT]  join a server (csx-server, or a --host match, on this PC or another): boots straight into it, in its own
+#             run folder (build/play-client), so it can run beside a --host on the same PC. The first join of an
+#             address remembers the server's identity key (build/play-client/known_servers.txt); a later key that
+#             differs is refused (the line there removed if the server's key really changed)
+#   --password P     the server's join password (csx-server --password)
+#   --server-key KEY the server's identity key (64 hex digits, its log: "net: server identity"), pinned instead of
+#             trusted on first use
 #   With --host or --connect the game uses this PC's network (the other modes run without any network access).
 #   --build   rebuild first (tools/iterate.sh 1, which also boots the headless harness for a second, then
 #             tools/build_window.sh)
@@ -40,7 +46,9 @@ while [ $# -gt 0 ]; do
         --host) host=1; match=1 ;;
         --port) port=$2; shift ;;
         --connect) connect=$2; shift ;;
-        -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
+        --password) export CSX_NET_PASSWORD=$2; shift ;;
+        --server-key) export CSX_SERVER_KEY=$2; shift ;;
+        -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
         *) map=$1; match=1 ;;
     esac
     shift

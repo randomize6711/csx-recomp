@@ -29,6 +29,9 @@ list(FILTER XBE_HOST_SOURCES EXCLUDE REGEX "/src/game/")
 # the Linux window front end (src/linux) is built by tools/build_window.sh, not with the Windows game
 list(FILTER XBE_HOST_SOURCES EXCLUDE REGEX "/src/linux/")
 list(FILTER XBE_HOST_SOURCES EXCLUDE REGEX "/src/vulkan/")
+# the dedicated server (src/server) is its own executable (tools/build_server.sh on Linux; a Windows target is N2's
+# portable design, not built yet): its main() and stand ins must not join the game's
+list(FILTER XBE_HOST_SOURCES EXCLUDE REGEX "/src/server/")
 
 # partitions as xbe_symbols wrote them into config/game.toml
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS config/game.toml)

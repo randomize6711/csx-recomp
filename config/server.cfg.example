@@ -1,0 +1,20 @@
+# csx-server settings (./run_server.sh --config config/server.cfg.example, or build/server/csx-server --config FILE):
+# one "key value" per line, # comments; command-line --key value options given after --config override these.
+# Every value is checked before the server starts; csx-server --help lists the keys and ranges.
+name             Counter-Strike Xbox PC server
+port             27015
+map              de_dust2
+max_players      65
+bots             20
+bot_difficulty   1
+player_collision off
+friendly_fire    off
+round_time       3
+freeze_time      3
+buy_time         1.5
+start_money      800
+max_rounds       0
+time_limit       30
+# password       secret
+lan_only         off
+snapshot_rate    30

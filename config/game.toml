@@ -1162,6 +1162,19 @@ call = "RconChallenge"
 on_true = 0x9BBA6
 
 [[hook]]
+at = 0x9BBA6
+call = "RconRefused"
+
+# refused connections logged with their cause (src/game/net_security.cpp)
+[[hook]]
+at = 0x98910
+call = "LogRejectConnection"
+
+[[hook]]
+at = 0x98A40
+call = "LogRejectPassword"
+
+[[hook]]
 at = 0x9ADE3
 call = "InfoNoKey"
 
@@ -1225,3 +1238,49 @@ call = "NetSendBegin"
 [[hook]]
 at = 0x9E6B6
 call = "NetSendEnd"
+
+# the server's snapshot schedule (src/game/server_tick.cpp): each client's next_messagetime one interval after the
+# previous deadline, not after the frame that sent (30 updates a second on a 30 Hz tick, not 17-21)
+[[hook]]
+at = 0x9E5AD
+call = "SnapshotKeep"
+
+[[hook]]
+at = 0x9E5D0
+call = "SnapshotSchedule"
+
+[[hook]]
+at = 0x9E61E
+call = "SnapshotKeep"
+
+[[hook]]
+at = 0x9E655
+call = "SnapshotScheduleChoked"
+
+# the dedicated server (src/game/dedicated.cpp, CSX_DEDICATED=1 from csx-server): the engine loaded with
+# g_bIsDedicatedServer 1 (cls.state 0, no client), the host frame on a fixed tick
+[[hook]]
+at = 0xADA66
+call = "DedicatedLoad"
+
+[[hook]]
+at = 0x5DD18
+call = "DedicatedInit"
+
+[[hook]]
+at = 0xADCE5
+call = "DedicatedNoPlayerName"
+on_true = 0xADCEA
+
+[[hook]]
+at = 0x5E01F
+call = "DedicatedShutdownExport"
+on_true = 0x5E025
+
+[[hook]]
+at = 0x202C32
+call = "DedicatedQuit"
+
+[[hook]]
+at = 0x5D5D0
+call = "DedicatedTick"

@@ -24,6 +24,7 @@
 #include "common/pc_settings.h"
 #include "core/log.h"
 #include "cpu/x86_context.h"
+#include "game/net_engine.h"
 #include "kernel/kernel.h"
 
 namespace {
@@ -284,6 +285,17 @@ void PcMapLightConfig(X86Context& ctx, uint8_t*) {
 // [[hook]] at 0x3BB50 (config/game.toml): Cbuf_Execute's entry, on the game thread every frame
 void PcKeysFrame(X86Context& ctx, uint8_t*) {
     PollRequests();
+    if (csx::Dedicated()) {
+        // a dedicated server has no client: no console, menus, mouse, bindings or keys; only the commands (its stdin
+        // console, the admin actions' engine commands, a test's requests)
+        std::deque<std::string> commands;
+        {
+            std::lock_guard<std::mutex> lock(g_lock);
+            commands.swap(g_commands);
+        }
+        for (const std::string& c : commands) AddText(ctx, c + "\n");
+        return;
+    }
     PcConsoleFrame(ctx);
     PcMouseFrame(ctx);
     PcMenuFrame(ctx);

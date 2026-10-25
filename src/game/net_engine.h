@@ -5,6 +5,8 @@
 #include <optional>
 #include <string>
 
+struct X86Context;
+
 namespace csx {
 
 uint16_t NetServerPort();  // the server endpoint's UDP port: CSX_NET_PORT, else PC setting net_port, else 27015
@@ -27,6 +29,19 @@ bool NetClientOnly();
 // the match takes network players (its server endpoint opens): CSX_NET_HOST=1, PC setting net_host 1, a test's
 // numbered instance; never in a client-only process
 bool NetHosting();
+// the process is the dedicated server (csx-server: CSX_DEDICATED=1; dedicated.cpp); its host frames so far
+bool Dedicated();
+uint64_t ServerFrames();
+// the dedicated server shut down (its quit: the players told), so csx-server exits
+void SetServerFinished();
+bool ServerFinished();
+// remote administration (server_admin.cpp): the "admin" client command of client cl (true: it was one, handled);
+// the actions it deferred to the host frame's start; whether a connecting identity or address is banned
+bool AdminCommand(X86Context& ctx, uint32_t cl, const std::string& text);
+void RunAdminActions(X86Context& ctx);
+bool Banned(const std::string& identity, const std::string& ip, std::string& why);
+// the title relaunched into another map, its players told to rejoin (net_session.cpp; the dedicated server)
+[[noreturn]] void RelaunchToMap(X86Context& ctx, const std::string& map);
 // the match's Player Collision (pc_collision.cpp)
 bool PlayerCollisionOn();
 

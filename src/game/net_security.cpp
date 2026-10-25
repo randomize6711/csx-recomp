@@ -2,10 +2,11 @@
 // analysis/netcode_engine.md). The transport below (src/net) already refuses spoofed sources, replays and malformed
 // datagrams; these close the engine's own gaps:
 //   - the connect challenge is checked (SV_CheckChallenge 0x98CE0 returned 1 on every path)
-//   - the rcon challenge is checked (it was never read)
+//   - rcon is refused from the network (a plaintext password in a connectionless packet; N2: "admin" over the
+//     player's encrypted connection instead, server_admin.cpp); the listen server's own loopback keeps it
 //   - the info replies no longer carry the session's Xbox key, key id and host address
-//   - a network client's userinfo loses any "*" key (the server's own: *bot, *pid) and gains *pid, its player
-//     identity's fingerprint, when it proved one
+//   - a network client's userinfo loses any "*" key (the server's own: *bot); its player identity stays with the
+//     transport (csx::NetPeerIdentity, the whole key), not in the userinfo every player receives (256 bytes at most)
 //   - a network client cannot run the host's privileged commands (kick, pause; the cheats unless sv_cheats)
 //   - a client only runs the commands a network server sends it (svc_stufftext) that are on a short list
 //   - the last player slot is lag compensated (SV_SetupMove skipped entity number maxclients)
@@ -142,14 +143,19 @@ void ChallengeTime(X86Context& ctx, uint8_t*) {
     ctx.eax = issued;
 }
 
-// [[hook]] at 0x9BAC9 in the rcon check (0x9BA70), after the password tests: the rcon challenge (Cmd_Argv(1)) must
-// be the one net_from was given ("challenge rcon"); true goes to the refusal (0x9BBA6)
+// [[hook]] at 0x9BAC9 in the rcon check (0x9BA70), after the password tests (an empty rcon_password was refused
+// before): rcon from the network is refused whatever its password and challenge, the loopback's (a listen server's
+// own console) allowed; true goes to the refusal (0x9BBA6)
 bool RconChallenge(X86Context&, uint8_t*) {
-    int64_t want = ChallengeFor(kNetFrom);
-    std::string arg = Argv(1);
-    bool ok = R32(kNetFrom) == kNaLoopback || (want >= 0 && !arg.empty() && std::strtoul(arg.c_str(), nullptr, 10) == want);
-    if (!ok) LOG_FIRST(16, "net: rcon from %s refused: bad challenge", AddressText(kNetFrom).c_str());
-    return !ok;
+    return R32(kNetFrom) != kNaLoopback;
+}
+
+// [[hook]] at 0x9BBA6, the rcon check's refusal (too few arguments, an empty rcon_password, or RconChallenge): the
+// engine logs none of them
+void RconRefused(X86Context&, uint8_t*) {
+    if (R32(kNetFrom) == kNaLoopback) return;
+    LOG_FIRST(16, "net: rcon from %s refused: rcon is off (its password travels in plaintext); use \"admin\" with an "
+                  "admins.cfg key", AddressText(kNetFrom).c_str());
 }
 
 // [[hook]] at 0x9ADE3, 0x9AE18, 0x9AE3C (SVC_Info's three MSG_WriteString of the session key id, key and host XNADDR,
@@ -163,7 +169,7 @@ void InfoStringNoKey(X86Context& ctx, uint8_t*) {
 }
 
 // [[hook]] at 0x9967E in SV_ConnectClient, the userinfo copied to esp+0x98 (0x400 bytes), the sender at esp+0x24:
-// a network client's "*" keys are removed (setinfo refuses them; the connect line did not), its identity added
+// a network client's "*" keys are removed (setinfo refuses them; the connect line did not); its identity is logged
 void ConnectUserinfo(X86Context& ctx, uint8_t*) {
     uint32_t adr = ctx.esp + 0x24, buf = ctx.esp + 0x98;
     if (R32(adr) != kNaIp) return;
@@ -177,21 +183,24 @@ void ConnectUserinfo(X86Context& ctx, uint8_t*) {
         out += "\\" + k + "\\" + v;
     }
     std::string peer = AddressText(adr);
-    if (auto id = csx::NetPeerIdentity(peer)) out += "\\*pid\\" + *id;
+    if (auto id = csx::NetPeerIdentity(peer)) LOGI("net: %s connects with player identity %s", peer.c_str(), id->c_str());
     if (out.size() > 0x3FE) out.resize(0x3FE);
     std::memcpy(kernel::HostPtr(buf), out.c_str(), out.size() + 1);
     if (stripped) LOGW("net: %s sent %d \"*\" userinfo keys, removed", peer.c_str(), stripped);
 }
 
 // [[hook]] at 0xAB4ED in SV_ParseStringCommand (0xAB4E0: esi the command, eax SV_IsClientCommandAllowed's verdict, 1 an
-// engine command): a network client may not kick, pause or use the cheats (without sv_cheats), which the engine let
-// any client run; true ends the command (0xAB541)
+// engine command): a network client's "admin" goes to the server's administration; it may not kick, pause or use the
+// cheats (without sv_cheats), which the engine let any client run; true ends the command (0xAB541)
 bool ClientCommandAllowed(X86Context& ctx, uint8_t*) {
-    if (ctx.eax != 1 || !NetworkClient(R32(kHostClient))) return false;
+    if (!NetworkClient(R32(kHostClient))) return false;
     // the name as the engine's own check (0xAA680) read it: COM_Parse's token (com_token 0x747DC0), which skips every
     // character up to a space and strips quotes; splitting the text again here let " kick 2" or "\"kick\" 2" through
     std::string name = kernel::ReadCString(kComToken, 128);
     for (char& ch : name) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+    // remote administration (N2, server_admin.cpp): handled here, never the game DLL's
+    if (name == "admin") return csx::AdminCommand(ctx, R32(kHostClient), kernel::ReadCString(ctx.esi, 512)) || true;
+    if (ctx.eax != 1) return false;
     static const std::set<std::string> host_only = {"kick", "pause", "setpause", "unpause"};
     static const std::set<std::string> cheats = {"god", "noclip", "notarget", "fly"};
     bool refuse = host_only.count(name) || (cheats.count(name) && F(kSvCheats) == 0);
@@ -256,4 +265,16 @@ void SignonPlayerCollision(X86Context& ctx, uint8_t*) {
     if (!p) return;
     kernel::G<uint8_t>(p) = kSvcStufftext;
     std::memcpy(kernel::HostPtr(p + 1), cmd.c_str(), cmd.size() + 1);
+}
+
+// [[hook]] at 0x98910, SV_RejectConnection's entry (edi the address; its format at [esp+4]), and 0x98A40, the bad
+// password's refusal SV_CheckPassword (0x991D0) sends: the engine logs neither, so a refused player's cause was only
+// on its own screen; the server's log names it ("net: 1.2.3.4:5 refused: ...")
+void LogRejectConnection(X86Context& ctx, uint8_t*) {
+    std::string why = kernel::ReadCString(R32(ctx.esp + 4), 200);
+    while (!why.empty() && (why.back() == '\n' || why.back() == '\r')) why.pop_back();
+    LOGI("net: %s refused: %s", AddressText(ctx.edi).c_str(), why.c_str());
+}
+void LogRejectPassword(X86Context& ctx, uint8_t*) {
+    LOGI("net: %s refused: bad password (sv_password)", AddressText(ctx.edi).c_str());
 }

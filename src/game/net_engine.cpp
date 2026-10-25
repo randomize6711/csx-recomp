@@ -77,6 +77,9 @@ void Print(X86Context& ctx, const std::string& text) {
 net::Config MakeConfig() {
     net::Config c;
     c.require_identity = pc::Get("net_require_identity", "0") == "1";
+    // LAN only (csx-server lan_only, CSX_NET_LAN_ONLY=1; PC setting net_lan_only 1 for a --host match)
+    const char* lan = std::getenv("CSX_NET_LAN_ONLY");
+    c.lan_only = lan ? *lan == '1' : pc::Get("net_lan_only", "0") == "1";
     return c;
 }
 
@@ -91,6 +94,62 @@ std::optional<net::Identity> LoadIdentity() {
     }
     LOGI("net: player identity %s (%s)", net::Identity::Fingerprint(id->public_key).c_str(), path.c_str());
     return id;
+}
+
+// the server's own identity (server_identity.key beside the player's): it signs every accept, so clients can tell
+// this server from anyone else answering at its address. Without it the server endpoint accepts no one.
+std::optional<net::Identity> LoadServerIdentity() {
+    std::string path = (app::ExeDir() / "server_identity.key").string();
+    std::string error;
+    auto id = net::Identity::LoadOrCreate(path, error);
+    if (!id) {
+        LOGE("net: no server identity (%s): no client can connect", error.c_str());
+        return std::nullopt;
+    }
+    LOGI("net: server identity %s (%s)", net::Identity::Fingerprint(id->public_key).c_str(), path.c_str());
+    return id;
+}
+
+// the client's trust in a server's key: a pinned key (CSX_SERVER_KEY, PC setting net_server_key) must match; else the
+// key remembered for the address in known_servers.txt (trust on first use: the first connect remembers it; PC setting
+// net_tofu 0 refuses servers not known instead). A changed key is refused, never silently taken.
+net::ServerTrust CheckServerKey(const net::Address& server, const std::string& key, std::string& why) {
+    std::string addr = server.ToString();
+    std::string pinned = std::getenv("CSX_SERVER_KEY") ? std::getenv("CSX_SERVER_KEY") : pc::Get("net_server_key", "");
+    for (auto& c : pinned) c = char(std::tolower(static_cast<unsigned char>(c)));
+    if (!pinned.empty()) {
+        if (pinned == key) {
+            LOGI("net: server %s has the pinned key %s", addr.c_str(), key.c_str());
+            return net::ServerTrust::Trusted;
+        }
+        why = "the server's identity key " + key + " is not the pinned key " + pinned;
+        LOGW("net: %s refused: %s", addr.c_str(), why.c_str());
+        return net::ServerTrust::Changed;
+    }
+    net::KnownServers known((app::ExeDir() / "known_servers.txt").string());
+    std::string old;
+    switch (known.Check(addr, key, &old)) {
+    case net::KnownServers::Result::Match:
+        LOGI("net: server %s has its remembered key %s", addr.c_str(), key.c_str());
+        return net::ServerTrust::Trusted;
+    case net::KnownServers::Result::Changed:
+        why = "the server's identity key changed (now " + key + ", remembered " + old +
+              "); if that is expected, remove its line from " + known.Path();
+        LOGW("net: %s refused: %s", addr.c_str(), why.c_str());
+        return net::ServerTrust::Changed;
+    case net::KnownServers::Result::New:
+        break;
+    }
+    if (pc::Get("net_tofu", "1") != "1") {
+        why = "the server's identity key " + key + " is not known (net_tofu 0: pin it with net_server_key)";
+        LOGW("net: %s refused: %s", addr.c_str(), why.c_str());
+        return net::ServerTrust::Changed;
+    }
+    std::string error;
+    if (!known.Remember(addr, key, error)) LOGW("net: the server's key not remembered: %s", error.c_str());
+    LOGI("net: first connection to %s: its identity key %s remembered (%s)", addr.c_str(), key.c_str(),
+         known.Path().c_str());
+    return net::ServerTrust::Trusted;
 }
 
 // CSX_LOG_NET=1: once a second, what each endpoint sent and received in it, its connections, fragmentation, loss and
@@ -139,7 +198,13 @@ void Events(X86Context& ctx, int sock) {
         std::string who = e.peer.ToString();
         if (e.kind == net::Endpoint::Event::Connected) {
             LOGI("net: %s %s connected%s%s", sock ? "client" : "server", who.c_str(),
-                 e.identity.empty() ? "" : ", identity ", e.identity.c_str());
+                 e.identity.empty() ? "" : sock ? ", identity " : ", server identity ", e.identity.c_str());
+            // a banned player's identity or address (server_admin.cpp, bans.txt) is refused at once
+            if (std::string why; sock == 1 && csx::Banned(e.identity, who.substr(0, who.find(':')), why)) {
+                LOGI("net: %s refused: %s", who.c_str(), why.c_str());
+                g_ep[1]->Disconnect(e.peer, net::Reason::Kicked, why);
+                continue;
+            }
             if (sock == 0) csx::NetServerJoined();
             continue;
         }
@@ -259,12 +324,25 @@ X86_FUNC(sub_0006CDE0) {
             LOGI("net: %s endpoint on UDP port %u", sock ? "server" : "client", s->Local().port);
             g_ep[sock] = std::make_unique<net::Endpoint>(sock ? net::Endpoint::Role::Server : net::Endpoint::Role::Client,
                                                          std::move(s), MakeConfig(), Now);
-            if (!sock) {
+            if (sock) {
+                g_ep[sock]->SetIdentity(LoadServerIdentity());
+            } else {
                 g_ep[sock]->SetIdentity(LoadIdentity());
+                g_ep[sock]->SetServerKeyCheck(CheckServerKey);
                 // PC rates (the engine's were 2003's: rate 4000 bytes a second, 20 updates and 30 commands a second);
                 // userinfo cvars, so a server learns them at connect or by the engine's setinfo after
                 std::string rates = "rate " + pc::Get("net_rate", "100000") + "\ncl_updaterate " +
                                     pc::Get("net_update_rate", "30") + "\ncl_cmdrate " + pc::Get("net_cmd_rate", "60") + "\n";
+                // a server's password (csx-server password; SV_CheckPassword 0x991D0 reads userinfo "password"):
+                // CSX_NET_PASSWORD or PC setting net_password; sent inside the encrypted connection. Only the
+                // characters the server allows in one, so it cannot end the command it goes in
+                std::string password = std::getenv("CSX_NET_PASSWORD") ? std::getenv("CSX_NET_PASSWORD") : pc::Get("net_password", "");
+                if (!password.empty()) {
+                    bool ok = password.size() <= 32;
+                    for (unsigned char ch : password) ok = ok && ch > 0x20 && ch < 0x7F && ch != '"' && ch != ';' && ch != '\\';
+                    if (ok) rates += "setinfo password " + password + "\n";
+                    else LOGW("net: the server password is not used: at most 32 characters, no spaces, quotes, ';' or '\\'");
+                }
                 csx::QueueEngineCommand(rates);
             }
         }
