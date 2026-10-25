@@ -18,13 +18,16 @@ namespace instead of a game (a tool: tools/net_fuzz.py), passing when it exits 0
 game process S seconds after it started (SIGSTOP: a client that went silent, for the timeouts) and ends it when the
 test does. The processes are numbered from 1 in
 order: process k binds 127.0.0.k (CSX_NET_BIND) and is INSTANCE k (at most 8: its hard disk folder and system link
-address); each runs in build/nruns/NAME/ROLE. A test passes when every process's scenario passes. Output: each
-process's failed or noted steps, then PASS / FAIL per test.
+address); each runs in build/nruns/NAME/ROLE (the folder is emptied first). A test passes when every process's
+scenario passes. Output: each process's verdict (drive.py's RESULT: PASS, FAIL, TIMEOUT, CRASH; NOT STARTED when its
+--after never happened) with its failed or noted steps, then the test's verdict, the worst of them, also written to
+build/nruns/NAME/result.txt (RUNNING while the test runs, so a runner killed outright leaves no stale verdict);
+INTERRUPTED when the runner is stopped (SIGINT, SIGTERM, SIGHUP).
 
 Usage: python3 -I tools/run_net_tests.py [tests/net/NAME.txt ...]   (no argument: every tests/net/*.txt)
        --exe PATH (default build/harness/CounterStrike), --keep (leave the namespace's processes on failure: no)
 """
-import functools, glob, os, re, shlex, subprocess, sys, time
+import functools, glob, os, re, shlex, shutil, signal, subprocess, sys, time
 
 print = functools.partial(print, flush=True)
 
@@ -91,12 +94,45 @@ def log_text(run):
     return text
 
 
+def role_verdict(run, code, frozen):
+    # a game's verdict is its drive.py RESULT line (PASS, FAIL, TIMEOUT, CRASH); a tool's (--exec) its exit code; a
+    # frozen game (--freeze-after) is ended by the runner, so only a crash before the freeze counts
+    result = None
+    try:
+        for line in open(os.path.join(run, 'drive.out'), errors='replace'):
+            if line.startswith('RESULT '):
+                result = line.split()[1]
+    except OSError:
+        pass
+    if frozen:
+        return 'CRASH' if result == 'CRASH' else 'FROZEN'
+    if result:
+        return result
+    if os.path.exists(os.path.join(run, 'scenario.txt')):
+        return 'FAIL'  # drive.py ended without a verdict (killed)
+    return 'PASS' if code == 0 else 'FAIL'
+
+
+def write_result(name, verdict, verdicts):
+    # build/nruns/NAME/result.txt: the verdict even when nobody saw the runner's output (a stopped session)
+    d = os.path.join(ROOT, 'build', 'nruns', name)
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, 'result.txt'), 'w') as f:
+        f.write(f'{verdict} {time.strftime("%Y-%m-%d %H:%M:%S")}\n')
+        for role, v in verdicts.items():
+            f.write(f'{role} {v}\n')
+
+
 def run_test(path, exe):
     name = os.path.splitext(os.path.basename(path))[0]
     header, sections = parse(path)
     timeout = header.get('timeout', '900')
     netem = header.get('netem', '')
     shell = 'ip link set lo up' + (f'; tc qdisc add dev lo root netem {netem}' if netem else '') + '; exec sleep 100000'
+    # an earlier run's logs would satisfy --after conditions before this run's processes have written anything
+    shutil.rmtree(os.path.join(ROOT, 'build', 'nruns', name), ignore_errors=True)
+    # left as it is if the runner is killed outright (SIGKILL): a test without a verdict, not an old one
+    write_result(name, 'RUNNING', {})
     holder = subprocess.Popen(['unshare', '-rn', 'sh', '-c', shell])
     time.sleep(1)
     procs, runs, started = {}, {}, {}
@@ -184,15 +220,28 @@ def run_test(path, exe):
                     procs[r].wait(20)
                 except subprocess.TimeoutExpired:
                     procs[r].kill()
-        ok = all(p.returncode == 0 for r, p in procs.items() if r not in freeze_roles) and \
-            all(v is not None for v in started.values())
+        verdicts = {}
         for role, run in runs.items():
-            print(f'  [{role}] exit {procs[role].returncode}')
+            verdicts[role] = role_verdict(run, procs[role].returncode, role in freeze_roles)
+            print(f'  [{role}] {verdicts[role]} (exit {procs[role].returncode})')
             with open(os.path.join(run, 'drive.out')) as f:
                 for line in f:
-                    if line.startswith(('FAIL', 'note')) or not line.startswith('ok'):
+                    if line.startswith(('FAIL', 'note')) or not line.startswith(('ok', 'RESULT')):
                         print('    ' + line.rstrip())
-        return ok
+        for role, t in started.items():
+            if t is None:
+                verdicts[role] = 'NOT STARTED'
+        # the test's verdict: the worst of its processes' (a crash outranks a timeout, a timeout a failed check)
+        order = ['PASS', 'FROZEN', 'FAIL', 'NOT STARTED', 'TIMEOUT', 'CRASH']
+        verdict = max(verdicts.values(), key=order.index) if verdicts else 'FAIL'
+        if verdict == 'FROZEN':
+            verdict = 'PASS'
+        write_result(name, verdict, verdicts)
+        return verdict
+    except KeyboardInterrupt:
+        write_result(name, 'INTERRUPTED', {r: 'INTERRUPTED' for r in runs})
+        print(f'INTERRUPTED {path} (the runner was stopped: its processes are ended, no result)')
+        raise
     finally:
         for pid in frozen:
             for sig in (9, 18):  # SIGKILL, then SIGCONT so it can die
@@ -215,15 +264,21 @@ def main():
         exe = os.path.abspath(args[i + 1])
         del args[i:i + 2]
     tests = args or sorted(glob.glob(os.path.join(ROOT, 'tests', 'net', '*.txt')))
+    # a SIGTERM or SIGHUP (a stopped session, a closed terminal) ends the processes and says so, as Ctrl+C does
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     failed = []
     for t in tests:
         print(f'== {t}')
         start = time.time()
-        ok = run_test(t, exe)
-        print(f'{"PASS" if ok else "FAIL"} {t}  [{time.time() - start:.0f} s]')
-        if not ok:
-            failed.append(t)
-    print(f'{len(tests) - len(failed)} of {len(tests)} passed' + (': failed ' + ', '.join(failed) if failed else ''))
+        try:
+            verdict = run_test(t, exe)
+        except KeyboardInterrupt:
+            sys.exit(130)
+        print(f'{verdict} {t}  [{time.time() - start:.0f} s]')
+        if verdict != 'PASS':
+            failed.append(f'{os.path.basename(t)} ({verdict})')
+    print(f'{len(tests) - len(failed)} of {len(tests)} passed' + (': ' + ', '.join(failed) if failed else ''))
     sys.exit(1 if failed else 0)
 
 

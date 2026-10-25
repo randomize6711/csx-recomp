@@ -273,6 +273,7 @@ def main():
         cmd = ['unshare', '-rn', EXE, GAME]
     proc = subprocess.Popen(cmd, cwd=RUN, env=env, stdout=out, stderr=subprocess.STDOUT)
     log, start, ok = Log(), time.time(), True
+    verdict = 'FAIL'
     states = {}
     tracks = {}  # track steps: NAME -> rose, moved
     rosters = {}  # players steps: NAME -> {client: (x, y, z, health)}
@@ -752,16 +753,16 @@ def main():
                         for xn, x in xs.items():
                             pre, shot = [sorted(im.crop((x, y, x + n, y + n)).getdata())[n * n // 2] for im in ims]
                             if 255 - pre < 60:  # already near white (a HUD element): it only has to stay as bright
-                                ok = shot >= pre - 5
+                                patch_ok = shot >= pre - 5
                                 row.append(f'{xn} {pre:3d} -> {shot:3d} bright')
                             else:
                                 a = (shot - pre) / (255 - pre)
                                 alphas.append(a)
-                                ok = a >= float(st[4])
+                                patch_ok = a >= float(st[4])
                                 row.append(f'{xn} {pre:3d} -> {shot:3d} {a:.2f}')
-                            if not ok:
+                            if not patch_ok:
                                 row[-1] += ' FAIL'
-                            good = good and ok
+                            good = good and patch_ok
                         print(f'       {yn:6s}  ' + ', '.join(row))
                     spread = max(alphas) - min(alphas) if alphas else 0.0
                     print(f'       opacity {min(alphas, default=0):.2f}..{max(alphas, default=0):.2f}, spread {spread:.2f}')
@@ -924,6 +925,14 @@ def main():
             sys.stdout.flush()
             if not good:
                 ok = False
+                # why: the game ended (a crash shows as a signal), or the scenario's time ran out
+                if not alive():
+                    verdict = 'CRASH' if proc.returncode is not None and proc.returncode < 0 and \
+                        proc.returncode not in (-2,) else 'FAIL'
+                    print(f'     the game exited during this step: {exit_text(proc.returncode)}')
+                elif time.time() - start >= timeout:
+                    verdict = 'TIMEOUT'
+                    print(f'     TIMEOUT: the scenario\'s {timeout:.0f} s ran out during this step')
                 break
     finally:
         if wine:
@@ -937,9 +946,24 @@ def main():
             except subprocess.TimeoutExpired:
                 proc.kill()
     if not wine and proc.returncode not in (None, 0, -2, 130) and ok:
-        print(f'FAIL harness exited with {proc.returncode}')
+        print(f'FAIL harness exited with {exit_text(proc.returncode)}')
         ok = False
+        verdict = 'CRASH' if proc.returncode < 0 else 'FAIL'
+    # one line a runner reads (tools/run_net_tests.py): PASS, FAIL (a step's check), TIMEOUT or CRASH
+    print(f'RESULT {"PASS" if ok else verdict}')
+    sys.stdout.flush()
     return 0 if ok else 1
+
+
+def exit_text(code):
+    if code is None:
+        return 'still running'
+    if code < 0:
+        try:
+            return f'signal {signal.Signals(-code).name}'
+        except ValueError:
+            return f'signal {-code}'
+    return f'exit code {code}'
 
 
 if __name__ == '__main__':
