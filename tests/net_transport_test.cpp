@@ -11,6 +11,7 @@
 #include <vector>
 
 #include <sodium.h>
+#include <sys/stat.h>
 
 #include "net/transport.h"
 
@@ -407,6 +408,8 @@ void TestIdentity() {
     std::remove(path.c_str());
     auto id = Identity::LoadOrCreate(path, err);
     auto again = Identity::LoadOrCreate(path, err);
+    struct stat st {};
+    Check(::stat(path.c_str(), &st) == 0 && (st.st_mode & 0777) == 0600, "identity: the key file is readable by its owner only");
     Check(id && again && id->public_key == again->public_key, "identity: created once, loaded again");
     std::remove(path.c_str());
     {
@@ -575,6 +578,116 @@ void TestMalformed() {
     Check(s == 2 && c == 2, "malformed: traffic still flows after them");
 }
 
+// security review 2026-10-25: a reconnect to the same server while the old connection is still closing replaces it
+// (the client's id table kept the freed connection: a late packet of the old one was handled through it), and the
+// server answers the new connect with new keys instead of the closing connection's erased ones
+void TestReconnectWhileClosing() {
+    Pair p;
+    Connect(p);
+    // a datagram of the old connection, held back and delivered after the reconnect
+    std::vector<Network::Packet> held;
+    p.net.tap = [&](Network::Packet& pk) {
+        if (pk.from == p.server_addr && pk.data.size() > 5 && pk.data[5] == uint8_t(Type::Data) && held.empty()) {
+            held.push_back(pk);
+            return false;
+        }
+        return true;
+    };
+    uint8_t x[] = {9};
+    p.server->Send(p.client_addr, x, 1);
+    p.Run(0.05);
+    p.net.tap = nullptr;
+    p.client->DisconnectAll(Reason::Closed);  // the engine's disconnect; the connection stays a moment as closing
+    p.Run(0.05);
+    uint8_t hi[] = {1, 2};
+    p.client->Send(p.server_addr, hi, sizeof(hi));  // connect again at once (retry)
+    p.Run(0.5);
+    Check(p.client->Connected(p.server_addr) && p.server->Connected(p.client_addr),
+          "reconnect while closing: connected again at once");
+    Check(held.size() == 1, "reconnect while closing: an old data packet was held");
+    uint64_t unknown = p.client->GetStats().dropped_unknown;
+    for (auto& pk : held) {
+        pk.at = g_now;
+        p.net.flight.push_back(pk);
+    }
+    p.Run(0.05);
+    Check(p.client->GetStats().dropped_unknown == unknown + 1, "reconnect while closing: the old connection's packet is unknown");
+    auto [s, c] = Exchange(p, {10, 3000});
+    Check(s == 2 && c == 2, "reconnect while closing: the new connection carries messages both ways");
+}
+
+// a client process restarted on the same address and port (new keys) is a new connection at once, not the old one
+// re-accepted with keys it no longer has
+void TestClientRestartSamePort() {
+    Pair p;
+    Connect(p);
+    p.client = std::make_unique<Endpoint>(Endpoint::Role::Client, std::make_unique<SimSocket>(p.net, p.client_addr),
+                                          Config{}, Now);
+    uint8_t hi[] = {3};
+    p.client->Send(p.server_addr, hi, 1);
+    p.Run(0.5);
+    Check(p.client->Connected(p.server_addr), "restart on the same port: connects at once");
+    auto [s, c] = Exchange(p, {100});
+    Check(s >= 1 && c == 1, "restart on the same port: messages flow");
+}
+
+// a peer told to go (kicked) that keeps sending is removed anyway: its packets do not keep the closing connection
+void TestClosingPeerKeepsSending() {
+    Pair p;
+    Connect(p);
+    p.net.tap = [&](Network::Packet& pk) { return !(pk.from == p.server_addr); };  // it never hears the server
+    p.server->Disconnect(p.client_addr, Reason::Kicked, "kicked");
+    uint8_t x[] = {5};
+    for (int i = 0; i < 300; i++) {
+        p.client->Send(p.server_addr, x, 1);
+        p.Run(0.01, 0.01);
+    }
+    Check(p.server->ConnectionCount() == 0, "kicked peer that keeps sending: removed after the closing time");
+}
+
+// a reject is believed only with the handshake's nonce (an off-path forger does not have it)
+void TestForgedReject() {
+    Pair p;
+    uint8_t forged[kPrefix + 1 + 8 + 1] = {};
+    uint32_t magic = kMagic;
+    std::memcpy(forged, &magic, 4);
+    forged[4] = kVersion;
+    forged[5] = uint8_t(Type::Reject);
+    forged[6] = uint8_t(Reason::Full);
+    uint8_t hi[] = {1};
+    p.client->Send(p.server_addr, hi, 1);
+    for (int i = 0; i < 20; i++) {  // throughout the handshake, with a guessed nonce of 0
+        p.net.Send(p.server_addr, p.client_addr, forged, sizeof(forged));
+        p.Run(0.005);
+    }
+    p.Run(0.3);
+    Check(p.client->Connected(p.server_addr), "forged reject: ignored, the handshake completes");
+    Check(p.client->GetStats().dropped_auth >= 1, "forged reject: counted as failed authentication");
+}
+
+// hellos from very many (spoofed) sources: bounded work and memory, at most the global budget answered
+void TestFloodManySources() {
+    Pair p;
+    uint8_t hello[kMaxDatagram] = {};
+    uint32_t magic = kMagic;
+    std::memcpy(hello, &magic, 4);
+    hello[4] = kVersion;
+    hello[5] = uint8_t(Type::Hello);
+    size_t before = p.net.sent;
+    for (int i = 0; i < 20000; i++) {
+        Address a;
+        a.ip = {uint8_t(20 + i / 65536), uint8_t(i / 256), uint8_t(i), 7};
+        a.port = 5000;
+        p.net.Send(a, p.server_addr, hello, sizeof(hello));
+    }
+    p.Run(0.05);
+    uint64_t answers = p.net.sent - before - 20000;
+    Check(answers <= 1100, "flood from many sources: at most the global burst answered (" + std::to_string(answers) + ")");
+    Connect(p);
+    p.Run(3.0, 0.01);  // the budget refills
+    Check(p.client->Connected(p.server_addr), "flood from many sources: a real client connects once it passes");
+}
+
 void TestManyClients() {
     Network net;
     g_now = 100;
@@ -636,6 +749,11 @@ int main() {
     TestRateLimit();
     TestMalformed();
     TestManyClients();
+    TestReconnectWhileClosing();
+    TestClientRestartSamePort();
+    TestClosingPeerKeepsSending();
+    TestForgedReject();
+    TestFloodManySources();
     std::printf("%d checks, %d failed\n", g_checks, g_failed);
     return g_failed ? 1 : 0;
 }

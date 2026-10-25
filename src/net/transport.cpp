@@ -5,8 +5,14 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
+#ifndef _WIN32
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 namespace net {
 namespace {
@@ -247,6 +253,9 @@ std::optional<Identity> Identity::LoadOrCreate(const std::string& path, std::str
         in.read(magic, 8);
         in.read(reinterpret_cast<char*>(id.secret_key.data()), 64);
         if (in.gcount() == 64 && std::memcmp(magic, "CSXNID1\n", 8) == 0) {
+#ifndef _WIN32
+            ::chmod(path.c_str(), 0600);  // a key file made before it was written owner-only
+#endif
             crypto_sign_ed25519_sk_to_pk(id.public_key.data(), id.secret_key.data());
             return id;
         }
@@ -254,10 +263,29 @@ std::optional<Identity> Identity::LoadOrCreate(const std::string& path, std::str
         return std::nullopt;
     }
     crypto_sign_keypair(id.public_key.data(), id.secret_key.data());
-    std::ofstream out(path, std::ios::binary | std::ios::trunc);
-    out.write("CSXNID1\n", 8);
-    out.write(reinterpret_cast<const char*>(id.secret_key.data()), 64);
-    if (!out) {
+    // the secret key readable by its owner only, written whole or not at all (a temporary file renamed over)
+    std::string tmp = path + ".tmp";
+    uint8_t file[8 + 64];
+    std::memcpy(file, "CSXNID1\n", 8);
+    std::memcpy(file + 8, id.secret_key.data(), 64);
+    bool ok = false;
+#ifdef _WIN32
+    if (FILE* f = std::fopen(tmp.c_str(), "wb")) {
+        ok = std::fwrite(file, 1, sizeof(file), f) == sizeof(file);
+        ok = std::fclose(f) == 0 && ok;
+    }
+    ok = ok && (std::remove(path.c_str()), std::rename(tmp.c_str(), path.c_str()) == 0);
+#else
+    int fd = ::open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    if (fd >= 0) {
+        ok = ::write(fd, file, sizeof(file)) == ssize_t(sizeof(file)) && ::fsync(fd) == 0;
+        ok = ::close(fd) == 0 && ok;
+    }
+    ok = ok && std::rename(tmp.c_str(), path.c_str()) == 0;
+#endif
+    sodium_memzero(file, sizeof(file));
+    if (!ok) {
+        std::remove(tmp.c_str());
         error = "cannot write " + path;
         return std::nullopt;
     }
@@ -286,6 +314,7 @@ struct Endpoint::Conn {
     uint32_t ping_id = 0;
     double ping_sent = 0, last_ping = 0;
     std::string identity;
+    std::array<uint8_t, 32> client_pk{};  // server: the key the client connected with (a new one is a new client)
     bool closing = false;
     Conn(const Config& c) : reasm(c.reassembly_messages, c.reassembly_bytes, c.reassembly_timeout) {}
 };
@@ -304,7 +333,10 @@ struct Endpoint::Pending {
 
 Endpoint::Endpoint(Role role, std::unique_ptr<DatagramSocket> socket, Config config, Clock clock) :
     role_(role), socket_(std::move(socket)), config_(config), clock_(std::move(clock)) {
-    SodiumReady();
+    if (!SodiumReady()) {  // no keys can be made: nothing may be sent under them
+        std::fprintf(stderr, "net: libsodium did not initialise\n");
+        std::abort();
+    }
     crypto_kx_keypair(kx_public_.data(), kx_secret_.data());
     randombytes_buf(cookie_key_.data(), cookie_key_.size());
     start_ = clock_();
@@ -334,7 +366,26 @@ std::array<uint8_t, 32> Endpoint::Cookie(const Address& from, uint64_t nonce, ui
 
 bool Endpoint::RateOk(const Address& from) {
     double now = clock_();
+    // every source together: a flood from many (spoofed) addresses costs a bounded amount of work a second
+    double global_burst = 2 * config_.hello_rate_total;
+    if (global_.last == 0) global_.tokens = global_burst;
+    global_.tokens = std::min(global_burst, global_.tokens + (now - global_.last) * config_.hello_rate_total);
+    global_.last = now;
+    if (global_.tokens < 1) {
+        stats_.dropped_rate++;
+        return false;
+    }
+    global_.tokens -= 1;
+    // quiet sources forgotten at most once a second (not a scan per packet); a full table takes no new source
+    if (now - buckets_cleaned_ >= 1.0) {
+        buckets_cleaned_ = now;
+        for (auto it = buckets_.begin(); it != buckets_.end();) it = now - it->second.last > 10 ? buckets_.erase(it) : ++it;
+    }
     uint64_t ip = from.Key() >> 16;
+    if (buckets_.size() >= config_.rate_sources && !buckets_.count(ip)) {
+        stats_.dropped_rate++;
+        return false;
+    }
     Bucket& b = buckets_[ip];
     double burst = 2 * config_.hello_rate;
     if (b.last == 0) b.tokens = burst;
@@ -345,9 +396,6 @@ bool Endpoint::RateOk(const Address& from) {
         return false;
     }
     b.tokens -= 1;
-    if (buckets_.size() > 4096) {  // forget quiet sources
-        for (auto it = buckets_.begin(); it != buckets_.end();) it = now - it->second.last > 10 ? buckets_.erase(it) : ++it;
-    }
     return true;
 }
 
@@ -448,7 +496,7 @@ void Endpoint::HandleDatagram(const Address& from, const uint8_t* p, size_t n) {
     if (version != kVersion) {
         // only a full-size hello earns an answer (it cannot amplify)
         if (role_ == Role::Server && type == Type::Hello && n == kMaxDatagram && RateOk(from))
-            SendReject(from, Reason::Version, "transport version " + std::to_string(kVersion));
+            SendReject(from, Reason::Version, "transport version " + std::to_string(kVersion), 0);
         stats_.dropped_malformed++;
         return;
     }
@@ -582,7 +630,17 @@ void Endpoint::HandleConnect(const Address& from, const uint8_t* p, size_t n) {
         stats_.dropped_auth++;  // forged or stale: no answer
         return;
     }
-    // a connect for a connection already made (our accept was lost): answer it again
+    // a connect for a connection already made with this key (our accept was lost): answer it again. One that is
+    // closing, or made with another key (the client restarted on the same port: the cookie proved the address), is
+    // replaced by a new connection
+    if (auto it = conns_.find(from.Key()); it != conns_.end()) {
+        Conn& old = *it->second;
+        if (old.closing || !client_pk || sodium_memcmp(old.client_pk.data(), client_pk, 32) != 0) {
+            if (!old.closing) Close(old, Reason::Closed, "replaced by a new connection from the same address", false, false);
+            by_id_.erase(old.id);
+            conns_.erase(it);
+        }
+    }
     if (auto it = conns_.find(from.Key()); it != conns_.end()) {
         Conn& c = *it->second;
         uint8_t out[kPrefix + 4 + 8 + kTag];
@@ -614,7 +672,7 @@ void Endpoint::HandleConnect(const Address& from, const uint8_t* p, size_t n) {
         m.Bytes(cookie, 32);
         m.U64(nonce);
         if (crypto_sign_verify_detached(sig, msg, m.n, id_pk) != 0) {
-            SendReject(from, Reason::IdentityInvalid, ReasonText(Reason::IdentityInvalid));
+            SendReject(from, Reason::IdentityInvalid, ReasonText(Reason::IdentityInvalid), nonce);
             stats_.handshakes_failed++;
             return;
         }
@@ -622,14 +680,18 @@ void Endpoint::HandleConnect(const Address& from, const uint8_t* p, size_t n) {
         std::memcpy(pk.data(), id_pk, 32);
         identity = Identity::Fingerprint(pk);
     } else if (config_.require_identity) {
-        SendReject(from, Reason::IdentityRequired, ReasonText(Reason::IdentityRequired));
+        SendReject(from, Reason::IdentityRequired, ReasonText(Reason::IdentityRequired), nonce);
         stats_.handshakes_failed++;
         return;
     }
     size_t same_ip = 0;
-    for (auto& [k, c] : conns_) same_ip += (k >> 16) == (from.Key() >> 16);
-    if (conns_.size() >= config_.max_connections || same_ip >= config_.max_connections_per_ip) {
-        SendReject(from, Reason::Full, ReasonText(Reason::Full));
+    size_t open = 0;
+    for (auto& [k, c] : conns_) {
+        open += !c->closing;
+        same_ip += !c->closing && (k >> 16) == (from.Key() >> 16);
+    }
+    if (open >= config_.max_connections || same_ip >= config_.max_connections_per_ip) {
+        SendReject(from, Reason::Full, ReasonText(Reason::Full), nonce);
         stats_.handshakes_failed++;
         return;
     }
@@ -643,6 +705,7 @@ void Endpoint::HandleConnect(const Address& from, const uint8_t* p, size_t n) {
         return;
     }
     c->identity = identity;
+    std::memcpy(c->client_pk.data(), client_pk, 32);
     c->last_in = c->last_out = clock_();
     Conn& ref = *c;
     by_id_[c->id] = c.get();
@@ -698,6 +761,7 @@ void Endpoint::HandleAccept(const Address& from, const uint8_t* p, size_t n) {
     auto queue = std::move(h.queue);
     pending_.erase(it);
     Conn& ref = *c;
+    if (auto old = conns_.find(from.Key()); old != conns_.end()) by_id_.erase(old->second->id);
     by_id_[id] = c.get();
     conns_[from.Key()] = std::move(c);
     stats_.handshakes_ok++;
@@ -705,11 +769,14 @@ void Endpoint::HandleAccept(const Address& from, const uint8_t* p, size_t n) {
     for (auto& m : queue) SendMessage(ref, m.data(), m.size());
 }
 
-void Endpoint::SendReject(const Address& to, Reason reason, const std::string& text) {
-    uint8_t out[kPrefix + 2 + 255];
+// reject: prefix, reason, the client's handshake nonce (0 for a version reject, sent before the hello is understood),
+// text length, text. The nonce is what makes an off-path forgery fail: the client believes a reject only with its own
+void Endpoint::SendReject(const Address& to, Reason reason, const std::string& text, uint64_t nonce) {
+    uint8_t out[kPrefix + 2 + 8 + 255];
     Writer w{out, sizeof(out)};
     Prefix(w, Type::Reject);
     w.U8(uint8_t(reason));
+    w.U64(nonce);
     size_t len = std::min<size_t>(text.size(), 255);
     w.U8(uint8_t(len));
     w.Bytes(text.data(), len);
@@ -727,10 +794,16 @@ void Endpoint::HandleReject(const Address& from, const uint8_t* p, size_t n) {
     }
     Reader r{p + kPrefix, n - kPrefix};
     Reason reason = Reason(r.U8());
+    uint64_t nonce = r.U64();
     uint8_t len = r.U8();
     const uint8_t* t = r.Bytes(len);
     std::string text = t ? std::string(reinterpret_cast<const char*>(t), len) : ReasonText(reason);
-    // a reject is not authenticated: only believed before the handshake got further than the hello
+    // a reject is not encrypted: believed when it names this handshake's nonce (which only the server and the path
+    // saw), or, before any challenge came, a version reject (the server could not read our hello)
+    if (!r.ok || !(nonce == it->second->nonce || (reason == Reason::Version && !it->second->challenged))) {
+        stats_.dropped_auth++;
+        return;
+    }
     events_.push_back({Event::Closed, from, reason, text, {}, true});
     pending_.erase(it);
     stats_.handshakes_failed++;
@@ -796,6 +869,12 @@ void Endpoint::HandleData(const Address& from, const uint8_t* p, size_t n) {
     // without a path check)
     if (!(c.peer == from)) {
         stats_.dropped_address++;
+        return;
+    }
+    // a closing connection's late packets are dropped unread: they neither keep it alive nor get an answer (its
+    // send key is gone)
+    if (c.closing) {
+        stats_.dropped_unknown++;
         return;
     }
     if (!c.window.Fresh(number)) {  // before the decryption: old and repeated numbers cost nothing

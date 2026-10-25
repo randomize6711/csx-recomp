@@ -23,7 +23,7 @@ namespace net {
 
 // ---- wire format (all integers little-endian) ----------------------------------------------------------------------
 constexpr uint32_t kMagic = 0x4E585343;  // "CSXN"
-constexpr uint8_t kVersion = 1;
+constexpr uint8_t kVersion = 2;  // 2: rejects carry the handshake nonce
 constexpr size_t kMaxDatagram = 1200;    // never more on the wire: no IP fragmentation on any common path
 constexpr size_t kMaxMessage = 0x10000;  // an engine packet: the size of the engine's net_message
 constexpr size_t kPrefix = 6;            // magic, version, type
@@ -94,6 +94,8 @@ struct Config {
     size_t pending_packets = 32;       // engine packets queued while a client connection is being established
     bool require_identity = false;     // server: refuse clients without a player identity
     double reconnect_hold = 5.0;       // client: no new connection to a server that closed ours for this long
+    double hello_rate_total = 500.0;   // handshake packets a second from all sources together (burst: twice that)
+    size_t rate_sources = 4096;        // source addresses the per-source rate remembers (a full table takes no new)
 };
 
 struct Stats {
@@ -171,7 +173,7 @@ private:
     bool SendFrame(Conn& c, const uint8_t* frame, size_t len);
     void SendMessage(Conn& c, const uint8_t* data, size_t len);
     void SendHandshake(Pending& h);
-    void SendReject(const Address& to, Reason reason, const std::string& text);
+    void SendReject(const Address& to, Reason reason, const std::string& text, uint64_t nonce);
     void Close(Conn& c, Reason reason, const std::string& text, bool notify_peer, bool remote);
     void Timers();
     bool RateOk(const Address& from);
@@ -194,6 +196,8 @@ private:
         double tokens = 0, last = 0;
     };
     std::unordered_map<uint64_t, Bucket> buckets_;  // handshake rate per source ip
+    Bucket global_;                                  // and of every source together
+    double buckets_cleaned_ = 0;
     std::deque<std::pair<Address, std::vector<uint8_t>>> inbox_;
     std::deque<Event> events_;
 };
