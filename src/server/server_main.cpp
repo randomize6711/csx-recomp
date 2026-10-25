@@ -96,7 +96,7 @@ bool WriteFile(const fs::path& path, const void* data, size_t n, bool owner_only
 std::string RelaunchMap(const fs::path& hdd) {
     std::string line;
     if (!ReadFile((hdd / "Z" / "releasemap.txt").string(), line) || line.rfind("+map ", 0) != 0) return {};
-    size_t end = line.find_first_of(" \n\r", 5);
+    size_t end = line.find_first_of(std::string(" \n\r\0", 4), 5);  // the line ends at its NUL (an admin's map)
     return line.substr(5, end == std::string::npos ? std::string::npos : end - 5);
 }
 
