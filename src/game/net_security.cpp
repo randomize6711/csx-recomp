@@ -23,6 +23,7 @@
 #include "cpu/x86_context.h"
 #include "game/net_engine.h"
 #include "kernel/kernel.h"
+#include "game/stuff_filter.h"
 #include "net/transport.h"
 
 namespace {
@@ -39,6 +40,7 @@ constexpr uint32_t kHostClient = 0x6CDFEC, kClientChannelType = 0x24, kClientAdd
 constexpr uint32_t kSvCheats = 0x379790 + 0xC;                    // sv_cheats' value (float)
 constexpr uint32_t kGetSpace = 0x3ECE0;                           // SZ_GetSpace(buf, length), cdecl
 constexpr uint8_t kSvcStufftext = 9;
+constexpr uint32_t kComToken = 0x747DC0;                         // com_token (COM_Parse 0x3EF80)
 
 float F(uint32_t va) {
     float f;
@@ -102,55 +104,6 @@ std::vector<std::pair<std::string, std::string>> ParseInfo(const std::string& s)
         if (v == std::string::npos) break;
         i = v;
     }
-    return out;
-}
-
-// what a network server may run on its clients through svc_stufftext: what Counter-Strike's server sends (found in
-// play and in the game DLL's CLIENT_COMMAND strings) and the PC port's own; anything else is logged and dropped
-const std::set<std::string> kStuffAllowed = {
-    "reconnect", "retry", "disconnect", "fullserverinfo", "echo", "spk", "speak", "play", "playvol", "mp3", "cd",
-    "lastinv", "slot1", "slot2", "slot3", "slot4", "slot5", "slot6", "slot7", "slot8", "slot9", "slot10",
-    "-attack", "-attack2", "+attack", "-use", "-jump", "-duck", "-reload", "-speed", "-forward", "-back",
-    "-moveleft", "-moveright", "-left", "-right", "-lookup", "-lookdown", "-strafe", "-showscores",
-    "cl_minmodels", "spec_mode", "spec_pip", "spec_autodirector", "spec_drawnames", "spec_drawcone", "spec_drawstatus",
-    "hud_takesshots", "hud_centerid", "cl_righthand", "cl_corpsestay", "voice_modenable", "voice_scale",
-    "room_type", "say", "say_team", "fov", "default_fov", "hideradar", "drawradar", "unpause", "pc_player_collision",
-    "firstperson", "thirdperson", "bot_menu", "menuselect", "showbriefing", "chooseteam", "buy", "buyequip",
-    "cl_dlmax", "cl_lc", "cl_lw", "cl_updaterate", "rate", "cl_cmdrate", "ex_interp", "gl_spriteblend",
-};
-
-// the commands of one stufftext line split as Cbuf_Execute splits them (';' and newlines, outside quotes)
-std::string FilterStuff(const std::string& text, std::vector<std::string>& dropped) {
-    std::string out, cmd;
-    bool quoted = false;
-    auto flush = [&](char sep) {
-        std::string c = cmd;
-        cmd.clear();
-        size_t a = c.find_first_not_of(" \t");
-        if (a == std::string::npos) {
-            if (sep) out += sep;
-            return;
-        }
-        size_t e = c.find_first_of(" \t", a);
-        std::string name = c.substr(a, e == std::string::npos ? std::string::npos : e - a);
-        std::string lower = name;
-        for (char& ch : lower) ch = char(std::tolower(static_cast<unsigned char>(ch)));
-        if (kStuffAllowed.count(lower)) {
-            out += c;
-            if (sep) out += sep;
-        } else {
-            dropped.push_back(c.substr(a));
-        }
-    };
-    for (char ch : text) {
-        if (ch == '"') quoted = !quoted;
-        if (!quoted && (ch == ';' || ch == '\n')) {
-            flush(ch);
-            continue;
-        }
-        cmd += ch;
-    }
-    flush(0);
     return out;
 }
 
@@ -235,8 +188,9 @@ void ConnectUserinfo(X86Context& ctx, uint8_t*) {
 // any client run; true ends the command (0xAB541)
 bool ClientCommandAllowed(X86Context& ctx, uint8_t*) {
     if (ctx.eax != 1 || !NetworkClient(R32(kHostClient))) return false;
-    std::string c = kernel::ReadCString(ctx.esi, 128);
-    std::string name = c.substr(0, c.find_first_of(" \t"));
+    // the name as the engine's own check (0xAA680) read it: COM_Parse's token (com_token 0x747DC0), which skips every
+    // character up to a space and strips quotes; splitting the text again here let " kick 2" or "\"kick\" 2" through
+    std::string name = kernel::ReadCString(kComToken, 128);
     for (char& ch : name) ch = char(std::tolower(static_cast<unsigned char>(ch)));
     static const std::set<std::string> host_only = {"kick", "pause", "setpause", "unpause"};
     static const std::set<std::string> cheats = {"god", "noclip", "notarget", "fly"};
@@ -256,7 +210,7 @@ void StuffTextFilter(X86Context& ctx, uint8_t*) {
     if (R32(kClientChannelType) != kNaIp) return;
     std::string text = kernel::ReadCString(ctx.edi, 2048);
     std::vector<std::string> dropped;
-    std::string kept = FilterStuff(text, dropped);
+    std::string kept = csx::FilterStuff(text, dropped);
     for (auto& d : dropped) LOG_FIRST(64, "net: the server's command \"%s\" not run (not on the list)", d.c_str());
     if (kept != text) std::memcpy(kernel::HostPtr(ctx.edi), kept.c_str(), kept.size() + 1);
 }

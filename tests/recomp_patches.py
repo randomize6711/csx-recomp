@@ -11,7 +11,8 @@ import difflib, filecmp, os, shutil, subprocess, sys, tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RECOMP = os.path.join(ROOT, 'out', 'build', 'linux-tools', 'xbe_recomp')
 XBE = os.path.join(ROOT, 'assets', 'default.xbe')
-GAME = None  # the game's config without the player slot patches (config/player_slots_patches.toml), set by main()
+GAME = None  # the game's config without its [[patch]] files (PATCH_CONFIGS), set by main()
+PATCH_CONFIGS = ('player_slots_patches.toml', 'net_patches.toml')
 SHA = 'e7698b09ed7322b69cf4c9c6d3778bb0864a15594b30258b5637ddcf8ee8308f'
 
 # instructions of the image (xbe_recomp --describe)
@@ -81,7 +82,8 @@ def main():
     os.makedirs(base_cfg)
     for name in os.listdir(os.path.join(ROOT, 'config')):
         if name.endswith('.toml'):
-            text = '' if name == 'player_slots_patches.toml' else open(os.path.join(ROOT, 'config', name)).read()
+            # the configs that hold only [[patch]] entries (the player slots', N1's rate limits) are emptied
+            text = '' if name in PATCH_CONFIGS else open(os.path.join(ROOT, 'config', name)).read()
             open(os.path.join(base_cfg, name), 'w').write(text)
     os.symlink(os.path.join(ROOT, 'xdk'), os.path.join(tmp, 'game', 'xdk'))
     GAME = os.path.join(base_cfg, 'game.toml')

@@ -9,6 +9,7 @@
 //   NET_GetLocalAddress (0x6D28C) the endpoint's port instead of getsockname
 // The engine's split packets (0xFFFFFFFE) are no longer used: the transport fragments, up to 64 KB.
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
@@ -144,7 +145,12 @@ void Events(X86Context& ctx, int sock) {
         }
         // the reason only when the text does not already say it (a peer's Disconnect carries its own text)
         std::string reason = net::ReasonText(e.reason);
-        std::string detail = e.text == reason ? "" : " (" + reason + ")";
+        auto same = [](const std::string& a, const std::string& b) {
+            return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) {
+                       return std::tolower(static_cast<unsigned char>(x)) == std::tolower(static_cast<unsigned char>(y));
+                   });
+        };
+        std::string detail = same(e.text, reason) ? "" : " (" + reason + ")";
         if (e.remote_closed && reason.find("peer") == std::string::npos) detail += " by the peer";
         LOGI("net: %s %s closed: %s%s", sock ? "client" : "server", who.c_str(), e.text.c_str(), detail.c_str());
         if (sock == 0) {
