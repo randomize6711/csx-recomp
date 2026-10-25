@@ -102,6 +102,9 @@ void NonceOf(uint64_t number, uint8_t (&nonce)[kNonce]) {
 }
 
 constexpr char kIdentityContext[] = "CSXN identity v1";
+constexpr char kServerContext[] = "CSXN server v1";
+// accept: prefix, connection id, the client's nonce, the server's identity key, its signature, an empty AEAD message
+constexpr size_t kAcceptSize = kPrefix + 4 + 8 + 32 + 64 + kTag;
 constexpr size_t kConnectBase = kPrefix + 2 + 8 + 4 + 32 + 32;
 constexpr size_t kConnectIdentity = 32 + 64;
 constexpr int kDisconnectRepeats = 3;
@@ -127,6 +130,9 @@ const char* ReasonText(Reason r) {
     case Reason::Kicked: return "kicked";
     case Reason::RateLimited: return "too many connection attempts";
     case Reason::HandshakeFailed: return "no answer from the server";
+    case Reason::ServerIdentityInvalid: return "the server's identity did not verify";
+    case Reason::ServerIdentityChanged: return "the server's identity key changed";
+    case Reason::LanOnly: return "the server takes players from its local network only";
     }
     return "unknown";
 }
@@ -293,11 +299,79 @@ std::optional<Identity> Identity::LoadOrCreate(const std::string& path, std::str
 }
 
 std::string Identity::Fingerprint(const std::array<uint8_t, 32>& public_key) {
-    uint8_t h[8];
-    crypto_generichash(h, sizeof(h), public_key.data(), public_key.size(), nullptr, 0);
-    char s[17];
-    for (int i = 0; i < 8; i++) std::snprintf(s + 2 * i, 3, "%02x", h[i]);
+    char s[65];
+    for (int i = 0; i < 32; i++) std::snprintf(s + 2 * i, 3, "%02x", public_key[i]);
     return s;
+}
+
+std::optional<std::array<uint8_t, 32>> Identity::ParseFingerprint(const std::string& text) {
+    if (text.size() != 64) return std::nullopt;
+    std::array<uint8_t, 32> k{};
+    for (size_t i = 0; i < 64; i++) {
+        char c = text[i];
+        int v = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
+        if (v < 0) return std::nullopt;
+        k[i / 2] = uint8_t(k[i / 2] << 4 | v);
+    }
+    return k;
+}
+
+// ---- known servers ---------------------------------------------------------------------------------------------------
+std::map<std::string, std::string> KnownServers::Read() const {
+    std::map<std::string, std::string> m;
+    std::ifstream in(path_);
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.empty() || line[0] == '#') continue;
+        size_t sp = line.find(' ');
+        if (sp == std::string::npos) continue;
+        std::string key = line.substr(sp + 1);
+        while (!key.empty() && (key.back() == '\r' || key.back() == ' ')) key.pop_back();
+        if (Identity::ParseFingerprint(key)) m[line.substr(0, sp)] = key;
+    }
+    return m;
+}
+
+KnownServers::Result KnownServers::Check(const std::string& server, const std::string& key, std::string* old) const {
+    auto m = Read();
+    auto it = m.find(server);
+    if (it == m.end()) return Result::New;
+    if (it->second == key) return Result::Match;
+    if (old) *old = it->second;
+    return Result::Changed;
+}
+
+bool KnownServers::Remember(const std::string& server, const std::string& key, std::string& error) {
+    if (server.find_first_of(" \n") != std::string::npos || !Identity::ParseFingerprint(key)) {
+        error = "not an address and key";
+        return false;
+    }
+    auto m = Read();
+    m[server] = key;
+    std::string text = "# servers this install connected to and their identity keys (trust on first use):\n"
+                       "# a server whose key changes is refused until its line is removed\n";
+    for (auto& [a, k] : m) text += a + " " + k + "\n";
+    std::string tmp = path_ + ".tmp";
+    bool ok = false;
+#ifdef _WIN32
+    if (FILE* f = std::fopen(tmp.c_str(), "wb")) {
+        ok = std::fwrite(text.data(), 1, text.size(), f) == text.size();
+        ok = std::fclose(f) == 0 && ok;
+    }
+    ok = ok && (std::remove(path_.c_str()), std::rename(tmp.c_str(), path_.c_str()) == 0);
+#else
+    int fd = ::open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    if (fd >= 0) {
+        ok = ::write(fd, text.data(), text.size()) == ssize_t(text.size()) && ::fsync(fd) == 0;
+        ok = ::close(fd) == 0 && ok;
+    }
+    ok = ok && std::rename(tmp.c_str(), path_.c_str()) == 0;
+#endif
+    if (!ok) {
+        std::remove(tmp.c_str());
+        error = "cannot write " + path_;
+    }
+    return ok;
 }
 
 // ---- connections -----------------------------------------------------------------------------------------------------
@@ -522,6 +596,11 @@ void Endpoint::HandleHello(const Address& from, const uint8_t* p, size_t n) {
     r.U8();
     r.U8();
     uint64_t nonce = r.U64();
+    if (config_.lan_only && !from.Private()) {
+        SendReject(from, Reason::LanOnly, ReasonText(Reason::LanOnly), nonce);
+        stats_.handshakes_failed++;
+        return;
+    }
     uint32_t time = CookieTime();
     auto cookie = Cookie(from, nonce, time);
     uint8_t out[kPrefix + 2 + 8 + 4 + 32 + 32];
@@ -616,6 +695,10 @@ void Endpoint::HandleConnect(const Address& from, const uint8_t* p, size_t n) {
         return;
     }
     if (!RateOk(from)) return;
+    if (config_.lan_only && !from.Private()) {  // its hello was refused; no cookie for it can exist, but not even then
+        stats_.dropped_address++;
+        return;
+    }
     Reader r{p + kPrefix, n - kPrefix};
     uint8_t flags = r.U8();
     r.U8();
@@ -642,18 +725,11 @@ void Endpoint::HandleConnect(const Address& from, const uint8_t* p, size_t n) {
         }
     }
     if (auto it = conns_.find(from.Key()); it != conns_.end()) {
-        Conn& c = *it->second;
-        uint8_t out[kPrefix + 4 + 8 + kTag];
-        Writer w{out, sizeof(out)};
-        Prefix(w, Type::Accept);
-        w.U32(c.id);
-        w.U64(nonce);
-        uint8_t nonce_bytes[kNonce];
-        NonceOf(0, nonce_bytes);
-        unsigned long long clen = 0;
-        crypto_aead_chacha20poly1305_ietf_encrypt(out + w.n, &clen, nullptr, 0, out, w.n, nullptr, nonce_bytes,
-                                                  c.tx.data());
-        socket_->Send(from, out, w.n + size_t(clen));
+        SendAccept(*it->second, nonce);
+        return;
+    }
+    if (!identity_) {  // a server without its identity cannot prove itself: no connection (the engine glue loads one)
+        stats_.handshakes_failed++;
         return;
     }
     std::string identity;
@@ -710,35 +786,61 @@ void Endpoint::HandleConnect(const Address& from, const uint8_t* p, size_t n) {
     Conn& ref = *c;
     by_id_[c->id] = c.get();
     conns_[from.Key()] = std::move(c);
-    // accept: the connection id, the client's nonce, and an empty AEAD message proving the keys match
-    uint8_t out[kPrefix + 4 + 8 + kTag];
-    Writer w{out, sizeof(out)};
-    Prefix(w, Type::Accept);
-    w.U32(ref.id);
-    w.U64(nonce);
-    uint8_t nonce_bytes[kNonce];
-    NonceOf(0, nonce_bytes);
-    unsigned long long clen = 0;
-    crypto_aead_chacha20poly1305_ietf_encrypt(out + w.n, &clen, nullptr, 0, out, w.n, nullptr, nonce_bytes,
-                                              ref.tx.data());
-    if (socket_->Send(from, out, w.n + size_t(clen))) {
-        stats_.datagrams_out++;
-        stats_.bytes_out += w.n + clen;
-    }
+    SendAccept(ref, nonce);
     stats_.handshakes_ok++;
     events_.push_back({Event::Connected, from, Reason::None, {}, identity, false});
 }
 
+// what the server's identity signs in an accept: both key exchange keys (so no one between can put in their own), the
+// client's nonce and the connection id
+static void ServerSigned(Writer& m, const uint8_t* server_kx, const uint8_t* client_kx, uint64_t nonce, uint32_t id) {
+    m.Bytes(kServerContext, sizeof(kServerContext));
+    m.Bytes(server_kx, 32);
+    m.Bytes(client_kx, 32);
+    m.U64(nonce);
+    m.U32(id);
+}
+
+// accept: the connection id, the client's nonce, the server's identity key and its signature of the handshake, and an
+// empty AEAD message (all of it as associated data) proving the session keys match. Sent again unchanged when the
+// client repeats its connect (the signature is deterministic, the AEAD message empty under the same key and nonce)
+void Endpoint::SendAccept(Conn& c, uint64_t nonce) {
+    uint8_t sig[64];
+    uint8_t msg[sizeof(kServerContext) + 32 + 32 + 8 + 4];
+    Writer m{msg, sizeof(msg)};
+    ServerSigned(m, kx_public_.data(), c.client_pk.data(), nonce, c.id);
+    crypto_sign_detached(sig, nullptr, msg, m.n, identity_->secret_key.data());
+    uint8_t out[kAcceptSize];
+    Writer w{out, sizeof(out)};
+    Prefix(w, Type::Accept);
+    w.U32(c.id);
+    w.U64(nonce);
+    w.Bytes(identity_->public_key.data(), 32);
+    w.Bytes(sig, 64);
+    uint8_t nonce_bytes[kNonce];
+    NonceOf(0, nonce_bytes);
+    unsigned long long clen = 0;
+    crypto_aead_chacha20poly1305_ietf_encrypt(out + w.n, &clen, nullptr, 0, out, w.n, nullptr, nonce_bytes, c.tx.data());
+    if (socket_->Send(c.peer, out, w.n + size_t(clen))) {
+        stats_.datagrams_out++;
+        stats_.bytes_out += w.n + clen;
+    }
+}
+
 void Endpoint::HandleAccept(const Address& from, const uint8_t* p, size_t n) {
     auto it = pending_.find(from.Key());
-    if (role_ != Role::Client || it == pending_.end() || !it->second->challenged || n != kPrefix + 4 + 8 + kTag) {
+    if (role_ != Role::Client || it == pending_.end() || !it->second->challenged || n != kAcceptSize) {
         stats_.dropped_unknown++;
         return;
     }
     Pending& h = *it->second;
     Reader r{p + kPrefix, n - kPrefix};
     uint32_t id = r.U32();
-    if (r.U64() != h.nonce || id == 0) {
+    uint64_t nonce = r.U64();
+    std::array<uint8_t, 32> server_id{};
+    std::memcpy(server_id.data(), r.Bytes(32), 32);
+    const uint8_t* sig = r.Bytes(64);
+    if (nonce != h.nonce || id == 0) {
         stats_.dropped_auth++;
         return;
     }
@@ -751,12 +853,41 @@ void Endpoint::HandleAccept(const Address& from, const uint8_t* p, size_t n) {
     }
     uint8_t nonce_bytes[kNonce];
     NonceOf(0, nonce_bytes);
-    if (crypto_aead_chacha20poly1305_ietf_decrypt(nullptr, nullptr, nullptr, p + kPrefix + 12, kTag, p, kPrefix + 12,
-                                                  nonce_bytes, c->rx.data()) != 0) {
+    size_t ad = kAcceptSize - kTag;
+    if (crypto_aead_chacha20poly1305_ietf_decrypt(nullptr, nullptr, nullptr, p + ad, kTag, p, ad, nonce_bytes,
+                                                  c->rx.data()) != 0) {
         stats_.dropped_auth++;
         return;
     }
+    // the keys match, so this came from whoever holds the key exchange secret the challenge named; the signature says
+    // that is the holder of server_id. A wrong one ends the attempt (a third party cannot make one: it has no keys)
+    uint8_t msg[sizeof(kServerContext) + 32 + 32 + 8 + 4];
+    Writer m{msg, sizeof(msg)};
+    ServerSigned(m, h.server_pk.data(), h.pk.data(), nonce, id);
+    if (crypto_sign_verify_detached(sig, msg, m.n, server_id.data()) != 0) {
+        events_.push_back({Event::Closed, from, Reason::ServerIdentityInvalid, ReasonText(Reason::ServerIdentityInvalid),
+                           {}, false});
+        pending_.erase(it);
+        stats_.handshakes_failed++;
+        hold_[from.Key()] = clock_() + config_.reconnect_hold;
+        return;
+    }
     sodium_memzero(h.sk.data(), h.sk.size());
+    c->identity = Identity::Fingerprint(server_id);
+    std::string why;
+    if (server_check_ && server_check_(from, c->identity, why) != ServerTrust::Trusted) {
+        // refused: the server is told (it would keep the connection until its timeout otherwise), no packet goes to it
+        pending_.erase(it);
+        Conn& ref = *c;
+        if (auto old = conns_.find(from.Key()); old != conns_.end()) by_id_.erase(old->second->id);
+        by_id_[id] = c.get();
+        conns_[from.Key()] = std::move(c);
+        stats_.handshakes_failed++;
+        hold_[from.Key()] = clock_() + config_.reconnect_hold;
+        Close(ref, Reason::ServerIdentityChanged, why.empty() ? ReasonText(Reason::ServerIdentityChanged) : why, true,
+              false);
+        return;
+    }
     c->last_in = c->last_out = clock_();
     auto queue = std::move(h.queue);
     pending_.erase(it);
@@ -765,7 +896,7 @@ void Endpoint::HandleAccept(const Address& from, const uint8_t* p, size_t n) {
     by_id_[id] = c.get();
     conns_[from.Key()] = std::move(c);
     stats_.handshakes_ok++;
-    events_.push_back({Event::Connected, from, Reason::None, {}, {}, false});
+    events_.push_back({Event::Connected, from, Reason::None, {}, ref.identity, false});
     for (auto& m : queue) SendMessage(ref, m.data(), m.size());
 }
 
@@ -979,6 +1110,11 @@ void Endpoint::Close(Conn& c, Reason reason, const std::string& text, bool notif
 void Endpoint::Disconnect(const Address& peer, Reason reason, const std::string& text) {
     if (auto it = conns_.find(peer.Key()); it != conns_.end() && !it->second->closing)
         Close(*it->second, reason, text, true, false);
+    // a server's packets from that peer not yet taken are not delivered (a refused connection's first packets: its
+    // engine connect must not reach the engine)
+    if (role_ == Role::Server)
+        inbox_.erase(std::remove_if(inbox_.begin(), inbox_.end(), [&](const auto& m) { return m.first == peer; }),
+                     inbox_.end());
     if (auto it = pending_.find(peer.Key()); it != pending_.end()) pending_.erase(it);
 }
 

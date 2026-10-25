@@ -1,7 +1,7 @@
 // The PC network transport (docs/pc_multiplayer.md "N1 transport"): what the engine's UDP packets travel in between
 // separate processes. The engine's netchan above it keeps sequencing, acknowledgement and the reliable stream; this
 // layer gives it connections that are established by a handshake (a stateless cookie against spoofed sources, an
-// X25519 key exchange, optionally an Ed25519 player identity), datagrams of at most 1200 bytes encrypted and
+// X25519 key exchange, the server's Ed25519 identity signing it, optionally an Ed25519 player identity), datagrams of at most 1200 bytes encrypted and
 // authenticated with ChaCha20-Poly1305, engine packets up to 64 KB fragmented and reassembled within bounded memory
 // and time, replay and duplicate rejection, timeouts and explicit disconnects with a reason. Host code only; the
 // engine is wired to it in src/game/net_engine.cpp.
@@ -23,7 +23,7 @@ namespace net {
 
 // ---- wire format (all integers little-endian) ----------------------------------------------------------------------
 constexpr uint32_t kMagic = 0x4E585343;  // "CSXN"
-constexpr uint8_t kVersion = 2;  // 2: rejects carry the handshake nonce
+constexpr uint8_t kVersion = 3;  // 2: rejects carry the handshake nonce; 3: the accept is signed by the server
 constexpr size_t kMaxDatagram = 1200;    // never more on the wire: no IP fragmentation on any common path
 constexpr size_t kMaxMessage = 0x10000;  // an engine packet: the size of the engine's net_message
 constexpr size_t kPrefix = 6;            // magic, version, type
@@ -50,6 +50,9 @@ enum class Reason : uint8_t {
     Kicked = 9,
     RateLimited = 10,
     HandshakeFailed = 11,  // no answer to the handshake
+    ServerIdentityInvalid = 12,  // client: the accept's server signature did not verify
+    ServerIdentityChanged = 13,  // client: the server's key is not the one pinned or remembered for its address
+    LanOnly = 14,                // the server takes players from private networks only
 };
 const char* ReasonText(Reason r);
 
@@ -58,6 +61,11 @@ struct Address {
     std::array<uint8_t, 4> ip{};
     uint16_t port = 0;
     bool operator==(const Address& o) const { return ip == o.ip && port == o.port; }
+    // loopback, private (RFC 1918) or link-local: an address a LAN-only server takes
+    bool Private() const {
+        return ip[0] == 127 || ip[0] == 10 || (ip[0] == 172 && (ip[1] & 0xF0) == 16) || (ip[0] == 192 && ip[1] == 168) ||
+               (ip[0] == 169 && ip[1] == 254);
+    }
     uint64_t Key() const {
         return uint64_t(ip[0]) << 40 | uint64_t(ip[1]) << 32 | uint64_t(ip[2]) << 24 | uint64_t(ip[3]) << 16 | port;
     }
@@ -96,6 +104,7 @@ struct Config {
     double reconnect_hold = 5.0;       // client: no new connection to a server that closed ours for this long
     double hello_rate_total = 500.0;   // handshake packets a second from all sources together (burst: twice that)
     size_t rate_sources = 4096;        // source addresses the per-source rate remembers (a full table takes no new)
+    bool lan_only = false;             // server: handshakes from private addresses only (Address::Private)
 };
 
 struct Stats {
@@ -107,14 +116,39 @@ struct Stats {
     uint64_t lost_in = 0;  // gaps in the peers' packet numbers
 };
 
-// a player identity: an Ed25519 key pair made once per install (Identity::LoadOrCreate); proves only that the same
-// install connects again, not who the player is
+// an identity: an Ed25519 key pair made once per install (Identity::LoadOrCreate), a player's (identity.key: proves
+// only that the same install connects again, not who the player is) or a server's (server_identity.key: it signs
+// every handshake it accepts, so a client knows it reached the server it trusts)
 struct Identity {
     std::array<uint8_t, 32> public_key{};
     std::array<uint8_t, 64> secret_key{};
     static std::optional<Identity> LoadOrCreate(const std::string& path, std::string& error);
-    static std::string Fingerprint(const std::array<uint8_t, 32>& public_key);  // 16 hex characters
+    // the whole public key, 64 hex characters (no shortened hash: a fingerprint is compared in full)
+    static std::string Fingerprint(const std::array<uint8_t, 32>& public_key);
+    static std::optional<std::array<uint8_t, 32>> ParseFingerprint(const std::string& text);
 };
+
+// what a client knows of servers' keys (trust on first use): a text file of "address key" lines, the key a
+// Fingerprint. The first connect to an address remembers its key; a later one with another key is refused until the
+// line is removed (or the new key pinned). Written whole (a temporary file renamed over), owner-only.
+class KnownServers {
+public:
+    explicit KnownServers(std::string path) : path_(std::move(path)) {}
+    enum class Result { New, Match, Changed };
+    // the stored key of server (an Address string) compared with key; on Changed, old receives the stored one
+    Result Check(const std::string& server, const std::string& key, std::string* old = nullptr) const;
+    bool Remember(const std::string& server, const std::string& key, std::string& error);
+    const std::string& Path() const { return path_; }
+
+private:
+    std::map<std::string, std::string> Read() const;
+    std::string path_;
+};
+
+// a client's decision about the server key an accept proved: Trusted continues, Changed refuses the connection
+// (Reason::ServerIdentityChanged, the text saying why)
+enum class ServerTrust { Trusted, Changed };
+using ServerKeyCheck = std::function<ServerTrust(const Address& server, const std::string& fingerprint, std::string& why)>;
 
 using Clock = std::function<double()>;  // seconds, monotonic
 
@@ -126,7 +160,10 @@ public:
     Endpoint(Role role, std::unique_ptr<DatagramSocket> socket, Config config, Clock clock);
     ~Endpoint();
 
+    // a client's player identity (optional), a server's own (required: it signs each accept)
     void SetIdentity(std::optional<Identity> identity) { identity_ = std::move(identity); }
+    // client: decides about each server key (unset: every correctly signed server is trusted, for the unit tests)
+    void SetServerKeyCheck(ServerKeyCheck check) { server_check_ = std::move(check); }
 
     // an engine packet to a peer (a client endpoint connects first and keeps the packet meanwhile); false when it was
     // dropped (no connection on a server endpoint, too large, queue full)
@@ -146,7 +183,7 @@ public:
         Address peer;
         Reason reason = Reason::None;
         std::string text;
-        std::string identity;  // fingerprint when the peer proved one
+        std::string identity;  // fingerprint when the peer proved one (on a client: always the server's)
         bool remote_closed = false;  // the peer told us (else a timeout or a local close)
     };
     bool PollEvent(Event& e);
@@ -174,6 +211,7 @@ private:
     void SendMessage(Conn& c, const uint8_t* data, size_t len);
     void SendHandshake(Pending& h);
     void SendReject(const Address& to, Reason reason, const std::string& text, uint64_t nonce);
+    void SendAccept(Conn& c, uint64_t nonce);
     void Close(Conn& c, Reason reason, const std::string& text, bool notify_peer, bool remote);
     void Timers();
     bool RateOk(const Address& from);
@@ -185,6 +223,7 @@ private:
     Config config_;
     Clock clock_;
     std::optional<Identity> identity_;
+    ServerKeyCheck server_check_;
     Stats stats_;
     std::array<uint8_t, 32> kx_public_{}, kx_secret_{}, cookie_key_{};
     double start_ = 0;

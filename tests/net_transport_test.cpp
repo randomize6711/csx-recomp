@@ -1,7 +1,8 @@
 // The PC transport (src/net/transport.h) on its own, over a simulated network with a simulated clock
 // (tests/net_transport_test.py builds and runs it): the handshake, messages of every size up to 64 KB, loss,
 // duplication, reordering and delay (seeded, repeatable), fragment loss and reassembly limits, replay and
-// tampering, spoofed and stale cookies, address binding, identity, rejects, timeouts, disconnects and the rate limit.
+// tampering, spoofed and stale cookies, address binding, identity, the server's signed accept and the client's trust in
+// it (pinned, remembered, changed), rejects, timeouts, disconnects and the rate limit.
 #include <cstdio>
 #include <cstring>
 #include <deque>
@@ -30,6 +31,17 @@ void Check(bool ok, const std::string& what) {
 
 double g_now = 0;
 double Now() { return g_now; }
+
+// a server identity made in memory (no file)
+Identity MakeIdentity() {
+    Identity id;
+    crypto_sign_keypair(id.public_key.data(), id.secret_key.data());
+    return id;
+}
+const Identity& ServerId() {
+    static const Identity id = MakeIdentity();
+    return id;
+}
 
 // the simulated network: datagrams queued per destination with a delivery time; loss, duplication, reordering
 // (random extra delay) and a hook that can see and change each datagram
@@ -113,6 +125,7 @@ struct Pair {
         server_sock = ss.get();
         client_sock = cs.get();
         server = std::make_unique<Endpoint>(Endpoint::Role::Server, std::move(ss), sc, Now);
+        server->SetIdentity(ServerId());
         client = std::make_unique<Endpoint>(Endpoint::Role::Client, std::move(cs), cc, Now);
     }
     // advances the clock in steps, pumping both
@@ -450,6 +463,154 @@ void TestIdentity() {
     }
 }
 
+// the server's identity: every accept is signed over the handshake's keys; the client sees the server's full key,
+// refuses a signature that does not verify, a key exchange someone between put in, and a key its check refuses
+void TestServerIdentity() {
+    auto refused = [](Endpoint& c, Reason want) {
+        Endpoint::Event e;
+        bool r = false;
+        while (c.PollEvent(e)) r |= e.kind == Endpoint::Event::Closed && e.reason == want;
+        return r;
+    };
+    {
+        Pair p;
+        Connect(p);
+        auto fp = p.client->PeerIdentity(p.server_addr);
+        Check(fp && *fp == Identity::Fingerprint(ServerId().public_key) && fp->size() == 64,
+              "server identity: the client sees the server's whole key (64 hex characters)");
+        Check(Identity::ParseFingerprint(*fp) == ServerId().public_key, "server identity: a fingerprint parses back");
+        Check(!Identity::ParseFingerprint(fp->substr(0, 16)) && !Identity::ParseFingerprint(std::string(64, 'g')),
+              "server identity: a short or non-hex fingerprint is refused");
+    }
+    {
+        // a server without an identity accepts no one
+        Pair p;
+        p.server->SetIdentity(std::nullopt);
+        uint8_t hi[] = {1};
+        p.client->Send(p.server_addr, hi, 1);
+        p.Run(1.0);
+        Check(!p.client->Connected(p.server_addr) && !p.server->Connected(p.client_addr),
+              "server identity: a server without one makes no connection");
+    }
+    {
+        // the signature changed on the way: the keys still match, the identity does not verify
+        Pair p;
+        p.net.tap = [&](Network::Packet& pk) {
+            if (pk.data.size() > 5 && pk.data[5] == uint8_t(Type::Accept)) pk.data[6 + 4 + 8 + 32 + 3] ^= 1;
+            return true;
+        };
+        uint8_t hi[] = {1};
+        p.client->Send(p.server_addr, hi, 1);
+        p.Run(1.0);
+        Check(!p.client->Connected(p.server_addr), "server identity: a changed signature is not accepted");
+    }
+    {
+        // someone between swaps the challenge's key exchange key for their own (a man in the middle): the real
+        // server's accept no longer decrypts, and a forged one would need the server's signature
+        Pair p;
+        Identity mitm = MakeIdentity();
+        uint8_t fake_pk[32], fake_sk[32];
+        crypto_kx_keypair(fake_pk, fake_sk);
+        p.net.tap = [&](Network::Packet& pk) {
+            if (pk.data.size() > 5 && pk.data[5] == uint8_t(Type::Challenge)) std::memcpy(pk.data.data() + pk.data.size() - 32, fake_pk, 32);
+            return true;
+        };
+        uint8_t hi[] = {1};
+        p.client->Send(p.server_addr, hi, 1);
+        p.Run(1.0);
+        Check(!p.client->Connected(p.server_addr), "server identity: a substituted key exchange key connects nowhere");
+        (void)mitm;
+    }
+    {
+        // the client's check refuses the key: no connection, the server is told
+        Pair p;
+        std::string seen;
+        p.client->SetServerKeyCheck([&](const Address&, const std::string& fp, std::string& why) {
+            seen = fp;
+            why = "not the pinned key";
+            return ServerTrust::Changed;
+        });
+        uint8_t hi[] = {1};
+        p.client->Send(p.server_addr, hi, 1);
+        p.Run(1.0);
+        Check(seen == Identity::Fingerprint(ServerId().public_key), "server identity: the check is given the server's key");
+        Check(!p.client->Connected(p.server_addr) && refused(*p.client, Reason::ServerIdentityChanged),
+              "server identity: a key the check refuses ends the attempt (ServerIdentityChanged)");
+        Address from;
+        std::vector<uint8_t> m;
+        Check(!p.server->Receive(from, m), "server identity: nothing of the refused client's reaches the server");
+        p.Run(0.5);
+        Check(!p.server->Connected(p.client_addr), "server identity: the server is told at once (not left to time out)");
+    }
+    {
+        // trust on first use through KnownServers: remembered, matched, a changed key refused
+        std::string path = "/tmp/csxn_test_known_servers.txt";
+        std::remove(path.c_str());
+        KnownServers known(path);
+        std::string key = Identity::Fingerprint(ServerId().public_key), other = Identity::Fingerprint(MakeIdentity().public_key);
+        std::string err, old;
+        Check(known.Check("10.0.0.1:27015", key) == KnownServers::Result::New, "known servers: a new address is New");
+        Check(known.Remember("10.0.0.1:27015", key, err), "known servers: remembered");
+        Check(known.Check("10.0.0.1:27015", key) == KnownServers::Result::Match, "known servers: the same key matches");
+        Check(known.Check("10.0.0.1:27015", other, &old) == KnownServers::Result::Changed && old == key,
+              "known servers: another key is Changed, with the stored one");
+        Check(known.Check("10.0.0.1:27016", other) == KnownServers::Result::New, "known servers: per address and port");
+        Check(!known.Remember("bad address", key, err) && !known.Remember("10.0.0.2:1", "xyz", err),
+              "known servers: a malformed line is not written");
+        struct stat st {};
+        Check(::stat(path.c_str(), &st) == 0 && (st.st_mode & 0777) == 0600, "known servers: the file is owner-only");
+        std::remove(path.c_str());
+    }
+}
+
+// a LAN-only server: private and loopback addresses connect, a public one is refused with the reason
+void TestLanOnly() {
+    Check(Address{{10, 1, 2, 3}, 1}.Private() && Address{{172, 16, 0, 1}, 1}.Private() && Address{{172, 31, 9, 9}, 1}.Private() &&
+              Address{{192, 168, 1, 1}, 1}.Private() && Address{{127, 0, 0, 2}, 1}.Private() && Address{{169, 254, 3, 4}, 1}.Private(),
+          "lan only: private, loopback and link-local addresses are private");
+    Check(!Address{{8, 8, 8, 8}, 1}.Private() && !Address{{172, 32, 0, 1}, 1}.Private() && !Address{{192, 169, 0, 1}, 1}.Private() &&
+              !Address{{100, 64, 0, 1}, 1}.Private(),
+          "lan only: public addresses are not");
+    Config sc;
+    sc.lan_only = true;
+    {
+        Pair p(sc);  // the client at 10.0.0.2 (Addr)
+        Connect(p);
+        Check(p.client->Connected(p.server_addr), "lan only: a private client connects");
+    }
+    {
+        Network net;
+        g_now = 100;
+        Endpoint server(Endpoint::Role::Server, std::make_unique<SimSocket>(net, Addr(1, 27015)), sc, Now);
+        server.SetIdentity(ServerId());
+        Endpoint client(Endpoint::Role::Client, std::make_unique<SimSocket>(net, Address{{8, 8, 4, 4}, 5000}), Config{}, Now);
+        uint8_t hi[] = {1};
+        client.Send(Addr(1, 27015), hi, 1);
+        bool lan = false;
+        for (int i = 0; i < 100; i++) {
+            g_now += 0.01;
+            server.Pump();
+            client.Pump();
+            Endpoint::Event e;
+            while (client.PollEvent(e)) lan |= e.kind == Endpoint::Event::Closed && e.reason == Reason::LanOnly;
+        }
+        Check(lan && server.ConnectionCount() == 0, "lan only: a public client is refused (LanOnly)");
+    }
+}
+
+// a server that ends a connection drops what of the peer it had not yet delivered (a banned client's connect)
+void TestDisconnectDropsQueued() {
+    Pair p;
+    uint8_t hi[] = {7, 7, 7};
+    p.client->Send(p.server_addr, hi, sizeof(hi));
+    p.Run(0.5);
+    Check(p.server->Connected(p.client_addr), "disconnect drops queued: connected");
+    p.server->Disconnect(p.client_addr, Reason::Kicked, "banned");
+    Address from;
+    std::vector<uint8_t> m;
+    Check(!p.server->Receive(from, m), "disconnect drops queued: the peer's waiting packet is not delivered");
+}
+
 void TestTimeoutAndDisconnect() {
     Config c;
     c.idle_timeout = 3;
@@ -513,6 +674,7 @@ void TestFull() {
     g_now = 100;
     auto ss = std::make_unique<SimSocket>(net, Addr(1, 27015));
     Endpoint server(Endpoint::Role::Server, std::move(ss), sc, Now);
+    server.SetIdentity(ServerId());
     std::vector<std::unique_ptr<Endpoint>> clients;
     for (int i = 0; i < 3; i++)
         clients.push_back(std::make_unique<Endpoint>(Endpoint::Role::Client,
@@ -692,6 +854,7 @@ void TestManyClients() {
     Network net;
     g_now = 100;
     Endpoint server(Endpoint::Role::Server, std::make_unique<SimSocket>(net, Addr(1, 27015)), Config{}, Now);
+    server.SetIdentity(ServerId());
     std::vector<std::unique_ptr<Endpoint>> clients;
     for (int i = 0; i < 64; i++)
         clients.push_back(std::make_unique<Endpoint>(
@@ -744,6 +907,9 @@ int main() {
     TestSpoofedConnect();
     TestStaleCookie();
     TestIdentity();
+    TestServerIdentity();
+    TestLanOnly();
+    TestDisconnectDropsQueued();
     TestTimeoutAndDisconnect();
     TestFull();
     TestRateLimit();
