@@ -1,0 +1,20 @@
+# The dedicated server with 65 bots and no human: every slot a bot (the server has none of its own), the match runs
+# without anyone connected (mp_dedicated_server: the bot manager fills the quota with no human present), rounds end
+# and restart, the server quits cleanly.
+# timeout: 420
+[server] --server "--map de_aztec --bots 65 --player-collision off" --env CSX_LOG_NET=1
+wait log net:.server.identity
+count joined.team 65
+sleep 15
+players full
+expect playercount full 65 65
+expect count playerping.full.[0-9]+.[0-9]+$ 0
+count killed.*with 1
+pckey cmd sv_restartround 1
+sleep 6
+count World.triggered."Round_End" 1
+players after
+expect playercount after 65 65
+expect nolog guest trap
+expect nolog Host_Error
+pckey cmd quit

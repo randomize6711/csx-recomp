@@ -1,0 +1,38 @@
+# A map change on the dedicated server: a one-round match (max_rounds 1, round_time 1) on de_aztec ends and the title
+# relaunches into the next map of its cycle, as every map change does in this build; csx-server comes back by itself
+# (its settings kept in the environment, the map from the title's line), with the same identity key (the same
+# folder: the client's remembered key matches), the same port, and the client rejoins. Then the server quits.
+# timeout: 600
+[server] --server "--map de_aztec --bots 2 --max-rounds 1 --round-time 1 --freeze-time 0" --env CSX_LOG_NET=1
+wait log net:.server.identity
+wait log net:.client.127\.0\.0\.2:[0-9]+.connected
+wait log net:.relaunching.into.[a-z0-9_]+:.the.clients
+wait log server:.relaunched.on.UDP.port.27015
+wait log net:.server.endpoint.on.UDP.port.27015
+wait log net:.client.127\.0\.0\.2:[0-9]+.connected
+wait log entered.the.game
+sleep 15
+players newmap
+expect playercount newmap 3 3
+expect nolog guest trap
+expect nolog Host_Error
+pckey cmd quit
+[client] --after server:net:.server.identity --delay 3 --launch tests/launch/connect_local --env FPS=30 --env CSX_LOG_NET=1
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+wait log net:.relaunching.to.rejoin
+wait log net:.server.127\.0\.0\.1:27015.has.its.remembered.key
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+sleep 20
+expect nolog guest trap
+expect nolog Host_Error
+wait log (?i)net:.server.127\.0\.0\.1:27015.closed:.server.shut

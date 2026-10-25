@@ -10,6 +10,10 @@ Usage: python3 -I tools/drive.py SCENARIO [--timeout S] [--env K=V ...] [--exe P
 a private one of its own, so several games reach each other there; give each an INSTANCE (--env INSTANCE=N: it binds
 127.0.0.N and keeps its hard disk in hdd, hdd2 .. hdd8).
 
+--server "OPTIONS" runs the dedicated server (build/server/csx-server unless --exe names another, tools/build_server.sh)
+as "csx-server --game GAME OPTIONS" in the run folder: it prepares its own disk and match (no --launch); the steps
+that read the log, players, pckey cmd (its console) work as with a game.
+
 --wine runs the Windows build (build/windows/dist/CounterStrike.exe unless --exe names another) under Wine, prefix
 build/wineprefix, in a network namespace like the Linux runs. A title relaunch there starts a new Windows process, so
 the run is alive while any process of the exe is.
@@ -121,6 +125,7 @@ Exit status 0 when every step passed, 1 otherwise. Prints one line per step.
 """
 import os
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -203,6 +208,7 @@ def main():
     launch = None
     wine = False
     netns = None
+    server = None
     pc = []
     i = 1
     while i < len(args):
@@ -224,6 +230,10 @@ def main():
             pc.append(args[i + 1]); i += 2
         elif args[i] == '--netns':
             netns = args[i + 1]; i += 2
+        elif args[i] == '--server':
+            server = shlex.split(args[i + 1]); i += 2
+            if EXE.endswith(os.path.join('harness', 'CounterStrike')):
+                EXE = os.path.join(ROOT, 'build', 'server', 'csx-server')
         elif args[i] == '--wine':
             wine = True; i += 1
             if EXE.endswith(os.path.join('harness', 'CounterStrike')):
@@ -239,7 +249,7 @@ def main():
     # an instance past the first keeps its hard disk in hddN (src/common: app::Instance)
     instance = int(env.get('INSTANCE', '0') or 0)
     hdd = 'hdd' + (str(instance) if instance > 1 else '')
-    for d in ('logs', 'cap', 'snaps', 'dumps', 'shots') + tuple('hdd' + n for n in ('', '2', '3', '4', '5', '6', '7', '8')):
+    for d in ('logs', 'cap', 'snaps', 'dumps', 'shots') + tuple('hdd' + n for n in ('', '2', '3', '4', '5', '6', '7', '8', '9')):
         shutil.rmtree(os.path.join(RUN, d), ignore_errors=True)
     os.makedirs(os.path.join(RUN, 'snaps'))
     # PC settings: none unless the run seeds them (src/common/pc_settings.cpp format, "name = value")
@@ -271,6 +281,8 @@ def main():
         cmd = ['nsenter', '--preserve-credentials', '-U', '-n', '-t', netns, EXE, GAME]
     else:
         cmd = ['unshare', '-rn', EXE, GAME]
+    if server is not None:
+        cmd = cmd[:-1] + ['--game', GAME] + server
     proc = subprocess.Popen(cmd, cwd=RUN, env=env, stdout=out, stderr=subprocess.STDOUT)
     log, start, ok = Log(), time.time(), True
     verdict = 'FAIL'

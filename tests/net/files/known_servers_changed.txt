@@ -1,0 +1,2 @@
+# a known server key that is not the fixture server's (tests/net/net_ded_trust.txt): address, then the 64 hex key
+127.0.0.1:27015 1111111111111111111111111111111111111111111111111111111111111111

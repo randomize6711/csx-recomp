@@ -1,0 +1,70 @@
+# Remote administration on the dedicated server (docs/pc_multiplayer.md "N2 administration"): admins.cfg lists one
+# player key (a test-only fixture identity) with status, say, kick, bots and restart, not map. That client runs
+# "admin status" and "admin bots 3" (allowed, logged: the bots from the next map, as the title sets them at a
+# match's start), "admin map de_dust2" (refused: not permitted); a second client
+# without an admin key is refused, and past 5 refusals a minute its attempts are dropped unanswered (logged once);
+# its rcon (the engine's plaintext-password console) gets nothing; then the admin kicks it (slot 3: the bot is 1, the admin 2). Every action is
+# in logs/admin.log.
+# timeout: 420
+[server] --server "--map de_aztec --bots 1" --file admins.cfg=tests/net/files/admins.cfg --env CSX_LOG_NET=1
+wait log net:.server.identity
+wait log net:.client.127\.0\.0\.2:[0-9]+.connected
+wait log net:.client.127\.0\.0\.3:[0-9]+.connected
+wait log admin:.admins\.cfg:.1.admin.keys
+wait log admin:."[^"]*".127\.0\.0\.2:[0-9]+.key.ebe5ca1e[0-9a-f]+.ran."status"
+wait log admin:.*ran."admin.bots.3":.bots.3.from.the.next.map
+wait log admin:.refused.*127\.0\.0\.2.*"admin.map.de_dust2":.not.permitted:.map
+wait log admin:.refused.*127\.0\.0\.3.*this.player.key.is.not.an.admin
+wait log admin:.refused.attempts.from.127\.0\.0\.3.over.5.a.minute
+wait log admin:.*ran."admin.kick.3":.kicked
+wait log net:.client.127\.0\.0\.3:[0-9]+.closed
+count joined.team 3
+wait log net:.rcon.from.127\.0\.0\.3:[0-9]+.refused
+expect nolog guest trap
+expect nolog Host_Error
+sleep 3
+pckey cmd quit
+[admin] --after server:net:.server.identity --delay 3 --file identity.key=tests/net/files/admin_identity.key --launch tests/launch/connect_local --env FPS=30 --env CSX_LOG_NET=1
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+sleep 3
+pckey cmd admin status
+sleep 1
+pckey cmd admin bots 3
+sleep 1
+pckey cmd admin map de_dust2
+sleep 40
+pckey cmd admin kick 3
+sleep 3
+expect nolog Host_Error
+wait log (?i)net:.server.127\.0\.0\.1:27015.closed:.server.shut
+[other] --after admin:net:.server.*connected --delay 3 --launch tests/launch/connect_local --env FPS=30 --env CSX_LOG_NET=1
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+sleep 3
+pckey cmd admin status
+sleep 0.5
+pckey cmd admin kick 1
+sleep 0.5
+pckey cmd admin status
+sleep 0.5
+pckey cmd admin status
+sleep 0.5
+pckey cmd admin status
+sleep 0.5
+pckey cmd admin status
+sleep 0.5
+pckey cmd admin status
+sleep 1
+pckey cmd rcon_password guess
+pckey cmd rcon status
+sleep 2
+wait log (?i)net:.server.127\.0\.0\.1:27015.closed

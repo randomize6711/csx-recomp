@@ -1,0 +1,41 @@
+# Two remote players and 4 bots on the dedicated server under a poor link: netem on every packet both ways, 60 ms
+# (15 ms jitter) each way, 3% loss, 1% duplicated, 5% reordered. Both join, move, see the scoreboard; the server
+# restarts the round; both stay connected; snapshots keep their rate (the transport recovers the reliable stream).
+# netem: delay 60ms 15ms loss 3% duplicate 1% reorder 5%
+# timeout: 600
+[server] --server "--map de_aztec --bots 4" --env CSX_LOG_NET=1
+wait log net:.server.identity
+count net:.client.127\.0\.0\.[23]:[0-9]+.connected 2
+count joined.team 6
+sleep 3
+pckey cmd sv_restartround 1
+sleep 15
+players lossy
+expect playercount lossy 6 6
+expect count playerping.lossy.[0-9]+.[0-9]+$ 2
+expect log net.stats:.server.2.connections.*lost.[1-9]
+expect nolog net:.client.*closed
+expect nolog guest trap
+expect nolog Host_Error
+sleep 5
+pckey cmd quit
+[client*2] --after server:net:.server.identity --delay 3 --stagger 3 --launch tests/launch/connect_local --env FPS=30 --env CSX_LOG_NET=1 --env CSX_LOG_SCOREBOARD=1
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+sleep 15
+state m1
+pckey tap +moveleft 0.5
+sleep 1.5
+state m2
+expect moved m1 m2 20 400
+pckey cmd +showscores
+sleep 2
+expect log scoreboard:.6.players
+pckey cmd -showscores
+expect nolog Host_Error
+expect nolog guest trap
+wait log (?i)net:.server.127\.0\.0\.1:27015.closed:.server.shut

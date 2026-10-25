@@ -1,0 +1,45 @@
+# The dedicated server's connections over time: a client joins, leaves with disconnect (the server is told at once), a
+# second client joins in its place, a third is frozen (SIGSTOP: a client gone silent) and the server times it out;
+# then the server is stopped by a signal (the runner ends its process: SIGINT, as Ctrl+C or a service stop) and tells
+# the remaining client ("server shut down") before it exits.
+# timeout: 600
+[server] --server "--map de_aztec --bots 2" --env CSX_LOG_NET=1
+wait log net:.server.identity
+wait log net:.client.127\.0\.0\.2:[0-9]+.connected
+wait log net:.client.127\.0\.0\.2:[0-9]+.closed:.closed.by.the.peer
+wait log net:.client.127\.0\.0\.3:[0-9]+.connected
+wait log net:.client.127\.0\.0\.4:[0-9]+.connected
+count entered.the.game 3
+wait log (?i)net:.client.*closed:.timed.out
+sleep 3
+players end
+expect playercount end 3 3
+expect nolog guest trap
+expect nolog Host_Error
+sleep 5
+[client] --after server:net:.server.identity --delay 3 --launch tests/launch/connect_local --env FPS=30
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+sleep 3
+pckey cmd disconnect
+sleep 5
+[client2] --after server:net:.client.127\\.0\\.0\\.2:[0-9]+.closed --launch tests/launch/connect_local --env FPS=30
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+wait log (?i)net:.server.127\.0\.0\.1:27015.closed:.server.shut
+[client3] --after client2:net:.server.*connected --freeze-after 20 --launch tests/launch/connect_local --env FPS=30
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+sleep 200

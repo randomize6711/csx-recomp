@@ -14,11 +14,13 @@
 A section's options go to tools/drive.py (--launch, --env, --pc ...); --after ROLE:REGEX starts it once ROLE's log
 has a line matching REGEX (the regex has no spaces: use . for them), --delay S after S seconds. [ROLE*N] is N copies
 of the section (ROLE1 .. ROLEN), --stagger S starting them S seconds apart. --exec "COMMAND" runs a command in the
-namespace instead of a game (a tool: tools/net_fuzz.py), passing when it exits 0. --freeze-after S stops the section's
+namespace instead of a game (a tool: tools/net_fuzz.py), passing when it exits 0. --server "OPTIONS" runs the dedicated
+server (build/server/csx-server, tools/build_server.sh) with those options instead of the game (drive.py --server). --file NAME=PATH copies PATH (from the
+repository root) into the section's run folder as NAME before it starts (a key, admins.cfg). --freeze-after S stops the section's
 game process S seconds after it started (SIGSTOP: a client that went silent, for the timeouts) and ends it when the
 test does. The processes are numbered from 1 in
-order: process k binds 127.0.0.k (CSX_NET_BIND) and is INSTANCE k (at most 8: its hard disk folder and system link
-address); each runs in build/nruns/NAME/ROLE (the folder is emptied first). A test passes when every process's
+order: process k binds 127.0.0.k (CSX_NET_BIND) and is INSTANCE k (its hard disk folder and system link address;
+System Link's discovery reaches instances 1 to 8 only, the PC transport any); each runs in build/nruns/NAME/ROLE (the folder is emptied first). A test passes when every process's
 scenario passes. Output: each process's verdict (drive.py's RESULT: PASS, FAIL, TIMEOUT, CRASH; NOT STARTED when its
 --after never happened) with its failed or noted steps, then the test's verdict, the worst of them, also written to
 build/nruns/NAME/result.txt (RUNNING while the test runs, so a runner killed outright leaves no stale verdict);
@@ -32,6 +34,7 @@ import functools, glob, os, re, shlex, shutil, signal, subprocess, sys, time
 print = functools.partial(print, flush=True)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SERVER = os.path.join(ROOT, 'build', 'server', 'csx-server')
 
 
 def parse(path):
@@ -224,7 +227,8 @@ def run_test(path, exe):
     netem = header.get('netem', '')
     shell = 'ip link set lo up' + (f'; tc qdisc add dev lo root netem {netem}' if netem else '') + '; exec sleep 100000'
     # a game an earlier run left (a killed runner) polls this test's folders by path: it would take this run's step files
-    end_games(os.path.join(ROOT, 'build', 'nruns', name), exe, 'from an earlier run')
+    for e in (exe, SERVER):
+        end_games(os.path.join(ROOT, 'build', 'nruns', name), e, 'from an earlier run')
     # an earlier run's logs would satisfy --after conditions before this run's processes have written anything
     shutil.rmtree(os.path.join(ROOT, 'build', 'nruns', name), ignore_errors=True)
     # left as it is if the runner is killed outright (SIGKILL): a test without a verdict, not an old one
@@ -276,6 +280,17 @@ def run_test(path, exe):
                     i = opts.index('--freeze-after')
                     freeze = float(opts[i + 1])
                     del opts[i:i + 2]
+                # --file NAME=PATH: PATH (from the repository root) copied into the run folder as NAME first
+                while '--file' in opts:
+                    i = opts.index('--file')
+                    dest, src = opts[i + 1].split('=', 1)
+                    shutil.copy(os.path.join(ROOT, src), os.path.join(run, dest))
+                    os.chmod(os.path.join(run, dest), 0o600)
+                    del opts[i:i + 2]
+                role_exe = exe
+                if '--server' in opts:
+                    role_exe = SERVER
+                    opts += ['--exe', SERVER]
                 if '--exec' in opts:
                     i = opts.index('--exec')
                     cmd = ['nsenter', '--preserve-credentials', '-U', '-n', '-t', str(holder.pid)] + shlex.split(opts[i + 1])
@@ -284,7 +299,7 @@ def run_test(path, exe):
                     with open(scen, 'w') as f:
                         f.write('\n'.join(sec['steps']) + '\n')
                     cmd = [sys.executable, '-I', os.path.join(ROOT, 'tools', 'drive.py'), scen, '--run', run, '--exe', exe,
-                           '--netns', str(holder.pid), '--env', f'INSTANCE={min(k + 1, 8)}',
+                           '--netns', str(holder.pid), '--env', f'INSTANCE={k + 1}',
                            '--env', f'CSX_NET_BIND=127.0.0.{k + 1}', '--timeout', timeout] + opts
                 out = open(os.path.join(run, 'drive.out'), 'w')
                 procs[sec['role']] = subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT, cwd=ROOT)
@@ -294,13 +309,13 @@ def run_test(path, exe):
                 runs[sec['role']] = run
                 started[sec['role']] = time.time()
                 if '--exec' not in opts:
-                    resources[sec['role']] = Resources(run, exe)
+                    resources[sec['role']] = Resources(run, role_exe)
                 pending.remove((k, sec))
             for r in resources.values():
                 r.sample(time.time())
             for f in list(freezes):
                 if time.time() >= f[0]:
-                    pid = game_pid(f[1], exe)
+                    pid = game_pid(f[1], exe) or game_pid(f[1], SERVER)
                     if pid:
                         os.kill(pid, 19)  # SIGSTOP
                         frozen.append(pid)
@@ -360,7 +375,8 @@ def run_test(path, exe):
                 p.wait(15)
             except subprocess.TimeoutExpired:
                 p.kill()
-        end_games(os.path.join(ROOT, 'build', 'nruns', name), exe, 'after its scenario ended')
+        for e in (exe, SERVER):
+            end_games(os.path.join(ROOT, 'build', 'nruns', name), e, 'after its scenario ended')
         holder.kill()
         holder.wait()
 

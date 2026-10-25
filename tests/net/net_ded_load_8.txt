@@ -1,0 +1,50 @@
+# Network load on the dedicated server: 8 client processes on csx-server (de_aztec, no bots), each joining a team by
+# Auto-Select and moving about for a minute: 8 players in 8 of 65 slots, none the server's. Measures the server's
+# traffic, snapshot rate and frame time (CSX_LOG_NET, CSX_LOG_SERVERTIME; tools/net_summary.py), CPU and memory
+# (resources.csv). The 9 processes are the runner's most: real game clients, not a protocol simulator.
+# timeout: 900
+[server] --server "--map de_aztec --bots 0" --env CSX_LOG_NET=1 --env CSX_LOG_SERVERTIME=1
+wait log net:.server.identity
+count net:.client.127\.0\.0\.[0-9]+:[0-9]+.connected 8
+count joined.team 8
+sleep 60
+players load
+expect playercount load 8 8
+expect count playerping.load.[0-9]+.[0-9]+$ 8
+expect log net.stats:.snapshots.a.second.per.client:.(29|30)\.[0-9].mean.*.8.clients
+expect nolog guest trap
+expect nolog net:.client.*closed
+sleep 5
+pckey cmd quit
+[client*8] --after server:net:.server.identity --delay 3 --stagger 3 --launch tests/launch/connect_local --env FPS=30 --env CSX_LOG_NET=1
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+sleep 5
+pckey tap +moveleft 3
+sleep 4
+look 90 0
+pckey tap +forward 3
+sleep 4
+pckey tap +moveright 3
+sleep 4
+look -90 0
+pckey tap +forward 3
+sleep 4
+pckey tap +moveleft 3
+sleep 4
+look 180 0
+pckey tap +forward 3
+sleep 4
+pckey tap +moveright 3
+sleep 4
+pckey tap +moveleft 3
+sleep 4
+pckey tap +forward 3
+sleep 30
+expect nolog guest trap
+expect nolog Host_Error
+wait log (?i)net:.server.127\.0\.0\.1:27015.closed:.server.shut

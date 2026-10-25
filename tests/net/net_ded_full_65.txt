@@ -1,0 +1,73 @@
+# All 65 player slots on the dedicated server with two remote humans and 63 bots (de_aztec, Player Collision Off):
+# the server takes no slot, so 2 + 63 = 65, which a listen server cannot hold (its own player is one: 2 remote humans
+# and 62 bots there, net_full_65_2remote). The server restarts the round three times from its console; the bots
+# fight; both remote players move, open and scroll the scoreboard (65 rows, 2 with pings, 63 BOT) and stay connected
+# to the end, when the server quits.
+# timeout: 900
+[server] --server "--map de_aztec --bots 63 --player-collision off" --env CSX_LOG_NET=1 --env CSX_LOG_SERVERTIME=1
+wait log net:.server.identity
+count net:.client.127\.0\.0\.[23]:[0-9]+.connected 2
+count joined.team 65
+sleep 1
+pckey cmd sv_restartround 1
+sleep 12
+players full
+expect playercount full 65 65
+expect count playerping.full.[0-9]+.[0-9]+$ 2
+count killed.*with 3
+pckey cmd sv_restartround 1
+sleep 8
+pckey cmd sv_restartround 1
+sleep 8
+count World.triggered."Round_End" 3
+players after
+expect playercount after 65 65
+expect count playerping.after.[0-9]+.[0-9]+$ 2
+expect log net.stats:.server.2.connections.*[1-9][0-9]*.fragmented
+expect nolog net:.the.packet.for
+expect nolog overflowed.in.the.bit.writer
+expect nolog net:.client.*closed
+expect nolog guest trap
+expect nolog Host_Error
+sleep 10
+pckey cmd quit
+[client*2] --after server:joined.team --delay 20 --stagger 3 --launch tests/launch/connect_local --env FPS=30 --env CSX_LOG_NET=1 --env CSX_LOG_SCOREBOARD=1
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc:.player.collision.off
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+sleep 12
+state m1
+pckey tap +moveleft 0.5
+sleep 1.5
+state m2
+expect moved m1 m2 20 400
+pckey cmd +showscores
+sleep 2
+expect log scoreboard:.65.players.in.[0-9]+.rows,.25.lines,.offset.0:.players.1-
+pckey key 149 1
+pckey key 149 0
+sleep 1
+pckey key 152 1
+pckey key 152 0
+sleep 1
+expect log scoreboard:.65.players.in.[0-9]+.rows,.25.lines,.offset.[0-9]+:.players.[0-9]+-65.of.65,.0.below
+pckey key 151 1
+pckey key 151 0
+sleep 1
+pckey cmd -showscores
+sleep 5
+expect log scoreboard:.*ping=[0-9]+.human
+expect nolog Disconnected
+expect nolog Host_Error
+expect nolog guest trap
+pckey tap +moveleft 0.3
+sleep 20
+pckey tap +moveright 0.3
+sleep 20
+pckey tap +moveleft 0.3
+sleep 20
+wait log (?i)net:.server.127\.0\.0\.1:27015.closed:.server.shut

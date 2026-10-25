@@ -1,0 +1,45 @@
+# Joining rules on the dedicated server: a join password and the server's identity. csx-server (password "letmein",
+# its identity key a fixture) on de_aztec. A client without the password is refused by the engine (the server logs
+# "refused: bad password"; the client is back on the LostHost screen); a
+# client with it (CSX_NET_PASSWORD) joins; a client that remembers another key for this address refuses the server
+# (the identity changed: never taken silently); a client that pins the server's real key (CSX_SERVER_KEY) joins.
+# timeout: 420
+[server] --server "--map de_aztec --bots 0 --password letmein" --file server_identity.key=tests/net/files/server_identity.key --env CSX_LOG_NET=1
+wait log net:.server.identity.f4deace2e315f35eb151925cd875fa1752b40b217b208d8b3dc97af1a63ab563
+wait log net:.127\.0\.0\.2:[0-9]+.refused:.bad.password
+wait log net:.client.127\.0\.0\.3:[0-9]+.connected
+wait log net:.client.127\.0\.0\.5:[0-9]+.connected
+count entered.the.game 2
+sleep 5
+players two
+expect playercount two 2 2
+expect nolog password.letmein
+expect nolog guest trap
+expect nolog Host_Error
+pckey cmd quit
+[nopass] --after server:net:.server.identity --delay 3 --launch tests/launch/connect_local --env FPS=30 --env CSX_LOG_NET=1
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.LostHost
+expect nolog entered.the.game
+sleep 3
+[pass] --after server:refused:.bad.password --launch tests/launch/connect_local --env FPS=30 --env CSX_LOG_NET=1 --env CSX_NET_PASSWORD=letmein
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+wait log (?i)net:.server.127\.0\.0\.1:27015.closed:.server.shut
+[changed] --after pass:net:.server.*connected --file known_servers.txt=tests/net/files/known_servers_changed.txt --launch tests/launch/connect_local --env FPS=30 --env CSX_LOG_NET=1
+wait log net:.server.127\.0\.0\.1:27015.closed:.the.server.s.identity.key.changed
+expect nolog net:.server.127\.0\.0\.1:27015.connected
+sleep 3
+[pinned] --after changed:identity.key.changed --launch tests/launch/connect_local --env FPS=30 --env CSX_LOG_NET=1 --env CSX_SERVER_KEY=f4deace2e315f35eb151925cd875fa1752b40b217b208d8b3dc97af1a63ab563 --env CSX_NET_PASSWORD=letmein
+wait log net:.server.127\.0\.0\.1:27015.has.the.pinned.key
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+wait log (?i)net:.server.127\.0\.0\.1:27015.closed:.server.shut

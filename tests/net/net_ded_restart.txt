@@ -1,0 +1,29 @@
+# Repeated start and stop of the dedicated server: three csx-server processes one after another, each with 8 bots,
+# each loading the same identity key (the fixture: the key is the server's, kept across starts), running its match
+# and quitting by itself (quit: server shut down, exit 0) before the next starts. Shows: a clean start every time
+# (the emulated disk rebuilt), no state left by the last run, the identity loaded and not regenerated.
+# timeout: 420
+[server] --server "--map de_aztec --bots 8" --file server_identity.key=tests/net/files/server_identity.key
+wait log net:.server.identity.f4deace2e315f35eb151925cd875fa1752b40b217b208d8b3dc97af1a63ab563
+count joined.team 8
+sleep 5
+players p1
+expect playercount p1 8 8
+expect nolog guest trap
+pckey cmd quit
+[server2] --after server:server:.shut.down --delay 2 --server "--map de_dust2 --bots 8" --file server_identity.key=tests/net/files/server_identity.key
+wait log net:.server.identity.f4deace2e315f35eb151925cd875fa1752b40b217b208d8b3dc97af1a63ab563
+count joined.team 8
+sleep 5
+players p2
+expect playercount p2 8 8
+expect nolog guest trap
+pckey cmd quit
+[server3] --after server2:server:.shut.down --delay 2 --server "--map de_aztec --bots 8" --file server_identity.key=tests/net/files/server_identity.key
+wait log net:.server.identity.f4deace2e315f35eb151925cd875fa1752b40b217b208d8b3dc97af1a63ab563
+count joined.team 8
+sleep 5
+players p3
+expect playercount p3 8 8
+expect nolog guest trap
+pckey cmd quit
