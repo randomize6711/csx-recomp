@@ -4,7 +4,9 @@
 a team header's count is its players, every bot's Ping is BOT and no human's is, a human's Ping is "-" or a number,
 no player number appears twice, the window's numbers agree with the rows marked on screen; and over the run every
 player of the largest list was on screen at some point (scrolling reached them all). A network client's run is read
-up to its disconnect.
+up to its disconnect. The header counts are checked only while the Scoreboard screen is open: the hidden panel
+refreshes its rows on a score change, but the game recounts its teams only when the board opens (vk_scoreboard_169:
+a kill after the last bot joined logged a hidden header one behind its rows, right again the moment it opened).
 
 Usage: python3 -I tools/check_scoreboard.py RUN_DIR [RUN_DIR ...]   (build/wruns/vk_scoreboard_169 ...)
 Exit status 1 with the problems listed when a check fails.
@@ -20,11 +22,14 @@ def check(run):
     problems = []
     seen_on, biggest = set(), 0
     snapshots = 0
+    shown = False  # the Scoreboard screen is open
     for line in open(run + '/run.out', errors='replace'):
         # a network client's rows end with its connection: the player list goes first, the team headers' counts a
         # moment later (a snapshot in between is the disconnect's, not the scoreboard's)
         if re.search(r'net: server \S+ closed', line):
             break
+        if m := re.search(r'pc mouse: screen (\S+)|pc keys: playing', line):
+            shown = m.group(1) == 'Scoreboard'
         if 'scoreboard: ' not in line or ' players in ' not in line:
             continue
         head, _, rest = line.rstrip('\n').partition(';')
@@ -72,7 +77,7 @@ def check(run):
         if players and len(on_players) != (last - first + 1 if first else 0):
             problems.append('%s %d players on screen, the head says %d-%d' % (where, len(on_players), first, last))
         for count, rows in sections:
-            if count is not None and count != len(rows):
+            if shown and count is not None and count != len(rows):
                 problems.append('%s a team header counts %d, it has %d players' % (where, count, len(rows)))
             for a, b in zip(rows, rows[1:]):
                 if (a[0], -a[1]) < (b[0], -b[1]):
