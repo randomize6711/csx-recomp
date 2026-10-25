@@ -31,6 +31,8 @@ constexpr Table kTables[] = {
     {"net_client_datagram", 0x7009B000u, 0x1u, 61440u, 1u},  // SV_SendClientDatagram's message for a loopback client, 60 KB (was 4000 bytes on its stack at 0x9DF54)
     {"net_transmit", 0x700AB000u, 0x1u, 65536u, 1u},  // Netchan_Transmit's datagram on a loopback channel, 64 KB as net_message (was 4037 bytes on its stack at 0x698E2)
     {"net_getspace_scratch", 0x700BC000u, 0x1u, 65536u, 1u},  // SZ_GetSpace's answer to a request larger than a whole overflowing buffer (it returned the buffer's start)
+    {"net_launch", 0x700CD400u, 0x1u, 3072u, 1u},  // the launch data a client's reconnecting relaunch passes to the title's relaunch (0xBF0E0), as 0x5F750 builds it
+    {"net_connect", 0x700CFF00u, 0x1u, 256u, 1u},  // the address `connect` uses when the typed one has no port (the PC port added)
 };
 constexpr size_t kTableCount = sizeof(kTables) / sizeof(kTables[0]);
 
@@ -59,6 +61,8 @@ constexpr size_t k_cmdline_launcher = 20;
 constexpr size_t k_net_client_datagram = 21;
 constexpr size_t k_net_transmit = 22;
 constexpr size_t k_net_getspace_scratch = 23;
+constexpr size_t k_net_launch = 24;
+constexpr size_t k_net_connect = 25;
 
 // tables that start with a text (a NUL-terminated string the recompiled code is pointed at)
 constexpr TableText kTexts[] = {

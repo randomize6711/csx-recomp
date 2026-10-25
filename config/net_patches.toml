@@ -1,0 +1,23 @@
+# PC multiplayer (N1, docs/pc_multiplayer.md): the engine's 2003 rate limit raised. Checked against the image by
+# xbe_recomp (SDK patch 0036) and recorded in patches.txt.
+
+# SV_ExtractFromUserinfo: a client's "rate" (bytes a second) was clamped to 1000..20000; the top is now 1000000
+[[patch]]
+at = 0x9E981
+bytes = "3D 20 4E 00 00"
+insn = "cmp eax, 0x4E20"
+operand = "imm"
+index = 1
+old = 0x4E20
+new = 0xF4240
+why = "rate: the largest a client may ask, 20000 -> 1000000 bytes a second"
+
+[[patch]]
+at = 0x9E988
+bytes = "C7 44 24 5C 20 4E 00 00"
+insn = "mov dword ptr [esp+0x5C], 0x4E20"
+operand = "imm"
+index = 1
+old = 0x4E20
+new = 0xF4240
+why = "rate: the value it is clamped to, 20000 -> 1000000 bytes a second"

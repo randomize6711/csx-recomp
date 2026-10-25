@@ -50,6 +50,7 @@ constexpr uint32_t kSysError = 0xAC090;   // Sys_Error(format, ...), cdecl: does
 constexpr uint32_t kTooLarge = 0x32DC98;  // "SZ_GetSpace: %i is > full buffer size on %s"
 constexpr uint32_t kReadCount = 0x748404, kNetMessageSize = 0x6BA590;  // msg_readcount, net_message.cursize
 constexpr uint32_t kLoopback = 1;         // netadrtype_t NA_LOOPBACK
+constexpr uint32_t kNetIp = 3;            // NA_IP: a network peer on the PC transport
 constexpr uint32_t kClientChannel = 0x20, kClientName = 0x4D10;  // client_t: netchan (remote address at +4), name
 constexpr uint32_t kLoopBuild = 0xF000;   // a loopback client's packet: room left in the datagram for the netchan's
                                           // header and a reliable message (3990 bytes) or fragment (1304)
@@ -163,10 +164,12 @@ bool NetGetSpaceCheck(X86Context& ctx, uint8_t*) {
     return false;
 }
 
-// [[hook]] at 0x9DF73 (SV_SendClientDatagram: its message set up at esp+0x18, esi the client): a loopback client's
-// packet is built in net_client_datagram instead of the 4000 bytes on the stack
+// [[hook]] at 0x9DF73 (SV_SendClientDatagram: its message set up at esp+0x18, esi the client): a loopback or network
+// client's packet is built in net_client_datagram instead of the 4000 bytes on the stack (the PC transport carries
+// 64 KB to a network client, src/net/transport.h; one call builds and sends it, so one buffer serves every client)
 void SvDatagramBuffer(X86Context& ctx, uint8_t*) {
-    if (R32(ctx.esi + kClientChannel + 4) != kLoopback) return;
+    uint32_t type = R32(ctx.esi + kClientChannel + 4);
+    if (type != kLoopback && type != kNetIp) return;
     const auto& t = TableOf(guest_tables::k_net_client_datagram);
     uint32_t msg = ctx.esp + 0x18;
     W32(msg + netbuf::kData, t.va);
@@ -207,10 +210,11 @@ void SvDatagramTransmit(X86Context& ctx, uint8_t*) {
     g_stats = Stats{};
 }
 
-// [[hook]] at 0x6996E (Netchan_Transmit, its datagram set up at esp+0x20, edi the channel): a loopback channel's
-// datagram is built in net_transmit
+// [[hook]] at 0x6996E (Netchan_Transmit, its datagram set up at esp+0x20, edi the channel): a loopback or network
+// channel's datagram is built in net_transmit (the transport sends up to 64 KB)
 void NetchanSendBuffer(X86Context& ctx, uint8_t*) {
-    if (R32(ctx.edi + 4) != kLoopback) return;
+    uint32_t type = R32(ctx.edi + 4);
+    if (type != kLoopback && type != kNetIp) return;
     const auto& t = TableOf(guest_tables::k_net_transmit);
     uint32_t send = ctx.esp + 0x20;
     W32(send + netbuf::kData, t.va);

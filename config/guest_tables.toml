@@ -182,3 +182,19 @@ elem = 1
 count = 0x10000
 align = 1
 what = "SZ_GetSpace's answer to a request larger than a whole overflowing buffer (it returned the buffer's start)"
+
+# --- PC sessions (N1: src/game/net_session.cpp, docs/pc_multiplayer.md) ---
+
+[[table]]
+name = "net_launch"
+elem = 1
+count = 0xC00
+align = 1
+what = "the launch data a client's reconnecting relaunch passes to the title's relaunch (0xBF0E0), as 0x5F750 builds it"
+
+[[table]]
+name = "net_connect"
+elem = 1
+count = 0x100
+align = 1
+what = "the address `connect` uses when the typed one has no port (the PC port added)"

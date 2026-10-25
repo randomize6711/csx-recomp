@@ -1,0 +1,35 @@
+diff --git a/runtime/kernel/boot.cpp b/runtime/kernel/boot.cpp
+--- a/runtime/kernel/boot.cpp
++++ b/runtime/kernel/boot.cpp
+@@ -205,6 +205,8 @@ void Relaunch(const char* exe) {
+     ssize_t n = readlink("/proc/self/exe", self, sizeof(self) - 1);
+     std::string path = std::string(self, n > 0 ? size_t(n) : 0);
+     path = path.substr(0, path.find_last_of('/') + 1) + exe;
++    // the new image binds the same ports: the sockets are closed here as on Windows (they are close-on-exec too)
++    xnet::CloseSockets();
+     execl(path.c_str(), path.c_str(), nullptr);
+     std::_Exit(0);
+ #endif
+diff --git a/runtime/xdk/xnet.cpp b/runtime/xdk/xnet.cpp
+--- a/runtime/xdk/xnet.cpp
++++ b/runtime/xdk/xnet.cpp
+@@ -20,6 +20,9 @@
+ #include <algorithm>
+ #include <array>
+ #include <random>
++#ifndef _WIN32
++#include <fcntl.h>
++#endif
+ 
+ #include "app/app.h"
+ #include "xdk/hle.h"
+@@ -462,6 +465,9 @@ HLE_STDCALL(XNetDnsRelease, 1) {
+ static uint32_t AddSocket(SOCKET s, bool udp) {
+     u_long on = 1;
+     ::ioctlsocket(s, FIONBIO, &on);
++#ifndef _WIN32
++    ::fcntl(int(s), F_SETFD, FD_CLOEXEC);  // a relaunch execs: the socket must not hold its port in the new image
++#endif
+     if (udp) {
+         BOOL off = FALSE;
+         DWORD ret = 0;

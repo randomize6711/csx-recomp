@@ -59,6 +59,8 @@ void BindStart();
 void BindInput(int key);
 // a menu screen of the game is open (keyboard and mouse act as the pad there; otherwise as engine keys)
 bool MenuOpen();
+// the network's process settings (src/game/net_engine.cpp)
+void StartNetwork();
 // what GameInfo::loaded starts
 void Loaded();
 

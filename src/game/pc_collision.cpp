@@ -74,3 +74,10 @@ void PcPlayerCollisionMove(X86Context& ctx, uint8_t*) {
             LOGI("pc: player bodies: %u of %u physents (players) left out of the client's prediction", n - kept, n);
     }
 }
+
+namespace csx {
+// the match's setting, for a network client's signon (net_security.cpp)
+bool PlayerCollisionOn() {
+    return g_collision;
+}
+}  // namespace csx

@@ -50,6 +50,7 @@ void Loaded() {
     StartMemoryDumps();
     StartStateProbe();
     StartWriteWatch();
+    StartNetwork();
 }
 
 }  // namespace csx

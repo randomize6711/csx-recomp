@@ -4,7 +4,7 @@
 # docs/symbol_verification.md.
 
 # instead of [xbe] xdk = 5659, which needs a folder in the SDK
-includes = ["../xdk/5659/layout.toml", "player_slots_patches.toml"]
+includes = ["../xdk/5659/layout.toml", "player_slots_patches.toml", "net_patches.toml"]
 
 [xbe]
 path = "assets/default.xbe"
@@ -544,7 +544,6 @@ at = 0x000F33FC
 call = "LogFatalSite_000F33FC"
 # END fatal-site diagnostics
 
-
 # PC options in the game's own menus (src/game/pc_menu.cpp): the UI text loader 0xCD9A0 takes the file's size into ebp
 # at 0xCDA2C (IFileSystem size, vtable +0x3C) and allocates ebp + 1 at 0xCDA3C..0xCDAD1; 0xCDB1A follows the read
 # (+0x54) and close (+0x30), with the buffer in esi; the name stays at [esp+0x10] (4 registers pushed on a frame whose
@@ -1064,3 +1063,152 @@ on_true = 0x6C2E4
 at = 0x6A71D
 call = "NetFragmentsCheck"
 on_true = 0x6A3A1
+
+# PC sessions (src/game/net_session.cpp, docs/pc_multiplayer.md N1): the engine's connection without the Xbox lobby
+[[hook]]
+at = 0x29D3F
+call = "ClConnectAddress"
+on_true = 0x29D67
+
+[[hook]]
+at = 0x407C5
+call = "ConPrintfLog"
+
+[[hook]]
+at = 0x290B3
+call = "ClDisconnectLostHost"
+on_true = 0x290BA
+
+[[hook]]
+at = 0x29DA7
+call = "ClConnectDisconnected"
+
+[[hook]]
+at = 0xADA36
+call = "BootLobbyJoin"
+on_true = 0xADA40
+
+[[hook]]
+at = 0x5D5D7
+call = "HostFrameLobby"
+on_true = 0x5D5E1
+
+[[hook]]
+at = 0xED270
+call = "LobbySend"
+on_true = 0xED2F8
+
+[[hook]]
+at = 0x29019
+call = "ClDisconnectTransport"
+
+[[hook]]
+at = 0xE7040
+call = "MapChangeNotify"
+
+[[hook]]
+at = 0xBF0E0
+call = "RelaunchNotify"
+
+# the engine's UDP sockets on the PC transport (src/game/net_engine.cpp, src/net/transport.h; UDP_OpenSocket 0x6CDE0
+# and the receive 0x6C340 are replaced by X86_FUNC there)
+[[hook]]
+at = 0x6CCCC
+call = "NetSendTransport"
+on_true = 0x6CDC6
+
+[[hook]]
+at = 0x6D3C6
+call = "NetCloseSocket"
+on_true = 0x6D3CC
+
+[[hook]]
+at = 0x6D28C
+call = "NetLocalAddress"
+on_true = 0x6D291
+
+[[hook]]
+at = 0xCA017
+call = "UiPause"
+on_true = 0xCA021
+
+[[hook]]
+at = 0xCA07B
+call = "UiPause"
+on_true = 0xCA085
+
+[[hook]]
+at = 0xCD913
+call = "UiPause"
+on_true = 0xCD91D
+
+# the engine's network security (src/game/net_security.cpp; SV_CheckChallenge 0x98CE0 replaced there)
+[[hook]]
+at = 0x9BAC9
+call = "RconChallenge"
+on_true = 0x9BBA6
+
+[[hook]]
+at = 0x9ADE3
+call = "InfoNoKey"
+
+[[hook]]
+at = 0x9AE18
+call = "InfoNoKey"
+
+[[hook]]
+at = 0x9AE3C
+call = "InfoNoKey"
+
+[[hook]]
+at = 0x9A8B3
+call = "InfoStringNoKey"
+
+[[hook]]
+at = 0x9A8FB
+call = "InfoStringNoKey"
+
+[[hook]]
+at = 0x9A931
+call = "InfoStringNoKey"
+
+[[hook]]
+at = 0x9967E
+call = "ConnectUserinfo"
+
+[[hook]]
+at = 0xAB4ED
+call = "ClientCommandAllowed"
+on_true = 0xAB541
+
+[[hook]]
+at = 0x30A88
+call = "StuffTextFilter"
+
+[[hook]]
+at = 0xAB078
+call = "LagCompSkip1"
+on_true = 0xAB0DB
+on_false = 0xAB07C
+
+[[hook]]
+at = 0xAB227
+call = "LagCompSkip2"
+on_true = 0xAB36C
+on_false = 0xAB233
+
+[[hook]]
+at = 0x5C6BB
+call = "DropClientReason"
+
+[[hook]]
+at = 0x982F6
+call = "SignonPlayerCollision"
+
+[[hook]]
+at = 0x9E3F0
+call = "NetSendBegin"
+
+[[hook]]
+at = 0x9E6B6
+call = "NetSendEnd"
