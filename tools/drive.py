@@ -966,5 +966,17 @@ def exit_text(code):
     return f'exit code {code}'
 
 
+def stop_on_signal(sig, frame):
+    # SIGTERM / SIGHUP (a runner or session that stops) end the scenario through main's finally, which ends the game:
+    # left running, a game kept polling its run folder and took the next run's step files (net_two_humans, 2026-10-25)
+    raise KeyboardInterrupt
+
+
 if __name__ == '__main__':
-    sys.exit(main())
+    for s in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(s, stop_on_signal)
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        print('RESULT INTERRUPTED')
+        sys.exit(130)

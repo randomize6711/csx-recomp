@@ -3,7 +3,8 @@
 "Scoreboard"): in every logged snapshot each section's players are in the game's order (score down, then deaths up),
 a team header's count is its players, every bot's Ping is BOT and no human's is, a human's Ping is "-" or a number,
 no player number appears twice, the window's numbers agree with the rows marked on screen; and over the run every
-player of the largest list was on screen at some point (scrolling reached them all).
+player of the largest list was on screen at some point (scrolling reached them all). A network client's run is read
+up to its disconnect.
 
 Usage: python3 -I tools/check_scoreboard.py RUN_DIR [RUN_DIR ...]   (build/wruns/vk_scoreboard_169 ...)
 Exit status 1 with the problems listed when a check fails.
@@ -20,6 +21,10 @@ def check(run):
     seen_on, biggest = set(), 0
     snapshots = 0
     for line in open(run + '/run.out', errors='replace'):
+        # a network client's rows end with its connection: the player list goes first, the team headers' counts a
+        # moment later (a snapshot in between is the disconnect's, not the scoreboard's)
+        if re.search(r'net: server \S+ closed', line):
+            break
         if 'scoreboard: ' not in line or ' players in ' not in line:
             continue
         head, _, rest = line.rstrip('\n').partition(';')

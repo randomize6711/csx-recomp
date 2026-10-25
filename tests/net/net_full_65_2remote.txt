@@ -5,7 +5,8 @@
 # scrolls it (65 rows from the server's scores and pings: tools/check_scoreboard.py on their run folders). The bots
 # fight: kills (damage, the server's statistics) and round ends; the host's deaths and restarts make the 6 to 9 KB
 # snapshots the transport fragments; both clients stay connected throughout, until the host quits after its checks
-# (each client's last step: the server's shutdown reached it).
+# (each client's last step: the server's shutdown reached it). The clients keep moving while they wait: the game kicks a
+# remote player idle for twice the round time (mp_autokick, #Game_idle_kick; a listen server's own player is exempt).
 # timeout: 900
 [host] --launch tests/launch/de_aztec_bots62_nocollide --env FPS=30 --env CSX_LOG_NET=1 --env CSX_LOG_DATAGRAMS=1 --env CSX_LOG_SERVERTIME=1
 wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
@@ -80,4 +81,16 @@ expect log net.stats:.client.1.connections
 expect nolog Disconnected
 expect nolog Host_Error
 expect nolog guest trap
+pckey tap +moveleft 0.3
+sleep 20
+pckey tap +moveright 0.3
+sleep 20
+pckey tap +moveleft 0.3
+sleep 20
+pckey tap +moveright 0.3
+sleep 20
+pckey tap +moveleft 0.3
+sleep 20
+pckey tap +moveright 0.3
+sleep 20
 wait log (?i)net:.server.127\.0\.0\.1:27015.closed:.server.shut

@@ -53,7 +53,8 @@ sleep 1
 press A
 sleep 4
 press B
-sleep 5
+# past the Game Commencing restart (both teams joined, the round restarts ~3 s later and respawns everyone)
+sleep 10
 state m1
 pckey tap +moveleft 0.5
 sleep 1.5

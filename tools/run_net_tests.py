@@ -82,6 +82,100 @@ def game_pid(run, exe):
     return None
 
 
+class Resources:
+    """A game process's CPU, memory, threads and open file descriptors, sampled every 2 s into ROLE/resources.csv
+    (a relaunch keeps the process: descriptors that grow from one launch to the next are a leak)."""
+    TICK = os.sysconf('SC_CLK_TCK')
+
+    def __init__(self, run, exe):
+        self.run, self.exe, self.pid, self.rows, self.last = run, exe, None, [], 0.0
+        self.first_fds = self.last_fds = None  # {fd: what it is}, at the first and the last sample
+
+    def sample(self, now):
+        if now - self.last < 2.0:
+            return
+        self.last = now
+        if self.pid is None:
+            self.pid = game_pid(self.run, self.exe)
+            if self.pid is None:
+                return
+        try:
+            with open(f'/proc/{self.pid}/stat') as f:
+                fields = f.read().rsplit(')', 1)[1].split()
+            cpu = (int(fields[11]) + int(fields[12])) / self.TICK  # utime + stime
+            status = dict(l.split(':', 1) for l in open(f'/proc/{self.pid}/status') if ':' in l)
+            rss = int(status['VmRSS'].split()[0]) / 1024
+            hwm = int(status['VmHWM'].split()[0]) / 1024
+            threads = int(status['Threads'])
+            names = {}
+            for fd in os.listdir(f'/proc/{self.pid}/fd'):
+                try:
+                    names[int(fd)] = os.readlink(f'/proc/{self.pid}/fd/{fd}')
+                except OSError:
+                    pass
+            fds = len(names)
+        except (OSError, KeyError, IndexError, ValueError):
+            return
+        if self.first_fds is None:
+            self.first_fds = names
+        self.last_fds = names
+        self.rows.append((now, cpu, rss, hwm, threads, fds))
+
+    def summary(self):
+        if len(self.rows) < 2:
+            return None
+        with open(os.path.join(self.run, 'resources.csv'), 'w') as f:
+            f.write('time,cpu_s,rss_mb,peak_rss_mb,threads,fds\n')
+            t0 = self.rows[0][0]
+            for r in self.rows:
+                f.write(f'{r[0] - t0:.1f},{r[1]:.2f},{r[2]:.1f},{r[3]:.1f},{r[4]},{r[5]}\n')
+        # ROLE/fds.txt: the descriptors open at the end, "(again)" on a file open more times than at the first sample
+        # (a relaunch that kept the old image's handles shows as each of its files twice); sockets by kind only
+        def kind(name):
+            return 'socket' if name.startswith('socket:') else name
+        before = {}
+        for name in self.first_fds.values():
+            before[kind(name)] = before.get(kind(name), 0) + 1
+        seen = {}
+        with open(os.path.join(self.run, 'fds.txt'), 'w') as f:
+            for fd, name in sorted(self.last_fds.items()):
+                seen[kind(name)] = seen.get(kind(name), 0) + 1
+                extra = seen[kind(name)] > max(1, before.get(kind(name), 0)) and kind(name) != 'socket'
+                f.write(f'{fd} {name}{"  (again)" if extra else ""}\n')
+        (t0, c0, *_), (t1, c1, *_) = self.rows[0], self.rows[-1]
+        peak = max((b[1] - a[1]) / (b[0] - a[0]) for a, b in zip(self.rows, self.rows[1:]) if b[0] > a[0])
+        fds = [r[5] for r in self.rows]
+        return (f'cpu {100 * (c1 - c0) / (t1 - t0):.0f}% of a core on average (peak {100 * peak:.0f}%), memory '
+                f'{self.rows[-1][2]:.0f} MB (peak {max(r[3] for r in self.rows):.0f} MB), threads {self.rows[-1][4]}, '
+                f'file descriptors {fds[0]} at the start, {max(fds)} at most, {fds[-1]} at the end')
+
+
+def games_under(folder, exe):
+    # game processes working in folder or below it (also one whose folder was deleted and made again since)
+    found = []
+    for pid in os.listdir('/proc'):
+        if not pid.isdigit():
+            continue
+        try:
+            cwd = os.readlink(f'/proc/{pid}/cwd').removesuffix(' (deleted)')
+            if os.readlink(f'/proc/{pid}/exe').removesuffix(' (deleted)') == os.path.realpath(exe) and \
+                    (cwd == folder or cwd.startswith(folder + os.sep)):
+                found.append(int(pid))
+        except OSError:
+            continue
+    return found
+
+
+def end_games(folder, exe, why):
+    for pid in games_under(folder, exe):
+        print(f'  ended a game left running in {folder} (pid {pid}, {why})')
+        for sig in (9, 18):  # SIGKILL, then SIGCONT for a frozen one
+            try:
+                os.kill(pid, sig)
+            except OSError:
+                pass
+
+
 def log_text(run):
     # a game's log, or a tool's (--exec) output
     text = ''
@@ -129,13 +223,15 @@ def run_test(path, exe):
     timeout = header.get('timeout', '900')
     netem = header.get('netem', '')
     shell = 'ip link set lo up' + (f'; tc qdisc add dev lo root netem {netem}' if netem else '') + '; exec sleep 100000'
+    # a game an earlier run left (a killed runner) polls this test's folders by path: it would take this run's step files
+    end_games(os.path.join(ROOT, 'build', 'nruns', name), exe, 'from an earlier run')
     # an earlier run's logs would satisfy --after conditions before this run's processes have written anything
     shutil.rmtree(os.path.join(ROOT, 'build', 'nruns', name), ignore_errors=True)
     # left as it is if the runner is killed outright (SIGKILL): a test without a verdict, not an old one
     write_result(name, 'RUNNING', {})
     holder = subprocess.Popen(['unshare', '-rn', 'sh', '-c', shell])
     time.sleep(1)
-    procs, runs, started = {}, {}, {}
+    procs, runs, started, resources = {}, {}, {}, {}
     freezes, frozen, freeze_roles = [], [], set()
     try:
         pending = list(enumerate(sections))
@@ -197,7 +293,11 @@ def run_test(path, exe):
                     freeze_roles.add(sec['role'])
                 runs[sec['role']] = run
                 started[sec['role']] = time.time()
+                if '--exec' not in opts:
+                    resources[sec['role']] = Resources(run, exe)
                 pending.remove((k, sec))
+            for r in resources.values():
+                r.sample(time.time())
             for f in list(freezes):
                 if time.time() >= f[0]:
                     pid = game_pid(f[1], exe)
@@ -224,6 +324,9 @@ def run_test(path, exe):
         for role, run in runs.items():
             verdicts[role] = role_verdict(run, procs[role].returncode, role in freeze_roles)
             print(f'  [{role}] {verdicts[role]} (exit {procs[role].returncode})')
+            res = resources.get(role)
+            if res and (text := res.summary()):
+                print(f'    {text}')
             with open(os.path.join(run, 'drive.out')) as f:
                 for line in f:
                     if line.startswith(('FAIL', 'note')) or not line.startswith(('ok', 'RESULT')):
@@ -252,6 +355,12 @@ def run_test(path, exe):
         for p in procs.values():
             if p.poll() is None:
                 p.terminate()
+        for p in procs.values():
+            try:
+                p.wait(15)
+            except subprocess.TimeoutExpired:
+                p.kill()
+        end_games(os.path.join(ROOT, 'build', 'nruns', name), exe, 'after its scenario ended')
         holder.kill()
         holder.wait()
 
