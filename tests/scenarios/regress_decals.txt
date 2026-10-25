@@ -1,6 +1,8 @@
 # Decals stay on their walls (FINDINGS.md "Decals", SDK patch 0026): the "B" sign at the far end of de_airstrip's
 # Terrorist tunnel (infodecal {siteB} at -1693 658 72) seen from the tunnel at three view angles 0.3 degrees apart; its
-# polygon offset (bias -5000 depth units) keeps it in front of the wall, without it it z-fights away.
+# polygon offset (bias -5000 depth units) keeps it in front of the wall, without it it z-fights away. The walk ends
+# where the walk lets it (a bot in the way, the spawn's place): the player is then put on the spot the pictures were
+# taken from (place: the same origin the walk reaches unhindered), so the sign fills the same part of each picture.
 #   --launch tests/launch/de_airstrip_beginner
 wait log open D:\\.*\.sxwad
 wait draws>=150
@@ -27,6 +29,8 @@ sleep 1.3
 press LS 60
 sleep 2.3
 state tunnel
+place 0 -1684.461 1168.031 36.031
+sleep 1
 snap decal0
 look 0.3 0
 sleep 1

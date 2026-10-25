@@ -4,7 +4,9 @@
 # are put in each other's way (tools/drive.py place, players):
 # - the player walks at bot 1 (+forward 2 s from 256 units away; the open floor reaches 557): it stops against the bot's
 #   box (32 units from its centre)
-# - the player dropped from 110 units onto bot 1's head: it stands on the head (72 units up)
+# - the player dropped from 110 units onto bot 1's head: it stands on the head (72 units up; 36 to 54 when the bot
+#   was held crouching or still standing up: bot_stop keeps the posture it had, -270 its crouched origin), not on
+#   the floor (-252) as with Collision Off
 # - bot 2 dropped onto bot 1's head: it stands on the head
 # - shots: a Glock shot at bot 1 from 128 units hurts it; an HE grenade (bought through the buy menu) thrown at it hurts
 #   it again: damage and hit detection are the title's
@@ -58,7 +60,7 @@ expect bodymoved walk0 walk1 1 0 1
 place 0 2352 0 -141.969
 sleep 2
 players drop
-expect bodyz drop 0 -181 -178
+expect bodyz drop 0 -217 -178
 place 0 2352 -400 -251.969
 place 2 2352 0 -141.969
 sleep 2
@@ -114,7 +116,7 @@ sleep 1
 place 0 2352 0 -141.969
 sleep 2
 players drop2
-expect bodyz drop2 0 -181 -178
+expect bodyz drop2 0 -217 -178
 pckey cmd pc_player_collision 0
 wait log pc: player collision is set at the match's start \(Custom Options\): stays on
 expect nolog guest trap

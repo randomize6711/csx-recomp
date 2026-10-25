@@ -655,3 +655,10 @@ engine glue, direct connect without the lobby, map-change rejoin, the engine's s
 Results: network scenarios 12 of 12 (section 15.2), unit tests all pass, measurements in section 15.3.
 Offline: headless regression 45 of 46 (regress_lagcomp_last_slot's bot out of view, fixed b29b171, passes), window
 suite 30 of 30 with scoreboard, bot count and Player Collision. Branch g8.2b, not merged. N2 waits for approval.
+
+## 2026-10-25 — N1 signed off
+
+The full headless regression after the lag-compensation fix, twice (docs/pc_multiplayer.md 15.8): 44 of 46 under
+load, 45 of 46 alone; the three different failures each passed every rerun. Two scenarios' assumptions removed
+(regress_decals: the player placed after its walk; regress_player_collision_on: a crouched bot's head counts).
+The 65 slots: the host's player, 2 remote humans, 62 bots (65 occupied, checked by the run). N2 approved.

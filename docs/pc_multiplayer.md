@@ -614,6 +614,26 @@ ca_dedicated without a client in the title's boot (section 7); a server that doe
 with its clients (as now); server keys that persist (15.4 item 1); admin rights for kick / pause / rcon instead of
 "host only"; a fixed tick that sleeps; logging and config files.
 
+### 15.8 N1 sign-off (2026-10-25)
+
+The headless suite (tests/run_regression.sh, 46 scenarios) was run twice in full after the lag-compensation scenario
+fix (b29b171), at 1a3081e:
+- first run 44 of 46 while other network runs shared the machine: regress_pc_bindings (the buy menu opened 60 s late,
+  so the pause-menu presses after it landed elsewhere) and regress_player_collision_on (the player stood on a bot held
+  half-crouched, -201.9, outside the standing-head range);
+- second run, nothing else running, 45 of 46: regress_decals (the walk to the sign ended 32 units short: the sign
+  left the sampled box).
+Each of the three passed every rerun alone (bindings 4 of 4, collision 5 of 5, decals 2 of 2 after the change). None
+is a game regression: two were the scenarios' own assumptions, now removed (regress_decals puts the player on the
+spot the pictures are taken from after its walk; regress_player_collision_on accepts a player on a crouched or
+standing bot's head, -217..-178, still apart from the floor at -252); regress_pc_bindings has no fix (its log was
+overwritten; it presses through the menus by count and is load sensitive).
+
+65 slots, reconciled: net_full_65_2remote fills all 65 with the host's own player (the listen server's, userid 1),
+2 remote humans (userids 2, 3) and 62 bots: 3 + 62 = 65 occupied, checked in the run (players: 65 of 65 before and
+after the restarts, 3 human and 62 BOT "joined team" lines, the 2 remote pings, scoreboards of 65 rows). "2 remote +
+62 bots = 64" left out the host's player. Two remote humans with 63 bots needs a server without its own player (N2).
+
 ### 15.7 Commits (branch g8.2b)
 
 | Commit | What |
