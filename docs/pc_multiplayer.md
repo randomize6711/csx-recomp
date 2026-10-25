@@ -1,7 +1,8 @@
 # PC multiplayer: architecture investigation and roadmap (N0, 2026-10-24)
 
-Milestone N0 (investigation only, approved 2026-10-24). Nothing here is implemented; N1 waits for the user's
-approval of the architecture below. Direction: ARCHITECTURE.md "Direction: PC first". Detailed evidence, with every
+Milestone N0 (investigation only, approved 2026-10-24); N1 (the PC transport and remote clients) approved 2026-10-25
+and built: section 15 describes what exists, its tests, measurements and limits. Sections 1-14 are the N0 analysis
+and plan as approved. Direction: ARCHITECTURE.md "Direction: PC first". Detailed evidence, with every
 guest address, is in the analysis files this document cites:
 
 - analysis/netcode_engine.md: the engine's netcode (server start, connectionless protocol, connecting, netchan,
@@ -13,7 +14,7 @@ guest address, is in the analysis files this document cites:
 
 Contents: 1 current architecture, 2 does remote play work today, 3 packet sizes and the transport, 4 options and the
 recommendation, 5 snapshots and replication, 6 security, 7 dedicated server, 8 configuration, 9 server browser,
-10 split-screen, 11 testing, 12 performance, 13 roadmap, 14 open questions and risks.
+10 split-screen, 11 testing, 12 performance, 13 roadmap, 14 open questions and risks, 15 N1 as built.
 
 ## 1. Current architecture
 
@@ -457,3 +458,178 @@ clients), N3 needs N1 (queries) and benefits from N2 (servers to list), N4 needs
    self-hosted servers.
 8. **Port defaults**: 27015 (GoldSrc's) or keep 1001.
 9. **Bandwidth defaults** for home-hosted 65-player servers (30 or 60 Hz).
+
+## 15. N1 as built (2026-10-25)
+
+### 15.1 Architecture
+
+- **Transport** (src/net/transport.{h,cpp}, src/net/udp.cpp; libsodium 1.0.22): one UDP socket per engine socket
+  (server: port 27015, `net_port` / CSX_NET_PORT; client: any port), under the engine's netchan (which keeps
+  sequencing, acknowledgement and the reliable stream). Handshake: hello padded to 1200 bytes (no amplification) ->
+  challenge with a stateless cookie (HMAC-SHA256 under a per-process random key, over address, port, nonce, time and
+  the server's key; 15 s) ->
+  connect (X25519 public key, optional Ed25519 identity signature over the handshake) -> accept (connection id,
+  AEAD proof of the keys). Data: ChaCha20-Poly1305 IETF, the 64-bit packet number as nonce, the header as associated
+  data, keys per direction from crypto_kx; a 64-number replay window; engine packets up to 64 KB fragmented into
+  <= 1200-byte datagrams (57 fragments at most), reassembly 8 messages / 256 KB per connection, 1 s; keepalive 1 s,
+  idle timeout 30 s; disconnect frames with a reason; per-source (20/s) and global (500/s) handshake rates; 128
+  connections, 16 per address. Transport version 2 (rejects carry the handshake nonce).
+- **Engine glue** (src/game/net_engine.cpp): UDP_OpenSocket (0x6CDE0) and the receive (0x6C340) replaced,
+  NET_SendPacket (0x6CCCC), NET_CloseIP and NET_GetLocalAddress hooked; split packets unused; a network client's
+  datagram built in 60 KB like the loopback's (net_buffers.cpp). Rates: rate 100000, cl_updaterate 30, cl_cmdrate 60
+  (`net_rate`, `net_update_rate`, `net_cmd_rate`), sv_maxrate's cap raised to 1000000 (config/net_patches.toml).
+- **Sessions** (src/game/net_session.cpp): `+connect host[:port]` at boot skips the system link lobby; `connect`
+  takes its argument (not the lobby's address); map change = the server relaunches and tells its clients
+  (MapChange), each client relaunches into `+connect`; a connect or retry in a process that already joined a server
+  relaunches too (one world load per process, FINDINGS.md "PC multiplayer N1"); the menus' pause is skipped while
+  network players are connected. run_game.sh `--host [--port P]` and `--connect HOST[:PORT]`.
+- **Engine security** (src/game/net_security.cpp, src/game/stuff_filter.h): the connect challenge checked
+  (SV_CheckChallenge 0x98CE0 replaced; the challenge table's time is the issue order), the rcon challenge checked,
+  the info replies without XNKID / XNKEY / XNADDR, "*" keys stripped from a network client's userinfo (and *pid, the
+  identity's fingerprint, added), kick / pause / setpause / unpause refused to network clients and the cheats unless
+  sv_cheats (the engine's own parsed token), svc_stufftext from a network server limited to a list (split as
+  Cbuf_Execute splits), the last slot lag compensated, drop reasons sent through the transport, Player Collision sent
+  at signon.
+- **Not built**: the protocol load generator of section 11 (every load client is a full headless game process), LAN
+  broadcast (no discovery: direct connect only), IPv6, NAT traversal, the byte budget per snapshot (section 5), a
+  dedicated server (N2), a browser (N3).
+
+### 15.2 Tests and commands
+
+| What | Command |
+|---|---|
+| transport unit tests (ASan, UBSan; simulated network) | `python3 -I tests/net_transport_test.py` |
+| stufftext filter | `python3 -I tests/stuff_filter_test.py` |
+| packet buffers | `python3 -I tests/net_buffers_test.py` |
+| multi-process scenarios (all, or named) | `python3 -I tools/run_net_tests.py [tests/net/NAME.txt ...]` |
+| traffic summary of a run | `python3 -I tools/net_summary.py build/nruns/NAME/ROLE/run.out` |
+| scoreboard rows of a run | `python3 -I tools/check_scoreboard.py build/nruns/NAME/ROLE` |
+
+The runner gives every process a verdict (PASS, FAIL, TIMEOUT, CRASH, NOT STARTED) and the test the worst of them,
+written to build/nruns/NAME/result.txt (RUNNING while it runs, INTERRUPTED when stopped), and samples each game's CPU,
+memory, threads and file descriptors (ROLE/resources.csv, ROLE/fds.txt). A full run takes about 25 minutes: start it
+in the background, not inside a tool call with a time limit.
+
+Results on 2026-10-25 (build at 0bfcdfb + the test changes of 44005a8):
+
+| Scenario | Processes | Shows | Result |
+|---|---|---|---|
+| net_two_humans | host + 1 | connect, signon, teams, movement, firing, hit, damage, kill, score, round end and restart, ping | PASS (91 s) |
+| net_two_humans_latency | host + 1, netem 125 ms ± 20 ms, 1% loss | the same under latency | PASS (102 s) |
+| net_two_humans_lossy | host + 1, netem 40 ms, 5% loss, 2% duplicates, 10% reordering | the same under loss | PASS (94 s) |
+| net_join_early | host + 3 joining while the host loads | the first-second challenge bug (2 of 3 refused before the fix) | PASS (39 s) |
+| net_join_together | host + 3 joining at once | simultaneous signon | PASS (39 s) |
+| net_disconnect | host + 3 in turn, one frozen | graceful leave, rejoin in the freed slot, timeout, server shutdown told | PASS (84 s) |
+| net_reconnect | host + 3 | 3 reconnects in one process (connect, connect, retry), joins and quits across processes | PASS (73 s) |
+| net_map_change | host + 1 | the server's relaunch, the client rejoins, no descriptor kept | PASS (225 s) |
+| net_malformed | host + 1 + fuzzer | random and truncated datagrams with valid prefixes; no trap, no error | PASS (79 s) |
+| net_load_8 | host + 8 | 9 players moving for a minute | PASS (142 s) |
+| net_full_65 | host + 1, 63 bots, collision off | 65 slots, three forced restarts (6-9 KB snapshots fragmented) | PASS (83 s) |
+| net_full_65_2remote | host + 2, 62 bots, collision off | 65 slots, both remote players move, scoreboards of 65 (tools/check_scoreboard.py: all checks), 39 kills, 3 round ends, pings and BOT labels | PASS (223 s) |
+
+The suite run before the last fixes had net_two_humans time out twice: once an orphaned game from an earlier
+stopped run took its host's step files, once its client sampled its position across the Game Commencing respawn
+(both fixed in 44005a8; FINDINGS.md "PC multiplayer N1"). Unit tests: net_transport_test 86 checks,
+stuff_filter_test 14, net_buffers_test 18,314, scoreboard_rows_test 1222, guest_tables_test, slot_audit_test and
+recomp_patches all pass.
+
+Offline regression on the same build: the headless suite (tests/run_regression.sh) 45 of 46, the one failure
+regress_lagcomp_last_slot, whose shot at slot 65's bot missed because the bot was not in view (the scenario now brings
+it in front first, b29b171; it passes); offline matches, 64 bots, Number of Bots, map changes, the sound and graphics
+fixes in it. The window suite (tools/run_window_tests.py, the 27 default scenarios plus vk_scoreboard_169,
+vk_bot_count_169 and vk_player_collision_169) 30 of 30: 65 players (32 CT, 33 T), Player Collision on and off,
+scoreboard scrolling over 65 with BOT labels; tools/check_scoreboard.py on vk_scoreboard_169 passes once it checks the
+header counts only while the board is open (97ed5bf: the hidden panel's counts are recounted when it opens, as in the
+original). Descriptors stay flat across map changes (16 after a relaunch, 24 before 0bfcdfb); no game left running
+after any run.
+
+### 15.3 Measurements (headless, Linux, 16 threads, one machine)
+
+Every client here is a full headless game process (simulation, prediction, the reference renderer's null path): no
+protocol-only load generator exists yet (15.1), so "load" means real gameplay clients, at most 8 at once on this
+machine. Traffic is the transport's (headers, tags and fragmentation included), from CSX_LOG_NET.
+
+| Run | Server out | Server in | Fragmented | Largest message | Loss / replays / auth / malformed | Server frame | SV_SendClientMessages |
+|---|---|---|---|---|---|---|---|
+| net_load_8 (9 humans, no bots) | 14.5 KB/s (peak 27.6), 1.8 KB/s a client, 142 datagrams/s | 13.5 KB/s, 1.7 a client | 8 in 92 s | 1170 B | 0 / 0 / 0 / 0 | 0.97 ms mean, 2.12 max | 0.55 ms mean, 10.4 max |
+| net_full_65 (1 remote, 63 bots) | 7.5 KB/s (peak 25.2) | 1.8 KB/s | 18 in 74 s | 5651 B | 0 / 0 / 0 / 0 | (not logged) | 0.21 ms mean, 1.1 max |
+| net_full_65_2remote (2 remote, 62 bots) | 9.9 KB/s (peak 48.3), 4.9 a client | 3.8 KB/s | 39 in 218 s | 7061 B | 0 / 0 / 0 / 0 | 8.84 ms mean, 13.6 max | 0.26 ms mean, 1.7 max |
+
+A remote client in the 65-player match sends 2.0 KB/s (30 commands a second) and receives 5.4-7.4 KB/s on average,
+25 KB/s at peaks (round restarts); about 17-21 server messages a second arrive against cl_updaterate 30 (15.5).
+Processes (resources.csv): the host 26% of a core with 8 clients, 48% with 62 bots and 2 remote players; each client
+13-25%; memory 122-125 MB for a host, 105-117 MB for a client; 15 threads; descriptors 13-16, flat over every run,
+also across the map change's relaunch (SDK patch 0042).
+
+### 15.4 Security review (2026-10-25)
+
+An independent review of src/net and the engine checks found eight defects; each was traced in the code, fixed, and
+covered by a test that fails before the fix (tests/net_transport_test.py 11 new checks, tests/stuff_filter_test.py):
+a use after free when a client reconnected while its old connection was closing; a closing connection kept alive by
+its peer's packets and answered under an erased key; unauthenticated rejects; a rate table scanned on every hello
+once full (spoofed floods); identity.key world-readable; a server able to run any command on its clients (stufftext
+filter split differently from Cbuf_Execute); a client able to kick or pause through a parser difference; the
+sodium_init result ignored. Verified correct: the libsodium use (crypto_kx keys per direction, low-order keys
+refused, return values checked), nonces (packet numbers from 1, fresh keys per connection), the tag checked before any
+use of the plaintext, the replay window, the cookie, bounds on every header and fragment, no amplification, no session
+secret in logs or replies.
+
+Remaining risks, by severity:
+
+1. **No server authentication**: the server's key exchange key is new every launch and nothing pins it, so an
+   on-path attacker can impersonate a server (and relay to the real one: rcon passwords, chat). Fine on a LAN or
+   between friends on a trusted path; for the internet it needs server keys that persist and are pinned (trust on
+   first use) or published (N2 / N3, with the browser).
+2. **A malicious server** still runs the allowed commands (say, retry, slot changes...) and sends any game data the
+   client parses: the engine's client-side parsers were not hardened beyond G8.2B's packet checks.
+3. **Floods**: the global handshake budget keeps a flood from many spoofed sources cheap, but also lets it delay real
+   clients while it lasts (the budget refills in seconds); no per-connection bandwidth cap beyond the engine's rate.
+4. **Identity** proves only the same install (64-bit fingerprint in *pid); ban and admin lists should store the full
+   key (N2).
+5. **Rcon**: the challenge is checked, the password is the engine's (plain text over the encrypted link: safe from
+   eavesdroppers off the path, not from item 1).
+6. Minor: a re-sent accept reuses the nonce 0 Poly1305 key with another associated data (only nonce-0 accepts of
+   that connection could be forged); a pre-challenge version reject is not authenticated (it can only end a handshake
+   that has not been challenged yet).
+
+Verdict: suitable for LAN play and play between friends over a trusted path (direct connect, optional identity); not
+for open internet exposure until item 1 is solved, the client-side parsers are reviewed, and a dedicated server's
+admin model exists (N2).
+
+### 15.5 Known limitations
+
+- Map changes relaunch the server and every client (open question 1 unchanged); a client in a process that already
+  joined relaunches to join again.
+- A listen server's own player takes a slot: 65 players are the host, remote humans and bots (2 remote humans need 62
+  bots; 63 bots with 2 remote humans needs N2).
+- Snapshot rate to a client in a 65-player match was ~17 messages a second against cl_updaterate 30 (section 15.3):
+  the engine's rate and choke logic, not tuned in N1.
+- A game ended by a signal (SIGINT from a test, Ctrl+C) leaves its server to time it out (20 s): the exit path that
+  tells the peers runs on a normal exit (quit, closing the window) only.
+- No LAN discovery: System Link's search finds nothing; joining is by address.
+
+### 15.6 What N2 (dedicated server) depends on
+
+ca_dedicated without a client in the title's boot (section 7); a server that does not relaunch per map, or relaunches
+with its clients (as now); server keys that persist (15.4 item 1); admin rights for kick / pause / rcon instead of
+"host only"; a fixed tick that sleeps; logging and config files.
+
+### 15.7 Commits (branch g8.2b)
+
+| Commit | What |
+|---|---|
+| df2bb0b | Build: libsodium |
+| 998e639 | Transport (src/net), unit test, fuzzer |
+| ea979d5 | The engine on the transport; SDK patch 0041 |
+| 39acee2 | Multi-process network scenarios; run_game.sh --host / --connect |
+| 612eb8e | Challenges in the server's first second; a second connect relaunches |
+| 67d0078 | Runner verdicts, fresh run folders |
+| 44d5e37 | Transport security review fixes (transport version 2) |
+| e364175 | Stufftext and client-command checks parse as the engine does |
+| 0bfcdfb | SDK patch 0042: a relaunch closes every descriptor |
+| 44005a8 | No orphaned games; resources per process; scenario timing |
+| b29b171 | regress_lagcomp_last_slot brings slot 65's bot in view |
+| 97ed5bf | check_scoreboard: header counts while the board is open |
+
+Nothing is merged into main.
+

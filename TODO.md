@@ -61,11 +61,12 @@
    frames (changes behaviour), Vulkan recording on its own thread, draw batching.
 1e3. A pre-existing crash when players leave mid-round (bot_kick: StatShot AddDamage 0x153890 on a released damage
    record; the G7 build too): matters for online play, where players disconnect. Needs its own fix and approval.
-1e4. PC multiplayer (docs/pc_multiplayer.md, N0 done 2026-10-24, waiting for approval of the architecture):
-   N1 the PC transport and remote clients (includes snapshots past 4000 bytes over UDP, FINDINGS.md "Packet
-   overflow"; the Linux relaunch socket leak that stops a relaunched system-link host from being found; the unchecked
-   connect challenge; the info replies' session keys; the last slot never rewound by lag compensation), N2 the
-   dedicated server, N3 the server browser, N4 split-screen. Open questions in docs/pc_multiplayer.md section 14.
+1e4. PC multiplayer (docs/pc_multiplayer.md): N0 done 2026-10-24; N1 (the PC transport and remote clients) built and
+   stabilised 2026-10-25 (section 15), waiting for the user's approval before N2. Left from N1 (section 15.4 / 15.5):
+   server authentication (persistent, pinned server keys) before any internet use; the client-side message parsers
+   against a hostile server; the snapshot rate to clients in a 65-player match (~17 a second against 30); a game ended
+   by a signal not telling its server; LAN discovery; a protocol-only load generator for 64 remote clients. Then N2
+   the dedicated server, N3 the server browser, N4 split-screen. Open questions in section 14.
 1f. Memory modernization (after G8.2B, docs/memory_modernization.md section 4): a configurable contiguous pool and
    real MmQueryStatistics totals, the engine's fixed pools for larger maps and assets, a second data arena only if
    needed, memory dumps over the whole user range; out of memory reports in G8.2B checkpoint 2.

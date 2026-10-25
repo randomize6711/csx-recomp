@@ -630,3 +630,28 @@ Approved by the user after the scoreboard test (investigation only; N1 waits for
   client process per local player. Roadmap N1 transport, N2 dedicated server, N3 browser, N4 split-screen.
 - Docs: docs/pc_multiplayer.md (new), FINDINGS "PC multiplayer investigation", ARCHITECTURE decision 16, ROADMAP,
   TODO 1e4, docs/networking.md. No code changed.
+
+## 2026-10-25 — N1: PC transport and remote clients, stabilised
+
+Approved by the user 2026-10-25 (Option B: optional per-install identity, port 27015, 30 snapshots a second).
+Built (docs/pc_multiplayer.md section 15): the encrypted UDP transport under the engine's netchan (src/net), the
+engine glue, direct connect without the lobby, map-change rejoin, the engine's security checks. Checkpointed first
+(df2bb0b .. 39acee2), then stabilised:
+- net_disconnect: the runner never emptied its run folders, so a section's --after matched an earlier run's log and
+  client2 started with the host; that exposed a real bug: in the server's first second every challenge landed in the
+  same table entry and all but the last client were refused (the case of every map change). Fixed: the issue order
+  as the entry's time (612eb8e). Regression net_join_early, net_join_together.
+- In-process reconnect (connect, retry) crashed the client: a second world load ran the texture records into
+  com_argv. A connect after joining relaunches into +connect, as map changes do (612eb8e). net_reconnect.
+- net_full_65's stop at 27 s: the previous session's 10 minute tool limit (no crash, no error). Passes (83 s); a
+  variant with two remote humans and 62 bots (net_full_65_2remote) passes with scoreboards, kills, round ends.
+- Runner: verdicts PASS / FAIL / TIMEOUT / CRASH / NOT STARTED per process, result.txt, INTERRUPTED on signals,
+  CPU / memory / descriptor sampling; orphaned games ended (one had taken a later run's input).
+- Security review (independent, 2026-10-25): 8 defects fixed with tests (44d5e37, e364175): a use after free on
+  reconnect, closing connections kept alive, unauthenticated rejects, rate-table flood cost, identity.key 0644, the
+  stufftext filter bypass (server-run commands), the client-command parser difference (kick / pause), sodium_init.
+  Not for the open internet yet: no server authentication (section 15.4).
+- SDK patch 0042: the Linux relaunch kept 8 descriptors (the old guest memory's memfd among them) a relaunch.
+Results: network scenarios 12 of 12 (section 15.2), unit tests all pass, measurements in section 15.3.
+Offline: headless regression 45 of 46 (regress_lagcomp_last_slot's bot out of view, fixed b29b171, passes), window
+suite 30 of 30 with scoreboard, bot count and Player Collision. Branch g8.2b, not merged. N2 waits for approval.

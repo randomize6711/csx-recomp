@@ -1941,6 +1941,44 @@ Remaining uncertainty: the bots' avoidance of teammates is their own logic and w
 they can still pause behind each other); hostages keep blocking (they are not players); network play is untested and
 the option is not offered there.
 
+## PC multiplayer N1: stabilisation findings (2026-10-25)
+
+- **Challenges in the server's first second**: SVC_GetChallenge (0x99D90) gives a new address the entry with the
+  strictly lowest time (`jge` 0x99E4D) and stores `(int)realtime` (0x9A050 / 0x9A055). While the server has run less
+  than a second every stored time is 0, as an empty entry's, so the "oldest" is always entry 0: clients asking in that
+  second overwrote each other and all but the last were refused "No challenge for your address" at connect, then sat
+  on LostHost (its render loop never returns). A map change's relaunch is exactly that case (every client rejoins a
+  server that just started). Fixed: the time is the issue order (hooks 0x9A055, 0x9A2E4; net_join_early, 2 of 3
+  refused before). The same handler is stock GoldSrc; the Xbox build only made the first second likely.
+- **A second world load in one process**: `connect` / `retry` while connected (or after joining once) loads the map's
+  textures again. Sprites come back under new names (GL_LoadTexture renames a same-name, other-size texture by
+  incrementing its 4th character at 0x4897F: "sprites/..." -> "sprjtes/...") and the 0x54-byte texture records run
+  past their area into com_argv (0x7482E4, overwritten with "ass2"): COM_CheckParm (0x3F160) crashed at the next
+  signon (net_reconnect, core dumps 2026-10-25 10:09 and 10:18; numgltextures 995 then, so the unchecked writer is
+  not the gltextures count check: not pinned down further). The map change already relaunched for this; a connect in
+  a process that joined a server now relaunches into "+connect" too (hook 0x29D22).
+- **Relaunch leaks (Linux)**: the relaunch execs the same executable and every descriptor without close-on-exec lived
+  on: the old image's log, default.xbe, the map's SXWad, its sound banks and the guest memory's memfd (8 a relaunch,
+  build/nruns/net_map_change/*/fds.txt). SDK patch 0042 marks every descriptor past stderr close-on-exec first.
+  Sockets did not leak (patch 0041).
+- **Engine parsing the filters must match**: Cbuf_Execute (0x3BB50) ends a command at every newline even inside
+  quotes (0x3BB94), at ';' only outside them, counting quotes afresh per line, and drops a whole over-long line (its
+  copy capped at 0x3FF, 0x3BBAA, the rest not run). SV_ParseStringCommand's check (0xAA680) compares com_token
+  (0x747DC0) after COM_Parse (0x3EF80), which skips every character up to a space and strips quotes.
+- **Idle kick**: the game kicks a remote player idle for twice the round time (mp_autokick, "#Game_idle_kick"); a
+  listen server's own player is exempt. Seen in net_full_65_2remote (both remote players kicked together at 159 s).
+- **Orphaned test games**: a drive.py ended by SIGTERM left its game running; the game kept polling its run folder
+  by path and consumed the next run's step files (its presses), so a later net_two_humans' host never chose a team.
+  drive.py now ends its game on SIGTERM / SIGHUP and the network runner ends any game left in a test's folders.
+- **The interrupted net_full_65 (2026-10-25 09:36)**: no crash or error; both processes stopped in the same second,
+  about 10 min 40 s after net_disconnect (which hung for its whole 600 s) started in the same invocation: the tool
+  call's 10 minute limit ended the runner. The test passes (83 s).
+- **The scoreboard's team counts while it is closed**: the hidden panel refreshes its rows on a score change (a kill),
+  but the game recounts g_TeamInfo[team].players (0x548A28 + 0x1C) only when the board opens. vk_scoreboard_169 logged
+  hidden snapshots with the T header at 32 over 33 rows (the 65th bot joined at 40.2 s, the first kill at 44.9 s); the
+  board opened at 59.1 s showing 33. Nothing wrong is ever drawn: tools/check_scoreboard.py checks header counts only
+  while the Scoreboard screen is open (97ed5bf).
+
 ## PC multiplayer investigation (2026-10-24, N0)
 
 Read-only investigation of the engine's netcode, dedicated server and browser feasibility and split-screen, plus a
