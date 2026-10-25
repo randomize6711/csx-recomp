@@ -18,7 +18,9 @@ set(SDK ${REPO}/sdk)
 set(RT ${SDK}/runtime)
 set(SDL3_DIR ${CSX_DEPS_DIR}/SDL3-3.4.18/x86_64-w64-mingw32)
 set(DXC_DIR ${CSX_DEPS_DIR}/dxc)
+set(SODIUM_DIR ${CSX_DEPS_DIR}/libsodium-win64)
 foreach(p ${CSX_GEN_DIR}/x86_func_mapping.cpp ${SDL3_DIR}/lib/libSDL3.dll.a ${DXC_DIR}/lib/x64/dxcompiler.lib
+          ${SODIUM_DIR}/lib/libsodium.a
           ${CSX_VULKAN_HEADERS}/vulkan/vulkan.h)
     if(NOT EXISTS ${p})
         message(FATAL_ERROR "missing ${p} (tools/iterate.sh, tools/fetch_windows_deps.sh)")
@@ -45,9 +47,9 @@ set(HARNESS_SOURCES ${SDK}/harness/app_headless.cpp ${SDK}/harness/reference_ren
 
 add_executable(CounterStrike ${RT_SOURCES} ${HOST_SOURCES} ${HARNESS_SOURCES} $<TARGET_OBJECTS:csx_gen>)
 target_include_directories(CounterStrike PRIVATE ${REPO}/src ${RT} ${CSX_GEN_DIR} ${SDK}/harness ${SDL3_DIR}/include
-                                                 ${CSX_VULKAN_HEADERS})
+                                                 ${CSX_VULKAN_HEADERS} ${SODIUM_DIR}/include)
 target_compile_definitions(CounterStrike PRIVATE XBE_RAW_VERTICES=0 XBE_RENDER_THREAD=0 UNICODE _UNICODE
-                                                 _CRT_SECURE_NO_WARNINGS)
+                                                 _CRT_SECURE_NO_WARNINGS SODIUM_STATIC)
 target_compile_options(CounterStrike PRIVATE ${BASE_FLAGS} -O3 -g)
 
 # the Vulkan loader's import library, from the exports the backend uses
@@ -61,7 +63,7 @@ add_dependencies(CounterStrike vulkan_implib)
 # the C and C++ runtimes linked in statically (no libstdc++ / libgcc / winpthread DLLs); UCRT comes with Windows 10+
 target_link_options(CounterStrike PRIVATE -static -g)
 target_link_libraries(CounterStrike PRIVATE ${SDL3_DIR}/lib/libSDL3.dll.a ${VULKAN_IMPLIB}
-                      ${DXC_DIR}/lib/x64/dxcompiler.lib ws2_32 pthread)
+                      ${DXC_DIR}/lib/x64/dxcompiler.lib ${SODIUM_DIR}/lib/libsodium.a ws2_32 pthread)
 
 # package: the exe, the DLLs it loads that Windows does not have, licenses
 install(TARGETS CounterStrike RUNTIME DESTINATION .)

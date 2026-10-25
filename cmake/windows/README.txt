@@ -27,4 +27,5 @@ Controls (the game reads an Xbox controller; a gamepad works directly, keyboard 
   F11 or Alt+Enter  fullscreen               closing the window quits
 
 Third-party: SDL3.dll (zlib license, licenses\SDL3-LICENSE.txt), dxcompiler.dll (DirectX Shader Compiler,
-licenses\dxc\).
+licenses\dxc\), libsodium 1.0.22 linked into the exe (ISC license, https://libsodium.org: the network transport's
+cryptography).
