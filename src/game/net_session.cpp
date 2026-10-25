@@ -19,6 +19,7 @@
 namespace {
 bool g_connecting = false;   // CL_Connect_f is closing the old connection before the new one
 bool g_lobby_off = false;    // the system link lobby was not set up (a PC direct connect)
+bool g_joined = false;       // this process's client connected to a network server (and so loaded its world)
 std::string g_reconnect;     // a server that relaunched into another map: the client relaunches to rejoin it
 constexpr uint32_t kRelaunch = 0xBF0E0;  // the title's relaunch (cdecl: the launch data), as 0x5F750 calls it
 
@@ -56,9 +57,29 @@ bool ClConnectAddress(X86Context& ctx, uint8_t*) {
     return true;
 }
 
+// [[hook]] at 0x29D22 in CL_Connect_f, its argument in edx (only ebx pushed): a process loads one world. A second one
+// in the same process (a connect while connected, a retry, a connect after a disconnect) ran the GL texture table on
+// past its end: the map's sprites came back under new names (the same name with other dimensions is renamed at
+// 0x4897F, "sprites" to "sprjtes") and their records overwrote com_argv (0x7482E4), crashing COM_CheckParm at the next
+// signon (net_reconnect). The map change already relaunches for the same reason; so does this connect: the client
+// relaunches into `+connect ADDRESS` between frames (HostFrameLobby), its connection closed by the relaunch. True skips
+// the connect (0x29E89, its exit with ebx pushed). "local" (the listen server's own client) is left alone.
+bool ClConnectRelaunch(X86Context& ctx, uint8_t*) {
+    if (!g_joined) return false;
+    std::string target = kernel::ReadCString(ctx.edx, 240);
+    if (target.empty() || target == "local") return false;
+    LOGI("net: connect %s in a process that already joined a server: relaunching to join it", target.c_str());
+    g_reconnect = target;
+    return true;
+}
+
 namespace csx {
 bool NetClientOnly() {
     return g_lobby_off;
+}
+
+void NetServerJoined() {
+    g_joined = true;
 }
 
 void NetServerClosed(const std::string& peer, int reason, const std::string& text) {

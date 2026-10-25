@@ -20,6 +20,8 @@ void NetClientClose();  // the client endpoint's connection ended by the engine 
 std::optional<std::string> NetPeerIdentity(const std::string& peer);  // a connected client's identity fingerprint
 // the client endpoint lost its server (net_session.cpp: a map change reconnects there)
 void NetServerClosed(const std::string& peer, int reason, const std::string& text);
+// the client endpoint connected to a server (net_session.cpp: a later connect in this process relaunches)
+void NetServerJoined();
 // the process was started to join a server (`+connect host`): it opens no server endpoint (net_session.cpp)
 bool NetClientOnly();
 // the match takes network players (its server endpoint opens): CSX_NET_HOST=1, PC setting net_host 1, a test's

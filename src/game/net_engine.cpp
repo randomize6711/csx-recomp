@@ -139,6 +139,7 @@ void Events(X86Context& ctx, int sock) {
         if (e.kind == net::Endpoint::Event::Connected) {
             LOGI("net: %s %s connected%s%s", sock ? "client" : "server", who.c_str(),
                  e.identity.empty() ? "" : ", identity ", e.identity.c_str());
+            if (sock == 0) csx::NetServerJoined();
             continue;
         }
         // the reason only when the text does not already say it (a peer's Disconnect carries its own text)

@@ -1066,6 +1066,11 @@ on_true = 0x6A3A1
 
 # PC sessions (src/game/net_session.cpp, docs/pc_multiplayer.md N1): the engine's connection without the Xbox lobby
 [[hook]]
+at = 0x29D22
+call = "ClConnectRelaunch"
+on_true = 0x29E89
+
+[[hook]]
 at = 0x29D3F
 call = "ClConnectAddress"
 on_true = 0x29D67
@@ -1143,6 +1148,14 @@ call = "UiPause"
 on_true = 0xCD91D
 
 # the engine's network security (src/game/net_security.cpp; SV_CheckChallenge 0x98CE0 replaced there)
+[[hook]]
+at = 0x9A055
+call = "ChallengeTime"
+
+[[hook]]
+at = 0x9A2E4
+call = "ChallengeTime"
+
 [[hook]]
 at = 0x9BAC9
 call = "RconChallenge"

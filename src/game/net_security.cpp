@@ -177,6 +177,18 @@ X86_FUNC(sub_00098CE0) {
     ctx.esp += 4;
 }
 
+// [[hook]] at 0x9A055 (getchallenge, SVC_GetChallenge 0x99D90) and 0x9A2E4 (challenge rcon, 0x9A150), the new
+// entry's time stored from eax: the engine stored (int)realtime and gives a new address the entry with the lowest
+// time (strictly lower: jge at 0x99E4D). For the server's first second every time was 0, as an empty entry's, so the
+// "oldest" was always entry 0: clients asking in that second (all of them rejoining after a map change's relaunch)
+// overwrote each other's challenge and all but the last were refused "No challenge for your address" (net_join_early).
+// The time is the issue order instead (1, 2, ...): the oldest is the one issued longest ago, never one just given.
+void ChallengeTime(X86Context& ctx, uint8_t*) {
+    static uint32_t issued = 0;
+    issued = issued < 0x7FFFFFFE ? issued + 1 : 1;
+    ctx.eax = issued;
+}
+
 // [[hook]] at 0x9BAC9 in the rcon check (0x9BA70), after the password tests: the rcon challenge (Cmd_Argv(1)) must
 // be the one net_from was given ("challenge rcon"); true goes to the refusal (0x9BBA6)
 bool RconChallenge(X86Context&, uint8_t*) {
@@ -267,7 +279,12 @@ void DropClientReason(X86Context& ctx, uint8_t*) {
     if (!NetworkClient(cl)) return;
     std::string reason = kernel::ReadCString(ctx.esp + 0x2C, 256);
     while (!reason.empty() && (reason.back() == '\n' || reason.back() == '\r')) reason.pop_back();
-    net::Reason r = reason == "Kicked" ? net::Reason::Kicked : net::Reason::Closed;
+    // the engine's own texts (Host_ShutdownServer, SV_CheckTimeouts, kick) as the transport's reasons, so both ends
+    // log the cause (Closed reads "closed by the peer")
+    net::Reason r = reason == "Kicked"                 ? net::Reason::Kicked
+                    : reason == "Server shutting down" ? net::Reason::ServerShutdown
+                    : reason == "Timed out"            ? net::Reason::Timeout
+                                                       : net::Reason::Closed;
     csx::NetDisconnectClient(AddressText(cl + 0x20 + 4), int(r), reason);
 }
 

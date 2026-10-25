@@ -1,0 +1,71 @@
+# Repeated joins in one process and across processes: client1 joins, then reconnects three times while connected
+# (console connect twice, then retry: each relaunches the process into "+connect", src/game/net_session.cpp
+# ClConnectRelaunch, and signs on afresh with a new challenge) and quits; client2 joins after client1's first
+# reconnect and quits, and client3 (a new process) joins after it left, so slots are freed and reused while others
+# are mid-signon. Every signon ends in the game; no refusal, no LostHost, no crash (a second world load in one
+# process overran the GL texture table into com_argv before the relaunch).
+# timeout: 400
+[host] --launch tests/launch/de_aztec_2humans --env FPS=30 --env CSX_LOG_CONSOLE=1
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+wait draws>=150
+sleep 5
+press A
+sleep 4
+press B
+count entered.the.game 7
+count net:.client.*closed 6
+sleep 3
+players end
+expect playercount end 1 1
+expect nolog refused
+expect nolog guest trap
+expect nolog Host_Error
+[client1] --after host:Round_Start --launch tests/launch/connect_local --env FPS=30 --env CSX_LOG_CONSOLE=1
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+sleep 4
+pckey cmd connect 127.0.0.1
+count pc.keys:.menu.TeamSelect 2
+sleep 2
+press A
+sleep 4
+press B
+sleep 4
+pckey cmd connect 127.0.0.1
+count pc.keys:.menu.TeamSelect 3
+sleep 2
+press A
+sleep 4
+press B
+sleep 4
+pckey cmd retry
+count pc.keys:.menu.TeamSelect 4
+sleep 2
+press A
+sleep 4
+press B
+sleep 4
+expect nolog LostHost
+expect nolog No.challenge
+pckey cmd quit
+[client2] --after host:net:.client.127\\.0\\.0\\.2:[0-9]+.closed --launch tests/launch/connect_local --env FPS=30
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+sleep 3
+expect nolog LostHost
+pckey cmd quit
+[client3] --after host:net:.client.127\\.0\\.0\\.3:[0-9]+.closed --launch tests/launch/connect_local --env FPS=30
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+sleep 3
+expect nolog LostHost
+pckey cmd quit

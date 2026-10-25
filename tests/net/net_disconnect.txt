@@ -1,7 +1,8 @@
 # Disconnects and reconnects: a client joins, leaves with the console's disconnect (the server is told at once: the
 # transport's Closed, the engine's dropclient), a second client process joins in its place, a third joins and is frozen
 # (SIGSTOP: a client gone silent) and the server times it out; then the host quits (the remaining client is told:
-# server shut down). Shows: graceful disconnects both ways, repeated connections, the timeout, slots freed each time.
+# "Server shutting down", the engine's drop, or "server shut down", a relaunch's). Shows: graceful disconnects both
+# ways, repeated connections, the timeout, slots freed each time.
 # timeout: 600
 [host] --launch tests/launch/de_aztec_2humans --env FPS=30
 wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
@@ -38,7 +39,7 @@ sleep 2
 press A
 sleep 4
 press B
-wait log net:.server.127\.0\.0\.1:27015.closed:.server.shut.down
+wait log (?i)net:.server.127\.0\.0\.1:27015.closed:.server.shut
 [client3] --after client2:net:.server.*connected --freeze-after 20 --launch tests/launch/connect_local --env FPS=30
 wait log net:.server.127\.0\.0\.1:27015.connected
 wait log pc.keys:.menu.TeamSelect
