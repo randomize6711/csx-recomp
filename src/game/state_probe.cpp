@@ -15,8 +15,8 @@
 // A file named place holding "N X Y Z" puts client N (0 the local player, then the bots; client_t 0x5010 bytes each,
 // svs.maxclients at 0x636CE8) at that origin once, with no velocity, and lets it go (tools/drive.py "place": bodies
 // put in each other's way for the player collision tests). A file named players holding a name logs one line per
-// active client (client_t +0 active): "players NAME N x y z health" (entvars health at edict +0x1E0) and ends with
-// "players NAME end". A file named spawns holding a name logs the map's spawn points and the edicts in use: "spawns
+// active client (client_t +0 active): "players NAME N x y z health" (entvars health at edict +0x1E0), for a network
+// client also "playerping NAME N MS", and ends with "players NAME end". A file named spawns holding a name logs the map's spawn points and the edicts in use: "spawns
 // NAME ct C t T, edicts N of M, maxclients K" (info_player_start the Counter-Terrorists', info_player_deathmatch the
 // Terrorists'; the classname at entvars +0, a string_t from the base 0x329F2B; sv.num_edicts 0x62B418,
 // sv.max_edicts 0x62B41C, sv.edicts 0x62B420, 0x318 bytes each).
@@ -40,10 +40,12 @@ namespace csx {
 
 namespace {
 
-// predicted_players[0] (the local player): its origin and yaw, in the guest table it moved to (G8.2B)
+// predicted_players (G8.2B moved them to a guest table) and the local player's entry in it: its player number
+// (cl.playernum 0x771224: 0 on a listen server's own player, the client's slot on a network client)
 uint32_t Predicted() { return guest_tables::Production(guest_tables::k_cl_predicted_players).va; }
-uint32_t Position() { return Predicted() + 0x10; }
-uint32_t Yaw() { return Predicted() + 0x20; }
+uint32_t Local() { return Predicted() + std::min<uint32_t>(kernel::R32(0x771224), 64) * 0x28; }
+uint32_t Position() { return Local() + 0x10; }
+uint32_t Yaw() { return Local() + 0x20; }
 constexpr uint32_t kClip = 0x3A2988, kViewYaw = 0x552C10, kViewPitch = 0x552C14;
 // the weapon in hand (17 Glock, 29 knife, 4 HE grenade, 25 flashbang, 9 smoke grenade, 6 C4...): the client data of
 // the engine's first frame record (static, 0x1B60 bytes each, all of them alike once the weapon has been held a moment)
@@ -57,6 +59,10 @@ float F(uint32_t va) {
 void WF(uint32_t va, float f) { std::memcpy(kernel::HostPtr(va), &f, 4); }
 constexpr uint32_t kClients = 0x636CE4, kClientEdict = 0x4B9C, kEdictOrigin = 0x88, kEdictVelocity = 0xA0;
 constexpr uint32_t kMaxClients = 0x636CE8, kClientSize = 0x5010, kEdictHealth = 0x1E0;
+constexpr uint32_t kEdictViewAngle = 0xF4;  // entvars v_angle (pitch, yaw, roll)
+// the client's last parsed frame (cl.parsecountmod), its player number and maxclients (src/game/player_slots.cpp)
+constexpr uint32_t kParseCountMod = 0x74A064, kPlayerNum = 0x771224, kClMaxClients = 0x778A5C;
+constexpr uint32_t kStateOrigin = 0x44;  // a frame player state's origin (0xFB bytes each)
 constexpr uint32_t kNumEdicts = 0x62B418, kMaxEdicts = 0x62B41C, kEdicts = 0x62B420, kEdictSize = 0x318,
                    kEdictClassname = 0x80;
 constexpr uint32_t kStringBase = 0x329F2B;  // string_t's base (STRING(x) = base + x): the player edict's classname
@@ -152,10 +158,71 @@ void StartStateProbe() {
                 }
                 fs::remove(players, ec);
                 for (uint32_t n = 0, max = kernel::R32(kMaxClients); n < max; n++)
-                    if (uint32_t e = ClientEdict(n))
+                    if (uint32_t e = ClientEdict(n)) {
                         LOGI("players %s %u %.3f %.3f %.3f %.0f", name, n, F(e + kEdictOrigin), F(e + kEdictOrigin + 4),
                              F(e + kEdictOrigin + 8), F(e + kEdictHealth));
+                        // the server's measured latency of a network client (client_t +0x25A0, seconds: the
+                        // scoreboard's ping), "playerping NAME N MS"
+                        uint32_t cl = kernel::R32(kClients) + n * kClientSize;
+                        if (kernel::R32(cl + 0x20 + 4) == 3) LOGI("playerping %s %u %.0f", name, n, F(cl + 0x25A0) * 1000);
+                    }
                 LOGI("players %s end", name);
+                logx::Flush();
+            }
+            // bring: "N DIST" puts client N DIST units in front of client 0 (the host's player), along its view, on
+            // the server, with no velocity (tools/drive.py "bring": two players facing each other for the network tests)
+            const fs::path bring = app::ExeDir() / "bring";
+            if (fs::exists(bring, ec)) {
+                unsigned n = 0;
+                float dist = 0;
+                FILE* f = std::fopen(bring.string().c_str(), "r");
+                uint32_t e = 0, host = ClientEdict(0);
+                if (f && std::fscanf(f, "%u %f", &n, &dist) == 2 && (e = ClientEdict(n)) && host) {
+                    float yaw = F(host + kEdictViewAngle + 4) * 3.14159265f / 180;
+                    float to[3] = {F(host + kEdictOrigin) + dist * std::cos(yaw), F(host + kEdictOrigin + 4) + dist * std::sin(yaw),
+                                   F(host + kEdictOrigin + 8)};
+                    for (int i = 0; i < 3; i++) {
+                        WF(e + kEdictOrigin + i * 4, to[i]);
+                        WF(e + kEdictVelocity + i * 4, 0);
+                    }
+                    LOGI("bring: client %u to %g %g %g, %g in front of client 0", n, to[0], to[1], to[2], dist);
+                } else {
+                    LOGW("bring: no such client or not N DIST");
+                }
+                if (f) std::fclose(f);
+                fs::remove(bring, ec);
+            }
+            // aim: the view turned to the nearest other player this client knows (its last frame's player states,
+            // cl_frame_playerstates: the origin at +0x44, found against the server's), as a player would aim
+            // (tools/drive.py "aim")
+            const fs::path aim = app::ExeDir() / "aim";
+            if (fs::exists(aim, ec)) {
+                fs::remove(aim, ec);
+                const auto& t = guest_tables::Production(guest_tables::k_cl_frame_playerstates);
+                uint32_t frame = kernel::R32(kParseCountMod) & 15, me = kernel::R32(kPlayerNum),
+                         max = std::min<uint32_t>(kernel::R32(kClMaxClients), 65);
+                float own[3] = {F(Position()), F(Position() + 4), F(Position() + 8)};
+                float best = 1e30f, target[3] = {};
+                int who = -1;
+                for (uint32_t i = 0; t.count && i < max; i++) {
+                    if (i == me) continue;
+                    uint32_t st = t.va + frame * t.elem + i * 0xFB;
+                    float o[3] = {F(st + kStateOrigin), F(st + kStateOrigin + 4), F(st + kStateOrigin + 8)};
+                    if (o[0] == 0 && o[1] == 0 && o[2] == 0) continue;
+                    float d = std::hypot(o[0] - own[0], o[1] - own[1], o[2] - own[2]);
+                    if (d < best) best = d, who = int(i), std::memcpy(target, o, sizeof target);
+                }
+                if (who < 0) {
+                    LOGW("aim: no other player known");
+                } else {
+                    float dx = target[0] - own[0], dy = target[1] - own[1], dz = target[2] - own[2];
+                    float yaw = std::atan2(dy, dx) * 180 / 3.14159265f;
+                    float pitch = -std::atan2(dz, std::hypot(dx, dy)) * 180 / 3.14159265f;
+                    WF(kViewYaw, yaw);
+                    WF(kViewPitch, pitch);
+                    LOGI("aim: player %d at %g %g %g, %g away: yaw %g pitch %g", who + 1, target[0], target[1], target[2],
+                         best, yaw, pitch);
+                }
                 logx::Flush();
             }
             const fs::path spawns = app::ExeDir() / "spawns";

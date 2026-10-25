@@ -1,0 +1,97 @@
+# The two human players test (net_two_humans) at a high latency: 125 ms (20 ms jitter) each way, a 250 ms round
+# trip, 1% loss. Two human players in separate processes over the PC transport (docs/pc_multiplayer.md "N1"): the host (a listen
+# server on 127.0.0.1:27015, de_aztec, no bots) and a client that boots straight into "+connect 127.0.0.1"
+# (127.0.0.2). The host joins the Terrorists, the client the Counter-Terrorists (the round restarts: Game
+# Commencing); the host puts the client in front of itself (bring), the client turns to it (aim) and fires until the
+# host is dead; the round ends (CTs_Win) and the next one starts with both still connected; the client moves in it.
+# Shows: connect, signon, team choice, movement, firing, hit registration, damage, the kill and the score, round
+# transitions, both directions of traffic.
+# netem: delay 125ms 20ms loss 1%
+# timeout: 900
+[host] --launch tests/launch/de_aztec_2humans --env FPS=30
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+wait draws>=150
+sleep 5
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+wait log net:.client.127\.0\.0\.2:[0-9]+.connected
+wait log joined.team."CT"
+wait log Game_Commencing
+sleep 6
+players start
+expect playercount start 2 2
+expect health start 0 100 100
+bring 1 90
+sleep 2
+players near
+expect bodymoved start near 1 20 8000
+wait log killed.*with
+players dead
+expect healthdrop start dead 0 30 200
+wait log CTs_Win
+count World.triggered."Round_Start" 3
+sleep 4
+players r2a
+expect playercount r2a 2 2
+expect health r2a 0 100 100
+expect log playerping.r2a.1.(2[0-9][0-9]|3[0-9][0-9]|4[0-9][0-9])$
+sleep 22
+players r2b
+expect bodymoved r2a r2b 1 30 3000
+expect nolog guest trap
+expect nolog net:.*(closed|timed.out)
+[client] --after host:Round_Start --launch tests/launch/connect_local --env FPS=30
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 3
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 5
+state m1
+pckey tap +moveleft 0.5
+sleep 1.5
+state m2
+expect moved m1 m2 20 400
+sleep 19
+aim
+pckey tap +attack 0.1
+sleep 0.6
+aim
+pckey tap +attack 0.1
+sleep 0.6
+aim
+pckey tap +attack 0.1
+sleep 0.6
+aim
+pckey tap +attack 0.1
+sleep 0.6
+aim
+pckey tap +attack 0.1
+sleep 0.6
+aim
+pckey tap +attack 0.1
+sleep 0.6
+aim
+pckey tap +attack 0.1
+sleep 0.6
+aim
+pckey tap +attack 0.1
+sleep 0.6
+aim
+pckey tap +attack 0.1
+sleep 0.6
+aim
+pckey tap +attack 0.1
+sleep 7
+pckey tap +moveleft 9
+sleep 6
+expect nolog guest trap
+expect nolog Host_Error

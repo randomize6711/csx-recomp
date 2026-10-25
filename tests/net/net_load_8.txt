@@ -1,0 +1,50 @@
+# Network load: 8 client processes on one listen server (de_aztec, no bots), each joining a team by Auto-Select and
+# moving about for a minute. Measures the server's transport traffic, fragmentation, loss and round trip, the time to
+# build and send the clients' messages (SV_SendClientMessages) and the server frame (CSX_LOG_NET, CSX_LOG_SERVERTIME;
+# tools/net_summary.py). Real game processes, not a protocol simulator: each costs a full headless client.
+# timeout: 900
+[host] --launch tests/launch/de_aztec_2humans --env FPS=30 --env CSX_LOG_NET=1 --env CSX_LOG_SERVERTIME=1
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+wait draws>=150
+sleep 5
+press A
+sleep 4
+press B
+count net:.client.127\.0\.0\.[0-9]+:[0-9]+.connected 8
+count joined.team 9
+sleep 60
+players load
+expect playercount load 9 9
+expect nolog guest trap
+expect nolog net:.client.*closed
+[client*8] --after host:Round_Start --stagger 3 --launch tests/launch/connect_local --env FPS=30 --env CSX_LOG_NET=1
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+sleep 5
+pckey tap +moveleft 3
+sleep 4
+look 90 0
+pckey tap +forward 3
+sleep 4
+pckey tap +moveright 3
+sleep 4
+look -90 0
+pckey tap +forward 3
+sleep 4
+pckey tap +moveleft 3
+sleep 4
+look 180 0
+pckey tap +forward 3
+sleep 4
+pckey tap +moveright 3
+sleep 4
+pckey tap +moveleft 3
+sleep 4
+pckey tap +forward 3
+sleep 30
+expect nolog guest trap
+expect nolog Host_Error

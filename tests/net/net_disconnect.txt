@@ -1,0 +1,49 @@
+# Disconnects and reconnects: a client joins, leaves with the console's disconnect (the server is told at once: the
+# transport's Closed, the engine's dropclient), a second client process joins in its place, a third joins and is frozen
+# (SIGSTOP: a client gone silent) and the server times it out; then the host quits (the remaining client is told:
+# server shut down). Shows: graceful disconnects both ways, repeated connections, the timeout, slots freed each time.
+# timeout: 600
+[host] --launch tests/launch/de_aztec_2humans --env FPS=30
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+wait draws>=150
+sleep 5
+press A
+sleep 4
+press B
+wait log net:.client.127\.0\.0\.2:[0-9]+.connected
+wait log net:.client.127\.0\.0\.2:[0-9]+.closed:.closed.by.the.peer
+wait log net:.client.127\.0\.0\.3:[0-9]+.connected
+wait log net:.client.127\.0\.0\.4:[0-9]+.connected
+count entered.the.game 4
+wait log (?i)net:.client.*closed:.timed.out
+sleep 3
+players end
+expect playercount end 2 2
+sleep 5
+pckey cmd quit
+[client] --after host:Round_Start --launch tests/launch/connect_local --env FPS=30
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+sleep 3
+pckey cmd disconnect
+sleep 5
+[client2] --after host:net:.client.127\\.0\\.0\\.2:[0-9]+.closed --launch tests/launch/connect_local --env FPS=30
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+wait log net:.server.127\.0\.0\.1:27015.closed:.server.shut.down
+[client3] --after client2:net:.server.*connected --freeze-after 20 --launch tests/launch/connect_local --env FPS=30
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+sleep 200

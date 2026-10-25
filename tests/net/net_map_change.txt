@@ -1,0 +1,43 @@
+# A map change with a network client (docs/pc_multiplayer.md "Map changes"): the host's match (de_aztec, two bots, one
+# round of a minute, mp_maxrounds 1) ends after its round and the title relaunches into the next map, as every map
+# change does in this build (changelevel is disabled: "E3 HACK"). The host tells the client (the transport's
+# MapChange), the client relaunches into "+connect" and joins the new map. Shows: the server's relaunch keeps its port
+# (the sockets close on exec), the client rejoins by itself, both run the new map.
+# timeout: 600
+[host] --launch tests/launch/de_aztec_maxrounds1 --env FPS=30
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+wait draws>=150
+sleep 5
+press A
+sleep 4
+press B
+wait log net:.client.127\.0\.0\.2:[0-9]+.connected
+wait log net:.relaunching.into.de_[a-z0-9_]+:.the.clients
+wait log relaunching
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+wait log net:.server.endpoint.on.UDP.port.27015
+wait log net:.client.127\.0\.0\.2:[0-9]+.connected
+wait log entered.the.game
+sleep 20
+players newmap
+expect playercount newmap 2 70
+expect nolog guest trap
+expect nolog cannot.open
+[client] --after host:Round_Start --launch tests/launch/connect_local --env FPS=30
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+wait log net:.relaunching.to.rejoin
+wait log net:.connect.127\.0\.0\.1:27015
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+sleep 20
+expect nolog guest trap
+expect nolog Host_Error

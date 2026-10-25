@@ -2,9 +2,13 @@
 """Drives the headless harness through a scenario by watching its log.
 
 Usage: python3 -I tools/drive.py SCENARIO [--timeout S] [--env K=V ...] [--exe PATH] [--run DIR] [--launch DIR] [--wine]
-                                [--pc NAME=VALUE ...]
+                                [--pc NAME=VALUE ...] [--netns PID]
 
 --pc seeds the run folder's pc_settings.ini (Options > PC Options); without it every run starts with none.
+
+--netns PID runs the game in the network namespace of process PID (a holder tools/run_net_tests.py makes) instead of
+a private one of its own, so several games reach each other there; give each an INSTANCE (--env INSTANCE=N: it binds
+127.0.0.N and keeps its hard disk in hdd, hdd2 .. hdd8).
 
 --wine runs the Windows build (build/windows/dist/CounterStrike.exe unless --exe names another) under Wine, prefix
 build/wineprefix, in a network namespace like the Linux runs. A title relaunch there starts a new Windows process, so
@@ -75,6 +79,8 @@ per line, executed in order:
     look RIGHT UP           turn the view by degrees through the mouse look hook (src/game/mouse_look.cpp)
     place N X Y Z           client N (0 the player, then the bots) put at that origin once, no velocity
     players NAME            every active client's origin and health logged and kept as NAME
+    bring N DIST            client N put DIST units in front of client 0 along its view, on the server (network tests)
+    aim                     the view turned to the nearest other player this client knows (network tests)
     spawns NAME             the map's spawn points per team, the edicts in use and maxclients logged
     setview X Y Z YAW PITCH the player held at that origin (server side, no velocity) with those view angles
                             (src/game/state_probe.cpp): a fixed camera for picture tests; setview off lets go
@@ -196,6 +202,7 @@ def main():
     scenario, timeout, env = args[0], 600.0, dict(os.environ)
     launch = None
     wine = False
+    netns = None
     pc = []
     i = 1
     while i < len(args):
@@ -215,6 +222,8 @@ def main():
             launch = os.path.abspath(args[i + 1]); i += 2
         elif args[i] == '--pc':
             pc.append(args[i + 1]); i += 2
+        elif args[i] == '--netns':
+            netns = args[i + 1]; i += 2
         elif args[i] == '--wine':
             wine = True; i += 1
             if EXE.endswith(os.path.join('harness', 'CounterStrike')):
@@ -227,7 +236,10 @@ def main():
             sys.exit('unknown argument ' + args[i])
     steps = [l.split() for l in open(scenario) if l.strip() and not l.startswith('#')]
 
-    for d in ('logs', 'hdd', 'cap', 'snaps', 'dumps', 'shots'):
+    # an instance past the first keeps its hard disk in hddN (src/common: app::Instance)
+    instance = int(env.get('INSTANCE', '0') or 0)
+    hdd = 'hdd' + (str(instance) if instance > 1 else '')
+    for d in ('logs', 'cap', 'snaps', 'dumps', 'shots') + tuple('hdd' + n for n in ('', '2', '3', '4', '5', '6', '7', '8')):
         shutil.rmtree(os.path.join(RUN, d), ignore_errors=True)
     os.makedirs(os.path.join(RUN, 'snaps'))
     # PC settings: none unless the run seeds them (src/common/pc_settings.cpp format, "name = value")
@@ -245,16 +257,18 @@ def main():
         # direct start without them has no weapon or player sounds): build/zcache, made by tools/make_zcache.sh
         zcache = os.path.join(ROOT, 'build', 'zcache')
         if os.path.isdir(zcache):
-            shutil.copytree(zcache, os.path.join(RUN, 'hdd', 'Z'))
+            shutil.copytree(zcache, os.path.join(RUN, hdd, 'Z'))
         else:
-            os.makedirs(os.path.join(RUN, 'hdd', 'Z'))
+            os.makedirs(os.path.join(RUN, hdd, 'Z'))
             print('note: no build/zcache (tools/make_zcache.sh): the match starts without the cached sound banks')
-        shutil.copyfile(os.path.join(launch, 'launch.bin'), os.path.join(RUN, 'hdd', 'launch.bin'))
-        shutil.copyfile(os.path.join(launch, 'releasemap.txt'), os.path.join(RUN, 'hdd', 'Z', 'releasemap.txt'))
+        shutil.copyfile(os.path.join(launch, 'launch.bin'), os.path.join(RUN, hdd, 'launch.bin'))
+        shutil.copyfile(os.path.join(launch, 'releasemap.txt'), os.path.join(RUN, hdd, 'Z', 'releasemap.txt'))
     out = open(os.path.join(RUN, 'run.out'), 'w')
     if wine:
         game = subprocess.run(['winepath', '-w', GAME], env=env, capture_output=True, text=True).stdout.strip()
         cmd = ['unshare', '-n', '--map-current-user', 'wine', EXE, game]
+    elif netns:
+        cmd = ['nsenter', '--preserve-credentials', '-U', '-n', '-t', netns, EXE, GAME]
     else:
         cmd = ['unshare', '-rn', EXE, GAME]
     proc = subprocess.Popen(cmd, cwd=RUN, env=env, stdout=out, stderr=subprocess.STDOUT)
@@ -434,6 +448,14 @@ def main():
                             rosters[st[1]][int(m.group(1))] = tuple(float(v) for v in m.groups()[1:])
                     print('     ' + '; '.join('%d: %.1f %.1f %.1f health %.0f' % ((n,) + v)
                                               for n, v in sorted(rosters[st[1]].items())))
+            elif kind == 'bring':
+                # bring N DIST: client N put DIST units in front of the host's player (server side)
+                send_file('bring', st[1] + ' ' + st[2])
+                good = wait_until(lambda: log.match(r'bring: (client|no such)'))
+            elif kind == 'aim':
+                # aim: the view turned to the nearest other player this client knows
+                send_file('aim', '1')
+                good = wait_until(lambda: log.match(r'aim: (player|no other)'))
             elif kind == 'spawns':
                 # spawns NAME: the map's spawn points per team, the edicts in use and maxclients, logged
                 send_file('spawns', st[1])

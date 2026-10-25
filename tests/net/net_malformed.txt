@@ -1,0 +1,32 @@
+# Malformed and hostile traffic against a running listen server (tools/net_fuzz.cpp): random datagrams, every transport
+# type with random contents, forged cookies, unknown connection ids, a hello flood; then over a real transport
+# connection the engine's connectionless commands with bad arguments (wrong challenges, "*" keys, oversized userinfo,
+# rcon without a challenge) and, after a real engine connect, netchan packets with random headers and payloads. Then a
+# normal client joins and plays: the server must have survived without a crash, a guest trap or a guest table overrun.
+# timeout: 600
+[host] --launch tests/launch/de_aztec_2humans --env FPS=30 --env CSX_LOG_NET=1
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+wait draws>=150
+sleep 5
+press A
+sleep 4
+press B
+wait log net:.client.127\.0\.0\.3:[0-9]+.connected
+count entered.the.game 2
+sleep 15
+players after
+expect playercount after 2 3
+expect nolog guest trap
+expect nolog guest table overrun
+expect nolog Host_Error
+[fuzz] --after host:Round_Start --exec "python3 -I tools/net_fuzz.py 127.0.0.1 27015 40"
+[client] --after fuzz:fuzz:.done --launch tests/launch/connect_local --env FPS=30
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+sleep 15
+expect nolog guest trap
+expect nolog Host_Error
