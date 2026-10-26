@@ -1941,6 +1941,47 @@ Remaining uncertainty: the bots' avoidance of teammates is their own logic and w
 they can still pause behind each other); hostages keep blocking (they are not players); network play is untested and
 the option is not offered there.
 
+## PC multiplayer N2: the dedicated server (2026-10-25)
+
+The title never ran GoldSrc's dedicated mode; csx-server (src/server, src/game/dedicated.cpp) makes it run it. What
+that took, each found by booting it (the server's watchdog dumps every thread's stack when frames stop: the
+recompiled functions are named by guest address):
+- **CEngine::Load's flag** (0x5EF670, stored at 0xAD569) is g_bIsDedicatedServer; its one caller pushes 0 (0xADA64).
+  With 1, SV_SetMaxclients leaves cls.state 0 (ca_dedicated, 0xA19DA), Host_Init jumps past the palette, video,
+  drawing, sound, voice and client (0x5DBEC -> 0x5DD18), and no slot is a local player's.
+- **The client part of the game code is needed anyway**: client and server game code are one image here, and shared
+  code (movement, weapons: 0x15007E) calls the engine through the client part's copy of the engine functions
+  (0x5430E8, 0x78 entries) that ClientDLL_Init (0x1C5D0, "cl_dlls\client.dll") fills; Host_Init calls it only in
+  the skipped part (0x5DC70). The server runs PM_Init (0x74830) and ClientDLL_Init at 0x5DD18, then clears
+  0x55184C ("client DLL loaded", set by 0x1C6F0), which gates every call into the client part's HUD, frame and input
+  functions (11 uses: 0x1CBD0's per-frame call through 0x7D6D24 crashed first).
+- **"name"** (cvar 0x371B90, the local player's) is registered by CL_Init only; the title sets it from the profile at
+  each match start (0xADCE5): skipped (setting an unregistered cvar frees a static string: a crash in the allocator,
+  0xC8690).
+- **CL_Disconnect opens LostHost** (0xE9320, a render loop that never returns) when the map command disconnects the
+  (absent) client first: the existing hook at 0x290B3 skips it on a dedicated server too.
+- **Host_Shutdown** calls a function of GoldSrc's dedicated launcher (0x5EF12C, never set in this title) when
+  cls.state is ca_dedicated (0x5E01F): skipped while null. The title's main then returns (0x202C32) and XAPI would
+  go to the dashboard: csx-server exits there.
+- **Bots without humans**: mp_dedicated_server 1 lets the quota check run with no human (0x162593), but
+  bot_join_after_player (default 1, 0x37C094) keeps the quota at 0 while no human is in (0x1625EA): the server's
+  match line sets it to 0. A match started with bot_quota 0 never gets bots later (also on a listen server, checked:
+  the title's own behaviour); raising a non-zero quota works.
+- **Passwords**: SV_CheckPassword (0x991D0) compares userinfo "password" with sv_password for non-loopback
+  clients and refuses through its own routine (0x98A40), not SV_RejectConnection (0x98910); neither was logged.
+  Both are now ("net: ADDRESS refused: ..."). The client sends the password with setinfo (CSX_NET_PASSWORD).
+- **Relaunch** (map changes) executed `<folder>/<image's executable>`, a CounterStrike that is not beside
+  csx-server: SDK patch 0043 restarts the running program when the target is its own image.
+- **The snapshot rate** (N1: 17-21 a second against 30): SV_SendClientMessages (0x9E3F0) sends when realtime +
+  host_frametime reaches next_messagetime (client +0x3580) and then sets it to realtime + host_frametime + the
+  interval (+0x3588; 0x9E5AD-0x9E5CA, choked 0x9E61E-0x9E64F). That assumes frames much shorter than the interval;
+  at a 30 Hz tick with 30 updates a second the next frame lands on the deadline and jitter skips about every other
+  one. The deadline now advances from the previous one (src/game/server_tick.cpp; behind by more than an interval:
+  from now). Measured 29.9-30.0 a second per client on the dedicated server (8 clients; 2 clients and 4 bots).
+- What a dedicated server still runs of the title: the Xbox UI's per-frame calls in _Host_Frame (0xF3840, 0xF4CD0,
+  0xF79F0) with nothing on screen, its D3D device (on a backend that draws nothing), the APU clock and DirectSound's
+  mixing into nowhere (no host audio device: the server is not linked with SDL or any audio library).
+
 ## PC multiplayer N1: stabilisation findings (2026-10-25)
 
 - **Challenges in the server's first second**: SVC_GetChallenge (0x99D90) gives a new address the entry with the

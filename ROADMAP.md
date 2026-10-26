@@ -52,6 +52,8 @@
   2026-10-24 (with the XACT / DPC race fix), the benchmarks and high population performance (-O2, the round restart
   wait) ✅ 2026-10-24, the scoreboard for 65 (Ping, BOT, scrolling) ✅ 2026-10-24; waiting for the user's play-test
 - N0 — PC multiplayer architecture investigation (docs/pc_multiplayer.md) ✅ 2026-10-24, waiting for approval of the
-  architecture; then N1 — PC transport and remote clients, N2 — dedicated server, N3 — server browser, N4 —
-  split-screen (one client process per local player), each after the user's approval
+  architecture; then N1 — PC transport and remote clients ✅ 2026-10-25 (signed off), N2 — dedicated server
+  (csx-server: no host slot, server identity, remote administration, 30 snapshots a second) ✅ 2026-10-25, waiting
+  for approval; N3 — server browser, N4 — split-screen (one client process per local player), each after the user's
+  approval
 - M8 — PC feature set complete

@@ -63,6 +63,12 @@ Investigated in N0 (2026-10-24): docs/pc_multiplayer.md has the current architec
 recommended design (a host transport under the engine's netchan) and the N1-N4 roadmap; it supersedes the list below
 where they differ.
 
+Since then (docs/pc_multiplayer.md sections 15, 16): item 1 is N1's encrypted UDP transport (direct connect, no NAT
+traversal or relay; transport version 3 authenticates the server by a persistent identity key, trusted on first use
+or pinned); item 2 is N2's csx-server, GoldSrc's ca_dedicated mode with no client and no host slot, a fixed 30 Hz
+tick, remote administration over the player's authenticated connection (rcon refused from the network); the snapshot
+schedule now gives each client its 30 a second (it gave 17-21 at a 30 Hz tick). Items 3-7 stand.
+
 Ordered by value for online play; none blocks the 65-slot single player match.
 
 1. **Transport.** The engine's netchan runs on the Xbox socket layer (XNet HLE): a PC UDP transport with NAT traversal

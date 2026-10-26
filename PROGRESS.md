@@ -662,3 +662,24 @@ The full headless regression after the lag-compensation fix, twice (docs/pc_mult
 load, 45 of 46 alone; the three different failures each passed every rerun. Two scenarios' assumptions removed
 (regress_decals: the player placed after its walk; regress_player_collision_on: a crouched bot's head counts).
 The 65 slots: the host's player, 2 remote humans, 62 bots (65 occupied, checked by the run). N2 approved.
+
+## 2026-10-26 — N2: the dedicated server
+
+Approved by the user 2026-10-25 after the N1 sign-off. Built (docs/pc_multiplayer.md section 16): csx-server, the
+engine as GoldSrc's dedicated server (ca_dedicated, no client, no host player slot: all 65 for remote players and
+bots), no window, GPU, audio device or input (it links libc, libstdc++ and libsodium only); a fixed 30 Hz tick that
+sleeps; settings from a file and the command line, each checked; clean shutdown on quit, SIGINT, SIGTERM; map
+changes relaunch it with its settings (SDK patch 0043). Boot fixes in FINDINGS "PC multiplayer N2" (the game code's
+client part, the name cvar, LostHost, the launcher export, bot_join_after_player).
+- Server identity (transport v3): every accept signed by the server's persistent Ed25519 key; clients trust on
+  first use or pin it, refuse a changed key. Password and LAN-only options.
+- Remote administration over the player's authenticated connection (admins.cfg keys and permissions), off by
+  default, rate limited, logged; rcon refused from the network.
+- Snapshots: 30 a second per client (the engine's "interval after now" scheduling gave 17-21 at a 30 Hz tick), on
+  the listen server too.
+- Tests: 13 dedicated scenarios (1, 2 and 8 clients, 65 slots as 2 humans + 63 bots and as 65 bots, lifecycle, map
+  changes, trust, admin, malformed, loss, restarts). Found and fixed on the way: the relaunch's map read with its NUL.
+Results: network 24 of 24 (+ the admin map change), unit tests pass, headless 46 of 46, window 30 of 30 (one rerun of
+vk_player_collision_169). Measured: 65 players at 23% of a core and 101 MB on the dedicated server (48% and 125 MB
+for the listen host). Bots are set at a match's start (the title's rule): admin bots N applies from the next map.
+Branch g8.2b, not merged. N3 (server browser) waits for approval.

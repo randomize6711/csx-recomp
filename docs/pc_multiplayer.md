@@ -653,3 +653,241 @@ after the restarts, 3 human and 62 BOT "joined team" lines, the 2 remote pings, 
 
 Nothing is merged into main.
 
+
+## 16. N2 as built: the dedicated server (2026-10-25)
+
+Approved by the user 2026-10-25 after the N1 sign-off (15.8). Branch g8.2b, not merged.
+
+### 16.1 Architecture
+
+csx-server is a second executable built from the same recompiled image (tools/build_server.sh: the harness build
+without the window, Vulkan, the reference renderer or the test pad; src/server for its main, its configuration and
+its host stand-ins). It links libc, libstdc++, libm and libsodium only: no SDL, no X11 or Wayland, no Vulkan, no audio
+library, no input device.
+
+- **The engine as GoldSrc's dedicated server**, a mode this title never used: CEngine::Load's flag is 1
+  (src/game/dedicated.cpp DedicatedLoad), so cls.state stays ca_dedicated and Host_Init skips the palette, video,
+  drawing, sound, voice and client. No slot is a local player's: all max_players (up to 65) are for remote players and
+  bots. The boot fixes it took are in FINDINGS "PC multiplayer N2" (the game code's client part initialised and
+  marked not loaded, the name cvar, LostHost, Host_Shutdown's launcher export, the exit).
+- **What the title still runs**: its Xbox UI per-frame calls with nothing to show, a D3D device on a backend that
+  keeps and draws nothing (src/server/server_host.cpp), the APU clock and DirectSound mixing to no device; pads read
+  as unplugged.
+- **The match** is the title's own: the front end's launch page and a command line (Z:\releasemap.txt) that csx-server
+  writes from its settings (server_config.cpp CommandLine), as the console's Dedicated Server match option started
+  one (mp_dedicated_server 1, plus bot_join_after_player 0 so bots play with no human). No Xbox lobby, no XNet
+  session, no system link.
+- **The transport** is N1's (src/net) with the server's identity (16.4); the server endpoint is the only one.
+- **The tick**: a fixed 30 Hz host frame that sleeps to its deadline (dedicated.cpp DedicatedTick, 16.6).
+- **Map changes** relaunch the process, as on a listen server: the title writes "+map NAME" and restarts into its
+  image; csx-server comes back without arguments (SDK patch 0043: the running program, whatever its name), takes its
+  settings from CSX_SERVER_SETTINGS (left in the environment at the first start) and the map from the title's line.
+  Clients are told (MapChange) and rejoin by themselves.
+- **Lifecycle**: start (settings checked, the emulated disk rebuilt, the launch page and line written, the identity
+  loaded or made), map load, match (bots join at once), connections, rounds and map changes, shutdown by quit on its
+  console, SIGINT or SIGTERM (the players are told "server shut down"), exit 0 when the title's main returns. A
+  watchdog logs every thread's stack if host frames stop for 15 s (the recompiled functions are named by their guest
+  address), which is how the boot was debugged.
+
+### 16.2 Starting a server, joining it
+
+    tools/iterate.sh 1 && tools/build_server.sh          # or ./run_server.sh --build ...
+    ./run_server.sh --map de_dust2 --bots 20 --player-collision off --name "Friday night"
+    ./run_server.sh --config config/server.cfg.example --port 27016
+    build/server/csx-server --game GAME_DIR [--config FILE] [--KEY VALUE]...   # from the folder that keeps its state
+
+run_server.sh runs it in build/server-run with build/gamedata. The folder keeps server_identity.key (owner-only),
+admins.cfg, bans.txt, logs/ (server_NNN.log per run, admin.log), hdd/ (rebuilt each start). Its console is the
+terminal: engine commands (status, say, sv_restartround), quit. Map changes come from the match's end (time_limit, max_rounds) or an admin's "admin map"; changelevel is disabled in this title and a "map" typed on the server's console was not tested.
+
+Players join with `./run_game.sh --connect HOST[:PORT]` (add `--password P` for a passworded server and
+`--server-key KEY` to pin the key instead of trusting it on first use). On the same PC: `--connect 127.0.0.1`.
+Over a network: open UDP 27015 (or --port) on the server's firewall; set lan_only on to refuse addresses outside
+private networks. There is no browser yet (N3): the address is typed.
+
+### 16.3 Configuration
+
+A file of "key value" lines (# comments; config/server.cfg.example), command-line `--key value` (or `--key-name
+value`) after it overriding; every value is checked before anything starts and errors are listed with their line
+(tests/server_config_test.py, 21 checks):
+
+| Key | Default | Range / meaning |
+|---|---|---|
+| name | Counter-Strike Xbox PC server | hostname, 1-63 printable characters, no `"` `;` `\` |
+| port | 27015 | UDP, 1-65535 |
+| map | de_dust2 | a map in the game folder (checked) |
+| max_players | 65 | 1-65 player slots for remote players and bots; the server takes none |
+| bots | 0 | 0-max_players (bots join with no human present) |
+| bot_difficulty | 1 | 0 easy, 1 normal, 2 hard, 3 expert |
+| player_collision | on | off: players and bots pass through each other (crowded matches) |
+| friendly_fire | off | on/off |
+| round_time | 3 | minutes, 1-9 |
+| freeze_time | 3 | seconds, 0-60 |
+| buy_time | 1.5 | minutes, 0.25-9 |
+| start_money | 800 | 800-16000 |
+| max_rounds | 0 | rounds before the map ends, 0 none |
+| time_limit | 30 | minutes before the map ends, 0 none |
+| password | (none) | up to 32 characters, no spaces; logged only as "(set)" |
+| lan_only | off | on: only 127/8, 10/8, 172.16/12, 192.168/16, 169.254/16 |
+| snapshot_rate | 30 | sv_maxupdaterate, 10-100; the tick is 30, so more sends no more |
+
+Nothing unsafe is reachable by default: no rcon (16.5), no administration without admins.cfg, no setting that runs
+commands (names and passwords cannot hold the characters the engine's parser splits on).
+
+### 16.4 Server identity and trust
+
+- The server has an Ed25519 identity (server_identity.key, "CSXNID1" plus libsodium's 64-byte secret key, 0600,
+  made on the first start, written whole or not at all; a player's identity.key is the same format). Its fingerprint
+  is the whole public key (64 hex digits), logged at start ("net: server identity ...").
+- Transport version 3 (c5fdc04): every accept carries the server's identity key and its signature over
+  "CSXN server v1", both key exchange keys, the client's nonce and the connection id, inside the accept's AEAD
+  associated data. The client verifies the signature (crypto_sign_verify_detached) before using the connection: a
+  server without the key cannot finish a handshake as that server; a server without any identity accepts no one.
+  No custom primitives: libsodium's crypto_kx, ChaCha20-Poly1305 (IETF), Ed25519.
+- The client's trust: a pinned key (CSX_SERVER_KEY or PC setting net_server_key; run_game.sh --server-key) must
+  match; otherwise trust on first use, known_servers.txt beside the player ("ADDRESS KEY" lines, 0600): the first
+  connection remembers the key, a later one must match. A changed key is refused (ServerIdentityChanged) with both
+  keys in the message and how to accept it (remove the line), never taken silently; PC setting net_tofu 0 refuses
+  servers not known at all.
+- Player and server identities are separate keys and files. The server sees each player's key (N1's optional player
+  identity, now the full key, logged at connect, no longer put in userinfo); admins.cfg and bans.txt name players by
+  it. No account service, no central infrastructure.
+- Limits: TOFU trusts the first connection (pin the key for a first join over an untrusted network); a server's key
+  is bound to the address the player typed, so one server behind two addresses is two entries; keys do not expire
+  or rotate (a new key is a refused "changed" key until the line is removed).
+
+### 16.5 Remote administration
+
+- **Off by default.** Without admins.cfg in the server's folder no one is an admin; every attempt is refused.
+- **Who**: admins.cfg lines "PLAYER_KEY PERMISSIONS" (PERMISSIONS "all" or a comma list of status, say, kick, ban,
+  map, restart, bots, settings); reloaded when it changes. Authentication is the player's transport identity: the
+  admin command arrives over that player's encrypted, authenticated connection, so there is no password to send,
+  replay or guess.
+- **How**: the client command `admin COMMAND ...` (typed in the console). Commands: help, status (slots, names,
+  addresses, keys), say, kick SLOT [REASON], ban SLOT [MINUTES] (the player's key, or its address without one; bans.txt,
+  checked at every connection), unban, map NAME (relaunches into a map of the game folder), restart [SECONDS],
+  bots N and bot_difficulty N (from the next map: the title sets bots at a match's start), friendly_fire, round_time,
+  password. Each is parsed and checked here, never handed to the engine's console as text; kicks run at the next tick.
+- **Logged**: every command and refusal in the run log and logs/admin.log, with name, address and key (a refused
+  "admin password ..." is logged without its argument).
+- **Rate limited**: refusals over 5 a minute from one address are dropped unanswered (logged once a minute).
+- **rcon is refused** from the network whatever its password (its password travels in plaintext in a connectionless
+  packet); every refusal is logged. The listen server's own console keeps the engine's local commands.
+- Not done: a separate admin protocol or tool (the in-game console is the interface), per-command arguments limits
+  beyond the ones listed, two-person rules, audit log rotation.
+
+### 16.6 Timing: simulation and snapshots
+
+- **Why 17-21 snapshots a second** (N1): SV_SendClientMessages sends to a client when realtime + host_frametime
+  reaches its next_messagetime, then sets it to realtime + host_frametime + 1/rate. With a 30 Hz tick and a 30 Hz
+  rate the next frame lands exactly on the deadline, and the frame time's jitter decides whether it sends: about
+  every other frame was skipped. GoldSrc's own servers ran 100+ frames a second, where this costs nothing.
+- **Now**: the deadline advances by the interval from the previous deadline (src/game/server_tick.cpp, hooks at
+  0x9E5AD/0x9E5D0 and the choke path 0x9E61E/0x9E655); a schedule more than an interval behind restarts from now
+  (no bursts). This applies to the listen server too.
+- **Simulation**: the host frame runs at a fixed 30 Hz on the dedicated server (dedicated.cpp: a deadline schedule
+  with sleep_until, moved on rather than caught up after a long frame), not tied to rendering (there is none) or to
+  the CPU's speed; game time advances by the measured frame time as GoldSrc does. Snapshots are scheduled separately
+  per client by its rate (cl_updaterate up to sv_maxupdaterate, default 30) and its byte rate (rate, 100000 by
+  default on PC clients): with 65 players a snapshot is up to 6 KB, so a client's byte rate, not the tick, holds some
+  back at peaks (28.4 a second on average in net_ded_full_65).
+- **Not changed**: the gameplay simulation rate (30 Hz, the console's). 60 or 128 Hz would need: the host tick
+  constant raised (one line), the server frame to fit (7.8 ms mean, 17 ms peak with 63 bots and 2 players now: 128 Hz
+  has 7.8 ms, so the bots' cost must drop first: TODO 1e2's native hull trace, spreading their visibility scans);
+  the game DLL's timers checked for frame-count assumptions (the Xbox build was tuned at 30); bandwidth doubled or
+  more per client (rate 100000 already limits a 65-player match), cl_updaterate and cl_cmdrate defaults raised;
+  lag compensation's history length (sv_maxunlag, the frame backup count) rechecked; prediction checked against the
+  shorter server steps (the client's movement already runs per command, at 60 commands a second).
+
+### 16.7 Measurements (headless, Linux, one machine, 16 threads)
+
+| Run | Server CPU (mean / peak of one core) | Memory | Server frame | Snapshots a second per client | Traffic |
+|---|---|---|---|---|---|
+| net_ded_one (1 client) | 2% / 2% | 89 MB | - | 30.0 | 2.2 KB/s out |
+| net_ded_two_bots (2 clients, 4 bots) | 3% / 5% | 102 MB | - | 29.9 (19-31) | - |
+| net_ded_load_8 (8 clients) | 4% / 5% | 100 MB | 0.86 ms mean, 1.47 max | 30.0 (21-31) | 21.1 KB/s out (peak 32.9), 2.6 KB/s a client; 13.6 KB/s in |
+| net_ded_lossy (2 clients, 4 bots, 60 ms, 3% loss) | - | - | - | 28.9 | 6.0 KB/s out; 74 lost, 25 replays rejected |
+| net_ded_full_65 (2 clients, 63 bots) | 23% / 39% | 101 MB | 7.81 ms mean, 16.96 max | 28.4 (21-31) | 11.9 KB/s out (peak 51.5), 6.0 KB/s a client; 73 fragmented, largest 5916 B |
+
+Compared with the listen server (15.3): the 65-player listen host used 48% of a core and 122-125 MB with its own
+client and renderer; the dedicated server 23% and 101 MB for the same match. File descriptors stay at 11 through
+every run, map change included. Each client process (full game, headless) uses 16-25% of a core and 106-118 MB.
+
+### 16.8 Tests
+
+`python3 -I tools/run_net_tests.py tests/net/net_ded_*.txt` (the dedicated server: build/server/csx-server; a section
+with `--server "OPTIONS"` runs it, `--file NAME=PATH` copies a fixture into its folder). Each is a set of real
+processes in one network namespace, 127.0.0.k per process; the runner allows nine now (a server and 8 clients).
+
+| Scenario | What it shows |
+|---|---|
+| net_ded_one | one client; the server has no player (playercount 1); snapshots 30 a second; quit exits 0 |
+| net_ded_two_bots | 2 clients and 4 bots, Collision Off reaching the clients, round restarts from the server's console, scoreboard of 6 with pings and BOT |
+| net_ded_load_8 | 8 clients moving for a minute, 8 of 65 slots occupied, all with pings |
+| net_ded_full_65 | 2 clients and 63 bots: 65 occupied (2 humans, no host slot), kills, 3 round ends, fragmented 6 KB snapshots, both scoreboards 65 rows (check_scoreboard: all checks) |
+| net_ded_bots_65 | 65 bots, no human: the match runs, rounds end |
+| net_ded_lifecycle | disconnect, a rejoin in the freed slot, a frozen client timed out, the server stopped by SIGINT telling the last client |
+| net_ded_map_change | the match's end relaunches the server into the next map with its settings and identity; the client rejoins with its remembered key |
+| net_ded_admin_map | an admin's bots 3 and map de_dust2: the server comes back on de_dust2 with 3 bots, the admin rejoins |
+| net_ded_trust | password refused / accepted, a changed server key refused, a pinned key accepted; the password never in a log |
+| net_ded_admin | admin allowed (status, bots), refused (map without permission; a player not in admins.cfg), rate limited, kick; rcon refused and logged; admin.log |
+| net_ded_malformed | tools/net_fuzz.py against the server, then a client plays |
+| net_ded_lossy | 2 clients and 4 bots under 60 ms ± 15 ms, 3% loss, 1% duplicates, 5% reordering |
+| net_ded_restart | three servers in a row on the same identity, each starts, runs and quits cleanly |
+
+Configured capacity and occupancy are checked apart: the server logs max_players at start ("65 player slots"), the
+players step counts the active client_t entries, playerping lines count the network ones (bots have none).
+Unit tests: tests/net_transport_test.py 109 checks (TestServerIdentity: a signed accept, a forged signature refused,
+a changed key refused, TOFU remembered; TestLanOnly; TestDisconnectDropsQueued), tests/server_config_test.py 21.
+
+### 16.9 Known limitations
+
+- **Bots are set at a match's start** (the title's rule, also on a listen server): bot_quota or bot_add later does
+  not stick, so admin bots N applies from the next map.
+- **Map changes relaunch** the server process (as N1's listen server); a few seconds without a server, clients rejoin
+  by themselves.
+- **The client side against a hostile server** is N1's (15.4 item 2): the engine's client parsers were not hardened
+  further. Server authentication (16.4) now stops impersonation by anyone without the server's key.
+- **Linux only so far**: the game-side code (dedicated.cpp, server_tick.cpp, server_admin.cpp, the transport) is
+  portable; csx-server's main uses a few POSIX calls a Windows target would replace (setenv, sigaction, poll on stdin,
+  the watchdog's backtrace), and the Windows relaunch keeps the command line, which it would need to account for. No
+  Windows target is built.
+- **Admin interface** is the in-game console's admin command; there is no stand-alone admin tool. admin.log grows
+  without rotation.
+- **Load**: at most 8 remote clients tested at once (each is a full game process here); 65-slot matches were tested
+  with 2 humans and 63 bots. A protocol-only client for 64 remote humans does not exist yet.
+- **No server query** for browsers or LAN discovery (N3).
+- A **game client** ended by a signal still does not tell its server (N1 15.5); the server times it out (20 s).
+
+### 16.10 What N3 (server browser) depends on
+
+A connectionless server query answering name, map, players / max_players, bots, password yes/no, the identity key
+(so a browser entry can be pinned before joining), LAN-only; LAN discovery by broadcast on 27015 and/or a configurable
+list of master servers (optional, not a requirement: a user-hosted list); the browser's place in the title's System
+Link screens (section 9); rate limits for the query (it is unauthenticated by nature); the password prompt in the
+title's UI (now only CSX_NET_PASSWORD / run_game.sh --password).
+
+### 16.11 Results on the final build (2026-10-26, at 10714d3)
+
+- Network scenarios (tools/run_net_tests.py, all of tests/net): 24 of 24 (the 12 of N1 on a listen server, the 12
+  dedicated), then net_ded_admin_map and net_ded_map_change again after 10714d3: pass. The listen server's 65-player
+  match (net_full_65_2remote) now gets 29.8 snapshots a second per remote client (17-21 in N1).
+- Unit tests: net_transport_test 109 checks, server_config_test 21, stuff_filter_test 14, net_buffers_test 18,314:
+  all pass.
+- Headless offline regression (tests/run_regression.sh): 46 of 46 (offline matches, 64 bots, Number of Bots, the 65
+  slots, Player Collision on and off, scoreboard, the graphics and sound fixes).
+- Window suite (tools/run_window_tests.py, the 27 default scenarios plus vk_scoreboard_169, vk_bot_count_169,
+  vk_player_collision_169): 29 of 30 in the run, vk_player_collision_169 short of one "client 0's move" line in its
+  second match (logged only when another body is near the player, which depends on where everyone is); it passed
+  alone straight after (161 steps). Scoreboard over 65 with BOT labels and pings, the bot count to 64: pass.
+
+### 16.12 Commits (branch g8.2b)
+
+| Commit | What |
+|---|---|
+| c8e75de | N1 sign-off: regression results, 65 slots reconciled, two scenarios' assumptions removed |
+| c5fdc04 | Transport v3: signed accept, persistent server identity, known servers, LAN-only |
+| d68ff27 | csx-server, dedicated boot, tick, snapshot schedule, identity in use, administration, password; SDK patch 0043 |
+| d9fdaf1 | Dedicated scenarios; runner --server, --file, a ninth process |
+| 10714d3 | A relaunch's map ends at its NUL (admin map); net_ded_admin_map |
+| (this) | Docs: N2 (this section, FINDINGS, PROGRESS, ROADMAP, TODO, networking.md) |
