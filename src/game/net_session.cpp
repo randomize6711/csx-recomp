@@ -261,7 +261,9 @@ void ConPrintfLog(X86Context& ctx, uint8_t*) {
     std::string text = kernel::ReadCString(ctx.esp + 0x10, 0x1000);
     while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) text.pop_back();
     if (on && !text.empty()) LOGI("console: %s", text.c_str());
-    // the server's refusals as the engine prints them, for the browser's message (a join from the browser)
+    // the server's refusals as the engine prints them, for the browser's message (a join from the browser); a chat
+    // line ("name : text") is never one
+    if (text.find(" : ") != std::string::npos) return;
     auto has = [&](const char* s) { return text.find(s) != std::string::npos; };
     if (has("Invalid server password")) g_refusal = "The password is not the server's.";
     else if (has("banned") || has("Banned")) g_refusal = "You are banned from this server.";
