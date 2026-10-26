@@ -19,6 +19,7 @@ sleep 30
 players newmap
 expect playercount newmap 6 6
 expect nolog refused
+expect nolog letmein
 expect nolog guest trap
 expect nolog Host_Error
 pckey cmd quit
@@ -28,7 +29,7 @@ pad 1 attach
 pad 2 attach
 pad 3 attach
 wait log p1: net: server 127.0.0.1:27015 connected
-wait log split: player 1: join 127.0.0.1:27015 [0-9a-f]+ letmein
+wait log split: player 1: join 127.0.0.1:27015 [0-9a-f]+ with a password
 wait log p2: net: server 127.0.0.1:27015 has the pinned key
 wait log p2: net: server 127.0.0.1:27015 connected
 wait log p3: net: server 127.0.0.1:27015 connected
@@ -63,4 +64,5 @@ windowshot newmap
 expect nolog split: player [2-4]'s process ended
 wait log (?i)p1: net: server 127.0.0.1:27015 closed: server shut
 wait log split: player 4's process ended
+expect nolog letmein
 expect nolog guest trap

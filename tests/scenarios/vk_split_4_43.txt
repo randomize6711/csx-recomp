@@ -1,0 +1,102 @@
+# vk_split_4 in a 4:3 window (1440x1080 in gamescope): each quarter 4:3, the frames 4:3 without bars.
+# Four-player split-screen offline against bots (docs/splitscreen.md): the compositor (CSX_SPLIT_COMPOSITOR) starts
+# player 1 (keyboard and mouse), which goes from the intro through Single Player > Custom with 64 bots; with four local
+# players the match takes 61 bots (65 slots: 4 local players and 61 bots, all occupied); the compositor starts players
+# 2-4, each joining player 1's loopback server with its key pinned, each on its own test controller (virtual SDL
+# gamepads routed by the compositor). Each picks its team with its own controller's A (player 1 with Space); the 2x2
+# layout, four independent views, HUDs and viewmodels.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1440 -H 1080), with
+#   --env CSX_SPLIT_COMPOSITOR=1 --env CSX_SPLIT_PLAYERS=4 --env CSX_SPLIT_ZCACHE=$PWD/build/zcache
+wait log split: player 1 started
+pad 1 attach
+pad 2 attach
+pad 3 attach
+wait log p1: open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+key Down
+sleep 2
+key Space
+sleep 5
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Space
+sleep 5
+expect log p1: pc mouse: screen SuperLauncher_SinglePlayerMatchOptions
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Space
+sleep 3
+key Space
+wait log p1: net: split-screen: 64 bots asked, 61 \(65 slots: room for 4 local players, 4 now\)
+wait log split: player 4 started
+wait log p2: net: server 127.0.0.1:27015 connected
+wait log p3: net: server 127.0.0.1:27015 connected
+wait log p4: net: server 127.0.0.1:27015 connected
+wait log p4: pc keys: menu TeamSelect
+sleep 5
+pad 1 button a
+pad 2 button a
+pad 3 button a
+sleep 3
+key Space
+sleep 20
+players p
+expect playercount p 65 65
+windowshot four
+expect log p2: pc wide: aspect auto \(1\.33
+expect log p2: pc keys: menu .*BuyMenuRoot
+expect log p3: pc keys: menu .*BuyMenuRoot
+expect log p4: pc keys: menu .*BuyMenuRoot
+expect nolog guest trap

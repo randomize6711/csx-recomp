@@ -1,6 +1,7 @@
 # Two-player split-screen side by side (split_layout vertical; docs/splitscreen.md): as vk_split_2, the two views left
 # and right; each half (8:9) is narrower than 4:3, so each player's 4:3 frame is letterboxed in it (the HUD and menus
-# need the 4:3 middle). Player 2's controller is unplugged and plugged in again.
+# need the 4:3 middle). Player 2's controller is unplugged and plugged in again. Then the window is resized
+# (1280x720) and made full screen: the viewports and each player's output follow, nothing restarts.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
 #   --env CSX_SPLIT_COMPOSITOR=1 --env CSX_SPLIT_PLAYERS=2 --env CSX_SPLIT_ZCACHE=$PWD/build/zcache --pc split_layout=vertical
 wait log split: player 1 started
@@ -50,5 +51,17 @@ wait newlog p2: split: controller attached
 sleep 2
 pad 1 button a
 wait newlog split: player 2's controller: a
+winctl size 1280 720
+wait log split: resized to 1280x720 from outside
+wait newlog p2: split: viewport
+sleep 3
+windowshot small
+winctl fullscreen 1
+wait log split: made full screen from outside
+wait newlog p1: split: viewport
+sleep 3
+windowshot full
+winctl fullscreen 0
+sleep 3
 expect nolog split: player 2's process ended
 expect nolog guest trap

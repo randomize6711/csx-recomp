@@ -1,0 +1,58 @@
+# vk_split_2 in a 21:9 window (2560x1080 in gamescope): each half 42:9 (4.7:1), wider than the 4:1 a
+# split-screen player renders, so a little pillarboxed.
+# Two-player split-screen offline (docs/splitscreen.md): the compositor starts player 1 (keyboard and mouse), which
+# starts a Single Player match from the menus; its server takes the local players on loopback only; the compositor
+# starts player 2 straight into that server (its key pinned), on test controller 1 (a virtual SDL gamepad routed by the
+# compositor). Each picks its team: player 2 with its controller's A, player 1 with Space; the two views top and
+# bottom, each filling its 32:9 viewport (a split-screen player's aspect goes past the usual 2.5:1). Player 2's
+# controller is unplugged and plugged in again: player 2 keeps playing, the controller back as its own.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 2560 -H 1080), with
+#   --env CSX_SPLIT_COMPOSITOR=1 --env CSX_SPLIT_PLAYERS=2 --env CSX_SPLIT_ZCACHE=$PWD/build/zcache
+wait log split: player 1 started
+wait log p1: open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+key Down
+sleep 2
+key Space
+sleep 5
+key Space
+sleep 4
+key Space
+wait log p1: net: relaunching
+wait log split: player 1: host
+wait log split: player 2 started
+pad 1 attach
+wait log p2: net: server 127.0.0.1:27015 connected
+sleep 25
+windowshot both
+pad 1 button a
+sleep 4
+pad 1 button a
+sleep 6
+key Space
+sleep 4
+key Space
+sleep 10
+windowshot play
+expect log p2: pc keys: menu .*BuyMenuRoot
+expect log p1: pc keys: menu .*BuyMenuRoot
+expect log p2: pc wide: aspect auto \(4\.0
+expect log split: player 2's controller: a
+pad 1 detach
+wait log split: player 2's controller disconnected
+wait log p2: split: controller detached
+sleep 3
+pad 1 attach
+wait newlog split: controller .* is player 2's
+wait newlog p2: split: controller attached
+sleep 2
+pad 1 button a
+wait newlog split: player 2's controller: a
+expect nolog split: player 2's process ended
+expect nolog guest trap

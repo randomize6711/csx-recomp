@@ -61,11 +61,11 @@ expect playercount two 2 2
 expect log p2: pc keys: menu .*BuyMenuRoot
 expect nolog split: player 2's process ended
 expect nolog guest trap
-[remote] --after split:p1:.net:.answering.server.queries --delay 20 --launch tests/launch/connect_local --env FPS=30 --env CSX_LOG_NET=1
+[remote] --after split:p1:.net:.answering.server.queries --delay 5 --launch tests/launch/connect_local --env FPS=30 --env CSX_LOG_NET=1
 wait log net:.server.127\.0\.0\.1:27015.connected
 wait log pc.keys:.menu.TeamSelect
 sleep 2
 press A
-sleep 20
+sleep 60
 expect nolog guest trap
 pckey cmd quit
