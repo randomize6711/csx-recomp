@@ -36,6 +36,9 @@ int main() {
           "max_players: 1..65");
     Check(Ok("bots", "0") && Ok("bots", "65") && !Ok("bots", "66"), "bots: 0..65");
     Check(Ok("bot_difficulty", "3") && !Ok("bot_difficulty", "4"), "bot_difficulty: 0..3");
+    Check(Ok("master", "master.example.org") && Ok("master", "10.0.0.5:27010,master.example.org:27011") &&
+              !Ok("master", "a;quit") && !Ok("master", "a b") && !Ok("master", "a,b,c,d,e"),
+          "master: a comma list of up to 4 HOST[:PORT], nothing else");
     Check(Ok("player_collision", "off") && Ok("player_collision", "1") && !Ok("player_collision", "maybe"), "booleans");
     Check(Ok("round_time", "1") && Ok("round_time", "2.5") && Ok("round_time", "9") && !Ok("round_time", "0.5") &&
               !Ok("round_time", "10") && !Ok("round_time", "nan") && !Ok("round_time", "1e1"),

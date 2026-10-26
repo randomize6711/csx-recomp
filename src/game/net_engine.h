@@ -6,6 +6,10 @@
 #include <string>
 
 struct X86Context;
+namespace net {
+class Endpoint;
+struct Identity;
+}  // namespace net
 
 namespace csx {
 
@@ -40,9 +44,18 @@ bool ServerFinished();
 bool AdminCommand(X86Context& ctx, uint32_t cl, const std::string& text);
 void RunAdminActions(X86Context& ctx);
 bool Banned(const std::string& identity, const std::string& ip, std::string& why);
+// the server browser's join: the title relaunches into "+connect server" between frames (net_session.cpp)
+void RequestJoin(const std::string& server);
 // the title relaunched into another map, its players told to rejoin (net_session.cpp; the dedicated server)
 [[noreturn]] void RelaunchToMap(X86Context& ctx, const std::string& map);
 // the match's Player Collision (pc_collision.cpp)
 bool PlayerCollisionOn();
+// the server browser's server side (server_query.cpp): queries answered and master servers registered with on the
+// server endpoint (bound_to_one: the endpoint is bound to one address, so a LAN listener takes the broadcasts); its
+// per-frame work on the game thread; the dedicated server's wait for its next tick, answering queries meanwhile
+void ServerQueryStart(net::Endpoint& ep, const net::Identity& id, bool bound_to_one);
+void ServerQueryStop();
+void ServerQueryFrame(X86Context& ctx);
+void ServerQueryWait(double seconds);
 
 }  // namespace csx

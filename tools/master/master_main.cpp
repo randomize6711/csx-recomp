@@ -4,10 +4,11 @@
 // database, nothing kept across restarts (servers register again within a heartbeat). Built by tools/build_master.sh.
 //
 //   csx-master [--port 27010] [--bind ADDRESS] [--expiry SECONDS] [--heartbeat SECONDS] [--max-servers N]
-//              [--max-per-ip N] [--public] [--quiet]
+//              [--max-per-ip N] [--rate N] [--public] [--quiet]
 //
 // --public refuses servers at private, loopback and link-local addresses (a master on the internet); without it a
-// LAN party's master lists them. Logs to standard output; SIGINT or SIGTERM ends it.
+// LAN party's master lists them. --rate: datagrams a second answered from one address (10; a burst of twice that).
+// Logs to standard output; SIGINT or SIGTERM ends it.
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -40,7 +41,7 @@ void Log(const std::string& s) {
 
 int Usage(const char* why) {
     std::fprintf(stderr, "csx-master: %s\nusage: csx-master [--port 27010] [--bind ADDRESS] [--expiry SECONDS] "
-                         "[--heartbeat SECONDS] [--max-servers N] [--max-per-ip N] [--public] [--quiet]\n", why);
+                         "[--heartbeat SECONDS] [--max-servers N] [--max-per-ip N] [--rate N] [--public] [--quiet]\n", why);
     return 2;
 }
 
@@ -71,6 +72,7 @@ int main(int argc, char** argv) {
         else if (a == "--heartbeat" && value(10, 600)) config.heartbeat = uint16_t(v);
         else if (a == "--max-servers" && value(1, 1000000)) config.max_servers = size_t(v);
         else if (a == "--max-per-ip" && value(1, 4096)) config.max_per_ip = size_t(v);
+        else if (a == "--rate" && value(1, 100000)) config.per_source = double(v);
         else if (a == "--public") config.allow_private = false;
         else if (a == "--quiet") quiet = true;
         else if (a == "--help" || a == "-h") return Usage("the Counter-Strike Xbox PC master server");

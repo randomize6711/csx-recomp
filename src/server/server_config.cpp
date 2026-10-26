@@ -1,6 +1,8 @@
 // The dedicated server's configuration (server_config.h).
 #include "server/server_config.h"
 
+#include <algorithm>
+
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -94,6 +96,8 @@ const std::vector<Key>& Keys() {
                      "127/8, 169.254/16)"},
         {"snapshot_rate", "the most snapshots a second each client gets, 10..100 (30); the server ticks 30 times a "
                           "second, so more than 30 sends no more"},
+        {"master", "master servers to list the server on, HOST[:PORT] separated by commas (none): players find it "
+                   "under Internet; LAN players find it without one; a lan_only server registers nowhere"},
     };
     return k;
 }
@@ -126,6 +130,17 @@ bool Set(Config& c, const std::string& key, const std::string& value, std::strin
     if (key == "password") return Text(value, 32, false, c.password, error);
     if (key == "lan_only") return Bool(value, c.lan_only, error);
     if (key == "snapshot_rate") return Int(value, 10, 100, c.snapshot_rate, error);
+    if (key == "master") {
+        // host names, addresses and ports, at most 4 of them
+        if (value.size() > 255 || value.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-:,") !=
+                                      std::string::npos) {
+            error = "a comma list of HOST[:PORT] (letters, digits, '.', '-', ':')";
+            return false;
+        }
+        if (std::count(value.begin(), value.end(), ',') > 3) return error = "at most 4 master servers", false;
+        c.master = value;
+        return true;
+    }
     error = "unknown setting \"" + key + "\"";
     return false;
 }
@@ -196,6 +211,7 @@ std::string Describe(const Config& c, bool show_password) {
     add("password", show_password || c.password.empty() ? c.password : "(set)");
     add("lan_only", c.lan_only ? "on" : "off");
     add("snapshot_rate", std::to_string(c.snapshot_rate));
+    if (!c.master.empty()) add("master", c.master);
     return s;
 }
 

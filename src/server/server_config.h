@@ -28,6 +28,7 @@ struct Config {
     std::string password;                                // sv_password; empty: none
     bool lan_only = false;                               // refuse connections from outside private networks
     int snapshot_rate = 30;                              // the most snapshots a second a client gets (sv_maxupdaterate)
+    std::string master;                                  // master servers to register with, "host[:port]" comma list
 };
 
 // one line or option's problem

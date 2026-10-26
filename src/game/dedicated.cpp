@@ -91,6 +91,7 @@ void DedicatedTick(X86Context& ctx, uint8_t*) {
     static clock::time_point next = clock::now();
     auto now = clock::now();
     if (next < now - period) next = now;
-    std::this_thread::sleep_until(next);
+    // the wait answers server queries as they arrive (server_query.cpp), so a browser's ping is not the tick's
+    if (next > now) csx::ServerQueryWait(std::chrono::duration<double>(next - now).count());
     next += period;
 }

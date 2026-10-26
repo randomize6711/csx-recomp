@@ -241,13 +241,15 @@ uint16_t NetServerPort() {
 bool NetHosting() {
     if (NetClientOnly()) return false;
     auto on = [](const char* e) { return e && *e == '1'; };
-    return on(std::getenv("CSX_NET_HOST")) || pc::Get("net_host", "0") == "1" || app::Instance() > 0 ||
+    return on(std::getenv("CSX_NET_HOST")) || on(std::getenv("CSX_MENU_HOST")) || pc::Get("net_host", "0") == "1" ||
+           app::Instance() > 0 ||
            std::getenv("CSX_NET_BIND") != nullptr;
 }
 
 void StartNetwork() {
     // an exit tells the peers (a closed window, the end of a test) instead of leaving them to time out
     std::atexit([] {
+        csx::ServerQueryStop();  // the master servers told the server is leaving
         for (auto& e : g_ep)
             if (e) e->DisconnectAll(e->GetRole() == net::Endpoint::Role::Server ? net::Reason::ServerShutdown
                                                                                 : net::Reason::Closed);
@@ -317,7 +319,8 @@ X86_FUNC(sub_0006CDE0) {
         bool bind = app::Instance() > 0;
         if (const char* b = std::getenv("CSX_NET_BIND"))
             if (auto a = net::Address::Parse(b, 0)) local = *a, bind = true;
-        auto s = net::OpenUdp(port, error, bind ? &local : nullptr);
+        // a server bound to one address shares its port with the LAN discovery listener (server_query.cpp)
+        auto s = net::OpenUdp(port, error, bind ? &local : nullptr, false, sock == 1 && bind);
         if (!s) {
             LOGE("net: cannot open the %s socket: %s", sock ? "server" : "client", error.c_str());
         } else {
@@ -325,7 +328,9 @@ X86_FUNC(sub_0006CDE0) {
             g_ep[sock] = std::make_unique<net::Endpoint>(sock ? net::Endpoint::Role::Server : net::Endpoint::Role::Client,
                                                          std::move(s), MakeConfig(), Now);
             if (sock) {
-                g_ep[sock]->SetIdentity(LoadServerIdentity());
+                auto id = LoadServerIdentity();
+                g_ep[sock]->SetIdentity(id);
+                if (id) csx::ServerQueryStart(*g_ep[sock], *id, bind);
             } else {
                 g_ep[sock]->SetIdentity(LoadIdentity());
                 g_ep[sock]->SetServerKeyCheck(CheckServerKey);
@@ -358,6 +363,7 @@ X86_FUNC(sub_0006C340) {
     uint32_t result = 0;
     if (sock <= 1 && g_ep[sock] && R32(kSockets + 4 * sock) == kHandle + sock) {
         Events(ctx, int(sock));
+        if (sock == 1) csx::ServerQueryFrame(ctx);
         LogStats();
         net::Address from;
         std::vector<uint8_t> data;
@@ -404,6 +410,7 @@ bool NetCloseSocket(X86Context& ctx, uint8_t*) {
     for (uint32_t sock = 0; sock < 2; sock++) {
         if (ctx.eax != kHandle + sock) continue;
         if (g_ep[sock]) {
+            if (sock) csx::ServerQueryStop();
             g_ep[sock]->DisconnectAll(sock ? net::Reason::ServerShutdown : net::Reason::Closed);
             g_ep[sock].reset();
             LOGI("net: %s endpoint closed", sock ? "server" : "client");

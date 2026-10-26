@@ -239,6 +239,8 @@ int main(int argc, char** argv) {
     setenv("CSX_NET_HOST", "1", 1);
     setenv("CSX_NET_PORT", std::to_string(cfg.port).c_str(), 1);
     setenv("CSX_NET_LAN_ONLY", cfg.lan_only ? "1" : "0", 1);
+    if (!cfg.master.empty()) setenv("CSX_SERVER_MASTER", cfg.master.c_str(), 1);
+    else unsetenv("CSX_SERVER_MASTER");
 
     // the match the title boots into: a fresh disk (as a console's quick reboot leaves it) with the launch page and
     // the command line; on a relaunch the title's own launch page is kept and the line rewritten with these settings
