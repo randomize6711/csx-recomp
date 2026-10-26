@@ -1,0 +1,66 @@
+// Split-screen hooks the game code calls whatever the front end (csx.h): the local player number from the
+// environment, and a sender the window front end's player side (src/linux/split_player.cpp) registers; the headless
+// harness and the dedicated server register none, so their messages go nowhere.
+#include <atomic>
+#include <cstdlib>
+#include <mutex>
+#include <string>
+
+#include "common/csx.h"
+
+namespace {
+std::atomic<void (*)(int, const std::string&)> g_send{nullptr};
+std::atomic<void (*)(bool)> g_prepare{nullptr};
+std::atomic<bool (*)(int)> g_starter{nullptr};
+std::mutex g_lock;
+std::string g_state;
+}  // namespace
+
+namespace csx {
+
+int SplitPlayer() {
+    static const int player = [] {
+        const char* p = std::getenv("CSX_SPLIT_PLAYER");
+        int n = p ? std::atoi(p) : 0;
+        return n >= 1 && n <= 4 ? n : 0;
+    }();
+    return player;
+}
+
+void SplitSend(int kind, const std::string& text) {
+    if (auto f = g_send.load()) f(kind, text);
+}
+
+void SetSplitSender(void (*send)(int, const std::string&)) { g_send = send; }
+
+std::string SplitState() {
+    std::lock_guard<std::mutex> lock(g_lock);
+    return g_state;
+}
+
+void SetSplitState(const std::string& text) {
+    std::lock_guard<std::mutex> lock(g_lock);
+    g_state = text;
+}
+
+void SplitPrepareRelaunch(bool match) {
+    if (auto f = g_prepare.load()) f(match);
+}
+
+void SetSplitPrepareRelaunch(void (*prepare)(bool)) { g_prepare = prepare; }
+
+bool SplitStart(int players) {
+    auto f = g_starter.load();
+    return f && f(players);
+}
+
+void SetSplitStarter(bool (*start)(int)) { g_starter = start; }
+
+int SplitPlayers() {
+    if (!SplitPlayer()) return 1;
+    const char* p = std::getenv("CSX_SPLIT_PLAYERS");
+    int n = p ? std::atoi(p) : 1;
+    return n >= 1 && n <= 4 ? n : 1;
+}
+
+}  // namespace csx

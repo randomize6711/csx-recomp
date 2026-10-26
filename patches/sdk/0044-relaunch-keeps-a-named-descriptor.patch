@@ -1,0 +1,13 @@
+--- a/runtime/kernel/boot.cpp
++++ b/runtime/kernel/boot.cpp
+@@ -221,6 +221,10 @@
+     // with none of them (each relaunch kept the old image's eight or so, the guest memory among them)
+     if (::syscall(SYS_close_range, 3u, ~0u, 4u /* CLOSE_RANGE_CLOEXEC */) != 0)
+         for (int fd = 3; fd < 4096; fd++) ::fcntl(fd, F_SETFD, FD_CLOEXEC);  // a kernel before 5.11
++    // except one the host program keeps across its relaunches (RELAUNCH_KEEP_FD: a split-screen player's socket to
++    // its compositor)
++    if (const char* keep = std::getenv("RELAUNCH_KEEP_FD"); keep && std::atoi(keep) > 2)
++        ::fcntl(std::atoi(keep), F_SETFD, 0);
+     execl(path.c_str(), path.c_str(), nullptr);
+     std::_Exit(0);
+ #endif

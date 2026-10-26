@@ -62,6 +62,23 @@ bool MenuOpen();
 // a server browser screen is open (src/game/pc_browser.cpp): Escape is the pad's B there, F5 its X (refresh),
 // Page Up / Page Down its triggers (the tabs)
 bool BrowserKeys();
+// split-screen (docs/splitscreen.md): this process's local player (1..4; 0 when the game runs on its own, the usual
+// case), a message to the compositor (split::Msg kind and text; nothing without one: the headless harness, the
+// dedicated server), the compositor's latest state text for player 1's setup screen
+int SplitPlayer();
+enum SplitKind { kSplitMatch = 5, kSplitLog = 6, kSplitSetup = 7 };  // src/linux/split_ipc.h's Msg values
+void SplitSend(int kind, const std::string& text);
+void SetSplitSender(void (*send)(int kind, const std::string& text));
+std::string SplitState();
+void SetSplitState(const std::string& text);
+// a split-screen player is about to relaunch (into a match or back to the menus): its next display aspect set
+void SplitPrepareRelaunch(bool match);
+void SetSplitPrepareRelaunch(void (*prepare)(bool match));
+int SplitPlayers();  // the local players configured (CSX_SPLIT_PLAYERS, the setup screen's), 1 without split-screen
+// the game alone in its window starts split-screen (the window front end restarts as the compositor); false where
+// there is none (the headless harness)
+bool SplitStart(int players);
+void SetSplitStarter(bool (*start)(int players));
 // the network's process settings (src/game/net_engine.cpp)
 void StartNetwork();
 // what GameInfo::loaded starts

@@ -6,6 +6,7 @@
 #include <fstream>
 #include <string>
 
+#include "common/csx.h"
 #include "common/guest_tables.h"
 #include "common/guest_tables_layout.h"
 #include "core/log.h"
@@ -63,6 +64,38 @@ constexpr uint32_t kRelaunch = 0xBF0E0;  // the title's relaunch (cdecl: the lau
     kernel::W32(data, 1);
     kernel::CallGuest(ctx, kRelaunch, {data});
     std::abort();
+}
+
+// split-screen player 1 starts a match from the front end (docs/splitscreen.md): its server takes the other local
+// players; an offline match (Single Player) on this machine's loopback only, Host a Match on the network as alone;
+// its bot count leaves room for them (4 local players and 61 bots fill the 65 slots: the title's own bot manager
+// would take 64 and the server would be full); the next boot's display aspect is its viewport's
+void SplitMatchFromMenus(bool host) {
+    if (csx::SplitPlayer() != 1) return;
+    int players = csx::SplitPlayers();
+    if (players > 1) {
+        setenv("CSX_MENU_HOST", "1", 1);
+        if (host) unsetenv("CSX_SERVER_LOOPBACK");
+        else setenv("CSX_SERVER_LOOPBACK", "1", 1);
+        std::string path = kernel::ResolvePath("Z:\\releasemap.txt", 0), line;
+        if (!path.empty()) {
+            std::ifstream f(path, std::ios::binary);
+            std::getline(f, line, '\0');
+        }
+        size_t q = line.find("+bot_quota ");
+        if (q != std::string::npos) {
+            size_t v = q + 11, e = line.find(' ', v);
+            int bots = std::atoi(line.substr(v, e - v).c_str()), room = 65 - players;
+            if (bots > room) {
+                line = line.substr(0, v) + std::to_string(room) + (e == std::string::npos ? "" : line.substr(e));
+                std::ofstream(path, std::ios::binary | std::ios::trunc) << line << '\0';
+                LOGI("net: split-screen: %d bots asked, %d with %d local players (65 slots)", bots, room, players);
+            }
+        }
+        LOGI("net: split-screen: the match hosts %d local players%s", players, host ? "" : " (loopback only)");
+    } else {
+        unsetenv("CSX_SERVER_LOOPBACK");
+    }
 }
 
 bool BrowserJoin() {
@@ -180,6 +213,7 @@ void RelaunchNotify(X86Context&, uint8_t*) {
             else unsetenv("CSX_MENU_HOST");
 #endif
             if (host) LOGI("net: a match hosted from Multiplayer (%s): its server takes network players", name.c_str());
+            SplitMatchFromMenus(host);
         }
     }
     std::string line;
@@ -187,6 +221,8 @@ void RelaunchNotify(X86Context&, uint8_t*) {
         std::ifstream f(path, std::ios::binary);
         std::getline(f, line, '\0');
     }
+    // split-screen player 1: the next boot's aspect, its viewport's in a match, the window's in the menus
+    if (csx::SplitPlayer() == 1) csx::SplitPrepareRelaunch(line.rfind("+map ", 0) == 0 || line.rfind("+connect ", 0) == 0);
     if (line.rfind("+map ", 0) == 0) {
         std::string map = line.substr(5, line.find(' ', 5) == std::string::npos ? std::string::npos : line.find(' ', 5) - 5);
         LOGI("net: relaunching into %s: the clients are told to rejoin", map.c_str());
@@ -204,6 +240,12 @@ void RelaunchNotify(X86Context&, uint8_t*) {
 // (0x5FD50) at its start would open the screen and never return.
 bool ClDisconnectLostHost(X86Context& ctx, uint8_t*) {
     if (g_connecting || !g_reconnect.empty() || csx::Dedicated()) return true;
+    // split-screen players 2..4 play only where player 1 does: their match over, their process ends (the compositor
+    // starts them again for the next one)
+    if (csx::SplitPlayer() > 1) {
+        LOGI("net: split-screen player %d's match ended: %s", csx::SplitPlayer(), ReturnMessage().c_str());
+        std::exit(0);
+    }
     // a join from the server browser: back to its list with why, instead of the console's LostHost screen. At once,
     // as that screen does (its own loop ends only in a relaunch): the disconnect's callers do not expect to go on
     if (BrowserJoin()) RelaunchToFrontEnd(ctx, ReturnMessage());

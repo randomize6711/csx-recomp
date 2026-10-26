@@ -23,6 +23,7 @@
 #include <thread>
 #include <vector>
 
+#include "common/csx.h"
 #include "common/pc_settings.h"
 #include "core/log.h"
 #include "cpu/x86_context.h"
@@ -223,6 +224,12 @@ void ServerQueryStart(net::Endpoint& ep, const net::Identity& id, bool bound_to_
         LOGI("net: master servers %s", masters.c_str());
     }
     LOGI("net: answering server queries on UDP port %u", ep.Local().port);
+    // split-screen player 1 hosts (offline against bots, Host a Match): the other local players join it here
+    if (csx::SplitPlayer() == 1) {
+        net::Address a = ep.Local();
+        if (a.ip == std::array<uint8_t, 4>{0, 0, 0, 0}) a.ip = {127, 0, 0, 1};
+        csx::SplitSend(csx::kSplitMatch, "host " + a.ToString() + " " + net::Identity::Fingerprint(id.public_key));
+    }
 }
 
 void ServerQueryStop() {

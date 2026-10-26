@@ -30,6 +30,8 @@
 // applies at once. Either way the game adds no curve, smoothing or frame time to it.
 #include <SDL3/SDL.h>
 
+#include "linux/split_player.h"
+
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -413,14 +415,15 @@ void HandleEvent(const void* p) {
             if (Mouse().stick) {
                 g_mouse_dx += e.motion.xrel;
                 g_mouse_dy += e.motion.yrel;
-            } else if (e.motion.which == window::kInjectedDevice ||
-                       SDL_GetWindowRelativeMouseMode(static_cast<SDL_Window*>(window::SdlWindow()))) {
+            } else if (e.motion.which == window::kInjectedDevice || window::RelativeMouse()) {
                 // captured: straight to the view angles, scaled only (no acceleration)
                 float k = Mouse().Sens() * kDegreesPerCount;
                 csx::AddLook(e.motion.xrel * k, (Mouse().Invert() ? 1.0f : -1.0f) * e.motion.yrel * k);
             }
             break;
         case SDL_EVENT_GAMEPAD_ADDED:
+            // a split-screen player takes only the controller the compositor gives it (a virtual one)
+            if (splitp::Active() && !SDL_IsJoystickVirtual(e.gdevice.which)) break;
             if (!g_pad) {
                 g_pad = SDL_OpenGamepad(e.gdevice.which);
                 if (g_pad) LOGI("input: gamepad %s", SDL_GetGamepadName(g_pad));
@@ -493,8 +496,12 @@ void UpdateConsole() {
         g_keys.clear();
     }
     const bool free = g_console || csx::MenuOpen();
-    const bool focused = (SDL_GetWindowFlags(win) & SDL_WINDOW_INPUT_FOCUS) != 0;
+    const bool focused = splitp::Active() ? splitp::Focused() : (SDL_GetWindowFlags(win) & SDL_WINDOW_INPUT_FOCUS) != 0;
     const bool want = !free && g_capture_play && focused;
+    if (splitp::Active()) {  // a split-screen player: the compositor captures the mouse for it when it wants it
+        splitp::SendCapture(!free && g_capture_play);
+        return;
+    }
     static bool failed = false;  // relative mode refused (logged once; asked again only when wanted anew)
     if (want != SDL_GetWindowRelativeMouseMode(win) && !(want && failed)) {
         // SDL drops the motion still queued from before the switch: no turn from the menu's pointer, none left over
@@ -525,6 +532,10 @@ void UpdateConsole() {
 
 // F1 while playing: the mouse let go or captured again; a click in the window while playing captures it
 void SetPlayCapture(bool on) { g_capture_play = on; }
+bool RelativeMouse() {
+    return splitp::Active() ? splitp::Captured()
+                            : SDL_GetWindowRelativeMouseMode(static_cast<SDL_Window*>(SdlWindow()));
+}
 bool PlayCapture() { return g_capture_play; }
 bool MouseFree() { return g_console || csx::MenuOpen(); }
 
@@ -618,6 +629,7 @@ Pad Poll(int port) {
                                              SDL_GAMEPAD_BUTTON_LEFT_SHOULDER};  // white
         for (int i = 0; i < 6; i++)
             if (btn(analog[i])) p.analog[i] = 255;
+
         p.analog[6] = std::max<uint8_t>(p.analog[6], uint8_t(axis(SDL_GAMEPAD_AXIS_LEFT_TRIGGER) * 255 / 32767));
         p.analog[7] = std::max<uint8_t>(p.analog[7], uint8_t(axis(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) * 255 / 32767));
     }

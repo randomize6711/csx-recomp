@@ -4,7 +4,7 @@
 # in the game's own menus. --match goes straight into an offline match against bots instead, as the front end's
 # Beginner match would start it. No scenario, no timeout: the game runs until the window is closed.
 #   ./run_game.sh [--build] [--match [MAP]] [--bots N] [--nocollide] [--host [--port P]]
-#                 [--connect HOST[:PORT] [--password P] [--server-key KEY]]
+#                 [--connect HOST[:PORT] [--password P] [--server-key KEY]] [--splitscreen N]
 #   MAP       any map in build/gamedata (de_airstrip by default, de_aztec, de_dust2, cs_italy, ...)
 #   --bots N  bot count, 0..64 (default 7, the Beginner match's; the front end's menu stops at 16); implies --match
 #   --nocollide  Player Collision Off (the setting for crowded matches); implies --match
@@ -17,7 +17,10 @@
 #   --password P     the server's join password (csx-server --password)
 #   --server-key KEY the server's identity key (64 hex digits, its log: "net: server identity"), pinned instead of
 #             trusted on first use
-#   With --host or --connect the game uses this PC's network (the other modes run without any network access).
+#   --splitscreen N  split screen for N (1-4) local players (docs/splitscreen.md): player 1 on the keyboard and mouse
+#             starts from the intro movies; players 2..N on controllers join player 1's match (offline, a hosted or a
+#             joined one). Also from the main menu: Split Screen
+#   With --host, --connect or --splitscreen the game uses this PC's network (the other modes run without any).
 #   --build   rebuild first (tools/iterate.sh 1, which also boots the headless harness for a second, then
 #             tools/build_window.sh)
 # Environment passed through: FPS (default 30, the console's rate; FPS=0 runs at the game's own 72 cap),
@@ -33,6 +36,7 @@ build=0
 match=0
 host=0
 connect=
+split=
 port=
 map=de_airstrip
 bots=7
@@ -48,7 +52,8 @@ while [ $# -gt 0 ]; do
         --connect) connect=$2; shift ;;
         --password) export CSX_NET_PASSWORD=$2; shift ;;
         --server-key) export CSX_SERVER_KEY=$2; shift ;;
-        -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
+        --splitscreen) split=$2; shift ;;
+        -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
         *) map=$1; match=1 ;;
     esac
     shift
@@ -91,6 +96,14 @@ if [ -n "$connect" ]; then
     echo "joining $connect (log: $run/run.out); click the window to capture the mouse, F1 releases it, close the window to quit"
     cd "$run"
     exec $sandbox ../window/CounterStrike ../gamedata > run.out 2>&1
+fi
+if [ -n "$split" ]; then
+    case "$split" in [1-4]) ;; *) echo "--splitscreen wants 1 to 4 local players"; exit 1 ;; esac
+    export CSX_RENDERER=vulkan CSX_SPLIT_COMPOSITOR=1 CSX_SPLIT_PLAYERS=$split CSX_SPLIT_ZCACHE=$root/build/zcache
+    unset CSX_TEST_INPUT_ONLY
+    echo "split screen for $split players from the intro movies (log: $run/run.out): player 1 on the keyboard and mouse, the others on controllers in the order they connect (START on another controller joins a player); close the window to quit"
+    cd "$run"
+    exec unshare -r ../window/CounterStrike ../gamedata > run.out 2>&1
 fi
 if [ $match = 0 ]; then
     export CSX_RENDERER=${CSX_RENDERER:-vulkan}

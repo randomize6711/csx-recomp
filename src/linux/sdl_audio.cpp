@@ -69,13 +69,20 @@ void Capture(const float* samples, uint32_t frames) {
     }
 }
 
-// Options > PC Options: Master Volume (0-100, default 100) on what goes to the device, after the game's own mix
+// Options > PC Options: Master Volume (0-100, default 100) on what goes to the device, after the game's own mix; a
+// split-screen player's stream also at its share (CSX_AUDIO_GAIN, the compositor's 1/sqrt(players): the system mixes
+// every player's stream, each heard from that player's own position)
 void Volume(float* samples, uint32_t frames) {
     static unsigned seen = ~0u;
     static float gain = 1.0f;
+    static const float share = [] {
+        const char* g = std::getenv("CSX_AUDIO_GAIN");
+        float v = g ? float(std::atof(g)) : 1.0f;
+        return v > 0.0f && v <= 1.0f ? v : 1.0f;
+    }();
     if (pc::Version() != seen) {
         seen = pc::Version();
-        gain = std::clamp(pc::GetFloat("master_volume", 100.0f), 0.0f, 100.0f) / 100.0f;
+        gain = std::clamp(pc::GetFloat("master_volume", 100.0f), 0.0f, 100.0f) / 100.0f * share;
     }
     if (gain != 1.0f)
         for (uint32_t i = 0; i < frames * 2; i++) samples[i] *= gain;

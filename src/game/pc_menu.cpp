@@ -57,6 +57,9 @@ struct PcScreen {
     bool resettable;     // X restores the defaults (the game's Cancel_Accept_Reset legend)
     bool unique_values;  // no two rows may hold the same non-empty value (key bindings)
     bool hidden = false; // not a row of Options: opened by another screen (the server browser's Filters)
+    const char* on_entry = nullptr;   // console commands run after the lists are loaded, and on Accept after the save
+    const char* on_accept = nullptr;
+    int status_lines = 0;             // BackgroundText lines under a shorter list, set by its commands (Split Screen)
 };
 
 std::vector<Choice> Numbers(std::initializer_list<const char*> v) {
@@ -238,6 +241,34 @@ const std::vector<PcScreen>& Screens() {
                          false,
                          true};
         v.push_back(filters);
+        // split-screen (src/game/pc_split.cpp, docs/splitscreen.md), opened from the main menu
+        PcScreen split{"Split",
+                       "Split Screen",
+                       {"", ""},
+                       {
+                           {"split_players",
+                            "Local Players",
+                            {"Play with up to four players on this PC: one with the", "keyboard and mouse, the others with controllers."},
+                            {{"1 (Off)", "1"}, {"2", "2"}, {"3", "3"}, {"4", "4"}},
+                            0},
+                           {"split_layout",
+                            "Two Players",
+                            {"Split the screen top and bottom, or side by side.", ""},
+                            {{"Top and Bottom", "horizontal"}, {"Side by Side", "vertical"}},
+                            0},
+                           {"split_p1_pad",
+                            "Player 1",
+                            {"Player 1 plays with the keyboard and mouse, and", "can take the first controller too."},
+                            {{"Keyboard and Mouse", "0"}, {"Also a Controller", "1"}},
+                            0},
+                       },
+                       true,
+                       false,
+                       true,
+                       "pc_split show",
+                       "pc_split apply",
+                       4};
+        v.push_back(split);
         return v;
     }();
     return s;
@@ -293,10 +324,19 @@ std::string ListRows(const PcScreen& s, bool help) {
     return t;
 }
 
-std::string Commands(const std::string& name, bool resettable) {
-    std::string t = "\tOnEntry \"!pc_options_load " + name + "\"\r\n\tOnButtonDownB \"back\"\r\n"
-                    "\tOnButtonDownA \"!pc_options_save " + name + "; xbui back\"\r\n";
-    if (resettable) t += "\tOnButtonDownX \"!pc_options_defaults " + name + "\"\r\n";
+std::string Commands(const std::string& name, const PcScreen& s) {
+    std::string entry = s.on_entry ? std::string("; ") + s.on_entry : "", accept = s.on_accept ? std::string("; ") + s.on_accept : "";
+    std::string t = "\tOnEntry \"!pc_options_load " + name + entry + "\"\r\n\tOnButtonDownB \"back\"\r\n"
+                    "\tOnButtonDownA \"!pc_options_save " + name + accept + "; xbui back\"\r\n";
+    if (s.resettable) t += "\tOnButtonDownX \"!pc_options_defaults " + name + "\"\r\n";
+    return t;
+}
+
+// a screen's status lines (BackgroundText, set by its commands): under its list, above the help lines
+std::string StatusLines(const PcScreen& s) {
+    std::string t;
+    for (int i = 0; i < s.status_lines; i++)
+        t += "\tBackgroundText \"54 83 107 255 80 " + std::to_string(250 + 20 * i) + " 480 30 0.75\"\t\" \"\r\n";
     return t;
 }
 
@@ -310,13 +350,13 @@ std::string FrontEndScreen(const PcScreen& s) {
            "\tCachedImage \"whitebox\t\t\t\t255 255 255 255\"\r\n"
            "\tBackgroundImage \"Back_2ndary.1Pane\t\t200 200 200 255\t\t0   0 640 480\"\r\n"
            "\tBackgroundImage \"" + std::string(s.resettable ? "Cancel_Accept_Reset" : "Cancel_Accept") +
-           " 200 200 200 255 0 411 640 69\"\r\n" + Commands(name, s.resettable) +
+           " 200 200 200 255 0 411 640 69\"\r\n" + Commands(name, s) + StatusLines(s) +
            "\tBackgroundText \"54 83 107 255 65 45 400 30\"\t" + Quote(s.title) + "\r\n" + Pie() +
            "\tTable\r\n\t{\r\n\t\tLayout\r\n\t\t{\r\n"
            "\t\t\tColumnWidthPercentage \"60\"\r\n\t\t\tColumnJustify \"truncated\"\r\n"
            "\t\t\tColumnWidthPercentage \"40\"\r\n\t\t\tColumnJustify \"center\"\r\n"
            "\t\t\tTableVerticalWrap\r\n\t\t\tTableTextScale \"0.875\"\r\n\t\t\tTableLocation \"75 100\"\r\n"
-           "\t\t\tTableRowSpacing \"5\"\r\n\t\t\tTableSize \"500 250\"\r\n"
+           "\t\t\tTableRowSpacing \"5\"\r\n\t\t\tTableSize \"500 " + std::string(s.status_lines ? "140" : "250") + "\"\r\n"
            "\t\t\tNonSelectFG \"0.24 0.29 0.33 1\"\r\n"
            "\t\t\tHighlightImage \"Arrows_Selected 1.0 1.0 1.0 1.0 299.0 2.0 176.0 22.0\"\r\n"
            "\t\t\tNonHighlightImage \"Arrows_Unselected 1.0 1.0 1.0 1.0 299.0 2.0 176.0 22.0\"\r\n"
@@ -332,7 +372,7 @@ std::string InGameScreen(const PcScreen& s) {
            "\tPieceOffsetDegrees \"0\"\r\n\tCachedImage \"angleSelect\t\t\t\t255 255 255 255\"\r\n"
            "\tBackgroundImage \"csxbackground\t\t100 100 80 235\t\t0 0 640 480\"\r\n\tModal \"50\"\r\n"
            "\tBackgroundText \"177 169 54 255 65 45 400 30\"\t" + Quote(s.title) + "\r\n" +
-           Commands(name, s.resettable) + Pie() +
+           Commands(name, s) + Pie() +
            "\tTable\r\n\t{\r\n\t\tLayout\r\n\t\t{\r\n"
            "\t\t\tColumnWidthPercentage \"60\"\r\n\t\t\tColumnJustify \"truncated\"\r\n"
            "\t\t\tColumnWidthPercentage \"40\"\r\n\t\t\tColumnJustify \"center\"\r\n"
@@ -684,9 +724,11 @@ bool PcBindingScreen(const std::string& name) {
 
 // on the game thread every frame (pc_keys.cpp's PcKeysFrame): the capture started, fed or ended with its screen
 void PcBrowserMenuFrame(X86Context& ctx);  // pc_browser.cpp
+void PcSplitMenuFrame(X86Context& ctx);    // pc_split.cpp
 
 void PcMenuFrame(X86Context& ctx) {
     PcBrowserMenuFrame(ctx);
+    PcSplitMenuFrame(ctx);
     bool start;
     std::deque<int> keys;
     {
@@ -721,6 +763,8 @@ void PcMouseLearnUi(const std::string& text);  // pc_mouse.cpp
 std::string ExtendScoreboard(const std::string& text);  // scoreboard.cpp
 std::string ExtendMultiplayer(const std::string& text);  // pc_browser.cpp
 void PcBrowserCommand(X86Context& ctx, const std::vector<std::string>& args);  // pc_browser.cpp
+void PcSplitCommand(X86Context& ctx, const std::vector<std::string>& args);    // pc_split.cpp
+std::string ExtendSplitMenu(const std::string& text);                          // pc_split.cpp
 void PcPlayerCollisionCommand(const std::string& arg);  // pc_collision.cpp
 
 // [[hook]] at 0xCDB1A: read and closed, esi = the buffer (ebp + 1 bytes, the file's text first); the extended text
@@ -734,7 +778,7 @@ void PcUiLoadText(X86Context& ctx, uint8_t*) {
         std::filesystem::create_directories(app::ExeDir() / "uidump");
         std::ofstream(app::ExeDir() / "uidump" / name, std::ios::binary) << text;
     }
-    std::string out = name.rfind("FrontEndUI", 0) == 0 ? ExtendFrontEnd(ExtendMultiplayer(ExtendBotCount(ExtendCustomOptions(text))))
+    std::string out = name.rfind("FrontEndUI", 0) == 0 ? ExtendFrontEnd(ExtendSplitMenu(ExtendMultiplayer(ExtendBotCount(ExtendCustomOptions(text)))))
                                                        : ExtendInGame(text);
     if (name.rfind("InGameUI", 0) == 0 && !out.empty()) out = ExtendScoreboard(out);
     PcMouseLearnUi(out.empty() ? text : out);
@@ -775,6 +819,12 @@ bool PcListChoiceEnabled(X86Context& ctx, uint8_t*) { return ctx.edx >= 0x27; }
 bool PcConsoleCommand(X86Context& ctx, uint8_t*) {
     if (!R32(0x4253E8)) return false;
     std::string cmd = GuestString(R32(0x4251A8));
+    if (cmd == "pc_split") {
+        std::vector<std::string> args;
+        for (uint32_t i = 0; i < R32(0x4253E8) && i < 8; i++) args.push_back(GuestString(R32(0x4251A8 + 4 * i)));
+        PcSplitCommand(ctx, args);
+        return true;
+    }
     if (cmd == "pc_browser") {
         std::vector<std::string> args;
         for (uint32_t i = 0; i < R32(0x4253E8) && i < 8; i++) args.push_back(GuestString(R32(0x4251A8 + 4 * i)));

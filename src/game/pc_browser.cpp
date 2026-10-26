@@ -990,6 +990,12 @@ std::string ExtendMultiplayer(const std::string& text) {
     return out;
 }
 
+// a BackgroundText line of any screen (pc_split.cpp's status lines)
+void PcSetScreenLine(X86Context& ctx, const char* screen, int index, const std::string& text) {
+    SetLine(ctx, FindScreen(screen), index, text);
+}
+std::string PcCurrentScreen() { return CurrentScreen(); }
+
 // the browser's mouse targets (pc_mouse.cpp): the tabs, the header's columns, the action lines; true when (x, y) hit
 // one (its command queued)
 bool PcBrowserClick(const std::string& screen, float x, float y) {
@@ -1180,6 +1186,8 @@ void PcBrowserMenuFrame(X86Context& ctx) {
     std::string screen = CurrentScreen();
     if (screen != "SuperLauncher_MainScreen") return;
     returned = true;
+    // split-screen player 1 is in the menus: the other local players' match is over (the compositor ends them)
+    if (csx::SplitPlayer() == 1) csx::SplitSend(csx::kSplitMatch, "menu");
     const char* join = std::getenv("CSX_BROWSER_JOIN");
     if (!join) return;
     std::string message = std::getenv("CSX_BROWSER_MESSAGE") ? std::getenv("CSX_BROWSER_MESSAGE") : "";

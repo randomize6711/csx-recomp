@@ -26,6 +26,7 @@
 #include "game/net_engine.h"
 #include "kernel/kernel.h"
 #include "net/transport.h"
+#include "net/wire.h"
 
 namespace {
 using kernel::R16;
@@ -205,7 +206,14 @@ void Events(X86Context& ctx, int sock) {
                 g_ep[1]->Disconnect(e.peer, net::Reason::Kicked, why);
                 continue;
             }
-            if (sock == 0) csx::NetServerJoined();
+            if (sock == 0) {
+                csx::NetServerJoined();
+                // split-screen player 1 joined a server: the other local players follow it (its key, its password)
+                if (csx::SplitPlayer() == 1) {
+                    const char* pw = std::getenv("CSX_NET_PASSWORD");
+                    csx::SplitSend(csx::kSplitMatch, "join " + who + " " + e.identity + " " + (pw && *pw ? pw : "-"));
+                }
+            }
             continue;
         }
         // the reason only when the text does not already say it (a peer's Disconnect carries its own text)
@@ -319,6 +327,9 @@ X86_FUNC(sub_0006CDE0) {
         bool bind = app::Instance() > 0;
         if (const char* b = std::getenv("CSX_NET_BIND"))
             if (auto a = net::Address::Parse(b, 0)) local = *a, bind = true;
+        // a split-screen offline match (net_session.cpp): its server on this machine's loopback only
+        const bool loopback = sock == 1 && std::getenv("CSX_SERVER_LOOPBACK") && *std::getenv("CSX_SERVER_LOOPBACK") == '1';
+        if (loopback) local.ip = {127, 0, 0, 1}, bind = true;
         // a server bound to one address shares its port with the LAN discovery listener (server_query.cpp)
         auto s = net::OpenUdp(port, error, bind ? &local : nullptr, false, sock == 1 && bind);
         if (!s) {
@@ -330,7 +341,7 @@ X86_FUNC(sub_0006CDE0) {
             if (sock) {
                 auto id = LoadServerIdentity();
                 g_ep[sock]->SetIdentity(id);
-                if (id) csx::ServerQueryStart(*g_ep[sock], *id, bind);
+                if (id) csx::ServerQueryStart(*g_ep[sock], *id, bind && !loopback);
             } else {
                 g_ep[sock]->SetIdentity(LoadIdentity());
                 g_ep[sock]->SetServerKeyCheck(CheckServerKey);
@@ -347,6 +358,11 @@ X86_FUNC(sub_0006CDE0) {
                     for (unsigned char ch : password) ok = ok && ch > 0x20 && ch < 0x7F && ch != '"' && ch != ';' && ch != '\\';
                     if (ok) rates += "setinfo password " + password + "\n";
                     else LOGW("net: the server password is not used: at most 32 characters, no spaces, quotes, ';' or '\\'");
+                }
+                // a split-screen player 2..4's name (the compositor's CSX_PLAYER_NAME; it has no profile of its own)
+                if (const char* name = std::getenv("CSX_PLAYER_NAME")) {
+                    std::string n = net::wire::CleanText(name, 31);
+                    if (!n.empty()) rates += "name \"" + n + "\"\n";
                 }
                 csx::QueueEngineCommand(rates);
             }

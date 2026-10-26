@@ -8,7 +8,12 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <deque>
+#include <mutex>
+#include <thread>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -20,6 +25,7 @@
 #include <vector>
 
 #include <strings.h>
+#include <unistd.h>
 
 #include "app/app.h"
 #include "core/log.h"
@@ -33,6 +39,7 @@
 #include "kernel/kernel.h"
 #include "kernel/memory.h"
 #include "common/pc_settings.h"
+#include "linux/split_player.h"
 #include "linux/window.h"
 #include "vulkan/vk_shader.h"
 
@@ -314,6 +321,12 @@ private:
     bool CreateDevice();
     bool CreateSwapchain();
     void DestroySwapchain();
+    // split-screen (split_player.h): the frame goes into images exported to the compositor instead of a swapchain
+    bool CreateExports();
+    void DestroyExports();
+    int RecordExport(VkCommandBuffer cb, Image& shown);
+    void Notifier();
+    void FinishPresent(const Surface& front);
     VkPresentModeKHR WantedPresentMode();
     void LogFrameTiming();
     bool CreateLayouts();
@@ -382,6 +395,21 @@ private:
     VkExtent2D swap_extent_{};
     std::vector<VkPresentModeKHR> present_modes_;  // what the surface offers (asked once)
     VkPresentModeKHR present_mode_ = VK_PRESENT_MODE_FIFO_KHR;
+    // split-screen player: three exported images (state 0 free, 1 being drawn: its fence waited by the notifier)
+    bool split_ = false;
+    struct Export {
+        VkImage image = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+        VkFence fence = VK_NULL_HANDLE;
+        std::atomic<int> state{0};
+    };
+    std::array<Export, 3> exports_;
+    uint64_t export_size_serial_ = ~0ull;
+    std::mutex notify_lock_;
+    std::condition_variable notify_cv_;
+    std::deque<int> notify_queue_;
+    bool notify_stop_ = false;
+    std::thread notifier_;
     unsigned vsync_seen_ = ~0u;  // the settings version the VSync setting was last read at
     bool vsync_ = true;
 
@@ -450,12 +478,23 @@ private:
 
 VulkanBackend::~VulkanBackend() {
     if (dev_) vkDeviceWaitIdle(dev_);
+    if (notifier_.joinable()) {
+        {
+            std::lock_guard<std::mutex> lock(notify_lock_);
+            notify_stop_ = true;
+        }
+        notify_cv_.notify_all();
+        notifier_.join();
+    }
 }
 
 bool VulkanBackend::CreateInstance() {
     uint32_t n = 0;
-    const char* const* sdl_ext = SDL_Vulkan_GetInstanceExtensions(&n);
-    std::vector<const char*> ext(sdl_ext, sdl_ext + n);
+    split_ = splitp::Active();
+    // a split-screen player has no window: no surface extensions
+    const char* const* sdl_ext = split_ ? nullptr : SDL_Vulkan_GetInstanceExtensions(&n);
+    std::vector<const char*> ext;
+    if (sdl_ext) ext.assign(sdl_ext, sdl_ext + n);
     std::vector<const char*> layers;
     if (const char* v = std::getenv("CSX_VK_VALIDATION"); v && *v == '1') layers.push_back("VK_LAYER_KHRONOS_validation");
     VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
@@ -471,6 +510,7 @@ bool VulkanBackend::CreateInstance() {
         LOGE("vulkan: no Vulkan 1.3 instance");
         return false;
     }
+    if (split_) return true;
     auto* win = static_cast<SDL_Window*>(window::SdlWindow());
     if (!win || !SDL_Vulkan_CreateSurface(win, instance_, nullptr, &surface_)) {
         LOGE("vulkan: no surface for the window: %s", SDL_GetError());
@@ -484,19 +524,30 @@ bool VulkanBackend::CreateDevice() {
     vkEnumeratePhysicalDevices(instance_, &n, nullptr);
     std::vector<VkPhysicalDevice> gpus(n);
     vkEnumeratePhysicalDevices(instance_, &n, gpus.data());
+    // a split-screen player draws on the compositor's GPU (its images are shared): the device whose UUID it names
+    std::string want_uuid = split_ && std::getenv("CSX_SPLIT_GPU") ? std::getenv("CSX_SPLIT_GPU") : "";
     for (int pass = 0; pass < 2 && !gpu_; pass++) {
         for (VkPhysicalDevice g : gpus) {
             VkPhysicalDeviceProperties p;
             vkGetPhysicalDeviceProperties(g, &p);
             if (p.apiVersion < VK_API_VERSION_1_3) continue;
-            if (pass == 0 && p.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) continue;
+            if (!want_uuid.empty()) {
+                VkPhysicalDeviceIDProperties id{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
+                VkPhysicalDeviceProperties2 p2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &id};
+                vkGetPhysicalDeviceProperties2(g, &p2);
+                char hex[33];
+                for (int i = 0; i < 16; i++) std::snprintf(hex + 2 * i, 3, "%02x", id.deviceUUID[i]);
+                if (want_uuid != hex) continue;
+            } else if (pass == 0 && p.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+                continue;
+            }
             uint32_t qn = 0;
             vkGetPhysicalDeviceQueueFamilyProperties(g, &qn, nullptr);
             std::vector<VkQueueFamilyProperties> qs(qn);
             vkGetPhysicalDeviceQueueFamilyProperties(g, &qn, qs.data());
             for (uint32_t i = 0; i < qn; i++) {
-                VkBool32 present = VK_FALSE;
-                vkGetPhysicalDeviceSurfaceSupportKHR(g, i, surface_, &present);
+                VkBool32 present = split_ ? VK_TRUE : VK_FALSE;
+                if (!split_) vkGetPhysicalDeviceSurfaceSupportKHR(g, i, surface_, &present);
                 if ((qs[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) && present) {
                     gpu_ = g;
                     qfamily_ = i;
@@ -572,7 +623,8 @@ bool VulkanBackend::CreateDevice() {
     }
     LOGI("vulkan: polygon offset %s", bias_float_ ? "as a float depth bias (VK_EXT_depth_bias_control)"
                                                    : "approximated in 24 bit units (no VK_EXT_depth_bias_control)");
-    std::vector<const char*> ext = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME};
+    std::vector<const char*> ext = {split_ ? VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME : VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+                                    VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME};
     if (bias_float_) ext.push_back(VK_EXT_DEPTH_BIAS_CONTROL_EXTENSION_NAME);
     if (depth_unrestricted_) ext.push_back(VK_EXT_DEPTH_RANGE_UNRESTRICTED_EXTENSION_NAME);
     if (depth_clamp01_) {
@@ -608,6 +660,7 @@ bool VulkanBackend::CreateDevice() {
 }
 
 bool VulkanBackend::CreateSwapchain() {
+    if (split_) return CreateExports();
     VkSurfaceCapabilitiesKHR caps;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(gpu_, surface_, &caps);
     VkExtent2D ext = caps.currentExtent;
@@ -691,12 +744,159 @@ VkPresentModeKHR VulkanBackend::WantedPresentMode() {
 }
 
 void VulkanBackend::DestroySwapchain() {
+    if (split_) return DestroyExports();
     if (!swapchain_) return;
     vkDeviceWaitIdle(dev_);
     for (auto s : swap_ready_) vkDestroySemaphore(dev_, s, nullptr);
     swap_ready_.clear();
     vkDestroySwapchainKHR(dev_, swapchain_, nullptr);
     swapchain_ = VK_NULL_HANDLE;
+}
+
+// split-screen player (split_player.h): the frame's images for the compositor, at the viewport's pixel size (640x480
+// until the compositor gives one): three images whose memory is exported as opaque descriptors (the same GPU, so the
+// compositor imports them with these very parameters), sent with their sizes and memory types
+bool VulkanBackend::CreateExports() {
+    DestroyExports();
+    uint32_t w = 640, h = 480, vw = 0, vh = 0;  // 640x480 until the compositor's size arrives
+    export_size_serial_ = splitp::SizeSerial();
+    if (splitp::Size(vw, vh)) w = vw, h = vh;
+    std::vector<splitp::ImageInfo> infos;
+    for (auto& e : exports_) {
+        VkExternalMemoryImageCreateInfo ext{VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO};
+        ext.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+        VkImageCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, &ext};
+        ci.imageType = VK_IMAGE_TYPE_2D;
+        ci.format = kColorFormat;
+        ci.extent = {w, h, 1};
+        ci.mipLevels = 1;
+        ci.arrayLayers = 1;
+        ci.samples = VK_SAMPLE_COUNT_1_BIT;
+        ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+        ci.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        if (vkCreateImage(dev_, &ci, nullptr, &e.image) != VK_SUCCESS) return false;
+        VkMemoryRequirements mr;
+        vkGetImageMemoryRequirements(dev_, e.image, &mr);
+        VkMemoryDedicatedAllocateInfo ded{VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO};
+        ded.image = e.image;
+        VkExportMemoryAllocateInfo exp{VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO, &ded};
+        exp.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+        VkMemoryAllocateInfo ma{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, &exp};
+        ma.allocationSize = mr.size;
+        ma.memoryTypeIndex = MemoryType(mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        if (vkAllocateMemory(dev_, &ma, nullptr, &e.memory) != VK_SUCCESS) return false;
+        vkBindImageMemory(dev_, e.image, e.memory, 0);
+        static auto get_fd = reinterpret_cast<PFN_vkGetMemoryFdKHR>(vkGetDeviceProcAddr(dev_, "vkGetMemoryFdKHR"));
+        VkMemoryGetFdInfoKHR gi{VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR};
+        gi.memory = e.memory;
+        gi.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+        int fd = -1;
+        if (!get_fd || get_fd(dev_, &gi, &fd) != VK_SUCCESS) {
+            LOGE("vulkan: the split-screen image's memory cannot be exported");
+            return false;
+        }
+        infos.push_back({mr.size, ma.memoryTypeIndex, fd});
+        VkFenceCreateInfo fi{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+        vkCreateFence(dev_, &fi, nullptr, &e.fence);
+        e.state = 0;
+    }
+    swap_extent_ = {w, h};
+    splitp::SendImages(w, h, infos);
+    for (auto& i : infos) ::close(i.fd);
+    if (!notifier_.joinable()) notifier_ = std::thread(&VulkanBackend::Notifier, this);
+    LOGI("vulkan: split-screen output %ux%u, 3 images exported to the compositor", w, h);
+    return true;
+}
+
+void VulkanBackend::DestroyExports() {
+    if (!exports_[0].image) return;
+    vkDeviceWaitIdle(dev_);
+    // the notifier is past every fence once the device is idle; it may still be sending
+    for (int tries = 0; tries < 200; tries++) {
+        bool busy = false;
+        for (auto& e : exports_) busy = busy || e.state == 1;
+        if (!busy) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    for (auto& e : exports_) {
+        vkDestroyFence(dev_, e.fence, nullptr);
+        vkDestroyImage(dev_, e.image, nullptr);
+        vkFreeMemory(dev_, e.memory, nullptr);
+        e.image = VK_NULL_HANDLE;
+        e.memory = VK_NULL_HANDLE;
+        e.fence = VK_NULL_HANDLE;
+        e.state = 0;
+    }
+}
+
+// the shown frame into a free exported image (letterboxed at the title's aspect, as the swapchain's), released to the
+// compositor's queue family (VK_QUEUE_FAMILY_EXTERNAL); its index, or -1 when every image is still the compositor's
+int VulkanBackend::RecordExport(VkCommandBuffer cb, Image& shown) {
+    int b = -1;
+    for (int i = 0; i < 3 && b < 0; i++) {
+        int k = int((presents_ + uint64_t(i)) % 3);
+        if (exports_[k].image && exports_[k].state == 0 && !splitp::Held(uint32_t(k))) b = k;
+    }
+    if (b < 0) return -1;
+    Export& e = exports_[b];
+    VkImageMemoryBarrier2 bar{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+    bar.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    bar.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    bar.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    bar.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    bar.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    bar.image = e.image;
+    bar.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    VkDependencyInfo d{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    d.imageMemoryBarrierCount = 1;
+    d.pImageMemoryBarriers = &bar;
+    vkCmdPipelineBarrier2(cb, &d);
+    VkClearColorValue black{};
+    VkImageSubresourceRange r{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdClearColorImage(cb, e.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &r);
+    TransferWriteBarrier(e.image);
+    const float aspect = float(guest_w_) / float(guest_h_);
+    float W = float(swap_extent_.width), H = float(swap_extent_.height), tw = W, th = W / aspect;
+    if (th > H) {
+        th = H;
+        tw = H * aspect;
+    }
+    int dx = int((W - tw) / 2), dy = int((H - th) / 2);
+    Barrier(shown, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    VkImageBlit blit{};
+    blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    blit.srcOffsets[1] = {int(shown.w), int(shown.h), 1};
+    blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    blit.dstOffsets[0] = {dx, dy, 0};
+    blit.dstOffsets[1] = {dx + int(tw), dy + int(th), 1};
+    vkCmdBlitImage(cb, shown.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, e.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                   1, &blit, VK_FILTER_LINEAR);
+    bar.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    bar.dstAccessMask = 0;
+    bar.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    bar.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    bar.srcQueueFamilyIndex = qfamily_;
+    bar.dstQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL;
+    vkCmdPipelineBarrier2(cb, &d);
+    return b;
+}
+
+// waits for each exported frame's fence and tells the compositor it is ready (so the game thread never waits)
+void VulkanBackend::Notifier() {
+    for (;;) {
+        int b;
+        {
+            std::unique_lock<std::mutex> lock(notify_lock_);
+            notify_cv_.wait(lock, [&] { return notify_stop_ || !notify_queue_.empty(); });
+            if (notify_stop_) return;
+            b = notify_queue_.front();
+            notify_queue_.pop_front();
+        }
+        vkWaitForFences(dev_, 1, &exports_[b].fence, VK_TRUE, UINT64_MAX);
+        splitp::SendReady(uint32_t(b));
+        exports_[b].state = 0;
+    }
 }
 
 bool VulkanBackend::CreateLayouts() {
@@ -2156,6 +2356,36 @@ void VulkanBackend::Present(const Surface& front) {
         CreateSwapchain();
     }
     VkResult ar;
+    if (split_) {
+        // a split-screen player: the frame into an exported image; the compositor is told when it is finished
+        int b = RecordExport(cb, *shown);
+        if (timestamps_) {
+            vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, timestamps_, uint32_t(frame_ % kFrames) * 2 + 1);
+            f.timed = true;
+        }
+        frame_open_ = false;
+        vkEndCommandBuffer(cb);
+        vkResetFences(dev_, 1, &f.fence);
+        VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        si.commandBufferCount = 1;
+        si.pCommandBuffers = &cb;
+        VKCHECK(vkQueueSubmit(queue_, 1, &si, f.fence));
+        recording_ = false;
+        if (b >= 0) {
+            vkResetFences(dev_, 1, &exports_[b].fence);
+            exports_[b].state = 1;
+            VKCHECK(vkQueueSubmit(queue_, 0, nullptr, exports_[b].fence));  // after the frame's work, in queue order
+            {
+                std::lock_guard<std::mutex> lock(notify_lock_);
+                notify_queue_.push_back(b);
+            }
+            notify_cv_.notify_one();
+            timing_.shown++;
+        }
+        if (splitp::SizeSerial() != export_size_serial_) CreateExports();
+        FinishPresent(front);
+        return;
+    }
     {
         Span acquire{timing_.acquire_ns};
         ar = swapchain_ ? vkAcquireNextImageKHR(dev_, swapchain_, UINT64_MAX, f.acquired, VK_NULL_HANDLE, &index)
@@ -2255,6 +2485,11 @@ void VulkanBackend::Present(const Surface& front) {
         remake = w > 0 && h > 0 && (uint32_t(w) != swap_extent_.width || uint32_t(h) != swap_extent_.height);
     }
     if (remake) CreateSwapchain();
+    FinishPresent(front);
+}
+
+// the end of every present (the window's or a split-screen player's): the internal resolution, counters, the logs
+void VulkanBackend::FinishPresent(const Surface& front) {
     UpdateResolution(front);
     frame_++;
     presents_++;

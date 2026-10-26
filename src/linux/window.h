@@ -27,6 +27,7 @@ bool ConsoleShown();                      // the console is open (the keyboard i
 std::string KeyLabels();                  // CSX_KEY_LABELS: the punctuation keys as the system layout prints them
 void SetPlayCapture(bool on);             // the mouse captured while playing (F1, a click in the window)
 bool PlayCapture();
+bool RelativeMouse();                     // the mouse is captured (a split-screen player: by the compositor for it)
 bool MouseFree();                         // a menu or the console has the mouse (the pointer shown)
 
 // the SDL window (an SDL_Window*), and which renderer draws into it

@@ -36,12 +36,16 @@
 #include <vector>
 
 #include "app/app.h"
+#include "common/csx.h"
 #include "common/pc_settings.h"
 #include "core/log.h"
 #include "harness.h"
 #include "image_symbols.h"
 #include "kernel/kernel.h"
+#include "linux/split_player.h"
 #include "linux/window.h"
+
+int CompositorMain(const std::string& game);  // compositor.cpp: split-screen's window
 
 namespace {
 
@@ -224,6 +228,15 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "usage: %s <game folder> [--instance N]\n", argv[0]);
         return 2;
     }
+    // split-screen (docs/splitscreen.md): the compositor (the window, the players' processes), or one of its players
+    if (std::getenv("CSX_SPLIT_COMPOSITOR") && *std::getenv("CSX_SPLIT_COMPOSITOR") == '1') return CompositorMain(game);
+    const bool split_player = splitp::Active();
+    if (split_player) {
+        g_vulkan = true;  // its frames go to the compositor through exported Vulkan images
+        SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "offscreen");  // no window of its own: input comes from the compositor
+        // its hidden window never has the focus: its controller (the compositor's virtual one) counts anyway
+        SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+    }
     logx::Init((app::ExeDir() / "logs").string(), app::kGame.log);
     WatchExit();
     OpenHandover();
@@ -252,9 +265,12 @@ int main(int argc, char** argv) {
     // logical, the swapchain and the software renderer's output take the pixels. CSX_HIDPI=0 asks for the logical size
     const bool hidpi = !(std::getenv("CSX_HIDPI") && *std::getenv("CSX_HIDPI") == '0');
     SDL_Window* win = SDL_CreateWindow("Counter-Strike", win_w, win_h,
-                                       SDL_WINDOW_RESIZABLE | (hidpi ? SDL_WINDOW_HIGH_PIXEL_DENSITY : SDL_WindowFlags(0)) |
+                                       split_player ? SDL_WINDOW_HIDDEN
+                                       : SDL_WINDOW_RESIZABLE | (hidpi ? SDL_WINDOW_HIGH_PIXEL_DENSITY : SDL_WindowFlags(0)) |
                                            (g_vulkan ? SDL_WINDOW_VULKAN : SDL_WindowFlags(0)));
     g_window = win;
+    if (split_player) splitp::Start(win);
+    else csx::SetSplitStarter(splitp::StartFromWindow);  // the Split Screen screen restarts the window as the compositor
     if (win) {
         int pw = 0, ph = 0;
         SDL_GetWindowSizeInPixels(win, &pw, &ph);
@@ -377,7 +393,8 @@ int main(int argc, char** argv) {
         auto tnow = std::chrono::steady_clock::now();
         // the request files every 5 ms (the loop wakes for each mouse event)
         static auto next_files = tnow;
-        const bool files = tnow >= next_files;
+        // (a split-screen player leaves them to the compositor, whose folder player 1 shares)
+        const bool files = tnow >= next_files && !split_player;
         if (files) next_files = tnow + std::chrono::milliseconds(5);
         auto request = [&](const std::string& path) { return files ? std::fopen(path.c_str(), "r") : nullptr; };
         if (FILE* kf = request(keys_file)) {
@@ -510,9 +527,14 @@ int main(int argc, char** argv) {
                 i++;
             }
         }
+        splitp::Frame();
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_EVENT_QUIT) quit = true;
+            if (split_player) {  // the compositor's window keeps full screen, focus and capture; input only here
+                window::HandleEvent(&e);
+                continue;
+            }
             if (test_input_only && HostInputEvent(e)) continue;
             if (test_input_only && e.type == SDL_EVENT_TEXT_INPUT &&
                 std::none_of(typed.begin(), typed.end(),
@@ -558,7 +580,7 @@ int main(int argc, char** argv) {
         // the display mode once the first frame is up (full screen only: a window is what there is), then when the
         // Display Mode setting itself changes (PC Options, F11). Not on other saves: a window the compositor made full
         // screen (Hyprland's fullscreen key) went back to its tile whenever PC Options were accepted
-        if ((!display_applied && harness::g_frames > 0) || (display_applied && pc::Version() != settings_seen)) {
+        if (!split_player && ((!display_applied && harness::g_frames > 0) || (display_applied && pc::Version() != settings_seen))) {
             settings_seen = pc::Version();
             std::string mode = pc::Get("display_mode", "windowed");
             if (display_applied ? mode != mode_applied : mode == "fullscreen") ApplyDisplaySettings(win);
