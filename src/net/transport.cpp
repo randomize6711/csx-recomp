@@ -1,5 +1,6 @@
 // The PC network transport (transport.h; docs/pc_multiplayer.md "N1 transport").
 #include "net/transport.h"
+#include "net/wire.h"
 
 #include <sodium.h>
 
@@ -17,79 +18,9 @@
 namespace net {
 namespace {
 
-// ---- serialization: bounds-checked, little-endian ------------------------------------------------------------------
-struct Writer {
-    uint8_t* p;
-    size_t cap, n = 0;
-    bool ok = true;
-    void Bytes(const void* d, size_t len) {
-        if (!ok || cap - n < len) {
-            ok = false;
-            return;
-        }
-        std::memcpy(p + n, d, len);
-        n += len;
-    }
-    void U8(uint8_t v) { Bytes(&v, 1); }
-    void U16(uint16_t v) {
-        uint8_t b[2] = {uint8_t(v), uint8_t(v >> 8)};
-        Bytes(b, 2);
-    }
-    void U32(uint32_t v) {
-        uint8_t b[4] = {uint8_t(v), uint8_t(v >> 8), uint8_t(v >> 16), uint8_t(v >> 24)};
-        Bytes(b, 4);
-    }
-    void U64(uint64_t v) {
-        U32(uint32_t(v));
-        U32(uint32_t(v >> 32));
-    }
-    void Zero(size_t len) {
-        if (!ok || cap - n < len) {
-            ok = false;
-            return;
-        }
-        std::memset(p + n, 0, len);
-        n += len;
-    }
-};
-
-struct Reader {
-    const uint8_t* p;
-    size_t len, n = 0;
-    bool ok = true;
-    const uint8_t* Bytes(size_t k) {
-        if (!ok || len - n < k) {
-            ok = false;
-            return nullptr;
-        }
-        const uint8_t* r = p + n;
-        n += k;
-        return r;
-    }
-    uint8_t U8() {
-        const uint8_t* b = Bytes(1);
-        return b ? b[0] : 0;
-    }
-    uint16_t U16() {
-        const uint8_t* b = Bytes(2);
-        return b ? uint16_t(b[0] | b[1] << 8) : 0;
-    }
-    uint32_t U32() {
-        const uint8_t* b = Bytes(4);
-        return b ? uint32_t(b[0]) | uint32_t(b[1]) << 8 | uint32_t(b[2]) << 16 | uint32_t(b[3]) << 24 : 0;
-    }
-    uint64_t U64() {
-        uint64_t lo = U32();
-        return lo | uint64_t(U32()) << 32;
-    }
-    size_t Left() const { return ok ? len - n : 0; }
-};
-
-void Prefix(Writer& w, Type t) {
-    w.U32(kMagic);
-    w.U8(kVersion);
-    w.U8(uint8_t(t));
-}
+using wire::Prefix;
+using wire::Reader;
+using wire::Writer;
 
 constexpr size_t kNonce = crypto_aead_chacha20poly1305_ietf_NPUBBYTES;  // 12: 4 zero bytes and the packet number
 static_assert(crypto_aead_chacha20poly1305_ietf_ABYTES == kTag);
@@ -506,6 +437,13 @@ bool Endpoint::Send(const Address& to, const uint8_t* data, size_t len) {
     return true;
 }
 
+bool Endpoint::SendDatagram(const Address& to, const uint8_t* p, size_t n) {
+    if (n == 0 || n > kMaxDatagram) return false;
+    stats_.datagrams_out++;
+    stats_.bytes_out += n;
+    return socket_->Send(to, p, n);
+}
+
 bool Endpoint::Receive(Address& from, std::vector<uint8_t>& data) {
     if (inbox_.empty()) Pump();
     if (inbox_.empty()) return false;
@@ -572,6 +510,11 @@ void Endpoint::HandleDatagram(const Address& from, const uint8_t* p, size_t n) {
         if (role_ == Role::Server && type == Type::Hello && n == kMaxDatagram && RateOk(from))
             SendReject(from, Reason::Version, "transport version " + std::to_string(kVersion), 0);
         stats_.dropped_malformed++;
+        return;
+    }
+    if (Connectionless(type)) {
+        if (connectionless_) connectionless_(from, type, p, n);
+        else stats_.dropped_unknown++;
         return;
     }
     switch (type) {

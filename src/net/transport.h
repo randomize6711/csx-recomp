@@ -33,7 +33,13 @@ constexpr size_t kFragHeader = 1 + 2 + 1 + 1;    // frame kind, message id, inde
 constexpr size_t kMaxFragment = kMaxDatagram - kDataHeader - kTag - kFragHeader;  // 1161
 constexpr size_t kMaxFragments = (kMaxMessage + kMaxFragment - 1) / kMaxFragment;   // 57
 
-enum class Type : uint8_t { Hello = 1, Challenge = 2, Connect = 3, Reject = 4, Data = 5, Accept = 6 };
+enum class Type : uint8_t {
+    Hello = 1, Challenge = 2, Connect = 3, Reject = 4, Data = 5, Accept = 6,
+    // connectionless, outside any connection (query.h, master.h): a server's information and the master server
+    Query = 7, Info = 8, Heartbeat = 9, MasterChallenge = 10, Register = 11, ListRequest = 12, List = 13,
+    Registered = 14,
+};
+constexpr bool Connectionless(Type t) { return uint8_t(t) >= uint8_t(Type::Query) && uint8_t(t) <= uint8_t(Type::Registered); }
 enum class Frame : uint8_t { Fragment = 1, Ping = 2, Pong = 3, Disconnect = 4 };
 
 // why a connection ended or was refused (Reject and Disconnect frames carry one, with a short text)
@@ -81,10 +87,15 @@ public:
     // one datagram, or -1 when none is waiting
     virtual int Receive(Address& from, uint8_t* buf, size_t max) = 0;
     virtual Address Local() const = 0;
+    // until a datagram is waiting or the time passed (a thread's sleep between pumps); the simulated network's
+    // returns at once
+    virtual void Wait(double seconds) { (void)seconds; }
 };
 // a non-blocking UDP socket bound to port (0: any) on all IPv4 interfaces (or the one address given), close-on-exec;
-// null with an error text
-std::unique_ptr<DatagramSocket> OpenUdp(uint16_t port, std::string& error, const Address* bind_to = nullptr);
+// null with an error text. broadcast: it may send to broadcast addresses (the browser's LAN queries); shared: other
+// sockets may bind the same port (SO_REUSEADDR: a server bound to one address beside a LAN listener on all of them)
+std::unique_ptr<DatagramSocket> OpenUdp(uint16_t port, std::string& error, const Address* bind_to = nullptr,
+                                        bool broadcast = false, bool shared = false);
 
 // ---- configuration and statistics ----------------------------------------------------------------------------------
 struct Config {
@@ -164,6 +175,11 @@ public:
     void SetIdentity(std::optional<Identity> identity) { identity_ = std::move(identity); }
     // client: decides about each server key (unset: every correctly signed server is trusted, for the unit tests)
     void SetServerKeyCheck(ServerKeyCheck check) { server_check_ = std::move(check); }
+    // the connectionless packets (Connectionless(type): queries, the master server's) go to this handler, read from
+    // the same socket as the connections' (unset: dropped); SendDatagram answers them through it
+    using ConnectionlessHandler = std::function<void(const Address& from, Type type, const uint8_t* p, size_t n)>;
+    void SetConnectionless(ConnectionlessHandler handler) { connectionless_ = std::move(handler); }
+    bool SendDatagram(const Address& to, const uint8_t* p, size_t n);
 
     // an engine packet to a peer (a client endpoint connects first and keeps the packet meanwhile); false when it was
     // dropped (no connection on a server endpoint, too large, queue full)
@@ -172,6 +188,8 @@ public:
     bool Receive(Address& from, std::vector<uint8_t>& data);
     // reads the socket and runs the timers; Send and Receive call it too
     void Pump();
+    // until a datagram arrives or the time passes (DatagramSocket::Wait)
+    void Wait(double seconds) { socket_->Wait(seconds); }
 
     // ends a connection with a reason sent to the peer (a few times, without waiting)
     void Disconnect(const Address& peer, Reason reason, const std::string& text = {});
@@ -224,6 +242,7 @@ private:
     Clock clock_;
     std::optional<Identity> identity_;
     ServerKeyCheck server_check_;
+    ConnectionlessHandler connectionless_;
     Stats stats_;
     std::array<uint8_t, 32> kx_public_{}, kx_secret_{}, cookie_key_{};
     double start_ = 0;

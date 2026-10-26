@@ -1,6 +1,7 @@
 // The transport's UDP socket (transport.h DatagramSocket) on the host's own socket API: POSIX on Linux, Winsock on
 // Windows. Non-blocking, IPv4, close-on-exec (a title relaunch execs the process image: the socket must not outlive
 // it and hold the port, FINDINGS.md "PC multiplayer investigation").
+#include "net/browser.h"
 #include "net/transport.h"
 
 #include <cstring>
@@ -18,7 +19,10 @@
 #include <arpa/inet.h>
 #include <cerrno>
 #include <fcntl.h>
+#include <ifaddrs.h>
+#include <net/if.h>
 #include <netdb.h>
+#include <poll.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -104,6 +108,19 @@ public:
         }
     }
     Address Local() const override { return local_; }
+    void Wait(double seconds) override {
+        int ms = int(seconds * 1000);
+#ifdef _WIN32
+        fd_set r;
+        FD_ZERO(&r);
+        FD_SET(s_, &r);
+        timeval tv{ms / 1000, (ms % 1000) * 1000};
+        select(0, &r, nullptr, nullptr, &tv);
+#else
+        pollfd p{s_, POLLIN, 0};
+        poll(&p, 1, ms);
+#endif
+    }
 
 private:
     Handle s_;
@@ -112,7 +129,8 @@ private:
 
 }  // namespace
 
-std::unique_ptr<DatagramSocket> OpenUdp(uint16_t port, std::string& error, const Address* bind_to) {
+std::unique_ptr<DatagramSocket> OpenUdp(uint16_t port, std::string& error, const Address* bind_to, bool broadcast,
+                                        bool shared) {
     if (!StartSockets()) {
         error = "sockets unavailable";
         return nullptr;
@@ -138,6 +156,9 @@ std::unique_ptr<DatagramSocket> OpenUdp(uint16_t port, std::string& error, const
     int big = 1 << 20;  // a server sends bursts of fragments to many clients
     setsockopt(s, SOL_SOCKET, SO_RCVBUF, reinterpret_cast<const char*>(&big), sizeof(big));
     setsockopt(s, SOL_SOCKET, SO_SNDBUF, reinterpret_cast<const char*>(&big), sizeof(big));
+    int one = 1;
+    if (broadcast) setsockopt(s, SOL_SOCKET, SO_BROADCAST, reinterpret_cast<const char*>(&one), sizeof(one));
+    if (shared) setsockopt(s, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&one), sizeof(one));
     sockaddr_in me{};
     me.sin_family = AF_INET;
     me.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -149,6 +170,32 @@ std::unique_ptr<DatagramSocket> OpenUdp(uint16_t port, std::string& error, const
         return nullptr;
     }
     return std::make_unique<UdpSocket>(s);
+}
+
+std::vector<Address> LanBroadcastAddresses() {
+    std::vector<Address> out;
+    auto add = [&](const Address& a) {
+        for (const Address& b : out)
+            if (b.ip == a.ip) return;
+        out.push_back(a);
+    };
+#ifndef _WIN32
+    ifaddrs* list = nullptr;
+    if (getifaddrs(&list) == 0) {
+        for (ifaddrs* i = list; i; i = i->ifa_next) {
+            if (!i->ifa_addr || i->ifa_addr->sa_family != AF_INET || !(i->ifa_flags & IFF_UP)) continue;
+            if ((i->ifa_flags & IFF_BROADCAST) && i->ifa_broadaddr)
+                add(FromSockaddr(*reinterpret_cast<sockaddr_in*>(i->ifa_broadaddr)));
+        }
+        freeifaddrs(list);
+    }
+#endif
+    Address all, loop;
+    all.ip = {255, 255, 255, 255};
+    loop.ip = {127, 255, 255, 255};  // servers on this machine (the loopback interface has no broadcast flag)
+    add(all);
+    add(loop);
+    return out;
 }
 
 std::optional<Address> Address::Parse(const std::string& text, uint16_t default_port) {
