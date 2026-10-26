@@ -331,6 +331,7 @@ std::vector<Rect> Layout(int n, int w, int h, bool vertical, int gap) {
 
 int g_configured = 1;      // local players asked for (--splitscreen N, the setup screen)
 bool g_vertical = false;   // two players side by side
+bool g_new_swapchain = false;  // VSync changed: the swapchain made again (FIFO or MAILBOX)
 SDL_Window* g_win = nullptr;
 bool g_focus = true, g_captured = false, g_capture_play = true;
 int g_kbm = 1;             // the player who has the keyboard and mouse
@@ -554,9 +555,13 @@ void SendState();
 
 // player 1 plays somewhere: players 2..N follow it there; back in the menus, they end
 void OnMatch(const std::string& text) {
-    LOGI("split: player 1: %s", text.c_str());
     char kind[16] = {}, addr[128] = {}, key[80] = {}, password[64] = {};
     int got = std::sscanf(text.c_str(), "%15s %127s %79s %63s", kind, addr, key, password);
+    // the password is in no log (N3): logged as whether there is one
+    LOGI("split: player 1: %s%s%s%s%s", kind, got >= 2 ? " " : "", got >= 2 ? addr : "", got >= 3 ? " " : "",
+         got >= 3 ? (std::string(key) + (got >= 4 ? std::strcmp(password, "-") ? " with a password" : " no password" : ""))
+                        .c_str()
+                  : "");
     if (got >= 1 && !std::strcmp(kind, "menu")) {
         g_match_line.clear();
         for (int i = 1; i < kMaxPlayers; i++) End(g_players[size_t(i)], "player 1 is back in the menus");
@@ -782,6 +787,21 @@ void Reassign() {
 // "players N layout horizontal|vertical p1pad 0|1" from player 1's Split Screen screen: applied at once (players
 // beyond N ended; added ones join player 1's match when it plays one)
 void OnSetup(const std::string& text) {
+    char mode[16] = {};
+    int vsync = 1;
+    if (std::sscanf(text.c_str(), "display %15s vsync %d", mode, &vsync) == 2) {  // player 1's PC Options
+        bool full = !std::strcmp(mode, "fullscreen");
+        if (full != ((SDL_GetWindowFlags(g_win) & SDL_WINDOW_FULLSCREEN) != 0)) {
+            SDL_SetWindowFullscreen(g_win, full);
+            LOGI("split: %s (player 1's Display Mode)", full ? "fullscreen" : "windowed");
+        }
+        if ((vsync != 0) != (pc::Get("vsync", "1") != "0")) {
+            pc::Set("vsync", vsync ? "1" : "0");  // in memory: player 1 saves its settings file
+            LOGI("split: VSync %s (player 1's setting)", vsync ? "on" : "off");
+            g_new_swapchain = true;
+        }
+        return;
+    }
     char layout[16] = "horizontal";
     int players = g_configured, p1pad = 0;
     std::sscanf(text.c_str(), "players %d layout %15s p1pad %d", &players, layout, &p1pad);
@@ -791,7 +811,7 @@ void OnSetup(const std::string& text) {
     g_configured = players;
     for (auto& p : g_players) p.late = false;
     g_vertical = !std::strcmp(layout, "vertical");
-    pc::Set("split_p1_pad", p1pad ? "1" : "0");
+    pc::Set("split_p1_pad", p1pad ? "1" : "0");  // in memory: player 1 saved it
     for (int i = players; i < kMaxPlayers; i++) End(g_players[size_t(i)], "fewer local players");
     if (pads) Reassign();
     for (auto& p : g_players) p.view = {}, p.view_px = {};
@@ -1130,8 +1150,9 @@ void Composite() {
     g.frame++;
     int w = 0, h = 0;
     SDL_GetWindowSizeInPixels(g_win, &w, &h);
-    if (pr == VK_ERROR_OUT_OF_DATE_KHR || pr == VK_SUBOPTIMAL_KHR ||
+    if (pr == VK_ERROR_OUT_OF_DATE_KHR || pr == VK_SUBOPTIMAL_KHR || g_new_swapchain ||
         (w > 0 && h > 0 && (uint32_t(w) != g.extent.width || uint32_t(h) != g.extent.height))) {
+        g_new_swapchain = false;
         CreateSwapchain(g_win);
         Relayout();
     }
@@ -1299,6 +1320,18 @@ void PollRequests() {
         }
         std::fclose(f);
         Done("pad");
+    }
+    if (FILE* f = Request("winctl")) {  // "fullscreen 1|0", "size W H": the window changed from outside (tests)
+        int a = 0, b = 0;
+        if (std::fscanf(f, "fullscreen %d", &a) == 1) {
+            SDL_SetWindowFullscreen(g_win, a != 0);
+            LOGI("split: made %s from outside (test)", a ? "full screen" : "windowed");
+        } else if (std::fseek(f, 0, SEEK_SET) == 0 && std::fscanf(f, "size %d %d", &a, &b) == 2 && a > 0 && b > 0) {
+            SDL_SetWindowSize(g_win, a, b);
+            LOGI("split: resized to %dx%d from outside (test)", a, b);
+        }
+        std::fclose(f);
+        Done("winctl");
     }
     if (FILE* f = Request("shot")) {
         char name[64] = {};

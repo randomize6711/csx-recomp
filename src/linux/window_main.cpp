@@ -580,6 +580,15 @@ int main(int argc, char** argv) {
         // the display mode once the first frame is up (full screen only: a window is what there is), then when the
         // Display Mode setting itself changes (PC Options, F11). Not on other saves: a window the compositor made full
         // screen (Hyprland's fullscreen key) went back to its tile whenever PC Options were accepted
+        // split-screen player 1: the window is the compositor's, which takes Display Mode and VSync from it
+        if (split_player && splitp::Player() == 1 && harness::g_frames > 0 && pc::Version() != settings_seen) {
+            settings_seen = pc::Version();
+            std::string want = "display " + pc::Get("display_mode", "windowed") + " vsync " + pc::Get("vsync", "1");
+            if (want != mode_applied) {
+                mode_applied = want;
+                csx::SplitSend(csx::kSplitSetup, want);
+            }
+        }
         if (!split_player && ((!display_applied && harness::g_frames > 0) || (display_applied && pc::Version() != settings_seen))) {
             settings_seen = pc::Version();
             std::string mode = pc::Get("display_mode", "windowed");
