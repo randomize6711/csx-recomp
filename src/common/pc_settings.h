@@ -9,6 +9,7 @@ namespace pc {
 std::string Get(const std::string& name, const std::string& fallback);
 float GetFloat(const std::string& name, float fallback);
 void Set(const std::string& name, const std::string& value);
+void Erase(const std::string& name);  // the setting removed (Save writes the file without it)
 void Save();         // writes pc_settings.ini
 unsigned Version();  // bumped by every Set, for readers that cache
 

@@ -2,7 +2,8 @@
 // is open the keyboard and mouse act as the console controller on port 0 (the title's menus read only the pad):
 //   WASD left stick, arrows d-pad, Space A, Left Ctrl B, R X, Q Y, 1 white, 2 black, left mouse right trigger,
 //   right mouse left trigger, Enter / Escape START, Tab BACK, Left Shift left stick click, middle mouse right stick
-//   click. While playing they are the engine's own keys and run their bindings (Options > PC Controls), Escape
+//   click; on the server browser's screens Escape is B, F5 X, Page Up / Page Down the triggers. While playing they
+//   are the engine's own keys and run their bindings (Options > PC Controls), Escape
 //   staying START (the game menu). F1 releases or captures the mouse.
 // The developer console (src/game/pc_console.cpp): the key bound to Toggle Developer Console (PC Controls; by default
 // the key left of 1, whatever the layout prints on it) opens and closes it, playing or in a menu. While it is open the
@@ -576,7 +577,13 @@ Pad Poll(int port) {
     if (Down(SDLK_DOWN)) p.buttons |= 2;
     if (Down(SDLK_LEFT)) p.buttons |= 4;
     if (Down(SDLK_RIGHT)) p.buttons |= 8;
-    if (Down(SDLK_RETURN) || Down(SDLK_ESCAPE)) p.buttons |= 16;
+    // the server browser's screens (pc_browser.cpp): Escape goes back (B), F5 refreshes (X), Page Up / Down the tabs
+    const bool browser = menu && csx::BrowserKeys();
+    if (Down(SDLK_RETURN) || (Down(SDLK_ESCAPE) && !browser)) p.buttons |= 16;
+    if (browser && Down(SDLK_ESCAPE)) p.analog[1] = 255;
+    if (browser && Down(SDLK_F5)) p.analog[2] = 255;
+    if (browser && Down(SDLK_PAGEUP)) p.analog[6] = 255;
+    if (browser && Down(SDLK_PAGEDOWN)) p.analog[7] = 255;
     if (Down(SDLK_TAB)) p.buttons |= 32;
     if (Down(SDLK_LSHIFT)) p.buttons |= 64;
     if (g_mouse_buttons & (1u << SDL_BUTTON_MIDDLE)) p.buttons |= 128;

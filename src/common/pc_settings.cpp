@@ -60,6 +60,16 @@ void Set(const std::string& name, const std::string& value) {
     LOGI("pc: %s = %s", name.c_str(), value.c_str());
 }
 
+void Erase(const std::string& name) {
+    {
+        std::lock_guard<std::mutex> lock(g_lock);
+        LoadLocked();
+        g_values.erase(name);
+    }
+    g_version++;
+    LOGI("pc: %s removed", name.c_str());
+}
+
 void Save() {
     std::lock_guard<std::mutex> lock(g_lock);
     LoadLocked();

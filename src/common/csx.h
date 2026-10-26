@@ -59,6 +59,9 @@ void BindStart();
 void BindInput(int key);
 // a menu screen of the game is open (keyboard and mouse act as the pad there; otherwise as engine keys)
 bool MenuOpen();
+// a server browser screen is open (src/game/pc_browser.cpp): Escape is the pad's B there, F5 its X (refresh),
+// Page Up / Page Down its triggers (the tabs)
+bool BrowserKeys();
 // the network's process settings (src/game/net_engine.cpp)
 void StartNetwork();
 // what GameInfo::loaded starts

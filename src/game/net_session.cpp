@@ -1,5 +1,6 @@
 // PC sessions in the engine (docs/pc_multiplayer.md, N1): the parts of the Xbox lobby the engine's own connection
 // went through, taken out of its path.
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -12,6 +13,7 @@
 #include "game/net_engine.h"
 #include "kernel/kernel.h"
 #include "net/transport.h"
+#include "net/wire.h"
 
 // [[hook]] at 0x29D3F in CL_Connect_f (0x29CD0): unless the argument is "local", the engine copied the address the
 // system link lobby resolved (0x554334) instead of its argument, and an empty one left the server name empty, so
@@ -21,6 +23,8 @@ bool g_connecting = false;   // CL_Connect_f is closing the old connection befor
 bool g_lobby_off = false;    // the system link lobby was not set up (a PC direct connect)
 bool g_joined = false;       // this process's client connected to a network server (and so loaded its world)
 std::string g_reconnect;     // a server that relaunched into another map: the client relaunches to rejoin it
+std::string g_close_text;    // why the transport connection to the server ended (its peer's text or the reason)
+std::string g_refusal;       // a refusal the server printed (bad password, banned, kicked)
 constexpr uint32_t kRelaunch = 0xBF0E0;  // the title's relaunch (cdecl: the launch data), as 0x5F750 calls it
 
 // the client relaunches into `+connect server` (the title's own way into a match, as the system link join did with
@@ -41,9 +45,44 @@ constexpr uint32_t kRelaunch = 0xBF0E0;  // the title's relaunch (cdecl: the lau
     kernel::CallGuest(ctx, kRelaunch, {data});
     std::abort();  // the relaunch does not return
 }
+// back to the front end (a browser join that ended): no match line, the launch data the title's own end of a session
+// writes (0xE6370: 1, then the page); the browser reopens with the message (pc_browser.cpp's PcBrowserMenuFrame)
+[[noreturn]] void RelaunchToFrontEnd(X86Context& ctx, const std::string& message) {
+    for (const char* drive : {"Z:\\releasemap.txt", "T:\\releasemap.txt"}) {
+        std::string path = kernel::ResolvePath(drive, 0);
+        if (!path.empty()) std::remove(path.c_str());
+    }
+#ifdef _WIN32
+    _putenv_s("CSX_BROWSER_MESSAGE", message.c_str());
+#else
+    setenv("CSX_BROWSER_MESSAGE", message.c_str(), 1);
+#endif
+    LOGI("net: back to the front end: %s", message.c_str());
+    uint32_t data = guest_tables::kTables[guest_tables::k_net_launch].va;
+    std::memset(kernel::HostPtr(data), 0, 0xC00);
+    kernel::W32(data, 1);
+    kernel::CallGuest(ctx, kRelaunch, {data});
+    std::abort();
+}
+
+bool BrowserJoin() {
+    return std::getenv("CSX_BROWSER_JOIN") != nullptr && !csx::Dedicated();
+}
+
+// what the player is told when a browser join ends
+std::string ReturnMessage() {
+    if (!g_refusal.empty()) return g_refusal;
+    if (!g_close_text.empty()) return "Disconnected: " + g_close_text;
+    return g_joined ? "The connection to the server was lost." : "The server did not let you join.";
+}
 }  // namespace
 
 namespace csx {
+// the server browser's join (pc_browser.cpp): the title relaunches into it between frames
+void RequestJoin(const std::string& server) {
+    g_reconnect = server;
+}
+
 // the dedicated server's map change (admin map): the title relaunched into "+map NAME" as its own map change does;
 // RelaunchNotify tells the players to rejoin, csx-server rebuilds the match line with the new map
 void RelaunchToMap(X86Context& ctx, const std::string& map) {
@@ -101,6 +140,7 @@ void NetServerJoined() {
 }
 
 void NetServerClosed(const std::string& peer, int reason, const std::string& text) {
+    if (net::Reason(reason) != net::Reason::MapChange && net::Reason(reason) != net::Reason::Closed) g_close_text = text;
     if (net::Reason(reason) == net::Reason::MapChange) {
         LOGI("net: %s changes map (%s): rejoining after it", peer.c_str(), text.c_str());
         g_reconnect = peer;
@@ -127,6 +167,21 @@ void MapChangeNotify(X86Context& ctx, uint8_t*) {
 // a match), written to Z:\releasemap.txt just before: the clients are told MapChange and rejoin; anything else (a
 // quit, a new match from the menus) is a shutdown
 void RelaunchNotify(X86Context&, uint8_t*) {
+    // a match started from the front end's menus: System Link's (Multiplayer's) Host a Match hosts it for the network
+    // (a PC listen server: its port open, LAN discovery answered); any other menu match does not (CSX_MENU_HOST)
+    if (uint32_t screen = kernel::R32(0x5523D4)) {
+        std::string name = kernel::ReadCString(kernel::R32(screen), 64);
+        if (name.rfind("SuperLauncher_", 0) == 0) {
+            bool host = name.rfind("SuperLauncher_LocalServer", 0) == 0;
+#ifdef _WIN32
+            _putenv_s("CSX_MENU_HOST", host ? "1" : "");
+#else
+            if (host) setenv("CSX_MENU_HOST", "1", 1);
+            else unsetenv("CSX_MENU_HOST");
+#endif
+            if (host) LOGI("net: a match hosted from Multiplayer (%s): its server takes network players", name.c_str());
+        }
+    }
     std::string line;
     if (std::string path = kernel::ResolvePath("Z:\\releasemap.txt", 0); !path.empty()) {
         std::ifstream f(path, std::ios::binary);
@@ -147,8 +202,12 @@ void RelaunchNotify(X86Context&, uint8_t*) {
 // first is not a lost host (also when Host_ShutdownServer calls CL_Disconnect again inside it): true skips the
 // screen (0x290BA). A dedicated server has no client to lose its host: the map command's own CL_Disconnect
 // (0x5FD50) at its start would open the screen and never return.
-bool ClDisconnectLostHost(X86Context&, uint8_t*) {
-    return g_connecting || !g_reconnect.empty() || csx::Dedicated();
+bool ClDisconnectLostHost(X86Context& ctx, uint8_t*) {
+    if (g_connecting || !g_reconnect.empty() || csx::Dedicated()) return true;
+    // a join from the server browser: back to its list with why, instead of the console's LostHost screen. At once,
+    // as that screen does (its own loop ends only in a relaunch): the disconnect's callers do not expect to go on
+    if (BrowserJoin()) RelaunchToFrontEnd(ctx, ReturnMessage());
+    return false;
 }
 
 // [[hook]] at 0x29DA7 in CL_Connect_f, after its CL_Disconnect (which Host_ShutdownServer re-enters)
@@ -198,10 +257,16 @@ void ConPrintfLog(X86Context& ctx, uint8_t*) {
         const char* e = std::getenv("CSX_LOG_CONSOLE");
         return e && *e == '1';
     }();
-    if (!on) return;
+    if (!on && !BrowserJoin()) return;
     std::string text = kernel::ReadCString(ctx.esp + 0x10, 0x1000);
     while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) text.pop_back();
-    if (!text.empty()) LOGI("console: %s", text.c_str());
+    if (on && !text.empty()) LOGI("console: %s", text.c_str());
+    // the server's refusals as the engine prints them, for the browser's message (a join from the browser)
+    auto has = [&](const char* s) { return text.find(s) != std::string::npos; };
+    if (has("Invalid server password")) g_refusal = "The password is not the server's.";
+    else if (has("banned") || has("Banned")) g_refusal = "You are banned from this server.";
+    else if (has("Server is full") || has("server is full")) g_refusal = "The server is full.";
+    else if (has("kicked") || has("Kicked")) g_refusal = net::wire::CleanText(text, 100);
 }
 
 // [[hook]] at 0xCA017, 0xCA07B and 0xCD913: the front end pauses the server while one of its screens is open (the

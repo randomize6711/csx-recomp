@@ -42,6 +42,8 @@
 #include "kernel/kernel.h"
 
 bool PcBindingScreen(const std::string& name);  // pc_menu.cpp
+bool PcBrowserClick(const std::string& screen, float x, float y);  // pc_browser.cpp
+bool PcBrowserScreen(const std::string& screen);
 
 namespace {
 
@@ -212,7 +214,10 @@ std::string EditText(uint32_t edit) {
 }
 void SetTyping(bool on, const char* why, uint32_t vk = 0) {
     if (g_typing.exchange(on) == on) return;
-    std::string name = vk && R32(vk + 0xA5C) ? ", the name \"" + EditText(R32(vk + 0xA5C)) + "\"" : "";
+    // the text typed, except a password's (the server browser's password screen: never in a log)
+    uint32_t screen = R32(kCurrentScreen);
+    bool secret = screen && GuestString(R32(screen)).find("Password") != std::string::npos;
+    std::string name = vk && R32(vk + 0xA5C) && !secret ? ", the name \"" + EditText(R32(vk + 0xA5C)) + "\"" : "";
     LOGI("pc mouse: name typing %s (%s)%s", on ? "on" : "off", why, name.c_str());
 }
 // the typed text and keys into the edit box, through the virtual keyboard's own functions and sounds
@@ -277,6 +282,8 @@ void Select(X86Context& ctx, uint32_t screen, const ScreenUi* ui, uint32_t table
 
 void Click(X86Context& ctx, uint32_t screen, const std::string& name, const ScreenUi* ui, float x, float y,
            bool twice) {
+    // the server browser's tabs, column headers and action lines (pc_browser.cpp)
+    if (PcBrowserClick(name, x, y)) return;
     if (uint32_t vk = R32(screen + 0x38C)) {
         if (InEdit(ui, x, y)) {
             SetTyping(true, "the name field clicked", vk);
@@ -293,12 +300,17 @@ void Click(X86Context& ctx, uint32_t screen, const std::string& name, const Scre
     // the help bar
     if (ui && !ui->legend.empty() && y >= 412 && y < 446) {
         static const float slot[3][2] = {{488, 585}, {385, 482}, {292, 380}};
-        for (size_t k = 0; k < ui->legend.size() && k < 3; k++) {
-            if (x < slot[k][0] || x >= slot[k][1]) continue;
+        // four buttons (Cancel_Join_RefreshResults_HostAMatch, measured on its art): narrower slots
+        static const float slot4[4][2] = {{490, 586}, {414, 486}, {230, 410}, {70, 226}};
+        bool four = ui->legend.size() == 4;
+        for (size_t k = 0; k < ui->legend.size() && k < (four ? 4u : 3u); k++) {
+            const float* sl = four ? slot4[k] : slot[k];
+            if (x < sl[0] || x >= sl[1]) continue;
             const std::string& b = ui->legend[k];
             int button = b == "Accept" || b == "Select" || b == "Join" ? kA
                        : b == "Cancel" || b == "Back"                  ? kB
-                       : b == "Reset" || b == "REMOVE"                 ? kX
+                       : b == "Reset" || b == "REMOVE" || b == "RefreshResults" ? kX
+                       : b == "HostAMatch"                             ? kY
                                                                        : -1;
             if (button >= 0) Queue({0, button});
             return;
@@ -315,6 +327,8 @@ void Click(X86Context& ctx, uint32_t screen, const std::string& name, const Scre
     RowHit h = HitRow(table, x, y, ui && ui->header);
     if (h.row < 0 || !RowEnabled(table, h.row)) return;
     Select(ctx, screen, ui, table, h.row);
+    // the server list: a click selects a server, a double click joins it
+    if (PcBrowserScreen(name) && !twice) return;
     if (RowIsList(table, h.row) && R32(table + 0x130)) {
         // the arrows at the ends of the highlight image
         float a0 = F(table + 0x2C) + F(table + 0x134), a1 = a0 + F(table + 0x13C);
@@ -524,6 +538,9 @@ void PcMouseFrame(X86Context& ctx) {
     std::string name = GuestString(R32(screen));
     if (name != shown) {
         shown = name;
+        // the browser's address and password screens: the keyboard types into them at once
+        if (name == "SuperLauncher_PCAddress" || name == "SuperLauncher_PCPassword")
+            SetTyping(true, "a server's address or password", R32(screen + 0x38C));
         char rows[96] = "";
         if (uint32_t t = R32(screen + 0x380)) {
             uint32_t r0 = R32(t + 0x60), r1 = R32(t + 0x64);

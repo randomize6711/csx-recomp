@@ -56,6 +56,7 @@ struct PcScreen {
     std::vector<Setting> settings;
     bool resettable;     // X restores the defaults (the game's Cancel_Accept_Reset legend)
     bool unique_values;  // no two rows may hold the same non-empty value (key bindings)
+    bool hidden = false; // not a row of Options: opened by another screen (the server browser's Filters)
 };
 
 std::vector<Choice> Numbers(std::initializer_list<const char*> v) {
@@ -191,6 +192,52 @@ const std::vector<PcScreen>& Screens() {
                           true};
         for (const pc::Action& a : pc::Actions()) controls.settings.push_back(Binding(a));
         v.push_back(controls);
+        // the server browser's filters (src/game/pc_browser.cpp reads them: browser_*), opened from its screen
+        std::vector<Choice> maps = {{"Any", ""}};
+        for (const char* m : {"cs_havana", "cs_italy", "cs_miami", "cs_militia", "cs_office", "de_airstrip", "de_aztec",
+                              "de_cbble", "de_chateau", "de_corruption", "de_dust", "de_dust2", "de_fastline", "de_inferno",
+                              "de_piranesi", "de_prodigy", "de_stadium", "de_tides", "de_truth", "de_vostok"})
+            maps.push_back({m, m});
+        PcScreen filters{"Filters",
+                         "Server Filters",
+                         {"", ""},
+                         {
+                             {"browser_sort",
+                              "Sort By",
+                              {"Choose the order of the server list.", "Players: the fullest servers first."},
+                              {{"Ping", "ping"}, {"Players", "players"}, {"Server Name", "name"}, {"Map", "map"}},
+                              0},
+                             {"browser_order",
+                              "Order",
+                              {"Reversed turns the chosen order around.", ""},
+                              {{"Normal", "0"}, {"Reversed", "1"}},
+                              0},
+                             {"browser_full",
+                              "Full Servers",
+                              {"Show or hide servers with no free slot.", ""},
+                              {{"Show", "1"}, {"Hide", "0"}},
+                              0},
+                             {"browser_empty",
+                              "Empty Servers",
+                              {"Show or hide servers with no players or bots.", ""},
+                              {{"Show", "1"}, {"Hide", "0"}},
+                              0},
+                             {"browser_password",
+                              "Password Protected",
+                              {"Show servers that ask for a password,", "hide them, or show only them."},
+                              {{"Show", "any"}, {"Hide", "hide"}, {"Only", "only"}},
+                              0},
+                             {"browser_map", "Map", {"Show servers on one map only, or on Any map.", ""}, maps, 0},
+                             {"browser_location",
+                              "Location",
+                              {"Favorites and Recent: servers on your network (LAN),", "on the internet, or Any."},
+                              {{"Any", "any"}, {"LAN", "lan"}, {"Internet", "internet"}},
+                              0},
+                         },
+                         true,
+                         false,
+                         true};
+        v.push_back(filters);
         return v;
     }();
     return s;
@@ -394,6 +441,10 @@ std::string ExtendFrontEnd(const std::string& text) {
     std::string rows, screens;
     for (const PcScreen& s : Screens()) {
         std::string help[2] = {s.row_help[0], s.row_help[1]};
+        if (s.hidden) {
+            screens += FrontEndScreen(s);
+            continue;
+        }
         rows += "\t\tRow\r\n\t\t{\r\n" + HelpTable(help, 2, "\t\t\t") + "\t\t\tCommandSelect \"open " +
                 FrontEndName(s) + "\"\r\n\t\t\tCellFixed " + Quote(s.title) + "\r\n\t\t}\r\n";
         screens += FrontEndScreen(s);
@@ -411,6 +462,7 @@ std::string ExtendInGame(const std::string& text) {
     end += std::strlen("\n\t\t}\r\n");
     std::string rows, screens;
     for (const PcScreen& s : Screens()) {
+        if (s.hidden) continue;
         rows += "\t\tRow\r\n\t\t{\r\n\t\t\tCommandSelect   \"open " + InGameName(s) +
                 "\"\r\n\t\t\tCellFixed \" \"\r\n\t\t\tCellFixed " + Quote(s.title) +
                 "\r\n\t\t\tCellFixed \" \"\r\n\t\t}\r\n";
@@ -631,7 +683,10 @@ bool PcBindingScreen(const std::string& name) {
 }
 
 // on the game thread every frame (pc_keys.cpp's PcKeysFrame): the capture started, fed or ended with its screen
+void PcBrowserMenuFrame(X86Context& ctx);  // pc_browser.cpp
+
 void PcMenuFrame(X86Context& ctx) {
+    PcBrowserMenuFrame(ctx);
     bool start;
     std::deque<int> keys;
     {
@@ -664,6 +719,8 @@ void PcUiLoadSize(X86Context& ctx, uint8_t*) {
 
 void PcMouseLearnUi(const std::string& text);  // pc_mouse.cpp
 std::string ExtendScoreboard(const std::string& text);  // scoreboard.cpp
+std::string ExtendMultiplayer(const std::string& text);  // pc_browser.cpp
+void PcBrowserCommand(X86Context& ctx, const std::vector<std::string>& args);  // pc_browser.cpp
 void PcPlayerCollisionCommand(const std::string& arg);  // pc_collision.cpp
 
 // [[hook]] at 0xCDB1A: read and closed, esi = the buffer (ebp + 1 bytes, the file's text first); the extended text
@@ -677,10 +734,12 @@ void PcUiLoadText(X86Context& ctx, uint8_t*) {
         std::filesystem::create_directories(app::ExeDir() / "uidump");
         std::ofstream(app::ExeDir() / "uidump" / name, std::ios::binary) << text;
     }
-    std::string out = name.rfind("FrontEndUI", 0) == 0 ? ExtendFrontEnd(ExtendBotCount(ExtendCustomOptions(text)))
+    std::string out = name.rfind("FrontEndUI", 0) == 0 ? ExtendFrontEnd(ExtendMultiplayer(ExtendBotCount(ExtendCustomOptions(text))))
                                                        : ExtendInGame(text);
     if (name.rfind("InGameUI", 0) == 0 && !out.empty()) out = ExtendScoreboard(out);
     PcMouseLearnUi(out.empty() ? text : out);
+    if (const char* d = std::getenv("CSX_UI_DUMP"); d && *d == '1' && !out.empty())  // and as extended
+        std::ofstream(app::ExeDir() / "uidump" / (name + ".pc"), std::ios::binary) << out;
     if (out.empty() || out.size() > room) {
         LOGW("pc menu: %s left as it is (%s)", name.c_str(), out.empty() ? "layout not recognised" : "no room");
         out = text;
@@ -692,6 +751,18 @@ void PcUiLoadText(X86Context& ctx, uint8_t*) {
     ctx.ebp = uint32_t(out.size());
 }
 
+// [[hook]] at 0xDADC5, 0xDB809 and 0xDB925: the profile's walks over every screen's list rows (stuffUItoPlayerData
+// 0xDAD40 and the two that read the profile back, 0xDB7xx / 0xDB8xx), esi the screen's name, just before they compare
+// it with "PlayerMapVoting" (the one screen they skip). Each list row takes one byte of a 128-byte block (the save's
+// on the stack at esp+0x2C, then the profile at 0x552FC9): the PC screens' lists are no profile setting (their values
+// are in pc_settings.ini) and with the server browser's filters they ran past the 128 bytes (the stack cookie check
+// ended the title at the main menu). PC screens are skipped as that one is: true jumps to the skip (0xDAE95, 0xDB8C0,
+// 0xDB9EF). Their place after every original screen kept the original rows' bytes where they were.
+bool PcProfileSkipScreen(X86Context& ctx, uint8_t*) {
+    std::string name = GuestString(ctx.esi);
+    return name.rfind("SuperLauncher_PC", 0) == 0 || name.rfind("InGame_PC", 0) == 0;
+}
+
 // [[hook]] at 0xDCB43 and 0xDCBCB (on true to 0xDCB4A / 0xDCBD2): the table's list steps (tableIncreaseValue 0xDCAD0,
 // tableDecreaseValue 0xDCB60, the pad's right and left) pass over a choice whose enable byte (cell +0x29 + index, edx
 // the index) is 0. The bytes hold 0x27 choices, as many as the original lists have; a longer list (PC Controls' keys,
@@ -701,9 +772,15 @@ bool PcListChoiceEnabled(X86Context& ctx, uint8_t*) { return ctx.edx >= 0x27; }
 
 // [[hook]] at 0x3CA25 in Cmd_ExecuteString, the command just tokenized (cmd_argc 0x4253E8, cmd_argv 0x4251A8): true
 // serves a pc_ command here and leaves the function
-bool PcConsoleCommand(X86Context&, uint8_t*) {
+bool PcConsoleCommand(X86Context& ctx, uint8_t*) {
     if (!R32(0x4253E8)) return false;
     std::string cmd = GuestString(R32(0x4251A8));
+    if (cmd == "pc_browser") {
+        std::vector<std::string> args;
+        for (uint32_t i = 0; i < R32(0x4253E8) && i < 8; i++) args.push_back(GuestString(R32(0x4251A8 + 4 * i)));
+        PcBrowserCommand(ctx, args);
+        return true;
+    }
     if (cmd == "pc_player_collision") {
         PcPlayerCollisionCommand(R32(0x4253E8) > 1 ? GuestString(R32(0x4251AC)) : std::string());
         return true;

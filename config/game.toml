@@ -1284,3 +1284,28 @@ call = "DedicatedQuit"
 [[hook]]
 at = 0x5D5D0
 call = "DedicatedTick"
+
+# The server browser's keyboard screens (src/game/pc_browser.cpp): the profile keyboard's insert (0xD04A0) refuses a
+# sixteenth character (cmpl $0xf, 0x48(%esi) at 0xD04CD, the profile name's limit); a server's address takes 63 and its
+# password 32: true continues at the insert (0xD04D3)
+[[hook]]
+at = 0xD04CD
+call = "PcEditBoxRoom"
+on_true = 0xD04D3
+
+# The profile's walks over every screen's list rows (src/game/pc_menu.cpp PcProfileSkipScreen): PC screens are skipped
+# as PlayerMapVoting is (their lists overran the walk's 128-byte block): before the rep cmpsb with 0x33BD28
+[[hook]]
+at = 0xDADC5
+call = "PcProfileSkipScreen"
+on_true = 0xDAE95
+
+[[hook]]
+at = 0xDB809
+call = "PcProfileSkipScreen"
+on_true = 0xDB8C0
+
+[[hook]]
+at = 0xDB925
+call = "PcProfileSkipScreen"
+on_true = 0xDB9EF
