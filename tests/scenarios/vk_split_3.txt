@@ -1,0 +1,138 @@
+# Three-player split-screen set up in the menus (docs/splitscreen.md, src/game/pc_split.cpp): the compositor starts
+# with one local player; on the main menu's Split Screen screen player 1 sets Local Players to 3 and accepts: the
+# compositor takes three players (the two test controllers given to players 2 and 3, the screen one wide view over
+# two). A Single Player match with 64 bots asked takes 61, leaving room for four local players (the title never
+# removes a bot for a joining player); players 2 and 3 join it (64 of 65 slots). Then a third controller's START joins
+# a fourth player into the running match: the 2x2 layout, all 65 slots occupied.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --env CSX_SPLIT_COMPOSITOR=1 --env CSX_SPLIT_PLAYERS=1 --env CSX_SPLIT_ZCACHE=$PWD/build/zcache
+wait log split: player 1 started
+pad 1 attach
+pad 2 attach
+wait log p1: open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+expect log p1: pc mouse: screen SuperLauncher_MainScreen, 7 rows
+key Down
+sleep 0.7
+key Down
+sleep 0.7
+key Down
+sleep 0.7
+key Down
+sleep 0.7
+key Down
+sleep 0.7
+key Down
+sleep 0.7
+key Space
+sleep 3
+expect log p1: pc mouse: screen SuperLauncher_PCSplit
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Space
+sleep 3
+wait log split: setup: 3 players, horizontal, player 1 keyboard and mouse
+wait log split: controller .* is player 3's
+key Escape
+sleep 3
+expect log p1: pc mouse: screen SuperLauncher_MainScreen
+point 150 160
+sleep 0.5
+click 1
+sleep 5
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Space
+sleep 5
+expect log p1: pc mouse: screen SuperLauncher_SinglePlayerMatchOptions
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Space
+sleep 3
+key Space
+wait log p1: net: split-screen: 64 bots asked, 61 \(65 slots: room for 4 local players, 3 now\)
+wait log split: player 3 started
+wait log p2: net: server 127.0.0.1:27015 connected
+wait log p3: net: server 127.0.0.1:27015 connected
+wait log p3: pc keys: menu TeamSelect
+sleep 5
+pad 1 button a
+pad 2 button a
+sleep 3
+key Space
+sleep 20
+players p
+expect playercount p 64 64
+windowshot three
+expect log p2: pc keys: menu .*BuyMenuRoot
+expect log p3: pc keys: menu .*BuyMenuRoot
+pad 3 attach
+sleep 2
+pad 3 button start
+wait log split: a controller's START: 4 local players
+wait log split: player 4 started
+wait log p4: net: server 127.0.0.1:27015 connected
+wait log p4: pc keys: menu TeamSelect
+sleep 3
+pad 3 button a
+sleep 15
+players p4
+expect playercount p4 65 65
+windowshot joined
+expect log p4: pc keys: playing
+expect nolog split: player 4 was refused
+expect nolog guest trap

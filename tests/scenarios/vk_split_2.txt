@@ -2,7 +2,8 @@
 # starts a Single Player match from the menus; its server takes the local players on loopback only; the compositor
 # starts player 2 straight into that server (its key pinned), on test controller 1 (a virtual SDL gamepad routed by the
 # compositor). Each picks its team: player 2 with its controller's A, player 1 with Space; the two views top and
-# bottom, each filling its 32:9 viewport (a split-screen player's aspect goes past the usual 2.5:1).
+# bottom, each filling its 32:9 viewport (a split-screen player's aspect goes past the usual 2.5:1). Player 2's
+# controller is unplugged and plugged in again: player 2 keeps playing, the controller back as its own.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
 #   --env CSX_SPLIT_COMPOSITOR=1 --env CSX_SPLIT_PLAYERS=2 --env CSX_SPLIT_ZCACHE=$PWD/build/zcache
 wait log split: player 1 started
@@ -41,4 +42,15 @@ expect log p2: pc keys: menu .*BuyMenuRoot
 expect log p1: pc keys: menu .*BuyMenuRoot
 expect log p2: pc wide: aspect auto \(3\.5
 expect log split: player 2's controller: a
+pad 1 detach
+wait log split: player 2's controller disconnected
+wait log p2: split: controller detached
+sleep 3
+pad 1 attach
+wait newlog split: controller .* is player 2's
+wait newlog p2: split: controller attached
+sleep 2
+pad 1 button a
+wait newlog split: player 2's controller: a
+expect nolog split: player 2's process ended
 expect nolog guest trap

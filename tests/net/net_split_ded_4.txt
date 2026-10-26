@@ -1,0 +1,66 @@
+# Four split-screen players on one dedicated server (docs/splitscreen.md): csx-server on de_aztec with 2 bots and a
+# password, a one-round match (max_rounds 1, round_time 1). One PC's compositor (the window build, Vulkan) starts
+# player 1, which joins by address with the password; the compositor starts players 2 to 4 into the same server, each
+# with the server's key pinned and the password, each its own identity. Each player picks its team (player 1 with
+# Space, 2 to 4 with their own test controller's A): the server has 6 clients (4 players, 2 bots). The round ends and
+# the server changes the map: all four rejoin by themselves (6 clients again, no slot left behind), then it quits.
+# timeout: 900
+[server] --server "--map de_aztec --bots 2 --password letmein --max-rounds 1 --round-time 1 --freeze-time 0" --env CSX_LOG_NET=1
+wait log net:.server.identity
+count net:.client.127\.0\.0\.[12]:[0-9]+.connected 4
+sleep 25
+players four
+expect playercount four 6 6
+wait log net:.relaunching.into.[a-z0-9_]+:.the.clients
+wait log server:.relaunched.on.UDP.port.27015
+wait log net:.server.endpoint.on.UDP.port.27015
+count net:.client.127\.0\.0\.[12]:[0-9]+.connected 8
+sleep 30
+players newmap
+expect playercount newmap 6 6
+expect nolog refused
+expect nolog guest trap
+expect nolog Host_Error
+pckey cmd quit
+[split] --window 1920x1080 --after server:net:.server.identity --delay 3 --launch tests/launch/connect_local --env CSX_SPLIT_COMPOSITOR=1 --env CSX_SPLIT_PLAYERS=4 --env CSX_SPLIT_ZCACHE=$PWD/build/zcache --env CSX_NET_PASSWORD=letmein --env CSX_LOG_NET=1
+wait log split: player 1 started
+pad 1 attach
+pad 2 attach
+pad 3 attach
+wait log p1: net: server 127.0.0.1:27015 connected
+wait log split: player 1: join 127.0.0.1:27015 [0-9a-f]+ letmein
+wait log p2: net: server 127.0.0.1:27015 has the pinned key
+wait log p2: net: server 127.0.0.1:27015 connected
+wait log p3: net: server 127.0.0.1:27015 connected
+wait log p4: net: server 127.0.0.1:27015 connected
+wait log p4: pc keys: menu TeamSelect
+sleep 4
+pad 1 button a
+pad 2 button a
+pad 3 button a
+sleep 2
+key Space
+sleep 10
+windowshot four
+expect log p2: pc keys: menu .*BuyMenuRoot
+expect log p3: pc keys: menu .*BuyMenuRoot
+expect log p4: pc keys: menu .*BuyMenuRoot
+mark
+wait log p1: net: relaunching to rejoin
+wait newlog p1: net: server 127.0.0.1:27015 connected
+wait newlog p2: net: server 127.0.0.1:27015 connected
+wait newlog p3: net: server 127.0.0.1:27015 connected
+wait newlog p4: net: server 127.0.0.1:27015 connected
+wait newlog p4: pc keys: menu TeamSelect
+sleep 4
+pad 1 button a
+pad 2 button a
+pad 3 button a
+sleep 2
+key Space
+sleep 10
+windowshot newmap
+expect nolog split: player [2-4]'s process ended
+wait log (?i)p1: net: server 127.0.0.1:27015 closed: server shut
+wait log split: player 4's process ended
+expect nolog guest trap

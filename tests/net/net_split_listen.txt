@@ -1,0 +1,71 @@
+# A split-screen listen server for the network (docs/splitscreen.md): one PC's compositor, two local players, hosts
+# from Multiplayer > Host a Match (its server on the network, answering queries, as any menu-hosted match); player 2
+# joins on loopback with the key pinned. Another PC (a separate game process at 127.0.0.2) joins it by address: the
+# server (no bots: Host a Match's default) has player 1, player 2 and the remote player, each its own client. The remote player leaves: its slot is
+# freed (one client less), the two local players play on.
+# timeout: 720
+[split] --window 1920x1080 --env CSX_SPLIT_COMPOSITOR=1 --env CSX_SPLIT_PLAYERS=2 --env CSX_SPLIT_ZCACHE=$PWD/build/zcache --env CSX_LOG_NET=1
+wait log split: player 1 started
+pad 1 attach
+wait log p1: open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+expect log p1: pc mouse: screen SuperLauncher_MainScreen
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Space
+sleep 3
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Space
+sleep 3
+key Space
+sleep 3
+key Space
+wait log p1: net: a match hosted from Multiplayer
+wait log p1: net: split-screen: the match hosts 2 local players \(up to 4\)$
+wait log p1: net: answering server queries
+wait log split: player 1: host
+wait log p2: net: server 127.0.0.1:27015 connected
+wait log p2: pc keys: menu TeamSelect
+sleep 3
+pad 1 button a
+sleep 2
+key Space
+wait log p1: net: client 127\.0\.0\.2:[0-9]+ connected
+sleep 25
+players three
+expect playercount three 3 3
+windowshot listen
+wait log p1: net: client 127\.0\.0\.2:[0-9]+ closed
+sleep 8
+players two
+expect playercount two 2 2
+expect log p2: pc keys: menu .*BuyMenuRoot
+expect nolog split: player 2's process ended
+expect nolog guest trap
+[remote] --after split:p1:.net:.answering.server.queries --delay 20 --launch tests/launch/connect_local --env FPS=30 --env CSX_LOG_NET=1
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 20
+expect nolog guest trap
+pckey cmd quit

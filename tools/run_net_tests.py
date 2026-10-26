@@ -17,7 +17,7 @@ of the section (ROLE1 .. ROLEN), --stagger S starting them S seconds apart. --ex
 namespace instead of a game (a tool: tools/net_fuzz.py), passing when it exits 0. --server "OPTIONS" runs the dedicated
 server (build/server/csx-server, tools/build_server.sh) with those options instead of the game (drive.py --server).
 --window WxH runs the window build (build/window/CounterStrike, Vulkan) in a headless gamescope of that size instead
-of the headless harness (a split-screen compositor: --env CSX_SPLIT_COMPOSITOR=1 ...). --file NAME=PATH copies PATH (from the
+of the headless harness (a split-screen compositor: --env CSX_SPLIT_COMPOSITOR=1 ...); $PWD in options is the repository. --file NAME=PATH copies PATH (from the
 repository root) into the section's run folder as NAME before it starts (a key, admins.cfg). --freeze-after S stops the section's
 game process S seconds after it started (SIGSTOP: a client that went silent, for the timeouts) and ends it when the
 test does. The processes are numbered from 1 in
@@ -47,7 +47,8 @@ def parse(path):
         m = re.match(r'\[(\w+)(?:\*(\d+))?\](.*)$', line)
         if m:
             copies = int(m.group(2) or 0)
-            cur = {'role': m.group(1), 'opts': shlex.split(m.group(3)), 'steps': [], 'copies': copies}
+            cur = {'role': m.group(1), 'opts': [o.replace('$PWD', ROOT) for o in shlex.split(m.group(3))], 'steps': [],
+                   'copies': copies}
             sections.append(cur)
             continue
         if cur is None:

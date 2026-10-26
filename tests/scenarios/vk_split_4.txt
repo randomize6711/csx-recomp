@@ -78,7 +78,7 @@ sleep 0.7
 key Space
 sleep 3
 key Space
-wait log p1: net: split-screen: 64 bots asked, 61 with 4 local players
+wait log p1: net: split-screen: 64 bots asked, 61 \(65 slots: room for 4 local players, 4 now\)
 wait log split: player 4 started
 wait log p2: net: server 127.0.0.1:27015 connected
 wait log p3: net: server 127.0.0.1:27015 connected
