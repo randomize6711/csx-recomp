@@ -23,6 +23,11 @@ per line, executed in order:
     wait draws>=N           until a frame logs at least N draws per frame (from the 60-frame renderer lines)
     wait draws==N           until the draws per frame equal N (also draws<=N)
     wait log REGEX          until a log line matches
+    wait newlog REGEX       until a line written since the last input step (press, key, click, pckey...) or mark
+                            matches
+    mark                    the log's place for the next wait newlog (a state reached again with no input)
+    spawn COMMAND...        a helper process (from the repository root) in the game's network namespace, loopback up
+                            there; ended with the scenario (tools/master's csx-fakeservers for the browser's window tests)
     sleep S                 wait S seconds
     press BUTTONS [FRAMES]  press through the harness cmd file (buttons as in the pad script, joined by +)
     key NAME [SECONDS]      window build: press an SDL key (SDL key name; NAME#SCANCODE: the key a layout puts at
@@ -286,6 +291,7 @@ def main():
     proc = subprocess.Popen(cmd, cwd=RUN, env=env, stdout=out, stderr=subprocess.STDOUT)
     log, start, ok = Log(), time.time(), True
     verdict = 'FAIL'
+    spawned = []  # spawn steps' helpers, ended with the scenario
     states = {}
     tracks = {}  # track steps: NAME -> rose, moved
     rosters = {}  # players steps: NAME -> {client: (x, y, z, health)}
@@ -321,16 +327,35 @@ def main():
         return False
 
     try:
+        input_mark = 0  # the log's length at the last input step (wait newlog)
         for st in steps:
             kind = st[0]
-            if kind == 'wait':
+            if kind in ('press', 'key', 'click', 'wheel', 'pckey', 'point', 'pointat', 'type', 'mark'):
+                input_mark = len(log.lines)
+            if kind == 'mark':
+                good = True
+            elif kind == 'wait':
                 if st[1] == 'log':
                     rx = ' '.join(st[2:])
                     good = wait_until(lambda: log.match(rx))
+                elif st[1] == 'newlog':
+                    # only lines written since the scenario's last input (press, key, click, pckey...): a state the
+                    # log showed before, reached again
+                    rx = re.compile(' '.join(st[2:]))
+                    good = wait_until(lambda: any(rx.search(l) for l in log.lines[input_mark:]))
                 else:
                     m = re.match(r'draws(>=|==|<=)(\d+)', st[1])
                     n, op = int(m.group(2)), m.group(1)
                     good = wait_until(lambda: log.per_frame >= n if op == '>=' else log.per_frame <= n if op == '<=' else round(log.per_frame) == n)
+            elif kind == 'spawn':
+                # spawn COMMAND...: a helper (tools/master's fake servers) in the game's network namespace, loopback
+                # up there (a private namespace starts without it); its output in RUN/spawn_N.out
+                target = netns or str(proc.pid)
+                sh = 'ip link set lo up 2>/dev/null; exec ' + ' '.join(st[1:])
+                spawned.append(subprocess.Popen(['nsenter', '--preserve-credentials', '-U', '-n', '-t', target, 'sh', '-c', sh],
+                                                cwd=ROOT, stdout=open(os.path.join(RUN, f'spawn_{len(spawned)}.out'), 'w'),
+                                                stderr=subprocess.STDOUT))
+                good = True
             elif kind == 'sleep':
                 time.sleep(float(st[1])); good = alive()
             elif kind == 'press':
@@ -947,6 +972,13 @@ def main():
                     print(f'     TIMEOUT: the scenario\'s {timeout:.0f} s ran out during this step')
                 break
     finally:
+        for p in spawned:
+            if p.poll() is None:
+                p.terminate()
+                try:
+                    p.wait(5)
+                except subprocess.TimeoutExpired:
+                    p.kill()
         if wine:
             if alive():
                 subprocess.run(['wineserver', '-k'], env=env)

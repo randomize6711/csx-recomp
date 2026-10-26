@@ -1,0 +1,105 @@
+# Join by Address (docs/pc_multiplayer.md "N3"): typed on the keyboard screen (the PC keyboard types into it at
+# once). 127.0.0.1 (no port: 27015) is contacted, answers, and is joined; 127.0.0.9 does not answer ("does not
+# answer"); "bad;address" is no address; nosuchhost.invalid cannot be found. Messages, never a hang.
+# timeout: 360
+[server] --server "--map de_aztec --bots 1 --name Alpha" --env CSX_LOG_NET=1
+wait log net:.answering.server.queries
+wait log net:.client.127\.0\.0\.2:[0-9]+.connected
+sleep 10
+pckey cmd quit
+[typer] --after server:answering --env FPS=30
+wait draws==1
+sleep 6
+press START
+wait draws>=3
+sleep 3
+press A
+wait draws>=50
+sleep 3
+press A
+wait draws<=20
+sleep 6
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 3
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+wait log pc.mouse:.name.typing.on
+snap address
+pckey name 127.0.0.1
+sleep 1
+pckey namekey enter
+wait log browser:.contacting.127\.0\.0\.1
+wait log browser:.joining."Alpha".at.127\.0\.0\.1:27015
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+press A
+sleep 3
+[bad] --after server:answering --env FPS=30
+wait draws==1
+sleep 6
+press START
+wait draws>=3
+sleep 3
+press A
+wait draws>=50
+sleep 3
+press A
+wait draws<=20
+sleep 6
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 3
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+wait log pc.mouse:.name.typing.on
+pckey name 127.0.0.9
+sleep 1
+pckey namekey enter
+wait log browser:.contacting.127\.0\.0\.9
+wait log browser:.message:.The.server.at.127\.0\.0\.9:27015.does.not.answer
+sleep 2
+snap noanswer
+press A
+sleep 2
+press A
+wait newlog pc.mouse:.name.typing.on
+pckey name bad;address
+sleep 1
+pckey namekey enter
+wait log browser:.message:.That.is.not.an.address
+press A
+sleep 2
+press A
+wait newlog pc.mouse:.name.typing.on
+pckey name nosuchhost.invalid
+sleep 1
+pckey namekey enter
+wait log browser:.message:.Cannot.find.the.server.nosuchhost\.invalid
+sleep 2
+expect nolog browser:.joining
+expect nolog guest trap

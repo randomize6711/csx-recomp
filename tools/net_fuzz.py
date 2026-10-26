@@ -12,7 +12,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def main():
     out = os.path.join(ROOT, 'build', 'nettools', 'net_fuzz')
     srcs = [os.path.join(ROOT, p) for p in ('tools/net_fuzz.cpp', 'src/net/transport.cpp', 'src/net/udp.cpp',
-                                            'src/net/transport.h')]
+                                            'src/net/query.cpp', 'src/net/transport.h', 'src/net/query.h')]
     if not os.path.exists(out) or any(os.path.getmtime(s) > os.path.getmtime(out) for s in srcs):
         os.makedirs(os.path.dirname(out), exist_ok=True)
         r = subprocess.run(['clang++', '-std=c++20', '-O2', '-Wall', '-I', os.path.join(ROOT, 'src')] +

@@ -1,0 +1,136 @@
+# Favorites, recent servers and server identity in the browser (docs/pc_multiplayer.md "N3"). Alpha (27015, the
+# fixture identity f4deace2e315f35eb151925cd875fa1752b40b217b208d8b3dc97af1a63ab563) and Bravo (27016).
+# - adder: Alpha added with White: saved with the key Alpha proved (PC setting favorite.1); on the Favorites tab;
+#   removed with White.
+# - fav: a saved favorite names Bravo's address with another key: the Favorites tab shows it with "!", joining asks
+#   (the identity warning), B leaves it untrusted, nothing is joined.
+# - known: known_servers.txt remembers another key for Alpha: the browser asks before joining; B refuses, A trusts
+#   the new key explicitly (known_servers.txt rewritten), the join goes on with the key pinned; Alpha is then a
+#   recent server (PC setting recent.1).
+# timeout: 420
+[server] --server "--map de_aztec --bots 1 --name Alpha" --file server_identity.key=tests/net/files/server_identity.key --env CSX_LOG_NET=1
+wait log net:.answering.server.queries
+wait log net:.client.127\.0\.0\.5:[0-9]+.connected
+sleep 20
+pckey cmd quit
+[server2] --server "--map cs_office --bots 0 --port 27016 --name Bravo" --env CSX_LOG_NET=1
+wait log net:.answering.server.queries
+sleep 300
+expect nolog net:.client.[0-9.:]+.connected
+pckey cmd quit
+[adder] --after server2:answering --pc browser_sort=name --env FPS=30
+wait draws==1
+sleep 6
+press START
+wait draws>=3
+sleep 3
+press A
+wait draws>=50
+sleep 3
+press A
+wait draws<=20
+sleep 6
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 3
+press A
+wait log browser:.LAN.Matches:.2.rows.\[Alpha.*\[Bravo
+sleep 2
+press WHITE
+wait log browser:.127\.0\.0\.1:27015.added.to.the.favorites.\(key.f4deace2e315f35eb151925cd875fa1752b40b217b208d8b3dc97af1a63ab563\)
+wait log pc:.favorite\.1.=.127\.0\.0\.1:27015.f4deace2e315f35eb151925cd875fa1752b40b217b208d8b3dc97af1a63ab563.Alpha
+press RT
+sleep 1
+press RT
+wait log browser:.Favorite.Servers:.1.rows.\[Alpha
+sleep 2
+snap favorites
+press WHITE
+wait log browser:.127\.0\.0\.1:27015.removed.from.the.favorites
+wait log pc:.favorite\.1.removed
+wait newlog browser:.Favorite.Servers:.0.rows
+[fav] --after server2:answering --pc "favorite.1=127.0.0.2:27016 ebe5ca1e478795b520599a7f66c05815e8f3ea0748482cc8dc6ba6fe6eb65724 Old Bravo" --env FPS=30
+wait draws==1
+sleep 6
+press START
+wait draws>=3
+sleep 3
+press A
+wait draws>=50
+sleep 3
+press A
+wait draws<=20
+sleep 6
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 3
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+wait log browser:.1.favorites
+wait log browser:.Favorite.Servers:.1.rows.\[!.Bravo.\|.127\.0\.0\.2:27016
+sleep 2
+snap changed
+press A
+wait log browser:.127\.0\.0\.2:27016's.identity.key.changed.\(remembered.ebe5ca1e478795b520599a7f66c05815e8f3ea0748482cc8dc6ba6fe6eb65724
+wait log pc.mouse:.screen.SuperLauncher_PCIdentity
+sleep 2
+snap identity
+press B
+wait log browser:.the.changed.identity.of.127\.0\.0\.2:27016.was.not.trusted
+sleep 2
+expect nolog browser:.joining
+[known] --after adder:removed.from.the.favorites --file known_servers.txt=tests/net/files/known_servers_changed.txt --pc browser_sort=name --env FPS=30
+wait draws==1
+sleep 6
+press START
+wait draws>=3
+sleep 3
+press A
+wait draws>=50
+sleep 3
+press A
+wait draws<=20
+sleep 6
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 3
+press A
+wait log browser:.LAN.Matches:.2.rows.\[Alpha
+sleep 2
+press A
+wait log browser:.127\.0\.0\.1:27015's.identity.key.changed.\(remembered.1111111111111111111111111111111111111111111111111111111111111111,.now.f4deace2e315f35eb151925cd875fa1752b40b217b208d8b3dc97af1a63ab563
+wait log pc.mouse:.screen.SuperLauncher_PCIdentity
+sleep 2
+press B
+wait log was.not.trusted
+sleep 2
+press A
+wait newlog pc.mouse:.screen.SuperLauncher_PCIdentity
+sleep 2
+press A
+wait log browser:.the.player.trusted.127\.0\.0\.1:27015's.new.identity.key.f4deace2e315f35eb151925cd875fa1752b40b217b208d8b3dc97af1a63ab563
+wait log pc:.recent\.1.=.127\.0\.0\.1:27015.f4deace2e315f35eb151925cd875fa1752b40b217b208d8b3dc97af1a63ab563.Alpha
+wait log net:.server.127\.0\.0\.1:27015.has.the.pinned.key.f4deace2e315f35eb151925cd875fa1752b40b217b208d8b3dc97af1a63ab563
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 3

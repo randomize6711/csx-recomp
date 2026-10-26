@@ -1,0 +1,49 @@
+# Internet servers through a master server (docs/pc_multiplayer.md "N3"; tools/master/master_main.cpp csx-master on
+# 127.0.0.1:27010, heartbeats every 10 s, expiry 30 s). Internet.One registers (its address proved by the master's
+# cookie, its identity signed) and is listed; Internet.Two is LAN-only and registers nowhere; the browser's Internet tab
+# (PC setting net_master) lists Internet.One alone, queried directly for its details; csx-query sees the same list.
+# Internet.One quits (it tells the master it leaves); Frozen, frozen by the test after 120 s, expires 30 s later: the
+# list is then empty.
+# timeout: 300
+[master] --exec "sh -c 'timeout 230 build/master/csx-master --port 27010 --heartbeat 10 --expiry 30; true'"
+[server] --after master:csx-master.on --server "--map de_dust2 --bots 3 --name Internet.One --master 127.0.0.1:27010" --env CSX_LOG_NET=1
+wait log net:.listed.on.the.master.server.127\.0\.0\.1:27010
+sleep 100
+pckey cmd quit
+[server2] --after master:csx-master.on --server "--map de_aztec --bots 0 --port 27016 --name Internet.Two --master 127.0.0.1:27010 --lan-only on" --env CSX_LOG_NET=1
+wait log a.LAN-only.server.registers.with.no.master.server
+sleep 100
+expect nolog listed.on.the.master
+pckey cmd quit
+[frozen] --after master:csx-master.on --freeze-after 120 --server "--map cs_office --bots 0 --port 27017 --name Frozen --master 127.0.0.1:27010" --env CSX_LOG_NET=1
+wait log net:.listed.on.the.master.server
+sleep 200
+[query] --after master:listed.127\.0\.0\.4:27017 --delay 2 --exec "sh -c 'build/master/csx-query --master 127.0.0.1:27010 --players | tee /dev/stderr | grep -q \"servers=2\"'"
+[client] --after master:listed.127\.0\.0\.4:27017 --pc net_master=127.0.0.1:27010 --pc browser_sort=name --env FPS=30
+wait draws==1
+sleep 6
+press START
+wait draws>=3
+sleep 3
+press A
+wait draws>=50
+sleep 3
+press A
+wait draws<=20
+sleep 6
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 3
+press DOWN
+sleep 1
+press A
+wait log browser:.Internet.Matches:.2.rows.\[Frozen.\|.127\.0\.0\.4:27017.\|.0/65.*\[Internet.One.\|.127\.0\.0\.2:27015.\|.3/65.\|.de_dust2
+sleep 3
+snap internet
+expect nolog Internet.Two
+[watch] --after master:left.127\.0\.0\.2:27015 --exec "sh -c 'sleep 60; build/master/csx-query --master 127.0.0.1:27010 --wait 3 | tail -1 | tee /dev/stderr | grep -q \"servers=0\"'"

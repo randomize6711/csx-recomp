@@ -1,0 +1,55 @@
+# Many internet servers (docs/pc_multiplayer.md "N3"): 300 servers (tools/master/fake_main.cpp: real sockets, identities
+# and signed answers, not joinable) register with a master server (its per-address limits raised: they share an
+# address); the Internet tab lists all 300 with their pings, paced (at most 200 queries a second), while the menu
+# keeps its frame rate; the list scrolls; a refresh lists them again. csx-query measures the same list from the
+# command line.
+# timeout: 300
+[master] --exec "sh -c 'timeout 200 build/master/csx-master --port 27010 --max-per-ip 400 --rate 2000 --quiet; true'"
+[fakes] --after master:csx-master.on --exec "build/master/csx-fakeservers --count 300 --bind 127.0.0.2 --port 27100 --master 127.0.0.1:27010 --seconds 180"
+[client] --after fakes:300.servers --delay 5 --pc net_master=127.0.0.1:27010 --env FPS=30
+wait draws==1
+sleep 6
+press START
+wait draws>=3
+sleep 3
+press A
+wait draws>=50
+sleep 3
+press A
+wait draws<=20
+sleep 6
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 3
+press DOWN
+sleep 1
+press A
+wait log browser:.Internet.Matches:.300.rows
+sleep 1
+expect fps 28 32
+sleep 2
+snap many
+press DOWN
+press DOWN
+press DOWN
+press DOWN
+press DOWN
+press DOWN
+press DOWN
+press DOWN
+press DOWN
+press DOWN
+sleep 2
+snap scrolled
+press X
+wait log browser:.Internet.refreshed
+wait newlog browser:.Internet.Matches:.300.rows
+sleep 1
+expect fps 28 32
+expect nolog guest trap
+[query] --after fakes:300.servers --delay 5 --exec "sh -c 'build/master/csx-query --master 127.0.0.1:27010 --wait 10 | tail -1 | tee /dev/stderr | grep -q servers=300'"

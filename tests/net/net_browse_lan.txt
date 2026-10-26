@@ -1,0 +1,101 @@
+# The server browser's LAN list (docs/pc_multiplayer.md "N3"): two dedicated servers (Alpha on 27015 with 2 bots,
+# Bravo on 27016 with a password) and a listen server hosted from the menus (Multiplayer > Host a Match, on port 27019)
+# are found by broadcast, each once, with players (the listen server's own player counted, 1/65), map and ping; a
+# fourth server (Delta, 27018) appears while the list is open and disappears once it quits (10 s without an answer). The list sorts (Black: by players, the fullest first), filters (password
+# protected hidden) and switches tabs; the order by ping (pings move) is only checked for the three servers (RT: Internet, no master server set; LT back).
+# timeout: 480
+[server] --server "--map de_aztec --bots 2 --name Alpha" --env CSX_LOG_NET=1
+wait log net:.answering.server.queries
+sleep 300
+pckey cmd quit
+[pwserver] --server "--map cs_office --bots 0 --port 27016 --name Bravo --password letmein" --env CSX_LOG_NET=1
+wait log net:.answering.server.queries
+sleep 260
+pckey cmd quit
+[host] --pc net_port=27019 --env FPS=30
+wait draws==1
+sleep 6
+press START
+wait draws>=3
+sleep 3
+press A
+wait draws>=50
+sleep 3
+press A
+wait draws<=20
+sleep 6
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 3
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 3
+press A
+sleep 3
+press A
+wait log net:.a.match.hosted.from.Multiplayer
+wait log net:.answering.server.queries.on.UDP.port.27019
+sleep 230
+[client] --after host:answering.server.queries --env FPS=30 --pc browser_sort=ping
+wait draws==1
+sleep 6
+press START
+wait draws>=3
+sleep 3
+press A
+wait draws>=50
+sleep 3
+press A
+wait draws<=20
+sleep 6
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 3
+press A
+wait log browser:.LAN.Matches:.3.rows(?=.*\[Alpha.\|.127\.0\.0\.1:27015.\|.2/65.\|.de_aztec.\|.[0-9]+\])(?=.*\[\*.Bravo.\|.127\.0\.0\.2:27016.\|.0/65.\|.cs_office.\|.[0-9]+\])(?=.*\[NewPlayer000's.match.\|.127\.0\.0\.3:27019.\|.1/65.\|.de_airstrip.\|.[0-9]+\])
+snap lan
+sleep 2
+press BLACK
+wait log browser:.LAN.Matches:.3.rows.\[Alpha.*NewPlayer000's.match.*Bravo
+pckey set browser_password hide
+wait log browser:.LAN.Matches:.2.rows.\[Alpha.*NewPlayer000's.match
+sleep 3
+pckey set browser_password any
+wait log browser:.LAN.Matches:.4.rows.*Delta.\|.127\.0\.0\.5:27018
+snap four
+mark
+wait newlog browser:.LAN.Matches:.3.rows
+expect nolog browser:.LAN.Matches:.[5-9].rows
+press RT
+wait log browser:.Internet.Matches:.0.rows
+sleep 2
+snap internet
+press LT
+wait newlog browser:.LAN.Matches:.3.rows
+press B
+sleep 3
+expect log pc.mouse:.screen.SuperLauncher_SystemLink
+expect nolog guest trap
+[late] --after client:pc:.browser_password.=.any --delay 3 --server "--map de_dust2 --bots 0 --port 27018 --name Delta" --env CSX_LOG_NET=1
+wait log net:.answering.server.queries
+sleep 20
+pckey cmd quit

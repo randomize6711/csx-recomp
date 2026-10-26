@@ -1,0 +1,176 @@
+# Joining from the server browser (docs/pc_multiplayer.md "N3"): Alpha (27015, 2 bots), Bravo (27016, password
+# "letmein") and Full (27017, 4 slots, 4 bots) on the LAN list, sorted by name. A player joins Alpha (A: the title
+# relaunches into the server, its key pinned); one joins Bravo with the password typed on the keyboard screen; one
+# types a wrong password: the server refuses it, the game goes back to the front end and the browser shows why; one
+# tries Full: "The server is full" before anything is sent. When Alpha shuts down, its player is back in the browser
+# with "Disconnected: Server shutting down". The password is in no log.
+# timeout: 480
+[server] --server "--map de_aztec --bots 2 --name Alpha" --env CSX_LOG_NET=1
+wait log net:.answering.server.queries
+wait log net:.client.127\.0\.0\.4:[0-9]+.connected
+sleep 120
+pckey cmd quit
+[pwserver] --server "--map cs_office --bots 0 --port 27016 --name Bravo --password letmein" --env CSX_LOG_NET=1
+wait log net:.answering.server.queries
+wait log net:.client.127\.0\.0\.5:[0-9]+.connected
+wait log refused:.bad.password
+sleep 60
+expect nolog letmein
+pckey cmd quit
+[full] --server "--map de_dust2 --bots 4 --max-players 4 --port 27017 --name Full" --env CSX_LOG_NET=1
+wait log net:.answering.server.queries
+sleep 290
+expect nolog net:.client.[0-9.:]+.connected
+pckey cmd quit
+[plain] --after full:answering --pc browser_sort=name --env FPS=30
+wait draws==1
+sleep 6
+press START
+wait draws>=3
+sleep 3
+press A
+wait draws>=50
+sleep 3
+press A
+wait draws<=20
+sleep 6
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 3
+press A
+wait log browser:.LAN.Matches:.3.rows.\[Alpha.*\[\*.Bravo.*\[Full.\|.127\.0\.0\.3:27017.\|.4/4
+sleep 2
+snap list
+press A
+wait log browser:.joining."Alpha".at.127\.0\.0\.1:27015
+wait log net:.server.127\.0\.0\.1:27015.has.the.pinned.key
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+wait log net:.back.to.the.front.end:.Disconnected:.Server.shutting.down
+wait log browser:.back.from.127\.0\.0\.1:27015
+wait log pc.mouse:.screen.SuperLauncher_PCMessage
+sleep 2
+snap shutdown
+press A
+sleep 2
+expect log pc.mouse:.screen.SuperLauncher_PCBrowser
+[pw] --after full:answering --pc browser_sort=name --env FPS=30
+wait draws==1
+sleep 6
+press START
+wait draws>=3
+sleep 3
+press A
+wait draws>=50
+sleep 3
+press A
+wait draws<=20
+sleep 6
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 3
+press A
+wait log browser:.LAN.Matches:.3.rows
+sleep 2
+press DOWN
+sleep 2
+press A
+wait log pc.mouse:.name.typing.on
+snap password
+pckey name letmein
+sleep 1
+pckey namekey enter
+wait log browser:.joining."Bravo".*with.a.password
+wait log net:.server.127\.0\.0\.2:27016.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+sleep 5
+expect nolog letmein
+[wrong] --after pw:joining --delay 20 --pc browser_sort=name --env FPS=30
+wait draws==1
+sleep 6
+press START
+wait draws>=3
+sleep 3
+press A
+wait draws>=50
+sleep 3
+press A
+wait draws<=20
+sleep 6
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 3
+press A
+wait log browser:.LAN.Matches:.3.rows
+sleep 2
+press DOWN
+sleep 2
+press A
+wait log pc.mouse:.name.typing.on
+pckey name nope
+sleep 1
+pckey namekey enter
+wait log browser:.joining."Bravo"
+wait log net:.back.to.the.front.end:.The.password.is.not.the.server's
+wait log browser:.back.from.127\.0\.0\.2:27016
+wait log pc.mouse:.screen.SuperLauncher_PCMessage
+sleep 3
+snap wrong_password
+press A
+sleep 2
+expect log pc.mouse:.screen.SuperLauncher_PCBrowser
+[tryfull] --after full:answering --delay 5 --pc browser_sort=name --env FPS=30
+wait draws==1
+sleep 6
+press START
+wait draws>=3
+sleep 3
+press A
+wait draws>=50
+sleep 3
+press A
+wait draws<=20
+sleep 6
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 3
+press A
+wait log browser:.LAN.Matches:.3.rows
+sleep 2
+press DOWN
+sleep 1
+press DOWN
+sleep 2
+press A
+wait log browser:.message:.The.server.is.full
+sleep 2
+snap full
+expect nolog browser:.joining

@@ -19,6 +19,7 @@
 #include <thread>
 #include <vector>
 
+#include "net/query.h"
 #include "net/transport.h"
 
 using namespace net;
@@ -74,7 +75,7 @@ int main(int argc, char** argv) {
             uint32_t m = kMagic;
             std::memcpy(d.data(), &m, 4);
             d[4] = i % 7 ? kVersion : uint8_t(rng());
-            d[5] = uint8_t(rng() % 8);
+            d[5] = uint8_t(rng() % 16);  // the connection types and the connectionless ones (queries, master)
         }
         raw->Send(*server, d.data(), d.size());
         sent++;
@@ -94,7 +95,34 @@ int main(int argc, char** argv) {
     Address from;
     while (raw->Receive(from, buf, sizeof(buf)) >= 0) answered++;
     std::printf("fuzz: hello flood of 2000, %d answered (the rate limit's burst)\n", answered);
+    // 2b. the server query (src/net/query.h): malformed ones of every size and kind and master packets sent to a game
+    // server (none answered), then a flood of valid queries from one address (only the rate limit's burst answered)
+    auto raw2 = OpenUdp(0, error);
+    if (!raw2) return 1;
+    for (int i = 0; i < 6000; i++) {
+        size_t n = i % 3 == 0 ? kInfoQuerySize : i % 3 == 1 ? kPlayersQuerySize : 6 + rng() % 1300;
+        auto d = rnd(n);
+        std::memcpy(d.data(), &m, 4);
+        d[4] = kVersion;
+        d[5] = uint8_t(i % 4 ? Type::Query : Type(9 + rng() % 6));
+        if (i % 4 && n >= 7) d[6] = uint8_t(rng() % 4);  // the kind: none, info, players, none
+        raw2->Send(*server, d.data(), d.size());
+        if (i % 500 == 0) std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    int stray = 0;
+    while (raw2->Receive(from, buf, sizeof(buf)) >= 0) stray++;
+    int answers = 0;
+    for (int i = 0; i < 1000; i++) {
+        auto q = EncodeQuery(i % 2 ? QueryKind::Info : QueryKind::Players, 0, uint64_t(i + 1));
+        raw2->Send(*server, q.data(), q.size());
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    while (raw2->Receive(from, buf, sizeof(buf)) >= 0) answers++;
+    std::printf("fuzz: 6000 malformed queries (%d answers to random ones that happened to be valid), then 1000 valid "
+                "ones: %d answered (the query rate limit's burst)\n", stray, answers);
     raw.reset();
+    raw2.reset();
 
     // 3 and 4: a real transport connection
     auto sock = OpenUdp(0, error);
