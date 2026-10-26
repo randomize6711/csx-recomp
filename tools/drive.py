@@ -26,6 +26,8 @@ per line, executed in order:
     wait newlog REGEX       until a line written since the last input step (press, key, click, pckey...) or mark
                             matches
     mark                    the log's place for the next wait newlog (a state reached again with no input)
+    pad N attach|detach|button NAME [SECONDS]|axis NAME VALUE   split-screen compositor: test controller N (SDL
+                            gamepad names: a, b, x, y, start, back, dpup, leftx, righty, lefttrigger...)
     spawn COMMAND...        a helper process (from the repository root) in the game's network namespace, loopback up
                             there; ended with the scenario (tools/master's csx-fakeservers for the browser's window tests)
     sleep S                 wait S seconds
@@ -330,7 +332,7 @@ def main():
         input_mark = 0  # the log's length at the last input step (wait newlog)
         for st in steps:
             kind = st[0]
-            if kind in ('press', 'key', 'click', 'wheel', 'pckey', 'point', 'pointat', 'type', 'mark'):
+            if kind in ('press', 'key', 'click', 'wheel', 'pckey', 'point', 'pointat', 'type', 'mark', 'pad'):
                 input_mark = len(log.lines)
             if kind == 'mark':
                 good = True
@@ -368,6 +370,14 @@ def main():
             elif kind == 'type':
                 send_file('text', ' '.join(st[1:]))
                 good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'text')))
+            elif kind == 'pad':
+                # pad N attach | detach | button NAME [SECONDS] | axis NAME VALUE: a test controller in the split-screen
+                # compositor (src/linux/compositor.cpp), a virtual SDL gamepad routed to its player as a real one
+                args = st[1:]
+                if len(args) >= 3 and args[1] == 'button' and len(args) == 3:
+                    args = args + ['0.15']
+                send_file('pad', ' '.join(args))
+                good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'pad')))
             elif kind == 'winctl':
                 # winctl fullscreen 1|0: window build, the window changed as a compositor would (settings untouched)
                 send_file('winctl', ' '.join(st[1:]))

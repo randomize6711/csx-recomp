@@ -15,7 +15,9 @@ A section's options go to tools/drive.py (--launch, --env, --pc ...); --after RO
 has a line matching REGEX (the regex has no spaces: use . for them), --delay S after S seconds. [ROLE*N] is N copies
 of the section (ROLE1 .. ROLEN), --stagger S starting them S seconds apart. --exec "COMMAND" runs a command in the
 namespace instead of a game (a tool: tools/net_fuzz.py), passing when it exits 0. --server "OPTIONS" runs the dedicated
-server (build/server/csx-server, tools/build_server.sh) with those options instead of the game (drive.py --server). --file NAME=PATH copies PATH (from the
+server (build/server/csx-server, tools/build_server.sh) with those options instead of the game (drive.py --server).
+--window WxH runs the window build (build/window/CounterStrike, Vulkan) in a headless gamescope of that size instead
+of the headless harness (a split-screen compositor: --env CSX_SPLIT_COMPOSITOR=1 ...). --file NAME=PATH copies PATH (from the
 repository root) into the section's run folder as NAME before it starts (a key, admins.cfg). --freeze-after S stops the section's
 game process S seconds after it started (SIGSTOP: a client that went silent, for the timeouts) and ends it when the
 test does. The processes are numbered from 1 in
@@ -35,6 +37,7 @@ print = functools.partial(print, flush=True)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SERVER = os.path.join(ROOT, 'build', 'server', 'csx-server')
+WINDOW = os.path.join(ROOT, 'build', 'window', 'CounterStrike')
 
 
 def parse(path):
@@ -288,6 +291,15 @@ def run_test(path, exe):
                     os.chmod(os.path.join(run, dest), 0o600)
                     del opts[i:i + 2]
                 role_exe = exe
+                # --window WxH: the window build (Vulkan) in a headless gamescope of that size, the game itself in the
+                # namespace (a split-screen compositor and its players beside servers and clients)
+                window = None
+                if '--window' in opts:
+                    i = opts.index('--window')
+                    window = opts[i + 1].split('x')
+                    del opts[i:i + 2]
+                    role_exe = WINDOW
+                    opts += ['--exe', WINDOW, '--env', 'CSX_RENDERER=vulkan', '--env', 'CSX_AUDIO=null', '--env', 'FPS=30']
                 if '--server' in opts:
                     role_exe = SERVER
                     opts += ['--exe', SERVER]
@@ -301,6 +313,9 @@ def run_test(path, exe):
                     cmd = [sys.executable, '-I', os.path.join(ROOT, 'tools', 'drive.py'), scen, '--run', run, '--exe', exe,
                            '--netns', str(holder.pid), '--env', f'INSTANCE={k + 1}',
                            '--env', f'CSX_NET_BIND=127.0.0.{k + 1}', '--timeout', timeout] + opts
+                    if window:
+                        cmd = ['gamescope', '--backend', 'headless', '-W', window[0], '-H', window[1], '-w', window[0],
+                               '-h', window[1], '--'] + cmd
                 out = open(os.path.join(run, 'drive.out'), 'w')
                 procs[sec['role']] = subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT, cwd=ROOT)
                 if freeze is not None:
