@@ -88,6 +88,9 @@ struct Player {
     Rect view_px;             // pixels
     SDL_JoystickID pad = 0;   // its controller (0: none)
     std::string target;       // players 2..4: the server they were started for
+    bool late = false;        // added by a controller's START (its slot given back if the server refuses it)
+    bool refused = false;     // its server refused it (full, a password, a ban): it ends
+    float frame_aspect = 4.0f / 3.0f;  // its game frame's (set at its boot), from its Images
 };
 
 std::array<Player, kMaxPlayers> g_players;
@@ -269,6 +272,10 @@ bool ImportImages(Player& p, const split::Message& m) {
         uint32_t type = 0;
         m.Get(at, size);
         m.Get(at, type);
+        if (i == 2) {
+            float aspect = 0;
+            if (m.Get(at, aspect) && aspect >= 1.0f && aspect <= 4.0f) p.frame_aspect = aspect;
+        }
         VkExternalMemoryImageCreateInfo ext{VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO};
         ext.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
         VkImageCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, &ext};
@@ -482,8 +489,8 @@ void Spawn(Player& p, const std::string& line, const std::string& key, const std
         unsetenv("CSX_SPLIT_COMPOSITOR");
         unsetenv("ENABLE_GAMESCOPE_WSI");  // a player has no surface: no window system layer
         unsetenv("CSX_TEST_INPUT_ONLY");
-        unsetenv("INSTANCE");
-        if (p.n > 1) {
+        if (p.n > 1) {  // players 2..4 in folders of their own (player 1 keeps this PC's INSTANCE: its disk folder)
+            unsetenv("INSTANCE");
             setenv("CSX_PLAYER_NAME", pc::Get("split_name_" + std::to_string(p.n), "Player " + std::to_string(p.n)).c_str(), 1);
             if (!key.empty()) setenv("CSX_SERVER_KEY", key.c_str(), 1);
             if (!password.empty()) setenv("CSX_NET_PASSWORD", password.c_str(), 1);
@@ -612,6 +619,7 @@ void UnassignPad(SDL_JoystickID id) {
 // ---- input --------------------------------------------------------------------------------------------------------------
 void StartToJoin(SDL_JoystickID id);
 void OnSetup(const std::string& text);
+void Refused(Player& p);
 void Forward(Player& p, const SDL_Event& e, const std::string& text = "") {
     if (!p.alive || p.fd < 0) return;
     split::Message m;
@@ -781,6 +789,7 @@ void OnSetup(const std::string& text) {
     LOGI("split: setup: %d players, %s, player 1 %s", players, layout, p1pad ? "with a controller too" : "keyboard and mouse");
     bool pads = p1pad != (pc::Get("split_p1_pad", "0") == "1") || players != g_configured;
     g_configured = players;
+    for (auto& p : g_players) p.late = false;
     g_vertical = !std::strcmp(layout, "vertical");
     pc::Set("split_p1_pad", p1pad ? "1" : "0");
     for (int i = players; i < kMaxPlayers; i++) End(g_players[size_t(i)], "fewer local players");
@@ -795,15 +804,99 @@ void OnSetup(const std::string& text) {
 
 // a controller without a player pressed START: a new local player (up to four), into player 1's match if it plays one
 void StartToJoin(SDL_JoystickID id) {
-    if (PadOwner(id) || g_configured >= kMaxPlayers) return;
+    if (Player* own = PadOwner(id)) {  // its player not playing (it left, or was refused): it tries player 1's match again
+        if (!own->alive && own->n > 1 && own->n <= g_configured && !g_match_line.empty()) {
+            LOGI("split: player %d's START: joining player 1's match again", own->n);
+            own->refused = false;
+            Spawn(*own, g_match_line, g_match_key, g_match_password);
+        }
+        return;
+    }
+    if (g_configured >= kMaxPlayers) return;
     g_configured++;
     LOGI("split: a controller's START: %d local players", g_configured);
     AssignPad(id);
     for (auto& p : g_players) p.view = {}, p.view_px = {};
     Relayout();
     Player& p = g_players[size_t(g_configured - 1)];
+    p.late = true;
     if (!g_match_line.empty() && !p.alive) Spawn(p, g_match_line, g_match_key, g_match_password);
     SendState();
+}
+
+// a player's server refused it: one added by START gives its slot back (the layout as before, its controller free to
+// press START again); one set up in the menus keeps its place (START on its controller tries again)
+void Refused(Player& p) {
+    p.refused = false;
+    if (!p.late || p.n != g_configured) {
+        LOGI("split: player %d was refused by the server: START on its controller tries again", p.n);
+        return;
+    }
+    LOGI("split: player %d was refused by the server: its slot given back (%d local players)", p.n, g_configured - 1);
+    p.late = false;
+    p.pad = 0;
+    g_configured--;
+    for (auto& q : g_players) q.view = {}, q.view_px = {};
+    SendState();
+}
+
+// ---- measurements (CSX_SPLIT_PERF=1) ---------------------------------------------------------------------------------------
+// once a second: the CPU each process used since the last line (percent of one core) and its resident memory, the
+// compositor's and every player's (tools/split_perf.py reads the lines)
+struct CpuMark {
+    double ticks = 0;
+    std::chrono::steady_clock::time_point at{};
+};
+std::map<pid_t, CpuMark> g_cpu;
+
+// utime + stime (clock ticks) and the resident pages of a process, from /proc
+bool ProcUse(pid_t pid, double& ticks, double& rss_mb) {
+    std::ifstream f("/proc/" + std::to_string(pid) + "/stat");
+    std::string stat;
+    if (!std::getline(f, stat)) return false;
+    size_t close = stat.rfind(')');
+    if (close == std::string::npos) return false;
+    std::vector<std::string> v;
+    size_t at = close + 2;
+    while (at < stat.size()) {
+        size_t e = stat.find(' ', at);
+        v.push_back(stat.substr(at, e - at));
+        if (e == std::string::npos) break;
+        at = e + 1;
+    }
+    if (v.size() < 22) return false;  // fields from 3 (state): utime 14, stime 15, rss 24
+    ticks = std::atof(v[11].c_str()) + std::atof(v[12].c_str());
+    rss_mb = std::atof(v[21].c_str()) * double(sysconf(_SC_PAGESIZE)) / (1024.0 * 1024.0);
+    return true;
+}
+
+void LogUse() {
+    static const bool on = std::getenv("CSX_SPLIT_PERF") && *std::getenv("CSX_SPLIT_PERF") == '1';
+    if (!on) return;
+    const double hz = double(sysconf(_SC_CLK_TCK));
+    auto now = std::chrono::steady_clock::now();
+    double total = 0, rss_total = 0;
+    int count = 0;
+    std::string parts;
+    auto one = [&](const char* name, pid_t pid) {
+        double ticks = 0, rss = 0;
+        if (pid <= 0 || !ProcUse(pid, ticks, rss)) return;
+        CpuMark& m = g_cpu[pid];
+        double secs = std::chrono::duration<double>(now - m.at).count();
+        double cpu = m.at.time_since_epoch().count() && secs > 0 ? 100.0 * (ticks - m.ticks) / hz / secs : 0.0;
+        m.ticks = ticks;
+        m.at = now;
+        total += cpu;
+        rss_total += rss;
+        count++;
+        char b[96];
+        std::snprintf(b, sizeof b, "%s%s %.1f%% %.0f MB", parts.empty() ? "" : ", ", name, cpu, rss);
+        parts += b;
+    };
+    one("compositor", getpid());
+    for (auto& p : g_players)
+        if (p.alive) one(("p" + std::to_string(p.n)).c_str(), p.pid);
+    LOGI("split: use: %d processes, cpu %.1f%%, memory %.0f MB (%s)", count, total, rss_total, parts.c_str());
 }
 
 // ---- messages from the players -----------------------------------------------------------------------------------------
@@ -849,6 +942,10 @@ void HandleMessage(Player& p, const split::Message& m) {
     }
     case split::Msg::Match:
         if (p.n == 1) OnMatch(m.Text());
+        else {  // players 2..4 say why their match ended just before they end ("ended TEXT", "refused TEXT")
+            p.refused = m.Text().rfind("refused ", 0) == 0;
+            LOGI("split: player %d's match ended: %s", p.n, m.Text().c_str());
+        }
         break;
     case split::Msg::Log:
         LOGI("p%d: %s", p.n, m.Text().c_str());
@@ -1127,17 +1224,12 @@ void PollRequests() {
             if (!std::strcmp(kind, "menu") || !std::strcmp(kind, "window")) {
                 if (std::fscanf(f, "%f %f", &a, &b) != 2) break;
                 Player& k = g_players[size_t(g_kbm - 1)];
-                if (!std::strcmp(kind, "menu")) {  // the menus' 640x480 in the keyboard player's viewport, letterboxed
-                    float vw = float(k.view.w), vh = float(k.view.h);
-                    float aspect = std::clamp(vh > 0 ? vw / vh : 4.0f / 3.0f, 4.0f / 3.0f, 2.5f);
-                    float tw = vw, th = tw / aspect;
-                    if (th > vh) {
-                        th = vh;
-                        tw = th * aspect;
-                    }
-                    float frame_w = 480.0f * aspect;
-                    a = float(k.view.x) + (vw - tw) / 2 + (a + (frame_w - 640.0f) / 2) / frame_w * tw;
-                    b = float(k.view.y) + (vh - th) / 2 + b / 480.0f * th;
+                if (!std::strcmp(kind, "menu")) {  // the menus' 640x480 in the keyboard player's frame (split::FrameRect)
+                    float vw = float(k.view.w), vh = float(k.view.h), fx, fy, fw, fh;
+                    split::FrameRect(vw, vh, k.frame_aspect, fx, fy, fw, fh);
+                    float frame_w = 480.0f * k.frame_aspect;
+                    a = float(k.view.x) + fx + (a + (frame_w - 640.0f) / 2) / frame_w * fw;
+                    b = float(k.view.y) + fy + b / 480.0f * fh;
                 }
                 SDL_Event ev{};
                 ev.type = SDL_EVENT_MOUSE_MOTION;
@@ -1326,12 +1418,14 @@ int CompositorMain(const std::string& game) {
                 p->alive = false;
                 p->target.clear();
                 if (p->n == 1) quit = true;  // player 1 is the game: its end is the compositor's
+                else if (p->refused) Refused(*p);
                 Relayout();
             }
         }
         Composite();
         auto now = std::chrono::steady_clock::now();
         if (now - last_flush > std::chrono::seconds(1)) {
+            LogUse();
             logx::Flush();
             last_flush = now;
         }

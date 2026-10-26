@@ -16,7 +16,8 @@ namespace split {
 enum class Msg : uint16_t {
     // player -> compositor
     Hello = 1,       // a player process started (u8 player); after every relaunch
-    Images = 2,      // its output images (u32 width, height, count; per image u64 size, u32 memory type bits; fds)
+    Images = 2,      // its output images (u32 width, height, count; per image u64 size, u32 memory type bits; fds;
+                     // then f32 the game frame's aspect, set at its boot)
     Ready = 3,       // image i holds a finished frame (u32 index)
     Capture = 4,     // the player wants the mouse captured (u8 on): playing, not in a menu or the console
     Match = 5,       // where the player plays (text: "host ADDRESS KEY" / "join ADDRESS KEY PASSWORD" / "menu")
@@ -33,6 +34,21 @@ enum class Msg : uint16_t {
 };
 
 constexpr size_t kMaxBody = 4096;
+
+// where a split-screen player's game frame (its aspect set at boot: pc_wide.cpp) shows in its W x H viewport: fitted
+// (letterboxed), but a frame wider than a viewport of at least 4:3 fills its height, the sides cropped: the menus' and
+// the HUD's 640x480 stay whole in the frame's 4:3 middle. A viewport narrowed while the player plays (a fourth player
+// joining a three-player layout) is filled so; the player's next boot takes the new aspect.
+inline void FrameRect(float W, float H, float aspect, float& x, float& y, float& w, float& h) {
+    w = W;
+    h = W / aspect;
+    if (h > H || (W / H >= 4.0f / 3.0f - 0.001f && aspect > W / H)) {
+        h = H;
+        w = H * aspect;
+    }
+    x = (W - w) / 2;
+    y = (H - h) / 2;
+}
 constexpr int kMaxFds = 4;
 
 struct Message {

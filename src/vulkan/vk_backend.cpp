@@ -40,6 +40,7 @@
 #include "kernel/memory.h"
 #include "common/pc_settings.h"
 #include "linux/split_player.h"
+#include "linux/split_ipc.h"
 #include "linux/window.h"
 #include "vulkan/vk_shader.h"
 
@@ -802,7 +803,7 @@ bool VulkanBackend::CreateExports() {
         e.state = 0;
     }
     swap_extent_ = {w, h};
-    splitp::SendImages(w, h, infos);
+    splitp::SendImages(w, h, infos, float(guest_w_) / float(guest_h_));
     for (auto& i : infos) ::close(i.fd);
     if (!notifier_.joinable()) notifier_ = std::thread(&VulkanBackend::Notifier, this);
     LOGI("vulkan: split-screen output %ux%u, 3 images exported to the compositor", w, h);
@@ -830,7 +831,8 @@ void VulkanBackend::DestroyExports() {
     }
 }
 
-// the shown frame into a free exported image (letterboxed at the title's aspect, as the swapchain's), released to the
+// the shown frame into a free exported image (at the title's aspect, split::FrameRect: letterboxed, or filling a
+// narrower viewport), released to the
 // compositor's queue family (VK_QUEUE_FAMILY_EXTERNAL); its index, or -1 when every image is still the compositor's
 int VulkanBackend::RecordExport(VkCommandBuffer cb, Image& shown) {
     int b = -1;
@@ -856,20 +858,19 @@ int VulkanBackend::RecordExport(VkCommandBuffer cb, Image& shown) {
     VkImageSubresourceRange r{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     vkCmdClearColorImage(cb, e.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &r);
     TransferWriteBarrier(e.image);
-    const float aspect = float(guest_w_) / float(guest_h_);
-    float W = float(swap_extent_.width), H = float(swap_extent_.height), tw = W, th = W / aspect;
-    if (th > H) {
-        th = H;
-        tw = H * aspect;
-    }
-    int dx = int((W - tw) / 2), dy = int((H - th) / 2);
+    const float W = float(swap_extent_.width), H = float(swap_extent_.height);
+    float tx, ty, tw, th;
+    split::FrameRect(W, H, float(guest_w_) / float(guest_h_), tx, ty, tw, th);
+    // the part of the frame inside the image (all of it, or its middle when the sides are cropped)
+    const float sw = float(shown.w), sx0 = tx < 0 ? -tx / tw * sw : 0.0f;
     Barrier(shown, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     VkImageBlit blit{};
     blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    blit.srcOffsets[1] = {int(shown.w), int(shown.h), 1};
+    blit.srcOffsets[0] = {int(std::lround(sx0)), 0, 0};
+    blit.srcOffsets[1] = {int(std::lround(sw - sx0)), int(shown.h), 1};
     blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    blit.dstOffsets[0] = {dx, dy, 0};
-    blit.dstOffsets[1] = {dx + int(tw), dy + int(th), 1};
+    blit.dstOffsets[0] = {std::max(0, int(tx)), int(ty), 0};
+    blit.dstOffsets[1] = {std::max(0, int(tx)) + int(std::min(tw, W)), int(ty) + int(th), 1};
     vkCmdBlitImage(cb, shown.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, e.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                    1, &blit, VK_FILTER_LINEAR);
     bar.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
@@ -2271,6 +2272,11 @@ void VulkanBackend::UpdateResolution(const Surface& front) {
         if (fh > H) {
             fh = H;
             fw = H * aspect;
+        }
+        if (split_) {  // as the frame shows in the viewport (split::FrameRect: filling it when the frame is wider)
+            float fx, fy;
+            split::FrameRect(W, H, aspect, fx, fy, fw, fh);
+            fw = std::min(fw, float(max_image_));
         }
         // a frame within half a percent of the size takes it whole (854x480 is 16:9 to 0.06%: 2560x1440, not 1439)
         if (std::fabs(fw - W) < W * 0.005f) fw = W;

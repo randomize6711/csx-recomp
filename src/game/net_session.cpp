@@ -66,36 +66,35 @@ constexpr uint32_t kRelaunch = 0xBF0E0;  // the title's relaunch (cdecl: the lau
     std::abort();
 }
 
-// split-screen player 1 starts a match from the front end (docs/splitscreen.md): its server takes the other local
-// players; an offline match (Single Player) on this machine's loopback only, Host a Match on the network as alone;
-// its bot count leaves room for them (4 local players and 61 bots fill the 65 slots: the title's own bot manager
-// would take 64 and the server would be full); the next boot's display aspect is its viewport's
+// split-screen player 1 starts a match from the front end (docs/splitscreen.md): its server takes the local players;
+// an offline match (Single Player) on this machine's loopback only, Host a Match on the network as alone. Its bot
+// count leaves room for four local players whatever the number playing now (4 local players and 61 bots fill the 65
+// slots): the title sets its bots at a match's start and never removes one for a joining player (bot_kick, TODO
+// 1e3), so a controller's START during the match, or a map change with more players, still finds a slot. With the
+// compositor running even one player hosts so (START joins a second); the game alone in its window is unchanged.
 void SplitMatchFromMenus(bool host) {
     if (csx::SplitPlayer() != 1) return;
+    constexpr int kLocal = 4;
     int players = csx::SplitPlayers();
-    if (players > 1) {
-        setenv("CSX_MENU_HOST", "1", 1);
-        if (host) unsetenv("CSX_SERVER_LOOPBACK");
-        else setenv("CSX_SERVER_LOOPBACK", "1", 1);
-        std::string path = kernel::ResolvePath("Z:\\releasemap.txt", 0), line;
-        if (!path.empty()) {
-            std::ifstream f(path, std::ios::binary);
-            std::getline(f, line, '\0');
-        }
-        size_t q = line.find("+bot_quota ");
-        if (q != std::string::npos) {
-            size_t v = q + 11, e = line.find(' ', v);
-            int bots = std::atoi(line.substr(v, e - v).c_str()), room = 65 - players;
-            if (bots > room) {
-                line = line.substr(0, v) + std::to_string(room) + (e == std::string::npos ? "" : line.substr(e));
-                std::ofstream(path, std::ios::binary | std::ios::trunc) << line << '\0';
-                LOGI("net: split-screen: %d bots asked, %d with %d local players (65 slots)", bots, room, players);
-            }
-        }
-        LOGI("net: split-screen: the match hosts %d local players%s", players, host ? "" : " (loopback only)");
-    } else {
-        unsetenv("CSX_SERVER_LOOPBACK");
+    setenv("CSX_MENU_HOST", "1", 1);
+    if (host) unsetenv("CSX_SERVER_LOOPBACK");
+    else setenv("CSX_SERVER_LOOPBACK", "1", 1);
+    std::string path = kernel::ResolvePath("Z:\\releasemap.txt", 0), line;
+    if (!path.empty()) {
+        std::ifstream f(path, std::ios::binary);
+        std::getline(f, line, '\0');
     }
+    size_t q = line.find("+bot_quota ");
+    if (q != std::string::npos) {
+        size_t v = q + 11, e = line.find(' ', v);
+        int bots = std::atoi(line.substr(v, e - v).c_str()), room = 65 - kLocal;
+        if (bots > room) {
+            line = line.substr(0, v) + std::to_string(room) + (e == std::string::npos ? "" : line.substr(e));
+            std::ofstream(path, std::ios::binary | std::ios::trunc) << line << '\0';
+            LOGI("net: split-screen: %d bots asked, %d (65 slots: room for 4 local players, %d now)", bots, room, players);
+        }
+    }
+    LOGI("net: split-screen: the match hosts %d local players (up to 4)%s", players, host ? "" : " (loopback only)");
 }
 
 bool BrowserJoin() {
@@ -244,6 +243,8 @@ bool ClDisconnectLostHost(X86Context& ctx, uint8_t*) {
     // starts them again for the next one)
     if (csx::SplitPlayer() > 1) {
         LOGI("net: split-screen player %d's match ended: %s", csx::SplitPlayer(), ReturnMessage().c_str());
+        // the compositor told why: a refusal (full, password, banned) gives a player added by START its slot back
+        csx::SplitSend(csx::kSplitMatch, std::string(g_refusal.empty() ? "ended " : "refused ") + ReturnMessage());
         std::exit(0);
     }
     // a join from the server browser: back to its list with why, instead of the console's LostHost screen. At once,
@@ -299,7 +300,7 @@ void ConPrintfLog(X86Context& ctx, uint8_t*) {
         const char* e = std::getenv("CSX_LOG_CONSOLE");
         return e && *e == '1';
     }();
-    if (!on && !BrowserJoin()) return;
+    if (!on && !BrowserJoin() && csx::SplitPlayer() <= 1) return;
     std::string text = kernel::ReadCString(ctx.esp + 0x10, 0x1000);
     while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) text.pop_back();
     if (on && !text.empty()) LOGI("console: %s", text.c_str());

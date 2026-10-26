@@ -242,7 +242,7 @@ uint64_t SizeSerial() { return g_size_serial; }
 bool Focused() { return g_focus; }
 bool Captured() { return g_captured; }
 
-void SendImages(uint32_t w, uint32_t h, const std::vector<ImageInfo>& images) {
+void SendImages(uint32_t w, uint32_t h, const std::vector<ImageInfo>& images, float frame_aspect) {
     split::Message m;
     m.type = split::Msg::Images;
     m.Put(w);
@@ -254,6 +254,7 @@ void SendImages(uint32_t w, uint32_t h, const std::vector<ImageInfo>& images) {
         m.Put(i.memory_type);
         fds.push_back(i.fd);
     }
+    m.Put(frame_aspect);
     g_held = 0;
     SendLocked(m, fds.data(), int(fds.size()));
 }

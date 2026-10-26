@@ -31,6 +31,7 @@
 #include <SDL3/SDL.h>
 
 #include "linux/split_player.h"
+#include "linux/split_ipc.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -262,7 +263,9 @@ bool MenuPoint(float wx, float wy, float& mx, float& my) {
         th = float(wh);
         tw = th * aspect;
     }
-    float fx = (wx - (float(ww) - tw) / 2) / tw, fy = (wy - (float(wh) - th) / 2) / th;
+    float ox = (float(ww) - tw) / 2, oy = (float(wh) - th) / 2;
+    if (splitp::Active()) split::FrameRect(float(ww), float(wh), aspect, ox, oy, tw, th);  // as the compositor shows it
+    float fx = (wx - ox) / tw, fy = (wy - oy) / th;
     if (fx < 0 || fx >= 1 || fy < 0 || fy >= 1) return false;
     const float frame_w = 480.0f * aspect;
     mx = fx * frame_w - (frame_w - 640.0f) / 2;

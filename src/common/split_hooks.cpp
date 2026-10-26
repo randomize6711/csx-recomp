@@ -58,6 +58,11 @@ void SetSplitStarter(bool (*start)(int)) { g_starter = start; }
 
 int SplitPlayers() {
     if (!SplitPlayer()) return 1;
+    // the compositor's count (its State: "players N" first; a controller's START adds one), else the boot's
+    if (std::string state = SplitState(); state.rfind("players ", 0) == 0) {
+        int n = std::atoi(state.c_str() + 8);
+        if (n >= 1 && n <= 4) return n;
+    }
     const char* p = std::getenv("CSX_SPLIT_PLAYERS");
     int n = p ? std::atoi(p) : 1;
     return n >= 1 && n <= 4 ? n : 1;

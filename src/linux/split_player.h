@@ -28,7 +28,7 @@ struct ImageInfo {
     uint32_t memory_type;
     int fd;
 };
-void SendImages(uint32_t w, uint32_t h, const std::vector<ImageInfo>& images);
+void SendImages(uint32_t w, uint32_t h, const std::vector<ImageInfo>& images, float frame_aspect);
 void SendReady(uint32_t index);
 bool Held(uint32_t index);  // the compositor still reads it
 void SendCapture(bool want);
