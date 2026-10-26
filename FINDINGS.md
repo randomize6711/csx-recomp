@@ -1941,6 +1941,44 @@ Remaining uncertainty: the bots' avoidance of teammates is their own logic and w
 they can still pause behind each other); hostages keep blocking (they are not players); network play is untested and
 the option is not offered there.
 
+## PC multiplayer N3: the server browser (2026-10-26)
+
+How the title's menus were made to carry a PC server browser (docs/pc_multiplayer.md section 17), and what was found:
+- **The System Link list is filled by code with the UI's own row functions** (0xF12F0, 0xE8E00): a row is a 0x20-byte
+  object (zeroed: 0xDC2B0) given fixed cells by 0xDC440 (ecx a colour, edx the row; the cell's text a std::wstring
+  and a second colour on the stack; ret 8), copied onto the table's rows vector (table +0x5C: +4 first, +8 last, +0xC
+  end) by 0xDD2F0 (ecx the row, esi the vector: a deep copy), freed by 0xDC2D0 (eax the row); 0xDD520 (ebx the
+  vector) frees every row. The title never freed its temporary row (a leak per row per refresh); the browser does.
+  The selection is the table's +0x9C, the first row shown +0x120. std::wstring::assign is 0xBC290 (ecx the string,
+  eax the characters, the count on the stack). A screen's BackgroundText lines (at most 60: 0xCDDE6) are 0x44-byte
+  objects at screen +0x10C + 4 i (count +0x108): +0 / +4 x, y, +0x10..+0x1C colour as floats 0..1 (alpha +0x1C: the
+  title's own simulate functions show and hide lines by it, 0xE3040), +0x20 the text, +0x40 the scale. A keyboard
+  screen's edit box is screen +0x388; its text a std::wstring at +0x34, the cursor +0x70, +0x6C "the first key
+  replaces the text"; the insert (0xD04A0) refuses a 16th character (cmpl $0xf at 0xD04CD).
+- **The screens' button handlers** the parser knows (0x37AAA0..): OnButtonDown A, B, X, Y, Black, White, Start, Back,
+  LT, RT (and OnButtonUp / OnButton for each), OnEntry, CommandSimulate1/2, CommandSelect, CommandHighlight;
+  "!text" is a console command line. The OptiMatch Sessions screen (Xbox Live) is the System Link list's four-column
+  sibling with its own background and six detail lines: the PC list is built on it.
+- **The profile walks overflow** (fixed): stuffUItoPlayerData (0xDAD40) and the profile's two readers walk every
+  screen's list rows, one byte each, into a 128-byte block (the save's on the stack, esp+0x2C, then 0x552FC9). The
+  PC Options and PC Controls lists had used most of it since M7e/M7f; seven more (the browser's Filters) ran past it
+  and the /GS cookie check (0x239001 -> 0x2390xx) called KeBugCheck when the main menu loaded. The walks skip
+  PlayerMapVoting by name; PC screens are skipped the same way now (hooks before their rep cmpsb).
+- **No "hostname" cvar** in this build (Cvar_FindVar("hostname") returns null; the boot line's +hostname is dropped):
+  the server's name in a query comes from csx-server's settings or a PC setting.
+- **The front end's way back**: the title's end of a session (0xE6370) relaunches with launch data {1, page}; with a
+  profile on the disk the front end comes up on its main screen in about 0.3 s (no intro): the browser reopens there
+  after a join that ended. A fresh disk (no profile) shows Create a Profile instead, whatever the page.
+- **The console's LostHost box never returns** (its own loop, ended only by a relaunch): skipping it after a lost
+  server without relaunching crashed the client at its next frame (an indirect call at 0x5D62F); a browser join
+  relaunches to the front end at that point instead.
+- **Bound sockets miss broadcasts**: a socket bound to 127.0.0.k does not receive a broadcast to 127.255.255.255; the
+  test instances' servers open a second socket on all addresses (SO_REUSEADDR on both); Linux delivers a broadcast to
+  every matching socket and a unicast to the most specific, so several servers on one port each answer once.
+- **Listen servers answer at frame time**: a query to a listen server waits for its next frame (up to 33 ms at the
+  title's 30 frames a second, seen as 26-28 ms pings on one machine); the dedicated server waits for its tick on the
+  socket and answers at once (0-2 ms).
+
 ## PC multiplayer N2: the dedicated server (2026-10-25)
 
 The title never ran GoldSrc's dedicated mode; csx-server (src/server, src/game/dedicated.cpp) makes it run it. What

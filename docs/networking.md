@@ -67,7 +67,10 @@ Since then (docs/pc_multiplayer.md sections 15, 16): item 1 is N1's encrypted UD
 traversal or relay; transport version 3 authenticates the server by a persistent identity key, trusted on first use
 or pinned); item 2 is N2's csx-server, GoldSrc's ca_dedicated mode with no client and no host slot, a fixed 30 Hz
 tick, remote administration over the player's authenticated connection (rcon refused from the network); the snapshot
-schedule now gives each client its 30 a second (it gave 17-21 at a 30 Hz tick). Items 3-7 stand.
+schedule now gives each client its 30 a second (it gave 17-21 at a 30 Hz tick). N3 (section 17) adds the server
+browser: a signed, rate-limited, amplification-safe information query on the game port, LAN discovery by broadcast,
+an optional self-hostable master server (tools/master, csx-master), favourites tied to server identities, all in the
+title's own menus. Items 3-7 stand.
 
 Ordered by value for online play; none blocks the 65-slot single player match.
 

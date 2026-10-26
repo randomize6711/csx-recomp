@@ -53,7 +53,7 @@
   wait) ✅ 2026-10-24, the scoreboard for 65 (Ping, BOT, scrolling) ✅ 2026-10-24; waiting for the user's play-test
 - N0 — PC multiplayer architecture investigation (docs/pc_multiplayer.md) ✅ 2026-10-24, waiting for approval of the
   architecture; then N1 — PC transport and remote clients ✅ 2026-10-25 (signed off), N2 — dedicated server
-  (csx-server: no host slot, server identity, remote administration, 30 snapshots a second) ✅ 2026-10-25, waiting
-  for approval; N3 — server browser, N4 — split-screen (one client process per local player), each after the user's
-  approval
+  (csx-server: no host slot, server identity, remote administration, 30 snapshots a second) ✅ 2026-10-25; N3 —
+  server browser (LAN discovery, master server csx-master, favorites, direct address, in the title's own menus) ✅
+  2026-10-26, waiting for approval; N4 — split-screen (one client process per local player) after the user's approval
 - M8 — PC feature set complete

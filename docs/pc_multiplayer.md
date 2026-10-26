@@ -1,9 +1,10 @@
 # PC multiplayer: architecture investigation and roadmap (N0, 2026-10-24)
 
 Milestone N0 (investigation only, approved 2026-10-24); N1 (the PC transport and remote clients) approved 2026-10-25
-and built: section 15 describes what exists, its tests, measurements and limits. Sections 1-14 are the N0 analysis
-and plan as approved. Direction: ARCHITECTURE.md "Direction: PC first". Detailed evidence, with every
-guest address, is in the analysis files this document cites:
+and built: section 15 describes what exists, its tests, measurements and limits; N2 (the dedicated server, section 16)
+and N3 (the server browser, section 17) since. Sections 1-14 are the N0 analysis and plan as approved. Direction:
+ARCHITECTURE.md "Direction: PC first". Detailed evidence, with every guest address, is in the analysis files this
+document cites:
 
 - analysis/netcode_engine.md: the engine's netcode (server start, connectionless protocol, connecting, netchan,
   snapshots, delta, prediction, interpolation, lag compensation, voice, timeouts, map changes, system link, rcon).
@@ -14,7 +15,8 @@ guest address, is in the analysis files this document cites:
 
 Contents: 1 current architecture, 2 does remote play work today, 3 packet sizes and the transport, 4 options and the
 recommendation, 5 snapshots and replication, 6 security, 7 dedicated server, 8 configuration, 9 server browser,
-10 split-screen, 11 testing, 12 performance, 13 roadmap, 14 open questions and risks, 15 N1 as built.
+10 split-screen, 11 testing, 12 performance, 13 roadmap, 14 open questions and risks, 15 N1 as built, 16 N2 as built
+(the dedicated server), 17 N3 as built (the server browser).
 
 ## 1. Current architecture
 
@@ -891,3 +893,262 @@ title's UI (now only CSX_NET_PASSWORD / run_game.sh --password).
 | d9fdaf1 | Dedicated scenarios; runner --server, --file, a ninth process |
 | 10714d3 | A relaunch's map ends at its NUL (admin map); net_ded_admin_map |
 | (this) | Docs: N2 (this section, FINDINGS, PROGRESS, ROADMAP, TODO, networking.md) |
+
+## 17. N3 as built: the server browser (2026-10-26)
+
+Approved by the user 2026-10-26 after N2. Branch g8.2b, not merged. No split-screen (N4) work.
+
+### 17.1 Architecture
+
+```
+ menus (the title's own UI code)            src/game/pc_browser.cpp: menu text added at load, the list's rows made
+   Multiplayer > LAN / Internet / Favorites    with the game's row and cell functions, BackgroundText lines set,
+   / Recent / Join by Address / Host           console commands "!pc_browser ..." from the screens' buttons
+ ────────────────────────────────────────
+ discovery thread                           src/net/browser.h: LAN broadcast, master lists, saved and typed
+   (its own UDP socket, poll-woken)            addresses; queries paced and retried; answers checked; a view
+                                               sorted and filtered for the menus
+ ────────────────────────────────────────
+ server side (listen and dedicated)         src/game/server_query.cpp: info and players answers on the game port
+   on the game port's socket                   (src/net/query.h), master registration (src/net/master.h), a LAN
+                                               listener beside a server bound to one address
+ ────────────────────────────────────────
+ master server (optional, self-hosted)      tools/master/master_main.cpp csx-master: registrations, expiry, lists
+```
+
+- **The query** (src/net/query.h) travels on the server's game port, in the transport's datagrams but outside any
+  connection: transport.h Type 7 (query) and 8 (answer); the transport hands these to a handler
+  (Endpoint::SetConnectionless) instead of the connection code. A query is padded to the size of the largest answer
+  of its kind (info 256 bytes, players a full 1200-byte datagram) and only a query of exactly that size is answered,
+  so a server never sends more than it received (no amplification of a spoofed source). Answers carry the client's
+  random nonce and are signed (Ed25519) by the server's N2 identity over "CSXN info v1" and everything before the
+  signature; the info answer carries the identity key. Info: name, map, game, engine protocol (47), transport
+  version, players (humans), bots, slots, flags (password, dedicated, LAN only, Player Collision off, friendly fire),
+  round time, time limit, max rounds, the key. Players (pages of up to 1200 bytes): name, score, ping, connected time,
+  bot. Answers are rate limited: 8 a second per source address (a burst of 16), 400 a second in total; a LAN-only
+  server answers private addresses only. Nothing secret is in an answer: no password (a flag), no key but the public
+  identity, no address.
+- **The server side** (src/game/server_query.cpp) builds the answer from the engine once a second on the game thread
+  (never per query): active client_t entries split by fakeclient into players and bots (a dedicated server has no
+  host player to count), maxclients, sv.name, sv_password, Player Collision, mp_friendlyfire / roundtime / timelimit /
+  maxrounds by Cvar_FindVar; scores from the edicts' frags (edict + 0x1E4, as SVC_PlayerInfo 0x9AFB0 reads them), pings
+  from the client's latency, connected time from its netchan. The name: this build registers no "hostname" cvar, so
+  csx-server's name setting, else a listen server's PC setting net_server_name, else "<host player>'s match". The
+  dedicated server waits for its next tick on its socket (ServerQueryWait), so an answer leaves when the query
+  arrives; a listen server answers at its next frame (its ping in the list includes up to one frame).
+- **LAN discovery**: the browser broadcasts an info query to every IPv4 interface's broadcast address, 127.255.255.255
+  (this machine) and 255.255.255.255, on each port of net_lan_ports (27015-27020 and the player's own net_port). A
+  server bound to all addresses (the normal case) receives it on its game socket; a server bound to one address (the
+  tests' numbered instances, CSX_NET_BIND) opens a LAN listener on all addresses beside it (SO_REUSEADDR on both) and
+  answers from its own socket, so the list shows the address the game connects to. While the LAN tab is open the
+  broadcast repeats every 3 s; a server silent for 10 s leaves the list; the same server answering at two addresses is
+  listed once (its key).
+- **Master server** (src/net/master.h; tools/master/master_main.cpp, `tools/build_master.sh`): a server that names
+  masters (csx-server `master HOST[:PORT],...`; a listen server's PC settings net_master_register 1 and net_master)
+  sends a heartbeat from its game socket; the master answers with a cookie (HMAC-SHA256 under its random key of the
+  source address, the nonce and a time, valid 30 s); the server registers with the cookie, its identity key and an
+  Ed25519 signature over "CSXN master v1" and the packet. Only a source that receives at its address can register it
+  (no registering someone else's address); the key is the server's own. The master lists the source address and key
+  until heartbeats stop for its expiry (180 s, heartbeat 60 s, both settable); a server that quits sends a signed
+  leave with its last cookie. Limits: 20000 servers, 32 an address, 10 datagrams a second an address (a burst of 20),
+  2000 in total, `--public` to refuse private addresses. Browsers ask for pages of 30 (address, port, key) with a
+  request padded to 1200 bytes. A LAN-only server registers with no master. No master is set by default; a master is
+  an ordinary program anyone can run (no accounts, no Steam, no central service).
+- **A listing is not trust**: the browser queries every listed server itself and drops one whose signed answer
+  carries another key than the master listed (it is not that server); joining still goes through N2's checks.
+- **Discovery thread** (src/net/browser.h, the game's src/game/pc_browser.cpp ThreadMain): its own UDP socket
+  (broadcast allowed), polled with a 5 ms wait, so a ping is measured when the answer arrives, not at a frame; queries
+  paced at 200 a second (a burst of 10), 64 unanswered at most, one retry after 1 s, then "no answer"; at most 4096
+  servers and 137 master pages (4110 servers). The game thread copies the entries when they changed.
+
+### 17.2 The menus
+
+The original System Link menus are the base; no other UI framework, no overlay, nothing drawn by host code:
+
+- **Multiplayer** (System Link renamed on the main menu and its screen, its help line "Play with others on your network
+  or the internet."): LAN Matches, Internet Matches, Favorites, Recent Servers, Join by Address, Host a Match (the
+  console's own, now hosting a PC listen server: CSX_MENU_HOST set by the relaunch from its screens, net_session.cpp).
+- **The server list** (SuperLauncher_PCBrowser): the console's Xbox Live OptiMatch Sessions screen (its background
+  Back_XBL_OptimatchResults with four column dividers, its highlight, table text scale and detail lines) with the
+  System Link list's button bar (Y Host a Match, X Refresh Results, A Join, B Cancel). Columns Server Name (a "* "
+  before a passworded server, "! " before one whose identity changed), Players (all players and bots / slots, up to
+  65/65), Map, Ping. Tabs LAN / Internet / Favorites / Recent above the list (the current one dark, in brackets), a
+  status (searching, how many, no master set), eight detail lines (game type from the map, players "2 + 63 bots of
+  65", dedicated, password, round time and map time, Player Collision and friendly fire, address and LAN only, ping or
+  the identity warning), the action lines Sort / Filters / Add to Favorites (Remove Favorite).
+- **Navigation**: the pad as on the console (up / down, A join, B back, X refresh, Y host) plus LT / RT the tabs,
+  Black the next sort order, White add or remove the favorite, Back the filters, left / right (d-pad or stick) the
+  tabs; the keyboard as the menus' pad (arrows, Space or Enter join, R refresh) plus, on these screens only, Escape
+  back, F5 refresh, Page Up / Page Down the tabs (src/linux/window_input.cpp); the mouse: hover selects, a click
+  selects a server (a double click joins), a click on a column header sorts by it (again: reversed), the tabs and the
+  action lines are clickable, the button bar's four buttons too (pc_mouse.cpp).
+- **Sorting and filters**: Ping (unanswered last), Players (the fullest first), Server Name, Map; Normal / Reversed;
+  stable (ties by name, then address). Filters (SuperLauncher_PCFilters, an options screen like PC Options: A saves, B
+  cancels, X resets): Full Servers, Empty Servers, Password Protected (show / hide / only), Map (any or one of the
+  title's maps), Location (Favorites and Recent: any / LAN / internet). Saved as PC settings browser_*.
+- **Stable list**: the rows are rebuilt at most four times a second while answers arrive and keep their order when only
+  pings change (a refresh, a sort or a change of the servers listed sorts again); the selection stays on the same
+  server, or on the top row until the player moves it.
+- **Join by Address** and **the password**: the profile name's keyboard screen (its 15-character limit raised to 63
+  and 32 for these screens: hook 0xD04CD); the PC keyboard types into it at once (pc_mouse.cpp); the last address is
+  offered again. The password is shown as typed (the title's edit box has no masking); it is never logged.
+- **Messages** (SuperLauncher_PCMessage, as the console's HostFull / LostHost boxes), **Server Identity**
+  (SuperLauncher_PCIdentity, Cancel / Accept), **Contacting** (Join by Address while its server answers, Cancel).
+- **Widescreen**: the menus' 640x480 layout is the title's, centred at 16:9 and 21:9 as every menu (G7).
+
+### 17.3 Joining, and back
+
+1. The selected server's answer is checked: no answer ("does not answer", with the port to check), another protocol,
+   full ("The server is full. 4 of 4 player slots are taken."): messages, nothing sent.
+2. Its proven key against a pinned key (net_server_key: must match, else refused) and known_servers.txt (TOFU): a
+   different remembered key, or a favorite's, opens Server Identity with both keys: B leaves it, A trusts the new key
+   explicitly (known_servers.txt and the favorite rewritten). Never silently.
+3. A passworded server asks for the password.
+4. The key is remembered (TOFU, as a connection would), the server becomes a recent server, and the title relaunches
+   into `+connect ADDRESS` as its own system link join did (net_session.cpp RequestJoin), with CSX_SERVER_KEY set to
+   the key the list proved (the game connection must reach the same server), CSX_NET_PASSWORD (inside the encrypted
+   connection, as N2's), CSX_BROWSER_JOIN.
+5. A join that ends (refused password, banned, kicked, the server shut down, lost) does not show the console's
+   LostHost box: the client relaunches to the front end (launch data 1, as the title's own end of a session), and the
+   front end opens Multiplayer, the browser on the same tab and the message: "The password is not the server's.",
+   "Disconnected: Server shutting down", "You are banned from this server." (from the server's printed refusal or
+   the transport's close reason). Quitting a joined match from its menu also comes back to the browser.
+
+### 17.4 Favorites and recent servers
+
+PC settings (pc_settings.ini) `favorite.1` .. `favorite.64` and `recent.1` .. `recent.16`: "ADDRESS KEY NAME" (the
+address as typed or listed, a host name allowed; KEY the 64 hex digits of the identity the server proved when it was
+added, "-" if unknown; the name as last seen, cleaned). Added and removed from the list (White, the action line), on
+the Favorites tab (queried directly, listed even when they do not answer, refreshed with X). A favorite is its key:
+an answer at its address with another key is shown with "!" and joining asks (17.3 step 2); the favorite's key proven
+at another address (LAN or a master) moves the favorite there (logged; the signature proves the same server). Recent
+servers are added at each join, newest first.
+
+### 17.5 Security
+
+- Server authentication is N2's: TOFU or pinned keys, a changed key never taken silently; the browser checks the key
+  before relaunching (its own signed answer) and pins it for the connection, which verifies it again in the handshake.
+- Untrusted input audited (answers, master pages, LAN broadcasts from anyone): fixed-size bounded reads (wire.h
+  Reader), a nonce that must be the browser's (a spoofer off the path cannot answer), the signature checked before
+  use, counts that cannot be (players over slots, no slots, pages out of range) refused, strings cut to their bounds
+  (63 name, 31 map, 15 game, 31 player name) and cleaned to printable ASCII without the characters the engine's
+  command and info string parsers or the menus' localisation treat specially (`" ; \ % #`), entries capped (4096),
+  master pages capped (137 x 30). Server text only ever becomes cell and line text (std::wstring assigned, no
+  localisation lookup); every menu command is the browser's own, so a server's name cannot inject a command. Typed
+  addresses are limited to letters, digits, '.', '-', ':'; passwords to what the engine's userinfo carries.
+- The master server cannot be used to register another address (the cookie) or another server's identity (the
+  signature); its list is not trusted (17.1). A hostile master can make browsers query up to 4110 addresses (256-byte
+  queries, paced, once with a retry: about 2 MB per refresh), a bounded nuisance, documented.
+- Rate limits: the query (8/s per source, 400/s total), the master (10/s per source, 2000/s total), the browser's own
+  pacing (200 queries a second).
+- **Not yet secure for the public internet**: the engine's client message parsers (svc_ messages, delta decoding,
+  user messages from the game DLL) still trust the server they connected to beyond N1's index and buffer checks
+  (15.4 item 2); a malicious server a player chooses to join could exploit a parser bug. The browser does not change
+  that; it only decides which server is joined and proves it is the expected one.
+- Fixed during N3: the menu's keyboard logged the typed text when typing ended (pc_mouse.cpp): never on the password
+  screen now.
+
+### 17.6 Profile walk fix (found by N3)
+
+The title's profile save and load (stuffUItoPlayerData 0xDAD40 and its two counterparts) walk every screen's list rows
+and keep one byte a row in a 128-byte block (on the stack at the save). The PC screens' lists (PC Options, PC
+Controls) already used most of it; the browser's Filters screen ran past it and the stack cookie check ended the title
+when the main menu loaded. PC screens are now skipped by these walks as the title skips PlayerMapVoting (hooks
+0xDADC5, 0xDB809, 0xDB925; src/game/pc_menu.cpp PcProfileSkipScreen): their values are PC settings, and since they
+come after every original screen the original rows keep their bytes.
+
+### 17.7 Hosting and joining
+
+    ./run_game.sh                                         # Multiplayer > LAN Matches / Internet Matches / Favorites ...
+    ./run_server.sh --map de_dust2 --bots 20              # a dedicated server: found on the LAN with no setting
+    ./run_server.sh --map de_dust2 --master master.example.org:27010   # also listed by that master server
+    tools/build_master.sh && build/master/csx-master --port 27010 [--public]   # run a master server (UDP 27010)
+    build/master/csx-query --lan [--players]              # what the browser sees, from the command line
+    build/master/csx-query --master HOST[:PORT]           # a master's list, every server queried
+    build/master/csx-query 192.168.1.20:27016             # one server
+
+- **LAN**: start a dedicated server (`run_server.sh`) or host from the menus (Multiplayer > Host a Match); other
+  players open Multiplayer > LAN Matches. Servers on ports 27015-27020 are found (PC setting net_lan_ports, e.g.
+  "27015-27030", for more; the player's own net_port is always included). A firewall must let UDP in on the server's
+  port (queries and the game share it) and broadcasts out on the players'.
+- **Internet**: a master server is any machine running csx-master with UDP 27010 open; servers name it (`--master` /
+  server.cfg `master`; a listen server: PC settings `net_master_register 1` and `net_master HOST[:PORT]`), players name
+  it in PC setting `net_master` (pc_settings.ini; several separated by commas). With none set the Internet tab says so.
+- **Direct**: Multiplayer > Join by Address (an address or name, ":port" if not 27015); `./run_game.sh --connect
+  HOST[:PORT] [--password P] [--server-key KEY]` still works for tests and advanced use.
+- **Favorites**: White (pad), "Add to Favorites" (mouse) or the 1 key (the pad's White on the keyboard) on a server;
+  kept in pc_settings.ini as favorite.N lines.
+
+### 17.8 Measurements (Linux, one machine, 16 threads; real processes in one network namespace)
+
+| What | Result |
+|---|---|
+| LAN discovery latency | answers 0-2 ms after the broadcast from dedicated servers, 26-28 ms from a listen server at 30 frames a second (it answers at its next frame); the list shows them 0.27 s after the tab opens (the first rebuild); csx-query: first answer 0 ms, last 1 ms |
+| LAN query traffic | 12 broadcast queries of 256 bytes per refresh (2 broadcast addresses x 6 ports), every 3 s while the LAN tab is open: about 1 KB/s out; each server answers 160-240 bytes |
+| Internet list, 300 servers | 10 master pages (12 KB of requests, 11.7 KB of pages), 300 queries (77 KB) and answers (48 KB): all 300 listed 1.45 s after the request (csx-query), 1.6 s in the menu |
+| Menu during discovery | 30.0 frames a second while 300 servers arrive (60 frames in 2.0 s); rows rebuilt at most 4 times a second |
+| Client cost | about 5% of a core while 300 servers arrive; memory +1 MB for 300 entries (100.7 to 100.8 MB); one more thread (the discovery) |
+| Server cost | an answer: 16 us to build and sign (Ed25519), 183 bytes for a typical info answer; at the 400 a second cap under 1% of a core; players: 65 long names in 3 pages |
+| Browser cost per answer | 48 us to read and verify |
+| Refresh | X sends the list request again; 300 servers re-listed in 1.6 s; the LAN tab re-broadcasts at once |
+| Expiry | LAN: gone 10 s after its last answer (seen: Delta 10 s after it quit); master: a silent server dropped after its expiry (30 s in the test, 180 s by default), a quitting one at once (its signed leave) |
+
+### 17.9 Tests
+
+| Test | What it shows |
+|---|---|
+| tests/net_browser_test.py (103 checks, ASan + UBSan) | query and answer serialization; signatures (every byte changed refused); hostile text cleaned and bounded; impossible counts refused; 20000 random datagrams unanswered; rate limits (burst, per second, total over 1000 sources, LAN only); answers never larger than queries; LAN discovery of 3 servers on 3 ports, duplicates, a new server, expiry; favourites with another key flagged; no answer; 65 players over pages; the master: 100 registrations, 4 list pages, a listed key proven wrong dropped, a forged registration, 5000 random datagrams, the per-address limit, expiry, leaving; the view: every sort both ways, every filter, 4096 servers sorted 4 ways in 25 ms; saved-server format |
+| tests/server_config_test.py (22) | the master setting's validation |
+| net_browse_lan | two dedicated servers and a listen server hosted from the menus found by broadcast (one entry each), players 2/65, 0/65, 1/65 (the listen host's player), a server appearing and expiring, sorting with Black, filtering (password hidden), tabs |
+| net_browse_join | join, password typed and accepted, a wrong password refused and back in the browser with the message, a full server refused before connecting, a server shutdown back in the browser; the password in no log |
+| net_browse_favorites | a favorite added (with the key proved), shown, removed (pc_settings.ini written); a favorite with another key: "!", the identity warning, B; known_servers.txt with another key: warning, B, then A trusts, the join pins the key, the server becomes a recent server |
+| net_browse_address | Join by Address: a server joined; no answer, not an address, a name that does not resolve: messages |
+| net_browse_master | csx-master: registration, a LAN-only server not registering, the Internet tab and csx-query listing, a quitting server leaving, a frozen server expiring |
+| net_browse_many | 300 servers through a master, the menu at 30 frames a second, scrolling, refresh |
+| vk_browser_43, _169, _219 | the Vulkan window at 4:3, 16:9, 21:9: Multiplayer, the list, a click on a header sorts, a click selects a row (no join), a tab click, Page Up, the Sort line, Escape back |
+| net_ded_malformed (net_fuzz) | now also every connectionless type, 6000 malformed queries and a 1000-query flood at the server |
+
+### 17.10 Known limitations
+
+- **Client-side hardening**: the engine's client parsers against a hostile game server (17.5) are N1's; the
+  browser does not make a joined server trustworthy, only authenticated.
+- **No NAT traversal**: an internet server needs its UDP port reachable (forwarded); the master lists the address it
+  sees.
+- **IPv4 only** (as the transport).
+- **The password is shown as typed** on the keyboard screen (the title's edit box has no masking); never logged.
+- **Listen server pings** include up to one of its frames (17.1).
+- **The players list** is in the query (csx-query --players) but the menus show counts only (humans and bots in the
+  details), not names.
+- **Windows**: the browser and query code are portable; LAN broadcast addresses come from getifaddrs on Linux, on
+  Windows only 255.255.255.255 and the loopback network are used; no Windows build was tested in N3.
+- **A hostile master** can make a browser query up to 4110 listed addresses per refresh (17.5).
+- **Master servers keep no state** across restarts and are not federated; a player lists several masters by hand.
+
+### 17.11 What N4 (split-screen) depends on
+
+Split-screen is one client process per local player (section 10): each joins through the same browser and connection
+path (+connect relaunch, pinned key); local players of one PC joining one server count as separate players in its
+answers. Nothing in N3 assumes one player per PC.
+
+### 17.12 Results on the final build (2026-10-26)
+
+- Network scenarios (tools/run_net_tests.py, all of tests/net): 31 of 31: the 25 of N1 and N2 (listen and dedicated
+  servers, 65 slots, map changes, trust, admin, loss, malformed traffic with the fuzzer now also at the query) and
+  the 6 browser scenarios; net_browse_join again after 2ee3883: pass.
+- Unit tests: net_transport_test 109, net_browser_test 103, server_config_test 22, stuff_filter_test 14,
+  net_buffers_test 18,314: all pass.
+- Headless offline regression (tests/run_regression.sh): 46 of 46.
+- Window suite (tools/run_window_tests.py: the 27 default scenarios plus vk_scoreboard_169, vk_bot_count_169,
+  vk_player_collision_169, vk_browser_43, vk_browser_169, vk_browser_219): 33 of 33, no rerun. The intermittent
+  Player Collision failure seen in N2 did not reappear.
+
+### 17.13 Commits (branch g8.2b)
+
+| Commit | What |
+|---|---|
+| 5005dbd | src/net: the query, the master protocol, the browser's discovery, wire.h; tools/master; net_browser_test |
+| c5dd4a3 | Servers answer queries and register with masters (server_query.cpp); the dedicated tick waits on its socket; Host a Match hosts; csx-server master |
+| 64b4210 | The browser in the title's menus (pc_browser.cpp); joins and the way back; favorites; the profile walk fix |
+| c84bace | Tests: net_browse_* and vk_browser_* scenarios; drive.py newlog, mark, spawn; the fuzzer at the query |
+| 2ee3883 | A chat line never taken for a server's refusal |
+| (this) | Docs: N3 (this section, FINDINGS, PROGRESS, ROADMAP, TODO, networking.md) |

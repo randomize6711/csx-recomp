@@ -683,3 +683,29 @@ Results: network 24 of 24 (+ the admin map change), unit tests pass, headless 46
 vk_player_collision_169). Measured: 65 players at 23% of a core and 101 MB on the dedicated server (48% and 125 MB
 for the listen host). Bots are set at a match's start (the title's rule): admin bots N applies from the next map.
 Branch g8.2b, not merged. N3 (server browser) waits for approval.
+
+## 2026-10-26 — N3: the server browser
+
+Approved by the user 2026-10-26 after N2. Built (docs/pc_multiplayer.md section 17), in the title's own menus:
+System Link becomes Multiplayer (LAN Matches, Internet Matches, Favorites, Recent Servers, Join by Address, Host a
+Match); the list is the console's OptiMatch Sessions screen with System Link's button bar, filled with the game's own
+row functions; pad, keyboard and mouse; sorting, filters, details (players and bots apart, up to 65/65).
+- Discovery (src/net): a signed, rate-limited server query on the game port that never answers more than it is
+  asked; LAN broadcast over ports 27015-27020; an optional self-hostable master server (tools/master: csx-master,
+  csx-query, csx-fakeservers) with cookie-proved addresses, signed registrations, expiry and limits; a listing is not
+  trust (each server's own signed answer must match).
+- Joining: the server's proven key checked against known servers and pinned keys before anything (the identity
+  warning asks, Accept trusts explicitly), full / version / no answer as messages, the password asked, then the
+  title's own relaunch into the server with the key pinned; a join that ends returns to the browser with why.
+- Favorites and recent servers in PC settings, tied to identity keys (a favorite follows its key to a new address).
+- Fixed on the way: the profile walks overran their 128-byte block with the PC screens' lists (the title ended at the
+  main menu once the browser's filters were added: PC screens are skipped now); the menu keyboard logged typed text
+  (never the password now); skipping LostHost without relaunching crashed the client.
+- Tests: tests/net_browser_test.py (103 checks), 6 network scenarios (LAN, join, favorites, address, master, 300
+  servers) between real processes, 3 window scenarios (4:3, 16:9, 21:9), the fuzzer at the query.
+Results: network 31 of 31 (the 25 of N1 and N2 and the 6 new), unit tests pass (transport 109, browser 103, server
+config 22, stuff filter 14, net buffers 18,314), headless 46 of 46, window 33 of 33 (the 30 of N2 and the 3 browser
+scenarios, no rerun). Measured: 300 internet servers listed in 1.6 s at
+30 menu frames a second, LAN answers in 0-2 ms from dedicated servers. Not yet secure for the public internet: the
+engine's client parsers against a hostile server (section 17.5). Branch g8.2b, not merged. N4 (split-screen) waits
+for approval.

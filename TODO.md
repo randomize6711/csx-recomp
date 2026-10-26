@@ -62,12 +62,12 @@
 1e3. A pre-existing crash when players leave mid-round (bot_kick: StatShot AddDamage 0x153890 on a released damage
    record; the G7 build too): matters for online play, where players disconnect. Needs its own fix and approval.
 1e4. PC multiplayer (docs/pc_multiplayer.md): N0 done 2026-10-24; N1 signed off 2026-10-25 (section 15.8); N2 the
-   dedicated server built 2026-10-25 (section 16), waiting for the user's approval before N3. Left (section 16.9):
-   the client-side message parsers against a hostile server; bots only set at a match's start (admin bots from the
-   next map); a Windows csx-server (the design is portable; Windows relaunch keeps arguments); LAN discovery and the
-   browser (N3: needs a server query answering name, map, players, slots, the identity key); a protocol-only load
-   generator for 64 remote clients; a game client ended by a signal still not telling its server; admin.log rotation.
-   Then N3 the server browser, N4 split-screen. Open questions in section 14.
+   dedicated server 2026-10-25 (section 16); N3 the server browser built 2026-10-26 (section 17), waiting for the
+   user's approval before N4 (split-screen). Left (sections 16.9, 17.10): the client-side message parsers against a
+   hostile server (before calling public internet play secure); NAT traversal; IPv6; a Windows csx-server and LAN
+   broadcast addresses on Windows (only 255.255.255.255 and loopback there); the players' names in the menus (the
+   query has them); password masking on the keyboard screen; bots only set at a match's start; a protocol-only load
+   generator for 64 remote clients; a client ended by a signal still not telling its server; admin.log rotation.
 1f. Memory modernization (after G8.2B, docs/memory_modernization.md section 4): a configurable contiguous pool and
    real MmQueryStatistics totals, the engine's fixed pools for larger maps and assets, a second data arena only if
    needed, memory dumps over the whole user range; out of memory reports in G8.2B checkpoint 2.
