@@ -1,0 +1,165 @@
+# Two-player split-screen play (docs/splitscreen.md): a Single Player match on de_airstrip with 7 bots and Player
+# Collision Off (Custom Options' last row), player 2 on test controller 1. The setting reaches player 2 (a client of
+# player 1's server; its prediction knows it). Each player's own scoreboard: player 2 holds its controller's Back,
+# player 1 holds Tab, both shown at once in their own views (all 9 players listed). Player 1 changes team
+# (chooseteam: the team menu again, the other team picked): the server logs its new team. Player 1 dies (kill): it
+# spectates while player 2 plays on. A round restart (sv_restartround 1, player 1's server): both play the new round.
+# Bots stand still (bot_zombie) so the round lasts. Player 2 is put mid-map, away from both spawns (place); player 1 throws a
+# flashbang at its feet: its own view whites out (the screen fade over its whole 32:9 frame), player 2's does not. Player 1's PC Options Display Mode set to
+# Fullscreen makes the compositor's window full screen, Windowed again back.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --env CSX_SPLIT_COMPOSITOR=1 --env CSX_SPLIT_PLAYERS=2 --env CSX_SPLIT_ZCACHE=$PWD/build/zcache --env CSX_LOG_FADE=1
+wait log split: player 1 started
+pad 1 attach
+wait log p1: open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+key Down
+sleep 2
+key Space
+sleep 5
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Space
+sleep 5
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Right
+sleep 1
+key Right
+sleep 1
+key Right
+sleep 1
+key Space
+sleep 4
+expect log p1: pc mouse: screen SuperLauncher_SinglePlayerMatchCustomOptions, 10 rows
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Right
+sleep 1
+key Space
+sleep 3
+expect log p1: pc mouse: screen SuperLauncher_SinglePlayerMatchMapList
+key Space
+wait log p1: net: split-screen: the match hosts 2 local players
+wait log p1: pc: player collision off \(Custom Options\)
+wait log split: player 2 started
+wait log p2: net: server 127.0.0.1:27015 connected
+wait log p2: pc: player collision off
+wait log p2: pc keys: menu TeamSelect
+sleep 4
+pad 1 button a
+sleep 3
+key Space
+sleep 6
+wait log p1: pc keys: menu .*BuyMenuRoot
+pckey mclick 2
+wait newlog p1: pc keys: playing
+pad 1 button b
+sleep 15
+players p
+expect playercount p 9 9
+pckey cmd bot_zombie 1
+pckey cmd mp_buytime 60
+sleep 1
+pckey tap +buymenu 0.2
+sleep 1.5
+pckey pointer 227 351
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey pointer 157 321
+sleep 0.5
+pckey mclick 1
+sleep 1.5
+pckey mclick 2
+sleep 1
+pckey mclick 2
+sleep 2
+pckey key 52 1
+sleep 0.1
+pckey key 52 0
+sleep 1.5
+place 1 -898.6 1106.7 36
+sleep 1
+pckey cmd +lookdown
+sleep 2
+pckey cmd -lookdown
+sleep 1
+pckey cmd +attack
+sleep 0.3
+pckey cmd -attack
+sleep 2.2
+windowshot flash
+expect log p1: screen fade: started at [0-9.]+ s, colour FFFFFF alpha 255,
+expect nolog p2: screen fade: started
+expect log p1: pc wide: screen fade over the
+sleep 6
+pckey set display_mode fullscreen
+wait log split: fullscreen \(player 1's Display Mode\)
+sleep 3
+windowshot fullscreen
+pckey set display_mode windowed
+wait log split: windowed \(player 1's Display Mode\)
+sleep 2
+pad 1 button back 5
+key Tab 4
+sleep 2
+windowshot scores
+expect log p2: pc keys: Scoreboard passes the controls through
+expect log p1: pc keys: Scoreboard passes the controls through
+sleep 4
+key Escape
+sleep 2
+expect log p1: pc keys: menu InGame_Root
+windowshot pause
+key Escape
+sleep 2
+pad 1 button start
+sleep 2
+expect log p2: pc keys: menu InGame_Root
+windowshot pause2
+pad 1 button b
+sleep 2
+pckey cmd kill
+sleep 6
+expect log p1: pc keys: Spectator passes the controls through
+windowshot dead
+pckey cmd sv_restartround 1
+sleep 8
+count p1:.game:.World.triggered."Round_Start" 2
+sleep 4
+windowshot restart
+expect nolog split: player 2's process ended
+expect nolog guest trap
