@@ -331,7 +331,8 @@ std::vector<Rect> Layout(int n, int w, int h, bool vertical, int gap) {
 
 int g_configured = 1;      // local players asked for (--splitscreen N, the setup screen)
 bool g_vertical = false;   // two players side by side
-bool g_new_swapchain = false;  // VSync changed: the swapchain made again (FIFO or MAILBOX)
+bool g_new_swapchain = false;
+bool g_fullscreen = false;     // asked for (F11, Display Mode, a test): some compositors do not keep SDL's flag  // VSync changed: the swapchain made again (FIFO or MAILBOX)
 SDL_Window* g_win = nullptr;
 bool g_focus = true, g_captured = false, g_capture_play = true;
 int g_kbm = 1;             // the player who has the keyboard and mouse
@@ -660,7 +661,8 @@ void HandleInput(const SDL_Event& e) {
     switch (e.type) {
     case SDL_EVENT_KEY_DOWN:
         if (!e.key.repeat && (e.key.key == SDLK_F11 || (e.key.key == SDLK_RETURN && (e.key.mod & SDL_KMOD_ALT)))) {
-            bool full = !(SDL_GetWindowFlags(g_win) & SDL_WINDOW_FULLSCREEN);
+            bool full = !g_fullscreen;
+            g_fullscreen = full;
             SDL_SetWindowFullscreen(g_win, full);
             LOGI("split: %s", full ? "fullscreen" : "windowed");
             return;
@@ -791,7 +793,8 @@ void OnSetup(const std::string& text) {
     int vsync = 1;
     if (std::sscanf(text.c_str(), "display %15s vsync %d", mode, &vsync) == 2) {  // player 1's PC Options
         bool full = !std::strcmp(mode, "fullscreen");
-        if (full != ((SDL_GetWindowFlags(g_win) & SDL_WINDOW_FULLSCREEN) != 0)) {
+        if (full != g_fullscreen) {
+            g_fullscreen = full;
             SDL_SetWindowFullscreen(g_win, full);
             LOGI("split: %s (player 1's Display Mode)", full ? "fullscreen" : "windowed");
         }
@@ -1324,7 +1327,7 @@ void PollRequests() {
     if (FILE* f = Request("winctl")) {  // "fullscreen 1|0", "size W H": the window changed from outside (tests)
         int a = 0, b = 0;
         if (std::fscanf(f, "fullscreen %d", &a) == 1) {
-            SDL_SetWindowFullscreen(g_win, a != 0);
+            SDL_SetWindowFullscreen(g_win, a != 0);  // from outside: what the window was asked stays
             LOGI("split: made %s from outside (test)", a ? "full screen" : "windowed");
         } else if (std::fseek(f, 0, SEEK_SET) == 0 && std::fscanf(f, "size %d %d", &a, &b) == 2 && a > 0 && b > 0) {
             SDL_SetWindowSize(g_win, a, b);
@@ -1403,7 +1406,8 @@ int CompositorMain(const std::string& game) {
         LOGE("split: no window or no Vulkan device for the compositor: %s", SDL_GetError());
         return 1;
     }
-    if (pc::Get("display_mode", "windowed") == "fullscreen") SDL_SetWindowFullscreen(g_win, true);
+    g_fullscreen = pc::Get("display_mode", "windowed") == "fullscreen";
+    if (g_fullscreen) SDL_SetWindowFullscreen(g_win, true);
     LOGI("split: compositor for %d local players, layout %s, keyboard and mouse player %d", g_configured,
          g_vertical ? "vertical" : "horizontal", g_kbm);
     for (int i = 0; i < kMaxPlayers; i++) {
