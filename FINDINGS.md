@@ -1941,6 +1941,45 @@ Remaining uncertainty: the bots' avoidance of teammates is their own logic and w
 they can still pause behind each other); hostages keep blocking (they are not players); network play is untested and
 the option is not offered there.
 
+## PC multiplayer N4.6: split-screen completion (2026-10-27)
+
+What finishing split-screen found (docs/splitscreen.md section 16):
+- **The title has team changing in a match**, only in its system link and Live pause menus (InGame_RootHost /
+  RootClient and variants: Change Teams → TeamSelect_StartMenu → InGame_ConfirmSwitchTeams → ChangeTeamsConfirmed
+  0xE7C00 → switch_to_auto / _counter_terrorist / _terrorist / _spectator, which the server's ClientCommand
+  (0x140175..) hands to its team choice 0x13DB30). The pause menu is chosen by the game mode at 0x5259E0 (0xCA8F0: 3
+  Single Player, 4 System Link, 5 Live); every PC match runs in mode 3 (InGame_RootSinglePlayer, no Change Teams). The
+  team rules: TeamFull 0x146E00 (#Terrorists_Full / #CTs_Full), TeamStacked 0x146E30 (#Too_Many_*, mp_limitteams as
+  read at a round's start); Spectator only for a dead player with allow_spectators on (0x13E045,
+  #Cannot_Be_Spectator).
+- **The engine's free-slot test** (SV_ConnectClient's search, 0x99470): a client_t is taken when +0 (active), +4
+  (spawned) or +0xC (connected) is set; a client still joining holds its slot.
+- **A transport close never reached the engine on a server**: a crashed client's slot stayed until the engine's own
+  timeout (~11 s) and its restarted game, from a new port, was refused as full. A proved player identity now replaces
+  its old connection, and a closed connection drops its engine client (at once when replaced, inside the packet read).
+- **std::exit in a split-screen player crashed it** (static destructors under the running game threads: SIGSEGV or
+  SIGABRT up to a minute later, already in N4's logs); `_Exit` after flushing the log.
+- **The guest-table fault reporter swallowed a sent SIGSEGV** (it re-runs the faulting access, and a kill has none).
+- **SDL virtual gamepads' triggers are full-range joystick axes** (raw -32768 released .. 32767 pulled); written as
+  gamepad values (0 released) they read half pulled: a semi-automatic weapon fired once per hold, the left trigger
+  stayed held. Both the players' gamepads and the tests' were affected; real controllers went through the players'.
+- **Weapon fire is on channel 6** (CHAN_STATIC): the client's EV_PlaySound (0x46290, the event API at 0x3715A0 +4)
+  sends it to S_StartStaticSound 0x1011C0 (ecx the sfx_t; entity, channel, origin, volume, attenuation, flags,
+  pitch), everything else to S_StartDynamicSound 0x100F10. Radio messages are sentences (!MRAD_*) on the listener's
+  own entity, played for the sender's team only.
+- **The game's own mix clips at full scale**: each player's stream peaked at exactly 1/sqrt(4) of full scale, and
+  four of them summed past it (+0.5 dBFS, 82 samples in a 6-minute run). A per-stream limiter at 1/players fixes it.
+- **SDL's dummy audio device paces itself** at about 47,600 frames a second against the steady clock: captures must be
+  lined up by their measured rate, not the nominal 48 kHz.
+- **The window's input poll opened a file at every call**: input::Poll (called several times a frame) built the path
+  of the tests' scripted-press file and tried to open it each time, about 6% of the game thread (sampling profile of
+  player 1 in a 4-player, 61-bot match); now every 20 ms.
+- **Player 1's frame pacing with many bots is the listen server**: its worst server frame each second is 23-34 ms with
+  61 bots (3 ms with 16); a dedicated server holding the same match gives player 1 a 1% low of 77 frames/s against
+  28.5 when player 1 hosts it.
+- **A compositor blocked forever when the display went away** (vkAcquireNextImageKHR / vkWaitForFences without a
+  timeout after gamescope ended): the waits now time out and the compositor closes after 10 s of no display.
+
 ## PC multiplayer N4: split-screen (2026-10-27)
 
 What split-screen (docs/splitscreen.md) found about the title and the platform:

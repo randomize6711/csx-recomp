@@ -1163,3 +1163,11 @@ connection and slot; the server side is unchanged (no local shortcut, protocol 4
 unchanged); players 2-4 follow player 1's join with the server's key pinned and the password from the environment.
 Tests: net_split_ded_4, net_split_browse, net_split_listen, net_split_full (network) and the vk_split_* window
 scenarios.
+
+N4.6 (2026-10-27, docs/splitscreen.md section 16) changed two things every server does, local or not: a player
+identity proved again from another address (a game restarted after a crash, a new port or network) closes its old
+connection, and a connection that closes on a server drops its engine client at once (when replaced: inside the packet
+read, so the replacing join finds the slot free) or at the next tick, instead of after the engine's own timeout. Only a
+proved identity (the handshake's signature) replaces; anonymous clients never do; no protocol or version changed.
+Tests: tests/net_transport_test.cpp (identity reconnect), vk_split_crash (65 slots after each restart). The split
+benchmark against a dedicated server is tests/net/net_perf_split_ded_4.txt.

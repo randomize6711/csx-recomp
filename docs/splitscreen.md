@@ -157,8 +157,8 @@ pillarboxed at the 4:1 cap), windowed, resized (1280x720) and full screen, with 
   back); plugged in again it goes to the first player without one.
 - **Start to join**: START on a controller with no player adds a local player (up to four), into player 1's match if
   it plays one. START on a player's own controller after its match ended for it (refused, dropped) tries again.
-- Combinations tested: keyboard and mouse with 1, 2 and 3 controllers (vk_split_2, _3, _4); only controllers (player
-  1 also a controller) is the same path (AssignPad) and not run separately.
+- Combinations tested: keyboard and mouse with 1, 2 and 3 controllers (vk_split_2, _3, _4, _kbm_3); only controllers,
+  2, 3 and 4 of them (vk_split_pads_2/3/4, N4.6: section 16.2).
 
 ## 8. Audio
 
@@ -175,7 +175,7 @@ Players (1 (Off), 2, 3, 4), Two Players (Top and Bottom, Side by Side), Player 1
 Controller), and four status lines, one a player: its device(s) as the compositor sees them, "press START on a
 controller to join" for a free slot, "off" past the count. Accept saves and applies. Duplicate assignment cannot
 happen: a device belongs to one player (the compositor's table), START on an assigned controller is that player's.
-Names: `split_name_2..4` in pc_settings.ini (default "Player 2".."Player 4"); there is no rename row in the screen yet.
+Names: Y opens Player Names (N4.6, section 16.1); saved as `split_name_1..4` in pc_settings.ini.
 
 ## 10. Slots and bots
 
@@ -273,23 +273,17 @@ Network scenarios: section 12. Unit tests unchanged (the IPC is exercised by eve
 
 ## 14. Limitations and what is left
 
-- **Team change from the menus**: player 1's Single Player pause menu has no Change Team (the title's own menu:
-  Return to Game, Match Statistics, Change Map, Restart Match, Friends List, Options, Quit); team changes were seen
-  only as each player's own team choice at join (and the title's auto-assignment). A network client's pause menu
-  (player 2's, vk_split_play's pause2 screenshot) has the same rows: no menu in this title changes team in a match,
-  so this was not tested through a menu. (The client's menu also lists Change Map and Restart Match, as the title's
-  own system link client did; not looked into.)
-- **Player 1 on a controller only** (Split Screen > Player 1 > Also a Controller, all players on controllers) is the
-  same assignment code as the tested combinations and was not run as its own scenario.
-- **Names**: `split_name_2..4` in pc_settings.ini; no row in the Split Screen screen to type them.
-- **A crashed player 2-4** leaves its viewport black until START on its controller (or player 1's next match)
-  starts it again; player 1's process is the game: if it ends, the compositor ends. Not exercised by a test.
+(Updated by N4.6, section 16: team changes, controller-only play, names and crash recovery are done.)
+
+- **Rumble**: a player's Damage Vibration goes to its virtual gamepad, not to the physical controller behind it.
+- **Player 1's frame pacing with many bots**: player 1 hosts the match; the bots' AI bursts are its slowest frames
+  (16.7). A separate server process would fix it; it needs a decision.
 - **Layout changes during a match** crop the wider players' views until their next boot (section 6).
 - **The compositor costs** about a quarter of the frame rate against the game alone at high frame rates (section 11).
 - **Bots for local players**: an offline split-screen match takes at most 61 bots (room for four local players);
   bot_kick's crash (TODO 1e3) stops the server from making room by removing one.
-- **Audio** is one mix of all players (no per-viewport panning); four real streams were checked for underruns but
-  not listened to.
+- **Audio** is one mix of all players (no per-viewport panning); four streams were measured (16.5), not listened to.
+- **Physical controllers** were not used in the tests (virtual SDL gamepads only).
 - **Linux only**: the compositor and the player side use Unix sockets, SCM_RIGHTS and VK_KHR_external_memory_fd; a
   Windows port needs named pipes or sockets with DuplicateHandle and VK_KHR_external_memory_win32 (not started, as
   asked).
@@ -321,3 +315,265 @@ Run sequentially on the build of 0b17948 (the code is unchanged since; later com
 | 0b17948 | The compositor keeps the full screen state it asked for |
 | ddecec5 | Tests: vk_split_play, vk_split_4_audio |
 | (this) | Docs (this section, PROGRESS, FINDINGS, ROADMAP, TODO, pc_multiplayer.md 18); net_split_full |
+
+## 16. N4.6: completion (2026-10-27)
+
+Approved by the user 2026-10-27 after N4 was reported incomplete: player names in the setup menu, controller-only
+play tested, team changes, crash recovery, a four-stream audio check, player 1's frame pacing, the full regression.
+The architecture is unchanged.
+
+### 16.1 Player names
+
+Main menu > Split Screen, **Y** (Q on the keyboard: the screen's status line says so) opens **Player Names**
+(SuperLauncher_PCSplitNames, src/game/pc_split.cpp): the PC screens' panel, System Link's table and highlight, a row a
+player with its name beside it (Back / Select). A on a row opens the title's own profile keyboard (the same screen as
+Join by Address and the password: the controller's d-pad and A, the mouse on its keys, or typed on the keyboard, which
+types into it at once). Done saves `split_name_N` in pc_settings.ini; an empty name gives the default back (player 1:
+its profile's name, players 2-4: "Player N").
+- **Valid names**: 1-20 characters of letters, digits, spaces and `- _ . ! ? ( ) [ ] * + = : ' @ # &`, not only spaces
+  (PcSplitNameValid). Quotes, `;`, `\`, `%`, `$` and control characters are refused: a name goes into a console
+  command (`name "..."`) and a server's userinfo. A refused name keeps the keyboard open with "A character in that name
+  cannot be used." and typing goes on. The edit box takes at most 20 characters (PcEditBoxRoom).
+- **Where it is used**: players 2-4 get `split_name_N` read from player 1's settings file when the compositor starts
+  them (CSX_PLAYER_NAME), checked again by the player before it goes into its `name` command at its connect; player 1
+  uses `split_name_1` (if set) after the title has set the profile's name at a match's start (the hook at 0xADCE5),
+  in split-screen only. Existing `split_name_2..4` values are read as before; a name that is not valid any more is not
+  used (logged) and the player plays as "Player N".
+- **Local Players** on the Split Screen screen now shows the players the compositor has (the `--splitscreen N` start
+  or a START join), not only the saved setting: Accept no longer drops a running split-screen to 1 player.
+- Test: vk_split_names (typed names, a refused name, the on-screen keyboard by keys, the names in the server's log).
+
+### 16.2 Controllers
+
+Player 1 plays with a controller alone with Split Screen > Player 1 > Also a Controller (`split_p1_pad 1`): the first
+controller is player 1's, the menus, the browser and the match all work from it (the keyboard and mouse stay player 1's
+too: nothing else can use them). Tested with **virtual** controllers only: SDL virtual gamepads made by the compositor
+(the tests' `pad` requests), which reach the players exactly as connected controllers do (SDL events in the compositor,
+then the player's own virtual gamepad). **No physical controller was used**: one physical-controller check is in the
+manual list (16.6).
+
+| Scenario | Devices | Checked for every player, each in its own process (`@N state`) |
+|---|---|---|
+| vk_split_pads_2 | 2 controllers, no keyboard/mouse player | menus from the intro to the match on controller 1 only; team choice; four rounds in which each player moves (left stick), aims (right stick), shoots (right trigger: one round off its own Glock) and changes weapon (Y twice: away and back), each a different action at once: every player changes only in its own action; scoreboard (Back) and pause menu (START) each its own |
+| vk_split_pads_3 | 3 controllers | the same, and controller 3 unplugged and another plugged in: it goes to player 3, who moves with it |
+| vk_split_pads_4 | 4 controllers | the same with four |
+| vk_split_kbm_3 | keyboard and mouse (player 1) + 3 controllers | the same, player 1 with W, the mouse (relative motion), the left button, 3 / 2 (weapon), Tab, Escape |
+
+Found and fixed on the way: a virtual gamepad's triggers are full-range joystick axes that rest at raw 0, which SDL
+reads as half pulled: the tests' controllers made their players duck and fire. The compositor's test controllers now
+start with the triggers released and take trigger values in the gamepad's 0..32767. (A physical controller's driver
+reports its own released value; this was a test-controller defect.)
+
+### 16.3 Team changes
+
+The title has team changing in a running match: its system link pause menus (InGame_RootHost, InGame_RootClient and the
+dedicated and Live variants) have **Change Teams**: TeamSelect_StartMenu (Auto-Select, Counter-Terrorist, Terrorist,
+Spectator) → InGame_ConfirmSwitchTeams → `ChangeTeamsConfirmed` (0xE7C00), which runs `switch_to_auto`,
+`switch_to_counter_terrorist`, `switch_to_terrorist` or `switch_to_spectator`; the server's game code (ClientCommand,
+0x140175..) hands them to its team choice (0x13DB30) with the normal rules. The pause menu is picked by the game mode
+(0x5259E0, at 0xCA8F0): 3 is Single Player (InGame_RootSinglePlayer, no Change Teams), 4 System Link, 5 Live. Every PC
+match runs in mode 3, so the row was missing. It is now added to InGame_RootSinglePlayer after Match Statistics (the
+same place as in the system link menus) in network and split-screen matches only (a direct connect, Multiplayer > Host
+a Match, split-screen: PcNetworkMatch); a Single Player match alone keeps its menu as it was. No new gameplay code:
+the title's screens and the server's rules.
+- Rules seen: a change is refused when it would stack the teams (mp_limitteams) or fill one; a player alive when it
+  changes dies (the round's death) and spectates until the next round; **Spectator** is refused unless the player is
+  dead and allow_spectators is on (0x13E045, "#Cannot_Be_Spectator").
+- Test: vk_split_teams (player 2 by its controller T → CT mid-round, dies and spectates, player 1 untouched; player 1
+  refused Spectator while alive, Spectator when dead with allow_spectators 1, then Terrorist; a round restart, 1 CT and
+  1 T, 2 clients throughout).
+
+### 16.4 Crash recovery (players 2-4)
+
+A player 2-4 whose process ends without saying why (no "ended"/"refused" first: a crash or a kill) during player 1's
+match (src/linux/compositor.cpp Crashed):
+- the compositor stays and the others play on; its exported images are released at once (logged); its viewport keeps
+  its place with a message drawn by the compositor ("PLAYER N STOPPED (signal S)" / "RESTARTING..." or "PRESS START TO
+  REJOIN", SDL's 8x8 debug font scaled up), "PLAYER N / JOINING..." while a player has no picture yet;
+- its controller stays its (input to a dead player is dropped; START on it rejoins at once);
+- it is restarted after 3 s, at most 3 times in 120 s; a fourth crash in that time is not restarted (no restart loop):
+  START on its controller rejoins it. A new match resets the count;
+- every player process gets PR_SET_PDEATHSIG (SIGKILL): if the compositor dies, the players die with it; at a normal
+  close the compositor waits for each (SIGTERM, then SIGKILL) and logs how many are left (0).
+
+Fixed on the way (found by these tests):
+- **The server kept a crashed player's slot** until the engine's own timeout (about 11 s; the transport's 30 s): the
+  restarted player, a new connection from a new port, was refused as "The server is full" in a full match. Now (a) a
+  player identity proved again from another address closes the old connection (src/net/transport.cpp: only a proved
+  identity, the handshake's signature; anonymous clients are never replaced) and (b) a transport connection that
+  closes on a server drops its engine client: at once when it was replaced (inside the packet read, as a client's own
+  disconnect is handled, so the replacing join finds the slot free), at the next tick otherwise
+  (csx::DropNetworkClient, src/game/server_admin.cpp). This applies to any network client, not only local ones.
+- **Players 2-4 crashed on their own normal exit** (a refused or ended match): `std::exit` ran the static destructors
+  while the game's threads ran; the process died with SIGSEGV or SIGABRT up to a minute later (seen in N4's
+  net_split_full log). They now end with `_Exit` after flushing the log.
+- **A SIGSEGV sent by another process was ignored once** by the guest-table fault reporter (it returns to re-run a
+  faulting access, and there is none): a sent SIGSEGV now ends the process.
+- Test: vk_split_crash: four players and 61 bots (65 slots). Player 2 in a round (SIGKILL); players 3 and 4 at once
+  (SIGSEGV, SIGABRT); player 3 during a map change; player 4 four times in two minutes (the fourth not restarted, its
+  slot freed, START rejoins); 65 occupied after every rejoin, no "server is full"; last, player 1 killed: the
+  compositor ends with every player, "0 player processes left running".
+
+### 16.5 Audio (four streams)
+
+How it works (unchanged from N4, section 8, plus a limiter): every player's process mixes its own sound (its listener
+at its own player) and plays it as its own stream; the system mixer (PipeWire) adds the streams. Each stream is at
+Master Volume x 1/sqrt(players). New in N4.6: each split-screen stream is also held under 1/players of full scale by a
+peak limiter (src/linux/sdl_audio.cpp: a 10 ms chunk louder than that is turned down at once, the gain recovers over
+about 100 ms), so the sum of the streams cannot pass full scale; sound below the ceiling keeps its level; one player
+alone has no limiter.
+
+How it was checked (vk_split_4_sound, tools/split_audio.py): four players and 3 bots, each stream at **full** Master
+Volume through SDL's dummy output device (nothing reaches the speakers; the stream is not muted) and captured as the
+device took it (CSX_AUDIO_WAV), every game sound each process started logged (CSX_LOG_SOUNDS: S_StartDynamicSound and
+S_StartStaticSound, where this build plays weapon fire; menu sounds). The run: pause menus, three shots each, reloads,
+footsteps, radio (coverme, enemyspot), a death and spectating, a map change, shots after it.
+
+| Measured (the four streams, 345-424 s each) | Before the limiter | With the limiter |
+|---|---|---|
+| a stream's level (seconds with sound) | -31 to -35 dBFS | -36 to -39 dBFS |
+| a stream's peak | -6.0 dBFS (the game's mix clips at full scale, x 0.5) | -12.0 dBFS (the ceiling, 1/4) |
+| the four streams added (what the system mixer plays) | peak +0.5 dBFS, **82 samples clipped** | peak -2.6 dBFS, 0 clipped |
+| late device callbacks | 0 | 0 |
+
+- **Heard**: every gunshot a player fired on its own entity (found as the entity of its own radio sentences) has an
+  onset in its own stream (rise of 25-35 dB); 95-100% of footsteps, reloads, radio and menu sounds have one; distant
+  sounds (explosions across the map, ricochets) are correctly faint and not counted.
+- **Radio**: a radio message plays for its team only (player 1's coverme in players 1-3, the Terrorists, not in player
+  4, a CT).
+- **Positional**: sounds of other players 30+ degrees off a listener's view, louder in the channel on their side:
+  player 2: 14 of 15, player 3: 3 of 4 (the before-limiter run; see below and 16.8).
+- **Duplicates**: the two weapons picked up at spawn each play items/gunpickup2.wav in the same instant (not a
+  duplicate); the dying player's own process started player/die2.wav twice within 20 ms once (not investigated: for
+  the listening check). A radio sentence named "!MRAD_" (no message) is started once per player at a round start (the
+  title's; not investigated).
+- **Not established by the tests**: how it sounds. The dummy device paces itself (47,600 frames a second against the
+  log's clock: the analysis measures each capture's rate), not a real device's timing; N4's vk_split_4_audio ran four
+  real PipeWire streams at Master Volume 0 with no late callbacks. Nobody has listened: 16.6 is the checklist.
+- Found and fixed on the way (controllers): each player's own virtual gamepad took the compositor's trigger values as
+  raw axes, so a released trigger read half pulled: a semi-automatic weapon fired once per hold and never again until
+  the trigger passed half way (three pulls, one shot), and the left trigger was held. Real controllers go through the
+  same path. Fixed in src/linux/split_player.cpp (and the tests' controllers in the compositor); vk_split_pads_* fire
+  three shots in a row.
+- The limiter run's positional shots (player 3, controller 2) did not fire: that run was before the trigger fix, and
+  player 3's trigger, read as half pulled after its earlier shots, never released. The regression run (16.8) repeats
+  vk_split_4_sound with both fixes.
+### 16.6 Manual checks (need the user: a listener, physical controllers)
+
+Not done by the automated tests: nobody has listened to split-screen audio, and no physical controller was used.
+Start: `./run_game.sh --splitscreen 4` (or main menu > Split Screen), Master Volume at a comfortable level, headphones
+or speakers. About 15 minutes.
+
+Listening (four players, a Single Player match with a few bots):
+1. Each player in turn fires its pistol alone: one clear shot each time, not doubled, no crackle.
+2. All four fire together (hold the triggers): loud but not distorted or crackling (the limiter holds the sum under
+   full scale; listen for pumping: the level dipping audibly after loud shots).
+3. Walk one player while the others stand: its footsteps are heard (each player's sounds are heard by all: one mix).
+4. A player standing to another's left fires: the shot comes more from the left (each stream is positioned for its own
+   player; with four streams mixed, this is weaker than alone).
+5. Reload (X / R), radio (a radio command from the pie menu): heard once; a radio is heard only by that team's players.
+6. Take damage (a bot's fire, a fall): pain sounds; a player dies: its death sound once (an automated run logged one
+   death sound started twice within 20 ms on the dying player's own process: listen for a doubled death sound).
+7. Open one player's pause menu: its menu sounds, the others' game sound goes on.
+8. A player dead and spectating: it still hears the match.
+9. A map change (the match's end): sound stops during loading and comes back for all four; no stuck or looping sound.
+10. Two players only: louder per player than with four (gain 1/sqrt(players)); one player alone: as before split-screen.
+
+Physical controllers:
+11. Two or more real controllers: each goes to the next player in order (2, 3, 4; player 1 first with Split Screen >
+    Player 1 > Also a Controller); unplug one and plug it back: same player; START on a spare one adds a player.
+12. Player 1 with only a controller: the intro, menus, Split Screen > Player Names (the on-screen keyboard), a match.
+13. Rumble (Damage Vibration): not routed to the players' controllers in split-screen (not implemented; see TODO).
+
+### 16.7 Player 1's frame pacing (performance investigation)
+
+Same machine and method as section 11 (VSync off, limit 240, 1920x1080, de_airstrip from Single Player > Custom,
+player 1 held at one view for 60 s, the others at their spawns), plus two new benchmarks: vk_perf_split_4p_16 and
+net_perf_split_ded_4 (the same match on csx-server with 61 bots, the server holding player 1 at the same view; all four
+players clients). Player 1's frame times (frames/s, 1% and 0.1% lows from every frame interval; interval median, 99th
+percentile and worst):
+
+| Run | Player 1 | interval median / 99% / worst | Players 2-4 (frames/s; 1% low) |
+|---|---|---|---|
+| 1. one player, no split-screen, 61 bots | 176.1, 30.2, 25.6 | 4.19 / 29.8 / 50.5 ms | |
+| compositor, one player, 61 bots | 124.1, 35.4, 31.6 | 6.45 / 26.4 / 33.2 ms | |
+| 2. two players, 61 bots | 118.5, 31.8, 28.1 | 7.05 / 29.3 / 37.6 ms | 138.2; 88.9 |
+| 3. three players, 61 bots | 125.8, 27.7, 23.5 | 5.79 / 33.7 / 50.5 ms | 130-149; 60 |
+| 4./7. four players, 61 bots | 91.9, 28.5, 24.5 | 8.03 / 31.8 / 42.1 ms | 111-125; 42-47 |
+| 5. four players, no bots | 144.1, 95.9, 80.7 | 6.77 / 9.7 / 13.0 ms | 127-163; 87-109 |
+| 6. four players, 16 bots | 133.8, 82.9, 67.1 | 7.20 / 11.0 / 17.7 ms | 127-157; 84-101 |
+| 8. four players on a dedicated server, 61 bots | **117.5, 77.0, 66.5** | 8.30 / 11.7 / 15.6 ms | 122-139; 80-86 |
+
+(Each a single run; frame rates vary between runs by up to about 10%: two later runs of four players with 61 bots gave
+player 1 97.4 / 29.8 and 98.1 / 30.2, players 2-4 126-160 / 81-104.) CPU across the processes: 335-465% of one core
+(16 hardware threads: not saturated); memory 407-721 MB; the dedicated server itself 34% of a core.
+
+**Why player 1's pacing is worse**: player 1's game hosts the match. Its game thread runs the server frame (the bots'
+AI and navigation, game rules, the network) inside its own frames, and the bots' AI comes in bursts: player 1's worst
+server frame in each second is 23-34 ms with 61 bots (median of the seconds 23 ms), 3 ms with 16 bots, under 1 ms with
+none. Those bursts are player 1's 1% lows (28.5 frames/s = 35 ms). The same bursts appear with no split-screen at all
+(one player, 61 bots: 1% low 30.2, worst server frames up to 30 ms). Measured, not assumed:
+- **Not the compositor**: with no bots or 16 bots player 1 paces like the others (1% low 96 and 83); the compositor
+  costs frame rate only at high rates (one player: 124 against 176 frames/s, both above any display's refresh here).
+- **Not network or shared-image synchronisation**: players 2-4 use the same images and fences and are clients of the
+  same server, and keep 1% lows of 80-109 except with 61 bots, where their lows fall too (more entities to draw and
+  interpolate; 42-104 between runs), never to player 1's.
+- **Not CPU contention**: 4.6 cores of 16 busy; the server's cost per second is the same alone and with four players
+  (about 300-360 ms of CPU a second: 1.7 ms x 176 frames against 3.6 ms x 92).
+- **The dedicated server fixes it**: the same match on csx-server gives player 1 a 1% low of 77.0 frames/s (from 28.5)
+  and a 99th percentile of 11.7 ms (from 31.8): all four players pace alike.
+
+**Optimized**: the window's input poll looked for the tests' scripted-press file (building its path and a failed open)
+at every call, several times a frame: 8% of player 1's game-thread samples in the sampling profile (CSX_PROFILE, four
+players, 61 bots); now every 20 ms (0.01%). This applies to every window build, one player too; the frame-rate change
+is within run-to-run variation (vk_perf_aztec_64 after it: 80.8 and 87.9 frames/s, before N4: 84.0, range 75.7-88.3).
+
+**Not done (needs a decision)**: removing the bots' bursts from player 1's frames means not hosting the match in
+player 1's game: offline and Host a Match split-screen matches would start csx-server (the same title code and the
+menu's match line) and player 1 would join it like players 2-4. That changes how those matches run (a server process
+whose life follows player 1's match, player 1's Restart Match / Change Map and server console commands going to that
+server, Host a Match's network presence) and is left for approval. Meanwhile a dedicated server gives it today
+(csx-server, players join by address or the browser). Bot intelligence, effects and timing were not changed.
+
+### 16.8 Full regression (the final build, c89b5a6; 2026-10-27)
+
+One run, every suite one after another, nothing built or run beside it (13:35-18:45):
+- Unit tests: 8 of 8 (net_transport 115 checks, net_browser 103, net_buffers 18314, scoreboard_rows 1222,
+  server_config 22, stuff_filter 14, slot_audit, guest_tables).
+- Headless offline regression (tests/run_regression.sh): 46 of 46.
+- Network (tools/run_net_tests.py, every scenario of tests/net): 35 of 36. net_split_ded_4 and net_perf_split_ded_4
+  (csx-server with 61 bots and four split-screen players: 65 slots) passed. **Failed: net_split_full**, a defect of
+  the test: the split side's script ends about 20 s in and closes, the server counts its players 60 s after the first
+  refusal, by when player 1 had timed out (15 s): it passed before only when the run was slow. The test now keeps the
+  split side until the server has counted. Rerun alone with the fix: PASS (3 clients).
+- Window, the 27 default scenarios: 26 of 27. **Failed: vk_auto_exposure_rates**: the exposure at 240 frames/s
+  against 30 differed by +0.020 (allowed -0.02..0.02; +0.018 at 120). Nothing of the renderer or exposure changed in
+  N4.6. Rerun alone: PASS (+0.017 and +0.016): an intermittent at the edge of its tolerance (earlier margins were not
+  recorded); the scenario's limit is tight for run-to-run variation.
+- Window extra: 7 of 7 (vk_scoreboard_169, vk_bot_count_169, vk_player_collision_169, vk_browser_43 / 169 / 219,
+  vk_perf_aztec_64: 83.3 frames/s, 1% low 21.6; before N4 84.0, range 75.7-88.3: single-player not regressed).
+- Split-screen: 15 of 16 (vk_split_2, 2v, 3, 4, 4_43, play, names, teams, pads_2, pads_3, pads_4, kbm_3, crash,
+  4_sound, 4_audio: four players and 61 bots, 65 slots). **Failed: vk_split_2_219** (2560x1080): during the intro
+  movie, 21.8 s in, the compositor and player 1 both stopped logging and 13 s later the compositor ended by SIGKILL.
+  No out-of-memory kill, no GPU error in the kernel log, no other test or command running, and the compositor's own
+  display watchdog did not log (it would have after 10 s). Not explained. Rerun alone three times: PASS each time.
+  Recorded as an unexplained intermittent (TODO 1e5).
+- tools/split_audio.py on that run's vk_split_4_sound: PASS (mix of four streams -2.6 dBFS peak, 0 clipped; own
+  gunfire 9/9, 4/4, 10/10, 4/4 heard; radio heard by the team only; no late callbacks). Left / right: player 2 12 as
+  expected and 7 the other way, player 3 5 and 1: inconclusive (overlapping sounds within the quarter second), not
+  counted as a pass.
+
+Not a full-suite pass: the three failures above were rerun alone after the run, and those reruns are listed as reruns.
+
+### 16.9 Commits (branch g8.2b, not merged)
+
+| Commit | What |
+|---|---|
+| 36d10dc | Network: a closed or replaced connection frees its slot at once (identity replacement; DropNetworkClient) |
+| 6482d5e | Player names (Split Screen, Y: the profile keyboard; pc_settings.ini split_name_1..4); Change Teams in the pause menu |
+| 8ed2944 | Crash recovery for players 2-4 (notice, restart limit, process reaping); controller fixes (triggers, START) |
+| fca4389 | Audio: per-stream limiter; sound logging (CSX_LOG_SOUNDS); tools/split_audio.py |
+| 2b83464 | Tests: names, teams, pads 2/3/4, kbm_3, crash, 4_sound; drive.py `@N` |
+| 2542e20 | The scripted-input poll every 20 ms; GPU waits with a timeout, the compositor closes when the display is gone |
+| c89b5a6 | Window test runner: per-scenario timeout, gamescope's process group ended; perf scenarios |
+| (this) | Docs (16, PROGRESS, FINDINGS, ROADMAP, TODO, pc_multiplayer.md); net_split_full's timing |

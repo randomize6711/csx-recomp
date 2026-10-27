@@ -56,5 +56,7 @@
   (csx-server: no host slot, server identity, remote administration, 30 snapshots a second) ✅ 2026-10-25; N3 —
   server browser (LAN discovery, master server csx-master, favorites, direct address, in the title's own menus) ✅
   2026-10-26; N4 — split-screen for 1-4 local players (a compositor and one game process per player,
-  docs/splitscreen.md) ✅ 2026-10-27, waiting for approval before N5
+  docs/splitscreen.md) ✅ 2026-10-27; N4.6 — completion (player names, controller-only play, team changes,
+  crash recovery, audio, player 1's frame pacing; docs/splitscreen.md section 16) ✅ 2026-10-27, waiting for approval
+  before N5
 - M8 — PC feature set complete

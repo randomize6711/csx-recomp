@@ -742,3 +742,33 @@ alone, unit tests unchanged and passing. Measured: four players with 61 bots eac
 before N4). Not done: a team change through a menu, player 1 on a controller only as its own scenario, a name row,
 a crashed player's restart, latency end to end, listening to four streams (docs/splitscreen.md section 14). Linux
 only, as asked. Branch g8.2b, not merged. N5 waits for approval.
+
+## 2026-10-27 — N4.6: split-screen completion
+
+Approved by the user 2026-10-27 after N4 (reported incomplete). Done (docs/splitscreen.md section 16), architecture
+unchanged:
+- Names: Split Screen, Y opens Player Names; each row opens the profile keyboard (on-screen with the controller,
+  typed with a physical keyboard); 1-20 characters, letters, digits, space and a few marks (no `;` or quotes: the
+  name goes into a console command); saved as split_name_1..4 in pc_settings.ini; player 1 keeps its profile name
+  unless one is set. Each player joins under its own name, local or online.
+- Controllers: 2, 3 and 4 controllers with no keyboard player and keyboard plus 3 controllers tested with virtual
+  SDL gamepads only (no physical controller test). Fixed: triggers read half pulled on virtual and real pads (a
+  crouch, one shot per hold); START on a stopped player's controller restarts it.
+- Change Teams: the title's own team menu and confirmation (TeamSelect, the server's team rules: full, stacked,
+  spectator only when dead with allow_spectators) added to the pause menu of network and split matches.
+- Crash recovery: a player 2-4 process that ends is restarted after 3 s (3 times in 2 minutes at most, then START),
+  its viewport says so, its controller stays its own, the server frees its slot at once when it rejoins (the same
+  identity replaces the old connection), no processes or images left. Tested by killing players (SIGSEGV, SIGKILL)
+  in a round, two at once, in a map change.
+- Audio: four streams measured (captures through SDL's dummy device, the game's sounds logged): every kind heard,
+  the mix clipped (+0.5 dBFS) and now does not (a limiter per stream, -2.6 dBFS). Not listened to: section 16.6 is the
+  user's checklist.
+- Player 1's pacing: the bots' AI bursts in the listen server (23-34 ms server frames with 61 bots), not the
+  compositor; on csx-server player 1's 1% low is 77 frames/s against 28.5. The scripted-input poll (8% of player 1's
+  game thread) fixed. Hosting offline matches in a separate server process is left for approval.
+- Full regression on the final build: unit 8/8, headless 46/46, network 35/36, window 26/27 + 7/7, split 15/16; the
+  three failures and their reruns in docs/splitscreen.md 16.8. Reruns alone: net_split_full (test fixed) PASS,
+  vk_auto_exposure_rates PASS (+0.017, near its limit), vk_split_2_219 PASS three times (its failure, a SIGKILL during
+  the intro, unexplained).
+Commits 36d10dc, 6482d5e, 8ed2944, fca4389, 2b83464, 2542e20, c89b5a6 and the docs. Linux only. Branch g8.2b, not
+merged. N5 waits for approval.

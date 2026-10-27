@@ -68,12 +68,16 @@
    broadcast addresses on Windows (only 255.255.255.255 and loopback there); the players' names in the menus (the
    query has them); password masking on the keyboard screen; bots only set at a match's start; a protocol-only load
    generator for 64 remote clients; a client ended by a signal still not telling its server; admin.log rotation.
-1e5. Split-screen (docs/splitscreen.md section 14): a team change through a menu in split-screen; player 1 on a
-   controller only as its own scenario; a Split Screen row to type the players' names (pc_settings.ini only now);
-   a crashed player 2-4 restarted by the compositor itself (START restarts it now; not tested); the compositor's cost
-   at high frame rates (about a quarter against the game alone: the export copy, a zero-copy path); per-viewport audio
-   panning and a listening test of four streams; end-to-end input latency measured with a capture; the Windows side
-   of the IPC (named pipes, DuplicateHandle, VK_KHR_external_memory_win32) when the Windows port is approved.
+1e5. Split-screen (docs/splitscreen.md sections 14 and 16; N4.6 done 2026-10-27, waiting for approval before N5):
+   player 1's frame pacing with many bots: run the match's server in its own process (csx-server with the menu's match
+   line) instead of in player 1's game: a dedicated server gave player 1 a 1% low of 77 frames/s against 28.5 (16.7);
+   needs a decision (offline / Host a Match behaviour, Restart Match, console commands). Rumble to the physical
+   controller behind a player's virtual gamepad. The manual checks of 16.6 (listening, physical controllers). The
+   dying player's death sound started twice within 20 ms once (16.5); a "!MRAD_" sentence with no message at a round
+   start (the title's). Intermittents of the N4.6 regression (16.8): vk_split_2_219 ended by SIGKILL during the intro
+   once (both processes silent 13 s before; cause unknown); vk_auto_exposure_rates' 0.02 limit is near run-to-run
+   variation (+0.020 failed, +0.017 passed). The compositor's cost at high frame rates (a zero-copy path). The Windows side of the IPC
+   when the Windows port is approved.
 1f. Memory modernization (after G8.2B, docs/memory_modernization.md section 4): a configurable contiguous pool and
    real MmQueryStatistics totals, the engine's fixed pools for larger maps and assets, a second data arena only if
    needed, memory dumps over the whole user range; out of memory reports in G8.2B checkpoint 2.
