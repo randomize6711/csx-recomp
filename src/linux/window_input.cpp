@@ -34,6 +34,7 @@
 #include "linux/split_ipc.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -636,10 +637,18 @@ Pad Poll(int port) {
         p.analog[6] = std::max<uint8_t>(p.analog[6], uint8_t(axis(SDL_GAMEPAD_AXIS_LEFT_TRIGGER) * 255 / 32767));
         p.analog[7] = std::max<uint8_t>(p.analog[7], uint8_t(axis(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) * 255 / 32767));
     }
-    // a scripted press (tests)
+    // a scripted press (tests): its file looked for every 20 ms, not at every poll (the title polls several times a
+    // frame: building the path and a failed open each time were about 6% of the game thread, N4.6's profile)
     {
-        const std::string cmd = (app::ExeDir() / "cmd").string();
-        if (FILE* f = std::fopen(cmd.c_str(), "r")) {
+        static const std::string cmd = (app::ExeDir() / "cmd").string();
+        static auto next = std::chrono::steady_clock::time_point{};
+        const auto now = std::chrono::steady_clock::now();
+        FILE* f = nullptr;
+        if (now >= next) {
+            next = now + std::chrono::milliseconds(20);
+            f = std::fopen(cmd.c_str(), "r");
+        }
+        if (f) {
             char b[64] = {};
             double frames = 3;
             if (std::fscanf(f, "%63s %lf", b, &frames) >= 1)

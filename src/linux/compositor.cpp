@@ -1272,9 +1272,29 @@ std::string Notice(const Player& p) {
     return "";
 }
 
+// the display gone for good (the window system ended, the GPU lost): the waits below time out instead of blocking
+// forever, and after kDisplayGone seconds of it the compositor closes (ending its players)
+constexpr double kDisplayGone = 10.0;
+double g_stalled_since = 0;
+bool g_display_gone = false;
+
+void Stalled(const char* what) {
+    double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    if (g_stalled_since == 0) {
+        g_stalled_since = now;
+        LOGW("split: the display does not answer (%s)", what);
+    } else if (now - g_stalled_since > kDisplayGone && !g_display_gone) {
+        g_display_gone = true;
+        LOGE("split: the display has not answered for %.0f s (%s): closing", kDisplayGone, what);
+    }
+}
+
 void Composite() {
     auto& f = g.frames[g.frame % 2];
-    vkWaitForFences(g.dev, 1, &f.fence, VK_TRUE, UINT64_MAX);
+    if (vkWaitForFences(g.dev, 1, &f.fence, VK_TRUE, 1000000000ull) != VK_SUCCESS) {
+        Stalled("a frame's fence");
+        return;
+    }
     // the frames this slot showed last time are the players' again
     for (auto [n, i] : f.release) {
         Player& p = g_players[size_t(n - 1)];
@@ -1287,11 +1307,16 @@ void Composite() {
     }
     f.release.clear();
     uint32_t index = 0;
-    VkResult ar = vkAcquireNextImageKHR(g.dev, g.swapchain, UINT64_MAX, f.acquired, VK_NULL_HANDLE, &index);
+    VkResult ar = vkAcquireNextImageKHR(g.dev, g.swapchain, 1000000000ull, f.acquired, VK_NULL_HANDLE, &index);
     if (ar == VK_ERROR_OUT_OF_DATE_KHR) {
         CreateSwapchain(g_win);
         return;
     }
+    if (ar != VK_SUCCESS && ar != VK_SUBOPTIMAL_KHR) {  // a timeout, the surface or the device lost
+        Stalled(ar == VK_TIMEOUT ? "no swapchain image within 1 s" : "the surface or device lost");
+        return;
+    }
+    g_stalled_since = 0;
     vkResetFences(g.dev, 1, &f.fence);
     VkCommandBuffer cb = f.cmd;
     vkResetCommandBuffer(cb, 0);
@@ -1714,6 +1739,7 @@ int CompositorMain(const std::string& game) {
                 Spawn(p, g_match_line, g_match_key, g_match_password);
             }
         Composite();
+        if (g_display_gone) quit = true;
         auto now = std::chrono::steady_clock::now();
         if (now - last_flush > std::chrono::seconds(1)) {
             LogUse();
