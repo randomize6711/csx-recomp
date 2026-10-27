@@ -8,8 +8,10 @@
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <string>
 #include <thread>
 
+#include "common/csx.h"
 #include "core/log.h"
 #include "cpu/x86_context.h"
 #include "game/net_engine.h"
@@ -61,9 +63,12 @@ void DedicatedInit(X86Context& ctx, uint8_t*) {
 // [[hook]] at 0xADCE5 in the title's start of a match, its Cvar_DirectSet (0x41F90) of "name" (0x371B90) to the
 // profile's name: the local player's name, a cvar CL_Init registers. A dedicated server has no local player and that
 // cvar no zone string (setting it frees one: a crash in the allocator, 0xC8690): true skips the call (0xADCEA pops
-// its arguments)
+// its arguments). A split-screen player's name (Split Screen > Player Names, pc_split.cpp) is set after the profile's
+std::string PcSplitPlayerName();  // pc_split.cpp
 bool DedicatedNoPlayerName(X86Context&, uint8_t*) {
-    return csx::Dedicated();
+    if (csx::Dedicated()) return true;
+    if (std::string n = PcSplitPlayerName(); !n.empty()) csx::QueueEngineCommand("name \"" + n + "\"\n");
+    return false;
 }
 
 // [[hook]] at 0x5E01F in Host_Shutdown: with cls.state ca_dedicated it calls a function of GoldSrc's dedicated

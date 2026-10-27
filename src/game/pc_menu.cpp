@@ -33,6 +33,8 @@
 #include "game/player_slots.h"
 #include "kernel/kernel.h"
 
+bool PcNetworkMatch();  // net_session.cpp
+
 namespace {
 
 using kernel::R32;
@@ -60,6 +62,7 @@ struct PcScreen {
     const char* on_entry = nullptr;   // console commands run after the lists are loaded, and on Accept after the save
     const char* on_accept = nullptr;
     int status_lines = 0;             // BackgroundText lines under a shorter list, set by its commands (Split Screen)
+    const char* on_y = nullptr;       // Y opens another screen (Split Screen: the players' names)
 };
 
 std::vector<Choice> Numbers(std::initializer_list<const char*> v) {
@@ -258,7 +261,7 @@ const std::vector<PcScreen>& Screens() {
                             0},
                            {"split_p1_pad",
                             "Player 1",
-                            {"Player 1 plays with the keyboard and mouse, and", "can take the first controller too."},
+                            {"Player 1 plays with the keyboard and mouse, and can take", "the first controller too (all players on controllers)."},
                             {{"Keyboard and Mouse", "0"}, {"Also a Controller", "1"}},
                             0},
                        },
@@ -267,7 +270,8 @@ const std::vector<PcScreen>& Screens() {
                        true,
                        "pc_split show",
                        "pc_split apply",
-                       4};
+                       5,
+                       "open SuperLauncher_PCSplitNames"};
         v.push_back(split);
         return v;
     }();
@@ -329,6 +333,7 @@ std::string Commands(const std::string& name, const PcScreen& s) {
     std::string t = "\tOnEntry \"!pc_options_load " + name + entry + "\"\r\n\tOnButtonDownB \"back\"\r\n"
                     "\tOnButtonDownA \"!pc_options_save " + name + accept + "; xbui back\"\r\n";
     if (s.resettable) t += "\tOnButtonDownX \"!pc_options_defaults " + name + "\"\r\n";
+    if (s.on_y && name.rfind("SuperLauncher_", 0) == 0) t += "\tOnButtonDownY \"" + std::string(s.on_y) + "\"\r\n";
     return t;
 }
 
@@ -494,6 +499,29 @@ std::string ExtendFrontEnd(const std::string& text) {
 
 // the pause menu's text: after Online Options in its Options screen a row per screen (centred between blank cells as
 // its rows are), then the screens; empty when its layout is not the one expected
+// the Single Player pause menu (every PC match's: the title picks it by the game mode, 0xCA8F0) with the title's own
+// Change Teams row after Match Statistics, as its system link menus have it (InGame_RootHost / RootClient: the team
+// screen TeamSelect_StartMenu, the confirmation InGame_ConfirmSwitchTeams, then switch_to_terrorist /
+// _counter_terrorist / _spectator / _auto, which the server's game code handles with its own team rules). Only in
+// network and split-screen matches (PcNetworkMatch); unchanged when the menu is not laid out as expected
+std::string ExtendPauseTeams(const std::string& text) {
+    if (!PcNetworkMatch()) return text;
+    size_t screen = text.find("\nInGame_RootSinglePlayer\r\n");
+    size_t next = screen == std::string::npos ? screen : text.find("\nInGame_", screen + 1);
+    size_t stats = screen == std::string::npos ? screen : text.find("\"open InGame_StatsDisplay\"", screen);
+    size_t row = stats == std::string::npos ? stats : text.find("\n\t\t}\r\n", stats);
+    if (row == std::string::npos || row > next || text.find("TeamSelect_StartMenu\r\n") == std::string::npos) {
+        LOGW("pc menu: the Single Player pause menu not as expected, no Change Teams row");
+        return text;
+    }
+    row += std::strlen("\n\t\t}\r\n");
+    LOGI("pc menu: Change Teams in the pause menu (a network or split-screen match)");
+    return text.substr(0, row) +
+           "\t\tRow\r\n\t\t{\r\n\t\t\tCommandSelect   \"open TeamSelect_StartMenu\"\r\n\t\t\tCellFixed \" \"\r\n"
+           "\t\t\tCellFixed \"Change Teams\"\r\n\t\t\tCellFixed \" \"\r\n\t\t}\r\n" +
+           text.substr(row);
+}
+
 std::string ExtendInGame(const std::string& text) {
     size_t screen = text.find("\nOptions\r\n{");
     size_t online = screen == std::string::npos ? screen : text.find("\"open InGame_OnlineOptions\"", screen);
@@ -508,7 +536,7 @@ std::string ExtendInGame(const std::string& text) {
                 "\r\n\t\t\tCellFixed \" \"\r\n\t\t}\r\n";
         screens += InGameScreen(s);
     }
-    return text.substr(0, end) + rows + text.substr(end) + screens;
+    return ExtendPauseTeams(text.substr(0, end) + rows + text.substr(end) + screens);
 }
 
 constexpr uint32_t kExtra = 512 * 1024;  // room added to the load buffer (the controls screens' lists are long)

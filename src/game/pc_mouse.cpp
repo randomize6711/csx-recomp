@@ -96,6 +96,7 @@ std::atomic<int32_t> g_stick{0};                            // lx << 16 | ly, th
 std::atomic<bool> g_stick_on{false};
 // the name field's typing (csx::TextEntryOpen): on while the game thread says so; text and keys queued for it
 std::atomic<bool> g_typing{false};
+std::atomic<bool> g_type_again{false};  // a PC keyboard screen refused what was typed: typing goes on there
 std::deque<std::string> g_typed;
 std::deque<csx::TextKey> g_typed_keys;
 
@@ -538,9 +539,9 @@ void PcMouseFrame(X86Context& ctx) {
     std::string name = GuestString(R32(screen));
     if (name != shown) {
         shown = name;
-        // the browser's address and password screens: the keyboard types into them at once
-        if (name == "SuperLauncher_PCAddress" || name == "SuperLauncher_PCPassword")
-            SetTyping(true, "a server's address or password", R32(screen + 0x38C));
+        // the browser's address and password screens, a split-screen player's name: the keyboard types into them at once
+        if (name == "SuperLauncher_PCAddress" || name == "SuperLauncher_PCPassword" || name == "SuperLauncher_PCSplitName")
+            SetTyping(true, "a server's address or password, a player's name", R32(screen + 0x38C));
         char rows[96] = "";
         if (uint32_t t = R32(screen + 0x380)) {
             uint32_t r0 = R32(t + 0x60), r1 = R32(t + 0x64);
@@ -556,6 +557,7 @@ void PcMouseFrame(X86Context& ctx) {
     auto it = g_screens.find(name);
     const ScreenUi* ui = it == g_screens.end() ? nullptr : &it->second;
     uint32_t table = R32(screen + 0x380), vk = R32(screen + 0x38C);
+    if (vk && g_type_again.exchange(false)) SetTyping(true, "the text was refused: typing again", vk);
     if (vk && g_typing) TypeInto(ctx, screen, vk, typed, typed_keys);
     // a binding waiting for its key: the pointer and clicks leave the menu as it is
     if (csx::BindCapturing()) return;
@@ -587,3 +589,6 @@ void PcMouseFrame(X86Context& ctx) {
              g_stick_on.load() ? ", pie stick" : "");
     }
 }
+
+// a PC keyboard screen (pc_split.cpp's player name) refused the text its Done gave: the keyboard types into it again
+void PcTypeAgain() { g_type_again = true; }

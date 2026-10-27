@@ -990,6 +990,13 @@ std::string ExtendMultiplayer(const std::string& text) {
     return out;
 }
 
+// the profile keyboard screen and its edit box's text, for other PC screens (pc_split.cpp's player names)
+std::string PcKeyboardScreen(const char* name, const char* title, const char* command, const char* hint) {
+    return KeyboardScreen(name, title, command, hint);
+}
+std::string PcEditText(const char* screen) { return EditText(screen); }
+void PcClearEdit(X86Context& ctx, const char* screen, const std::string& text) { ClearEdit(ctx, screen, text); }
+
 // a BackgroundText line of any screen (pc_split.cpp's status lines)
 void PcSetScreenLine(X86Context& ctx, const char* screen, int index, const std::string& text) {
     SetLine(ctx, FindScreen(screen), index, text);
@@ -1029,10 +1036,11 @@ bool PcBrowserScreen(const std::string& screen) {
 }
 
 // [[hook]] at 0xD04CD in the keyboard's insert (0xD04A0: cmpl $0xf, 0x48(%esi) - the profile name's 15 characters):
-// the address and password screens take more (63 and 32); true continues at the insert (0xD04D3)
+// the address and password screens take more (63 and 32), a split-screen player's name 20; true continues at the
+// insert (0xD04D3)
 bool PcEditBoxRoom(X86Context& ctx, uint8_t*) {
     std::string s = CurrentScreen();
-    uint32_t limit = s == kAddress ? 63 : s == kPassword ? 32 : 0;
+    uint32_t limit = s == kAddress ? 63 : s == kPassword ? 32 : s == "SuperLauncher_PCSplitName" ? 20 : 0;
     return limit && R32(ctx.esi + 0x48) < limit;
 }
 
