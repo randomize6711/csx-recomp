@@ -81,6 +81,9 @@ void OnSegv(int sig, siginfo_t* si, void* ctx) {
     if (g_old_segv.sa_handler != SIG_DFL && g_old_segv.sa_handler != SIG_IGN && !(g_old_segv.sa_flags & SA_SIGINFO))
         return g_old_segv.sa_handler(sig);
     signal(SIGSEGV, SIG_DFL);  // returning re-runs the access, which now ends the process as before
+    // a SIGSEGV sent by another process (kill: si_code SI_USER or SI_QUEUE) has no access to re-run: it ends the
+    // process now, as it would without this handler
+    if (si->si_code <= 0) raise(SIGSEGV);
 }
 void InstallReport() {
     struct sigaction sa{};

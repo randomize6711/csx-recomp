@@ -245,7 +245,11 @@ bool ClDisconnectLostHost(X86Context& ctx, uint8_t*) {
         LOGI("net: split-screen player %d's match ended: %s", csx::SplitPlayer(), ReturnMessage().c_str());
         // the compositor told why: a refusal (full, password, banned) gives a player added by START its slot back
         csx::SplitSend(csx::kSplitMatch, std::string(g_refusal.empty() ? "ended " : "refused ") + ReturnMessage());
-        std::exit(0);
+        // at once, without the static destructors: run while the game's threads go on, they crashed the process
+        // (SIGSEGV or SIGABRT up to a minute later, N4.6)
+        LOGI("net: split-screen player %d's process ends", csx::SplitPlayer());
+        logx::Flush();
+        std::_Exit(0);
     }
     // a join from the server browser: back to its list with why, instead of the console's LostHost screen. At once,
     // as that screen does (its own loop ends only in a relaunch): the disconnect's callers do not expect to go on
@@ -270,6 +274,14 @@ bool BootLobbyJoin(X86Context& ctx, uint8_t*) {
     if (direct) LOGI("net: direct connect at boot, the system link lobby not set up");
     g_lobby_off = direct;
     return direct;
+}
+
+// a match with other players on the network or this PC: a direct connect (a client of a PC server), a match hosted
+// for the network (Multiplayer > Host a Match) or split-screen. The pause menu offers Change Teams there, as the
+// title's own system link menus do (pc_menu.cpp); a Single Player match alone keeps its menu as it was
+bool PcNetworkMatch() {
+    const char* host = std::getenv("CSX_MENU_HOST");
+    return g_lobby_off || (host && *host == '1') || csx::SplitPlayer() > 0;
 }
 
 // [[hook]] at 0x5D5D7 in Host_Frame (0x5D5D0): the lobby's per-frame update (0xE9C00 on 0x554208) is skipped when the

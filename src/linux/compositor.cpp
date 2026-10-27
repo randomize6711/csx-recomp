@@ -27,6 +27,7 @@
 #include <net/if.h>
 #include <poll.h>
 #include <sys/ioctl.h>
+#include <sys/prctl.h>
 #include <sys/socket.h>
 #include <signal.h>
 #include <sys/wait.h>
@@ -36,6 +37,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -91,6 +93,15 @@ struct Player {
     bool late = false;        // added by a controller's START (its slot given back if the server refuses it)
     bool refused = false;     // its server refused it (full, a password, a ban): it ends
     float frame_aspect = 4.0f / 3.0f;  // its game frame's (set at its boot), from its Images
+    bool told_end = false;    // it said why its match ended before ending (Match "ended" / "refused"): not a crash
+    bool crashed = false;     // players 2..4: its process ended without saying why (a crash, a kill) during a match:
+                              // its viewport kept, a message in it, restarted (RestartDue) or by START
+    std::deque<double> crashes;  // when it crashed lately (the restart limit)
+    double restart_at = 0;    // its automatic restart is due then (0: none; START restarts it)
+    std::string notice;       // the message in its viewport while it has no picture
+    Imported label{};         // that message as an image (MakeLabel), and its text and size
+    std::string label_text;
+    uint32_t label_w = 0, label_h = 0;
 };
 
 std::array<Player, kMaxPlayers> g_players;
@@ -248,7 +259,8 @@ bool CreateSwapchain(SDL_Window* win) {
 }
 
 void DropImages(Player& p) {
-    if (p.images[0].image || p.images[1].image || p.images[2].image) vkDeviceWaitIdle(g.dev);
+    bool had = p.images[0].image || p.images[1].image || p.images[2].image;
+    if (had) vkDeviceWaitIdle(g.dev);
     for (auto& f : g.frames)
         f.release.erase(std::remove_if(f.release.begin(), f.release.end(), [&](auto& r) { return r.first == p.n; }),
                         f.release.end());
@@ -259,6 +271,7 @@ void DropImages(Player& p) {
     }
     p.ready = p.shown = -1;
     p.img_w = p.img_h = 0;
+    if (had) LOGI("split: player %d's images released", p.n);
 }
 
 // a player's exported images, imported with the parameters it made them with
@@ -338,9 +351,11 @@ bool g_focus = true, g_captured = false, g_capture_play = true;
 int g_kbm = 1;             // the player who has the keyboard and mouse
 bool g_test_only = false;  // CSX_TEST_INPUT_ONLY: only the test's input (no host keyboard, mouse or controllers)
 
-int Active() {  // players whose processes run (the layout's count)
+bool InLayout(const Player& p) { return p.alive || p.crashed; }  // a crashed player keeps its viewport
+
+int Active() {  // players whose processes run, or that crashed during the match (the layout's count)
     int n = 0;
-    for (auto& p : g_players) n += p.alive;
+    for (auto& p : g_players) n += InLayout(p);
     return std::max(1, n);
 }
 
@@ -378,7 +393,7 @@ void Relayout() {
     auto pixels = Layout(n, pw, ph, g_vertical, std::max(2, 2 * pw / std::max(1, ww)));
     int k = 0;
     for (auto& p : g_players) {
-        if (!p.alive) continue;
+        if (!InLayout(p)) continue;
         Rect l = logical[size_t(std::min(k, int(logical.size()) - 1))], px = pixels[size_t(std::min(k, int(pixels.size()) - 1))];
         k++;
         if (l.w == p.view.w && l.h == p.view.h && l.x == p.view.x && l.y == p.view.y && px.w == p.view_px.w &&
@@ -462,6 +477,14 @@ void PrepareFolder(Player& p, const std::string& line) {
     for (auto& [k, v] : mine) out << k << " = " << v << "\n";
 }
 
+// a setting as player 1's pc_settings.ini holds it now (player 1 edits the file: the players' names), else fallback
+std::string FileSetting(const std::string& name, const std::string& fallback) {
+    std::ifstream in(fs::path(g_root) / "pc_settings.ini");
+    for (std::string l; std::getline(in, l);)
+        if (l.rfind(name + " = ", 0) == 0) return l.substr(name.size() + 3);
+    return fallback;
+}
+
 void Spawn(Player& p, const std::string& line, const std::string& key, const std::string& password) {
     int mine = -1, theirs = -1;
     if (!split::Pair(mine, theirs)) return;
@@ -476,8 +499,12 @@ void Spawn(Player& p, const std::string& line, const std::string& key, const std
     std::snprintf(aspect, sizeof aspect, "%.5f", r.h > 0 ? double(r.w) / r.h : 4.0 / 3.0);
     char gain[32];
     std::snprintf(gain, sizeof gain, "%.3f", 1.0 / std::sqrt(double(std::max(1, g_configured))));
+    pid_t parent = getpid();
     pid_t pid = fork();
     if (pid == 0) {
+        // the player ends with the compositor, however it ends (a kill, a crash): no game process left behind
+        prctl(PR_SET_PDEATHSIG, SIGKILL);
+        if (getppid() != parent) _exit(127);
         if (chdir(p.folder.c_str()) != 0) _exit(127);
         dup2(out[1], 1);
         dup2(out[1], 2);
@@ -493,7 +520,7 @@ void Spawn(Player& p, const std::string& line, const std::string& key, const std
         unsetenv("CSX_TEST_INPUT_ONLY");
         if (p.n > 1) {  // players 2..4 in folders of their own (player 1 keeps this PC's INSTANCE: its disk folder)
             unsetenv("INSTANCE");
-            setenv("CSX_PLAYER_NAME", pc::Get("split_name_" + std::to_string(p.n), "Player " + std::to_string(p.n)).c_str(), 1);
+            setenv("CSX_PLAYER_NAME", FileSetting("split_name_" + std::to_string(p.n), "Player " + std::to_string(p.n)).c_str(), 1);
             if (!key.empty()) setenv("CSX_SERVER_KEY", key.c_str(), 1);
             if (!password.empty()) setenv("CSX_NET_PASSWORD", password.c_str(), 1);
             else unsetenv("CSX_NET_PASSWORD");
@@ -508,6 +535,9 @@ void Spawn(Player& p, const std::string& line, const std::string& key, const std
     p.pid = pid;
     p.fd = mine;
     p.alive = pid > 0;
+    p.crashed = false;
+    p.told_end = false;
+    p.restart_at = 0;
     p.view = {};
     p.view_px = {};
     p.target = line;
@@ -540,7 +570,18 @@ void End(Player& p, const char* why) {
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
-    if (p.pid > 0) kill(p.pid, SIGTERM);
+    // not gone after 2 s: SIGTERM, then SIGKILL after 2 s more; waited for either way (no orphan, no zombie)
+    for (int sig : {SIGTERM, SIGKILL}) {
+        if (p.pid <= 0) break;
+        kill(p.pid, sig);
+        for (int i = 0; i < 100; i++) {
+            if (waitpid(p.pid, nullptr, WNOHANG) == p.pid) {
+                p.pid = 0;
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+    }
     DropImages(p);
     ::close(p.fd);
     p.fd = -1;
@@ -565,10 +606,15 @@ void OnMatch(const std::string& text) {
                   : "");
     if (got >= 1 && !std::strcmp(kind, "menu")) {
         g_match_line.clear();
-        for (int i = 1; i < kMaxPlayers; i++) End(g_players[size_t(i)], "player 1 is back in the menus");
+        for (int i = 1; i < kMaxPlayers; i++) {
+            End(g_players[size_t(i)], "player 1 is back in the menus");
+            g_players[size_t(i)].crashed = false;  // no match to restart into
+        }
+        Relayout();
         return;
     }
     if (got < 2) return;
+    for (auto& p : g_players) p.crashes.clear();  // a new match: the restart limit counts afresh
     g_match_line = std::string("+connect ") + addr;
     g_match_key = got >= 3 ? key : "";
     g_match_password = got >= 4 && std::strcmp(password, "-") ? password : "";
@@ -730,6 +776,8 @@ void HandleInput(const SDL_Event& e) {
             if (e.gbutton.down)
                 LOGI("split: player %d's controller: %s", p->n,
                      SDL_GetGamepadStringForButton(SDL_GamepadButton(e.gbutton.button)));
+            // its player not running (crashed past its restarts, refused): START brings it back into the match
+            if (e.gbutton.down && !p->alive && e.gbutton.button == SDL_GAMEPAD_BUTTON_START) StartToJoin(e.gbutton.which);
         } else if (e.gbutton.down) {
             LOGI("split: a controller with no player: %s", SDL_GetGamepadStringForButton(SDL_GamepadButton(e.gbutton.button)));
             if (e.gbutton.button == SDL_GAMEPAD_BUTTON_START) StartToJoin(e.gbutton.which);
@@ -831,6 +879,7 @@ void StartToJoin(SDL_JoystickID id) {
         if (!own->alive && own->n > 1 && own->n <= g_configured && !g_match_line.empty()) {
             LOGI("split: player %d's START: joining player 1's match again", own->n);
             own->refused = false;
+            own->crashes.clear();
             Spawn(*own, g_match_line, g_match_key, g_match_password);
         }
         return;
@@ -861,6 +910,39 @@ void Refused(Player& p) {
     g_configured--;
     for (auto& q : g_players) q.view = {}, q.view_px = {};
     SendState();
+}
+
+// ---- a player 2..4 that crashed ---------------------------------------------------------------------------------------------
+// Its process ended without saying why (Match "ended" / "refused" come first otherwise) while player 1 plays a match: a
+// crash, or a kill. Its viewport stays, with a message; its controller stays its (START on it rejoins at once). It is
+// started again by itself after kRestartDelay, at most kMaxRestarts times in kRestartWindow; past that only START
+// restarts it (no restart loop). Its server sees its connection end: a restarted player proves the same identity and
+// takes over its old connection's slot (src/net/transport.cpp), else the slot is freed after the server's timeout.
+constexpr double kRestartDelay = 3.0, kRestartWindow = 120.0;
+constexpr size_t kMaxRestarts = 3;
+
+double Seconds() {
+    using namespace std::chrono;
+    return duration<double>(steady_clock::now().time_since_epoch()).count();
+}
+
+void Crashed(Player& p, const std::string& how) {
+    double now = Seconds();
+    while (!p.crashes.empty() && now - p.crashes.front() > kRestartWindow) p.crashes.pop_front();
+    p.crashes.push_back(now);
+    p.crashed = true;
+    std::string who = "PLAYER " + std::to_string(p.n);
+    if (p.crashes.size() <= kMaxRestarts) {
+        p.restart_at = now + kRestartDelay;
+        p.notice = who + " STOPPED (" + how + ")\nRESTARTING...";
+        LOGW("split: player %d's game ended unexpectedly (%s): restarting it in %.0f s (%zu of %zu in %.0f s)", p.n,
+             how.c_str(), kRestartDelay, p.crashes.size(), kMaxRestarts, kRestartWindow);
+    } else {
+        p.restart_at = 0;
+        p.notice = who + " STOPPED (" + how + ")\nPRESS START TO REJOIN";
+        LOGW("split: player %d's game ended unexpectedly (%s) again: not restarted (%zu times in %.0f s); START on its "
+             "controller rejoins", p.n, how.c_str(), p.crashes.size(), kRestartWindow);
+    }
 }
 
 // ---- measurements (CSX_SPLIT_PERF=1) ---------------------------------------------------------------------------------------
@@ -967,6 +1049,7 @@ void HandleMessage(Player& p, const split::Message& m) {
         if (p.n == 1) OnMatch(m.Text());
         else {  // players 2..4 say why their match ended just before they end ("ended TEXT", "refused TEXT")
             p.refused = m.Text().rfind("refused ", 0) == 0;
+            p.told_end = true;
             LOGI("split: player %d's match ended: %s", p.n, m.Text().c_str());
         }
         break;
@@ -1065,6 +1148,130 @@ void SaveShot(VkImage image, const std::string& name) {
     vkFreeMemory(g.dev, mem, nullptr);
 }
 
+// a viewport's message as an image: the text drawn with SDL's built-in 8x8 debug font (a software renderer on a
+// surface), copied to a device image once per text; Composite scales it up (nearest) into the middle of the viewport
+void DropLabel(Player& p) {
+    if (!p.label.image) return;
+    vkDeviceWaitIdle(g.dev);
+    vkDestroyImage(g.dev, p.label.image, nullptr);
+    vkFreeMemory(g.dev, p.label.memory, nullptr);
+    p.label = {};
+    p.label_text.clear();
+}
+
+uint32_t MemoryType(uint32_t bits, VkMemoryPropertyFlags want) {
+    VkPhysicalDeviceMemoryProperties mp;
+    vkGetPhysicalDeviceMemoryProperties(g.phys, &mp);
+    for (uint32_t i = 0; i < mp.memoryTypeCount; i++)
+        if ((bits >> i & 1) && (mp.memoryTypes[i].propertyFlags & want) == want) return i;
+    return 0;
+}
+
+bool MakeLabel(Player& p, const std::string& text) {
+    if (p.label.image && p.label_text == text) return true;
+    DropLabel(p);
+    std::vector<std::string> lines;
+    for (size_t at = 0; at <= text.size();) {
+        size_t e = text.find('\n', at);
+        lines.push_back(text.substr(at, e == std::string::npos ? std::string::npos : e - at));
+        if (e == std::string::npos) break;
+        at = e + 1;
+    }
+    size_t longest = 0;
+    for (auto& l : lines) longest = std::max(longest, l.size());
+    int w = int(longest) * SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE + 8, h = int(lines.size()) * 12 + 6;
+    SDL_Surface* surf = SDL_CreateSurface(w, h, SDL_PIXELFORMAT_ARGB8888);
+    SDL_Renderer* r = surf ? SDL_CreateSoftwareRenderer(surf) : nullptr;
+    if (!r) {
+        if (surf) SDL_DestroySurface(surf);
+        return false;
+    }
+    SDL_SetRenderDrawColor(r, 0, 0, 0, 255);
+    SDL_RenderClear(r);
+    SDL_SetRenderDrawColor(r, 225, 225, 225, 255);
+    for (size_t i = 0; i < lines.size(); i++) {
+        float x = float(w - int(lines[i].size()) * SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE) / 2;
+        SDL_RenderDebugText(r, x, float(3 + 12 * i), lines[i].c_str());
+    }
+    SDL_RenderPresent(r);
+    // the pixels into a staging buffer, then into the image
+    VkDeviceSize size = VkDeviceSize(w) * h * 4;
+    VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    bi.size = size;
+    bi.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    VkBuffer buf;
+    vkCreateBuffer(g.dev, &bi, nullptr, &buf);
+    VkMemoryRequirements mr;
+    vkGetBufferMemoryRequirements(g.dev, buf, &mr);
+    VkMemoryAllocateInfo ma{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    ma.allocationSize = mr.size;
+    ma.memoryTypeIndex = MemoryType(mr.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    VkDeviceMemory bmem;
+    vkAllocateMemory(g.dev, &ma, nullptr, &bmem);
+    vkBindBufferMemory(g.dev, buf, bmem, 0);
+    void* data = nullptr;
+    vkMapMemory(g.dev, bmem, 0, size, 0, &data);
+    SDL_LockSurface(surf);
+    for (int y = 0; y < h; y++)
+        std::memcpy(static_cast<uint8_t*>(data) + size_t(y) * size_t(w) * 4,
+                    static_cast<const uint8_t*>(surf->pixels) + size_t(y) * size_t(surf->pitch), size_t(w) * 4);
+    SDL_UnlockSurface(surf);
+    vkUnmapMemory(g.dev, bmem);
+    SDL_DestroyRenderer(r);
+    SDL_DestroySurface(surf);
+    VkImageCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    ci.imageType = VK_IMAGE_TYPE_2D;
+    ci.format = kFormat;
+    ci.extent = {uint32_t(w), uint32_t(h), 1};
+    ci.mipLevels = 1;
+    ci.arrayLayers = 1;
+    ci.samples = VK_SAMPLE_COUNT_1_BIT;
+    ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+    ci.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    vkCreateImage(g.dev, &ci, nullptr, &p.label.image);
+    vkGetImageMemoryRequirements(g.dev, p.label.image, &mr);
+    ma.allocationSize = mr.size;
+    ma.memoryTypeIndex = MemoryType(mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    vkAllocateMemory(g.dev, &ma, nullptr, &p.label.memory);
+    vkBindImageMemory(g.dev, p.label.image, p.label.memory, 0);
+    VkCommandBufferAllocateInfo ai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+    ai.commandPool = g.pool;
+    ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    ai.commandBufferCount = 1;
+    VkCommandBuffer cb;
+    vkAllocateCommandBuffers(g.dev, &ai, &cb);
+    VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    vkBeginCommandBuffer(cb, &begin);
+    Barrier(cb, p.label.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED, 0, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+    VkBufferImageCopy c{};
+    c.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    c.imageExtent = {uint32_t(w), uint32_t(h), 1};
+    vkCmdCopyBufferToImage(cb, buf, p.label.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &c);
+    Barrier(cb, p.label.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+    vkEndCommandBuffer(cb);
+    VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    si.commandBufferCount = 1;
+    si.pCommandBuffers = &cb;
+    vkQueueSubmit(g.queue, 1, &si, VK_NULL_HANDLE);
+    vkQueueWaitIdle(g.queue);
+    vkFreeCommandBuffers(g.dev, g.pool, 1, &cb);
+    vkDestroyBuffer(g.dev, buf, nullptr);
+    vkFreeMemory(g.dev, bmem, nullptr);
+    p.label_text = text;
+    p.label_w = uint32_t(w);
+    p.label_h = uint32_t(h);
+    return true;
+}
+
+// what a viewport without a picture says: why its player stopped, or that it is starting
+std::string Notice(const Player& p) {
+    if (p.crashed) return p.notice;
+    if (p.alive && !p.img_w && p.n > 1) return "PLAYER " + std::to_string(p.n) + "\nJOINING...";
+    return "";
+}
+
 void Composite() {
     auto& f = g.frames[g.frame % 2];
     vkWaitForFences(g.dev, 1, &f.fence, VK_TRUE, UINT64_MAX);
@@ -1099,6 +1306,19 @@ void Composite() {
     Barrier(cb, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_QUEUE_FAMILY_IGNORED,
             VK_QUEUE_FAMILY_IGNORED, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
     for (auto& p : g_players) {
+        // a viewport without a picture: its message, scaled up whole into its middle
+        if (std::string text = Notice(p); !text.empty() && p.view_px.w > 0 && MakeLabel(p, text)) {
+            int scale = std::max(1, std::min(int(p.view_px.w * 0.8f) / int(p.label_w), int(p.view_px.h * 0.4f) / int(p.label_h)));
+            int lw = int(p.label_w) * scale, lh = int(p.label_h) * scale;
+            VkImageBlit lb{};
+            lb.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            lb.srcOffsets[1] = {int(p.label_w), int(p.label_h), 1};
+            lb.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            lb.dstOffsets[0] = {p.view_px.x + (p.view_px.w - lw) / 2, p.view_px.y + (p.view_px.h - lh) / 2, 0};
+            lb.dstOffsets[1] = {lb.dstOffsets[0].x + lw, lb.dstOffsets[0].y + lh, 1};
+            vkCmdBlitImage(cb, p.label.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                           &lb, VK_FILTER_NEAREST);
+        }
         if (!p.alive || !p.img_w) continue;
         if (p.ready >= 0) {  // a newer frame: shown from now; the previous one goes back after this frame
             if (p.shown >= 0) f.release.push_back({p.n, p.shown});
@@ -1241,7 +1461,7 @@ void PollRequests() {
         ev.text.text = g_typed.back().c_str();
         SDL_PushEvent(&ev);
     }
-    if (FILE* f = Request("mouse")) {  // "menu X Y" (player 1's menus), "window X Y", "button B SECONDS", "wheel N"
+    if (FILE* f = Request("mouse")) {  // "menu X Y" (player 1's menus), "window X Y", "DX DY", "button B SECONDS", "wheel N"
         char kind[16];
         float a = 0, b = 0;
         while (std::fscanf(f, "%15s", kind) == 1) {
@@ -1272,6 +1492,17 @@ void PollRequests() {
                 if (std::fscanf(f, "%d %31s", &btn, secs) < 1) break;
                 PushButton(btn, true, g_px, g_py);
                 g_held.push_back({now + std::atof(secs), 0, SDL_SCANCODE_UNKNOWN, btn});
+            } else if ((kind[0] == '-' || std::isdigit(static_cast<unsigned char>(kind[0]))) && std::fscanf(f, "%f", &b) == 1) {
+                // "DX DY": relative motion, as a mouse's while captured (drive.py's mouse step)
+                SDL_Event ev{};
+                ev.type = SDL_EVENT_MOUSE_MOTION;
+                ev.motion.windowID = SDL_GetWindowID(g_win);
+                ev.motion.which = window::kInjectedDevice;
+                ev.motion.x = g_px;
+                ev.motion.y = g_py;
+                ev.motion.xrel = float(std::atof(kind));
+                ev.motion.yrel = b;
+                SDL_PushEvent(&ev);
             } else if (!std::strcmp(kind, "wheel")) {
                 int n = 0;
                 if (std::fscanf(f, "%d", &n) != 1) break;
@@ -1303,6 +1534,10 @@ void PollRequests() {
                 SDL_JoystickID id = SDL_AttachVirtualJoystick(&d);
                 g_test_pads[n] = id;
                 g_test_joys[n] = SDL_OpenJoystick(id);
+                // a virtual gamepad's triggers are full-range joystick axes (raw -32768 released .. 32767 pulled):
+                // at rest 0 they would read half pulled, so they start released
+                SDL_SetJoystickVirtualAxis(g_test_joys[n], SDL_GAMEPAD_AXIS_LEFT_TRIGGER, -32768);
+                SDL_SetJoystickVirtualAxis(g_test_joys[n], SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, -32768);
                 LOGI("split: test controller %d attached (%u)", n, unsigned(id));
             } else if (!std::strcmp(what, "detach") && g_test_pads.count(n)) {
                 SDL_CloseJoystick(g_test_joys[n]);
@@ -1318,13 +1553,16 @@ void PollRequests() {
                 }
             } else if (!std::strcmp(what, "axis") && std::fscanf(f, "%31s %31s", name, value) == 2 && g_test_joys.count(n)) {
                 SDL_GamepadAxis a = SDL_GetGamepadAxisFromString(name);
-                if (a != SDL_GAMEPAD_AXIS_INVALID) SDL_SetJoystickVirtualAxis(g_test_joys[n], a, int16_t(std::atoi(value)));
+                int v = std::atoi(value);
+                // a trigger's VALUE as a gamepad gives it (0 released .. 32767 pulled), as its raw axis
+                if (a == SDL_GAMEPAD_AXIS_LEFT_TRIGGER || a == SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) v = std::clamp(v, 0, 32767) * 2 - 32768;
+                if (a != SDL_GAMEPAD_AXIS_INVALID) SDL_SetJoystickVirtualAxis(g_test_joys[n], a, int16_t(std::clamp(v, -32768, 32767)));
             }
         }
         std::fclose(f);
         Done("pad");
     }
-    if (FILE* f = Request("winctl")) {  // "fullscreen 1|0", "size W H": the window changed from outside (tests)
+    if (FILE* f = Request("winctl")) {  // "fullscreen 1|0", "size W H", "kill N SIGNAL": from outside (tests)
         int a = 0, b = 0;
         if (std::fscanf(f, "fullscreen %d", &a) == 1) {
             SDL_SetWindowFullscreen(g_win, a != 0);  // from outside: what the window was asked stays
@@ -1332,6 +1570,13 @@ void PollRequests() {
         } else if (std::fseek(f, 0, SEEK_SET) == 0 && std::fscanf(f, "size %d %d", &a, &b) == 2 && a > 0 && b > 0) {
             SDL_SetWindowSize(g_win, a, b);
             LOGI("split: resized to %dx%d from outside (test)", a, b);
+        } else if (std::fseek(f, 0, SEEK_SET) == 0 && std::fscanf(f, "kill %d %d", &a, &b) == 2 && a >= 1 && a <= kMaxPlayers) {
+            // "kill N SIGNAL": player N's process sent SIGNAL, as a crash (tests: crash recovery)
+            Player& p = g_players[size_t(a - 1)];
+            if (p.alive && p.pid > 0) {
+                LOGI("split: player %d sent signal %d from outside (test)", a, b);
+                kill(p.pid, b);
+            }
         }
         std::fclose(f);
         Done("winctl");
@@ -1449,16 +1694,25 @@ int CompositorMain(const std::string& game) {
                 LOGI("split: player %d's process ended (%s %d)", p->n, WIFSIGNALED(status) ? "signal" : "exit",
                      WIFSIGNALED(status) ? WTERMSIG(status) : WEXITSTATUS(status));
                 p->pid = 0;
-                DropImages(*p);
+                DropImages(*p);  // its exported images: the imports and their memory released here
                 ::close(p->fd);
                 p->fd = -1;
                 p->alive = false;
                 p->target.clear();
                 if (p->n == 1) quit = true;  // player 1 is the game: its end is the compositor's
                 else if (p->refused) Refused(*p);
+                else if (!p->told_end && !g_match_line.empty())
+                    Crashed(*p, WIFSIGNALED(status) ? std::string("signal ") + std::to_string(WTERMSIG(status))
+                                                    : "exit " + std::to_string(WEXITSTATUS(status)));
                 Relayout();
             }
         }
+        // crashed players whose restart is due (only while player 1 plays the match they were in)
+        for (auto& p : g_players)
+            if (p.crashed && p.restart_at > 0 && Seconds() >= p.restart_at && !g_match_line.empty() && p.n <= g_configured) {
+                LOGI("split: player %d restarted after its crash", p.n);
+                Spawn(p, g_match_line, g_match_key, g_match_password);
+            }
         Composite();
         auto now = std::chrono::steady_clock::now();
         if (now - last_flush > std::chrono::seconds(1)) {
@@ -1467,8 +1721,17 @@ int CompositorMain(const std::string& game) {
             last_flush = now;
         }
     }
-    for (auto& p : g_players) End(p, "the window closed");
-    LOGI("split: closed");
+    for (auto& p : g_players) {
+        End(p, "the window closed");
+        DropLabel(p);
+    }
+    // every player process waited for: none left behind (a child still running here would become an orphan)
+    int left = 0;
+    while (waitpid(-1, nullptr, WNOHANG) > 0) {
+    }
+    if (waitpid(-1, nullptr, WNOHANG) == 0)  // children not yet ended
+        for (auto& p : g_players) left += p.pid > 0;
+    LOGI("split: closed, %d player processes left running", left);
     logx::Flush();
     return 0;
 }

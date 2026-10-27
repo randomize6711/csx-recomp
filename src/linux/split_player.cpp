@@ -3,12 +3,14 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <mutex>
+#include <string>
 #include <thread>
 
 #include <fcntl.h>
@@ -16,6 +18,7 @@
 
 #include "app/app.h"
 #include "common/csx.h"
+#include "common/pc_settings.h"
 #include "core/log.h"
 #include "linux/split_ipc.h"
 
@@ -137,9 +140,16 @@ void Receiver() {
             g_captured = captured != 0;
             break;
         }
-        case split::Msg::State:
+        case split::Msg::State: {
             csx::SetSplitState(m.Text());
+            // the Split Screen screen's Local Players shows the players the compositor has now (--splitscreen N, a
+            // controller's START), in memory: saved only when that screen's Accept saves it
+            int players = 0;
+            if (std::sscanf(m.Text().c_str(), "players %d", &players) == 1 && players >= 1 && players <= 4 &&
+                pc::Get("split_players", "1") != std::to_string(players))
+                pc::Set("split_players", std::to_string(players));
             break;
+        }
         case split::Msg::Quit:
             Quit("the compositor ended the player");
             return;
@@ -218,6 +228,12 @@ void Frame() {
             d.name = "Split-screen controller";
             g_vpad_id = SDL_AttachVirtualJoystick(&d);
             g_vpad = g_vpad_id ? SDL_OpenJoystick(g_vpad_id) : nullptr;
+            // a virtual gamepad's triggers are full-range joystick axes (raw -32768 released .. 32767 pulled): at rest
+            // 0 they would read half pulled (N4.6: a held-down trigger, one shot from a semi-automatic weapon)
+            if (g_vpad) {
+                SDL_SetJoystickVirtualAxis(g_vpad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, -32768);
+                SDL_SetJoystickVirtualAxis(g_vpad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, -32768);
+            }
             LOGI("split: controller attached%s", g_vpad ? "" : " (failed)");
         } else if (op.kind == 3 && g_vpad) {
             SDL_CloseJoystick(g_vpad);
@@ -225,7 +241,11 @@ void Frame() {
             g_vpad = nullptr;
             LOGI("split: controller detached");
         } else if (op.kind == 0 && g_vpad) {
-            SDL_SetJoystickVirtualAxis(g_vpad, op.index, op.value);
+            // the compositor sends what its gamepad reads: a trigger 0 (released) .. 32767, the sticks -32768 .. 32767
+            int v = op.value;
+            if (op.index == SDL_GAMEPAD_AXIS_LEFT_TRIGGER || op.index == SDL_GAMEPAD_AXIS_RIGHT_TRIGGER)
+                v = std::max(0, v) * 2 - 32768;
+            SDL_SetJoystickVirtualAxis(g_vpad, op.index, int16_t(std::clamp(v, -32768, 32767)));
         } else if (op.kind == 1 && g_vpad) {
             SDL_SetJoystickVirtualButton(g_vpad, op.index, op.value != 0);
 
