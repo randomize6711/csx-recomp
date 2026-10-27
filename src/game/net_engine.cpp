@@ -28,6 +28,8 @@
 #include "net/transport.h"
 #include "net/wire.h"
 
+std::string PcSplitPlayerName();  // pc_split.cpp
+
 namespace {
 using kernel::R16;
 using kernel::R32;
@@ -229,6 +231,10 @@ void Events(X86Context& ctx, int sock) {
         if (sock == 0) {
             Print(ctx, "Disconnected from " + who + ": " + e.text);
             csx::NetServerClosed(who, int(e.reason), e.text);
+        } else {
+            // its slot free now, not after the engine's own timeout; a replaced connection's at once (its replacement's
+            // join is read in this same frame)
+            csx::DropNetworkClient(ctx, who, e.text, e.text.find("same player identity") != std::string::npos);
         }
     }
 }
@@ -359,11 +365,9 @@ X86_FUNC(sub_0006CDE0) {
                     if (ok) rates += "setinfo password " + password + "\n";
                     else LOGW("net: the server password is not used: at most 32 characters, no spaces, quotes, ';' or '\\'");
                 }
-                // a split-screen player 2..4's name (the compositor's CSX_PLAYER_NAME; it has no profile of its own)
-                if (const char* name = std::getenv("CSX_PLAYER_NAME")) {
-                    std::string n = net::wire::CleanText(name, 31);
-                    if (!n.empty()) rates += "name \"" + n + "\"\n";
-                }
+                // a split-screen player's name (Split Screen > Player Names: player 1's split_name_1, players 2..4 the
+                // compositor's CSX_PLAYER_NAME; checked again here, as it goes into a command)
+                if (std::string n = PcSplitPlayerName(); !n.empty()) rates += "name \"" + n + "\"\n";
                 csx::QueueEngineCommand(rates);
             }
         }

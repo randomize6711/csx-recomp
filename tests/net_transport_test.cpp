@@ -793,6 +793,49 @@ void TestClientRestartSamePort() {
     Check(s >= 1 && c == 1, "restart on the same port: messages flow");
 }
 
+// a client with a player identity restarted on another port (its game crashed): the new connection replaces the old
+// one at once (the server reports the old one closed before the new one connected); without an identity, or with
+// another, the old connection stays until its timeout
+void TestIdentityReconnect() {
+    std::string err;
+    auto id = Identity::LoadOrCreate("/tmp/csxn_test_identity2.key", err);
+    auto other = Identity::LoadOrCreate("/tmp/csxn_test_identity3.key", err);
+    std::remove("/tmp/csxn_test_identity2.key");
+    std::remove("/tmp/csxn_test_identity3.key");
+    for (int mode = 0; mode < 3; mode++) {  // 0 the same identity, 1 none, 2 another identity
+        Pair p;
+        if (mode != 1) p.client->SetIdentity(id);
+        Connect(p);
+        Endpoint::Event e;
+        while (p.server->PollEvent(e)) {
+        }
+        Address moved = Addr(2, 40001);
+        auto again = std::make_unique<Endpoint>(Endpoint::Role::Client, std::make_unique<SimSocket>(p.net, moved), Config{}, Now);
+        if (mode == 0) again->SetIdentity(id);
+        if (mode == 2) again->SetIdentity(other);
+        uint8_t hi[] = {4};
+        again->Send(p.server_addr, hi, 1);
+        for (int i = 0; i < 100; i++) {
+            g_now += 0.005;
+            p.server->Pump();
+            again->Pump();
+        }
+        bool old_closed = false, closed_first = false, new_connected = false;
+        while (p.server->PollEvent(e)) {
+            if (e.kind == Endpoint::Event::Closed && e.peer == p.client_addr) old_closed = true, closed_first = !new_connected;
+            if (e.kind == Endpoint::Event::Connected && e.peer == moved) new_connected = true;
+        }
+        const char* what[] = {"the same identity", "no identity", "another identity"};
+        Check(again->Connected(p.server_addr) && new_connected, std::string("identity reconnect (") + what[mode] + "): the new connection is made");
+        if (mode == 0)
+            Check(old_closed && closed_first && !p.server->Connected(p.client_addr),
+                  "identity reconnect: the old connection of the same identity closed first");
+        else
+            Check(!old_closed && p.server->ConnectionCount() == 2,
+                  std::string("identity reconnect (") + what[mode] + "): the old connection stays until its timeout");
+    }
+}
+
 // a peer told to go (kicked) that keeps sending is removed anyway: its packets do not keep the closing connection
 void TestClosingPeerKeepsSending() {
     Pair p;
@@ -917,6 +960,7 @@ int main() {
     TestManyClients();
     TestReconnectWhileClosing();
     TestClientRestartSamePort();
+    TestIdentityReconnect();
     TestClosingPeerKeepsSending();
     TestForgedReject();
     TestFloodManySources();

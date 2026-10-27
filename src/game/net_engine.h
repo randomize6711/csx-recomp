@@ -44,6 +44,7 @@ bool ServerFinished();
 bool AdminCommand(X86Context& ctx, uint32_t cl, const std::string& text);
 void RunAdminActions(X86Context& ctx);
 bool Banned(const std::string& identity, const std::string& ip, std::string& why);
+void DropNetworkClient(X86Context& ctx, const std::string& address, const std::string& reason, bool now);  // server_admin.cpp
 // the server browser's join: the title relaunches into "+connect server" between frames (net_session.cpp)
 void RequestJoin(const std::string& server);
 // the title relaunched into another map, its players told to rejoin (net_session.cpp; the dedicated server)

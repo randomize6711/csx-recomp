@@ -273,6 +273,29 @@ void Drop(X86Context& ctx, uint32_t cl, const std::string& reason) {
 
 namespace csx {
 
+// a network player's transport connection ended on the server (it closed, timed out, or was replaced by a new
+// connection of the same player identity: a game restarted after a crash): its engine client is dropped instead of
+// after the engine's own timeout, so its slot is free at once (a client that already left is not active any more and
+// nothing happens)
+void DropNetworkClient(X86Context& ctx, const std::string& address, const std::string& reason, bool now) {
+    auto drop = [address, reason](X86Context& c) {
+        // every slot the engine counts as taken (its free-slot search, 0x99470: +0, +4 or +0xC set), also a client
+        // still joining (not yet active)
+        for (uint32_t slot = 1; slot <= R32(kMaxClients) && slot <= 256; slot++) {
+            uint32_t cl = R32(kClients) + (slot - 1) * kClientSize;
+            bool taken = R32(cl) || R32(cl + 4) || R32(cl + 0xC);
+            if (taken && Network(cl) && ClientAddress(cl) == address) {
+                LOGI("net: %s's client (slot %u, \"%s\") dropped: %s", address.c_str(), slot, Name(cl).c_str(), reason.c_str());
+                Drop(c, cl, reason);
+            }
+        }
+    };
+    // now: while the engine reads its packets (as a client's own "disconnect" is handled), before the replacing
+    // connection's join in the same frame finds the server full; otherwise at the next tick
+    if (now) drop(ctx);
+    else Later(drop);
+}
+
 // at a connection: a banned identity or address is refused (net_engine.cpp)
 bool Banned(const std::string& identity, const std::string& ip, std::string& why) {
     auto bans = ReadBans();

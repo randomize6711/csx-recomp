@@ -703,6 +703,13 @@ void Endpoint::HandleConnect(const Address& from, const uint8_t* p, size_t n) {
         stats_.handshakes_failed++;
         return;
     }
+    // a player identity proved again from another address (its game restarted after a crash, a new port or a new
+    // network): the old connection is that player's and ends now, so its slot is free for this one at once instead of
+    // after the idle timeout. Only a proved identity (the signature above) replaces; anonymous clients never do
+    if (!identity.empty())
+        for (auto& [k, c] : conns_)
+            if (!c->closing && c->identity == identity)
+                Close(*c, Reason::Closed, "replaced by a new connection of the same player identity", true, false);
     size_t same_ip = 0;
     size_t open = 0;
     for (auto& [k, c] : conns_) {
