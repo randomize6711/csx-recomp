@@ -3,7 +3,8 @@
 # the refusal reaches the compositor, player 2 keeps its place in the layout (START on its controller tries again).
 # A second controller's START adds a third local player: refused too, it gives its slot back (two local players
 # again, its controller free). Nothing else ends: player 1 picks its team (Space) and plays on: the server has 3
-# clients (player 1, 2 bots).
+# clients (player 1, 2 bots). The split side stays until the server has counted (its script ends ~20 s in; a client
+# gone for 15 s times out, so the count 60 s after the first refusal needs player 1 still there).
 # timeout: 600
 [server] --server "--map de_aztec --bots 2 --max-players 3" --env CSX_LOG_NET=1
 wait log net:.server.identity
@@ -35,3 +36,4 @@ windowshot after
 expect nolog split: player 1's process ended
 expect log p1: pc keys: menu TeamSelect
 expect nolog guest trap
+sleep 70
