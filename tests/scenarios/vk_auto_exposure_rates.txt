@@ -2,7 +2,10 @@
 # frame time, so it settles on the same points and moves as far in a second at every rate; the late copy of its
 # measurement never makes the frame wait (the rates hold). The Frame Rate Limit changed while playing (pckey set, as
 # PC Options' Accept), VSync off for 240. At each rate: level view, then the floor (one second and eight seconds
-# after looking down), then level again.
+# after looking down), then level again. The look down is about 60 degrees (26 x 35 counts, 0.066 degree a count), inside
+# the 89-degree clamp, so the same stream up returns to level: a stream past the clamp (26 x 80) came back 48 degrees
+# up, and the level views at 120 and 240 were of the sky against level30's horizon (+0.018 "middle" from the view,
+# not the rate; N4.7). Every measurement records its view; the level views and the floor views are checked to match.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960 -r 120), with
 #   --launch tests/launch/de_dust2_nobots --env CSX_LOG_DYNGAMMA=1 --pc frame_rate=30
 wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
@@ -17,45 +20,59 @@ key Left_Ctrl
 sleep 15
 expect fps 28 32
 sleep 4
+state v_level30
 exposure level30
 expect exposuretrack level30 0.035
-mousestream 0 80 26 60
+mousestream 0 35 26 60
 sleep 1
+state v_floor30a
 exposure floor30a
 sleep 7
+state v_floor30
 exposure floor30
 expect exposuretrack floor30 0.035
-mousestream 0 -80 26 60
+mousestream 0 -35 26 60
 sleep 8
 pckey set frame_rate 120
 sleep 2
 expect fps 112 124
 sleep 4
+state v_level120
 exposure level120
 expect exposuretrack level120 0.035
-mousestream 0 80 26 60
+mousestream 0 35 26 60
 sleep 1
+state v_floor120a
 exposure floor120a
 sleep 7
+state v_floor120
 exposure floor120
 expect exposuretrack floor120 0.035
-mousestream 0 -80 26 60
+mousestream 0 -35 26 60
 sleep 8
 pckey set vsync 0
 pckey set frame_rate 240
 sleep 2
 expect fps 140 250
 sleep 4
+state v_level240
 exposure level240
 expect exposuretrack level240 0.035
-mousestream 0 80 26 60
+mousestream 0 35 26 60
 sleep 1
+state v_floor240a
 exposure floor240a
 sleep 7
+state v_floor240
 exposure floor240
 expect exposuretrack floor240 0.035
-mousestream 0 -80 26 60
+mousestream 0 -35 26 60
 sleep 8
+expect pitch v_level30 v_level120 0 0.5
+expect pitch v_level30 v_level240 0 0.5
+expect pitch v_floor30 v_floor120 0 0.5
+expect pitch v_floor30 v_floor240 0 0.5
+expect pitch v_level30 v_floor30 60 8
 expect exposurediff level30 level120 middle -0.02 0.02
 expect exposurediff level30 level240 middle -0.02 0.02
 expect exposurediff level30 level240 low -0.02 0.02
