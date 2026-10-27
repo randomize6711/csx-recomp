@@ -140,6 +140,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -295,6 +296,7 @@ def main():
     if server is not None:
         cmd = cmd[:-1] + ['--game', GAME] + server
     proc = subprocess.Popen(cmd, cwd=RUN, env=env, stdout=out, stderr=subprocess.STDOUT)
+    threading.Thread(target=watch_processes, args=(proc.pid, os.path.join(RUN, 'procs.csv')), daemon=True).start()
     log, start, ok = Log(), time.time(), True
     verdict = 'FAIL'
     spawned = []  # spawn steps' helpers, ended with the scenario
@@ -371,7 +373,11 @@ def main():
                                                 stderr=subprocess.STDOUT))
                 good = True
             elif kind == 'sleep':
-                time.sleep(float(st[1])); good = alive()
+                # in steps of a quarter second: a game that ends during it is seen when it ends (procs.csv: its last state)
+                end = time.time() + float(st[1])
+                while time.time() < end and alive():
+                    time.sleep(min(0.25, max(0.0, end - time.time())))
+                good = alive()
             elif kind == 'press':
                 frames = st[2] if len(st) > 2 else '3'
                 send(f'{st[1]} {frames}\n')
@@ -1026,6 +1032,56 @@ def main():
     print(f'RESULT {"PASS" if ok else verdict}')
     sys.stdout.flush()
     return 0 if ok else 1
+
+
+def watch_processes(root, path):
+    """procs.csv in the run folder: every half second the game's processes (it and its descendants: the compositor's
+    players, a local server) with their state, resident memory, CPU time and threads, and the machine's available
+    memory; then when the game's own process ended (a zombie, before drive reaps it) and how. What a process killed
+    from outside (SIGKILL: no log line of its own) was doing, and whether memory ran short."""
+    tick = os.sysconf('SC_CLK_TCK')
+    t0 = time.time()
+
+    def stat(pid):
+        try:
+            with open(f'/proc/{pid}/stat') as f:
+                text = f.read()
+        except OSError:
+            return None
+        comm = text[text.index('(') + 1:text.rindex(')')]
+        rest = text[text.rindex(')') + 2:].split()
+        return comm, rest  # rest[0] state, [1] ppid, [11] utime, [12] stime, [17] threads, [21] rss pages
+
+    with open(path, 'w') as out:
+        out.write('seconds,pid,ppid,name,state,rss_mb,cpu_s,threads,mem_available_mb\n')
+        while True:
+            try:
+                with open('/proc/meminfo') as f:
+                    avail = next(int(l.split()[1]) // 1024 for l in f if l.startswith('MemAvailable'))
+            except (OSError, StopIteration):
+                avail = -1
+            procs = {}
+            for d in os.listdir('/proc'):
+                if d.isdigit():
+                    st = stat(d)
+                    if st:
+                        procs[int(d)] = st
+            tree, todo = [], [root]
+            while todo:
+                pid = todo.pop()
+                if pid in procs:
+                    tree.append(pid)
+                    todo += [c for c, (_, r) in procs.items() if int(r[1]) == pid]
+            now = time.time() - t0
+            for pid in tree:
+                comm, r = procs[pid]
+                out.write('%.1f,%d,%s,%s,%s,%.0f,%.1f,%s,%d\n' % (now, pid, r[1], comm.replace(',', ' '), r[0],
+                          int(r[21]) * os.sysconf('SC_PAGE_SIZE') / 1048576, (int(r[11]) + int(r[12])) / tick, r[17], avail))
+            out.flush()
+            if root not in procs or procs[root][1][0] in 'ZX':
+                out.write('%.1f,%d,,,ended,,,,%d\n' % (now, root, avail))
+                return
+            time.sleep(0.5)
 
 
 def exit_text(code):

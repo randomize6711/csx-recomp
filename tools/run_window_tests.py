@@ -80,12 +80,12 @@ def main():
         inner = ' '.join(shlex.quote(a) for a in drive) + '; echo $? > ' + shlex.quote(status)
         print('== %s (gamescope %sx%s)' % (base, w, h))
         sys.stdout.flush()
-        with open(os.path.join(run, 'drive.out'), 'w') as out:
+        with open(os.path.join(run, 'drive.out'), 'w') as out, open(os.path.join(run, 'gamescope.out'), 'w') as gout:
             # its own process group: a run past its time is ended whole (gamescope, its reaper, the game and the
             # players; killing gamescope alone left a compositor blocked on the gone display)
             g = subprocess.Popen(['gamescope', '--backend', 'headless', '-W', w, '-H', h, '-w', w, '-h', h] +
                                  (['-r', hz] if hz else []) + ['--', 'sh', '-c', inner], cwd=ROOT, stdout=out,
-                                 stderr=subprocess.DEVNULL, start_new_session=True)
+                                 stderr=gout, start_new_session=True)
             try:
                 g.wait(timeout=limit + 300)
             except subprocess.TimeoutExpired:
@@ -97,6 +97,8 @@ def main():
                         break
                     time.sleep(5)
                 g.wait()
+            # gamescope's own end (its log is gamescope.out): a display server that ended takes the game with it
+            gout.write('gamescope exit status %s\n' % g.returncode)
         lines = open(os.path.join(run, 'drive.out'), encoding='utf-8', errors='replace').read().splitlines()
         for l in lines:
             if l.startswith('FAIL') or (l.startswith('     ') and not l.startswith('            ')):
