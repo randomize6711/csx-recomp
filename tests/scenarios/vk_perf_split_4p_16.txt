@@ -1,0 +1,77 @@
+# Split-screen benchmark (N4.6, docs/splitscreen.md "Performance"): 4 local players in the compositor, a Single Player match on de_airstrip
+# from Single Player > Custom with 16 bots; VSync Off, Frame Rate Limit 240,
+# 1920x1080. Player 1 is held at one view (setview) for 60 s; the other players stand at their spawn in their buy
+# menus. tools/split_perf.py reads the log: each player's frame rate, 1% and 0.1% lows, intervals, GPU and recording
+# time, server frame; the processes' CPU and memory (CSX_SPLIT_PERF); the network. No limits asserted.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --env CSX_SPLIT_COMPOSITOR=1 --env CSX_SPLIT_PLAYERS=4 --env CSX_SPLIT_ZCACHE=$PWD/build/zcache --env CSX_SPLIT_PERF=1 --env CSX_LOG_INTERVALS=1 --env CSX_LOG_SERVERTIME=1 --env CSX_LOG_MEMORY=1 --env CSX_LOG_NET=1
+#   --pc vsync=0 --pc frame_rate=240
+wait log split: player 1 started
+pad 1 attach
+pad 2 attach
+pad 3 attach
+wait log p1: open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+key Down
+sleep 2
+key Space
+sleep 5
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Space
+sleep 5
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Space
+sleep 3
+key Space
+wait log split: player 4 started
+wait log p2: net: server 127.0.0.1:27015 connected
+wait log p3: net: server 127.0.0.1:27015 connected
+wait log p4: net: server 127.0.0.1:27015 connected
+wait log p4: pc keys: menu TeamSelect
+sleep 5
+pad 1 button a
+pad 2 button a
+pad 3 button a
+sleep 3
+key Space
+sleep 6
+key Left_Ctrl
+sleep 20
+players p
+expect playercount p 20 20
+setview -1680 2337 36 270 0
+sleep 60
+windowshot view
+setview off
+expect nolog guest trap
+expect nolog guest table overrun

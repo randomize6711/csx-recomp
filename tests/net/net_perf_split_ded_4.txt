@@ -1,0 +1,42 @@
+# Split-screen benchmark against a dedicated server (N4.6, docs/splitscreen.md "Performance"): csx-server on
+# de_airstrip with 61 bots (65 slots with the four players); one PC's compositor (the window build) with four local
+# players joins it by address (player 1 on the keyboard, 2-4 on test controllers). The server holds player 1 (its
+# first client) at the same view as the listen benchmarks (setview -1680 2337 36 270 0); player 1's own setview
+# request only marks the measured window in its log (a client has no edict to hold). VSync Off, Frame Rate Limit 240,
+# 1920x1080. tools/split_perf.py build/nruns/net_perf_split_ded_4/split reads the players' frame rates against
+# vk_perf_split_4p_61 (player 1 hosting the same match). No limits asserted (the bots fight: dead ones are not
+# listed by the players step, so the count only has to be 50 or more).
+# timeout: 600
+[server] --server "--map de_airstrip --bots 61" --env CSX_LOG_NET=1 --env CSX_LOG_SERVERTIME=1
+wait log net:.server.identity
+count net:.client.127\.0\.0\.[12]:[0-9]+.connected 4
+sleep 20
+setview -1680 2337 36 270 0
+sleep 150
+players p
+expect playercount p 50 65
+setview off
+pckey cmd quit
+[split] --window 1920x1080 --after server:net:.server.identity --delay 3 --launch tests/launch/connect_local --env CSX_SPLIT_COMPOSITOR=1 --env CSX_SPLIT_PLAYERS=4 --env CSX_SPLIT_ZCACHE=$PWD/build/zcache --env CSX_SPLIT_PERF=1 --env CSX_LOG_INTERVALS=1 --env CSX_LOG_MEMORY=1 --env CSX_LOG_NET=1 --pc vsync=0 --pc frame_rate=240
+wait log split: player 1 started
+pad 1 attach
+pad 2 attach
+pad 3 attach
+wait log p4: net: server 127.0.0.1:27015 connected
+wait log p4: pc keys: menu TeamSelect
+sleep 5
+pad 1 button a
+pad 2 button a
+pad 3 button a
+sleep 3
+key Space
+sleep 6
+click 3
+pad 1 button b
+pad 2 button b
+pad 3 button b
+sleep 30
+setview -1680 2337 36 270 0
+sleep 60
+windowshot view
+expect nolog guest trap

@@ -114,7 +114,12 @@ def main():
         if line[0] != 'S':
             continue
         p = line.split()
-        t = int(p[1]) / 1e9 + off
+        try:  # a line cut short (the process ended while writing) is left out
+            t = int(p[1]) / 1e9 + off
+            int(p[2])
+            [int(x, 16) for x in p[3:]]
+        except (ValueError, IndexError):
+            continue
         if (t0 is not None and t < t0) or (t1 is not None and t > t1):
             continue
         tid = p[2]

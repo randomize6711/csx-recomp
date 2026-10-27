@@ -11,7 +11,7 @@ build/wruns/<scenario> (<scenario>_<TAG> with --tag); --exe runs another build o
 variant). Exit status non-zero when any scenario failed; a summary at the end. Do not run it while a build or
 tests/run_regression.sh is running.
 """
-import os
+import os, signal, time
 import re
 import shlex
 import subprocess
@@ -81,9 +81,22 @@ def main():
         print('== %s (gamescope %sx%s)' % (base, w, h))
         sys.stdout.flush()
         with open(os.path.join(run, 'drive.out'), 'w') as out:
-            subprocess.run(['gamescope', '--backend', 'headless', '-W', w, '-H', h, '-w', w, '-h', h] +
-                           (['-r', hz] if hz else []) + ['--',
-                            'sh', '-c', inner], cwd=ROOT, stdout=out, stderr=subprocess.DEVNULL, timeout=limit + 300)
+            # its own process group: a run past its time is ended whole (gamescope, its reaper, the game and the
+            # players; killing gamescope alone left a compositor blocked on the gone display)
+            g = subprocess.Popen(['gamescope', '--backend', 'headless', '-W', w, '-H', h, '-w', w, '-h', h] +
+                                 (['-r', hz] if hz else []) + ['--', 'sh', '-c', inner], cwd=ROOT, stdout=out,
+                                 stderr=subprocess.DEVNULL, start_new_session=True)
+            try:
+                g.wait(timeout=limit + 300)
+            except subprocess.TimeoutExpired:
+                print('  the run went past %d s: its process group ended' % (limit + 300))
+                for sig in (signal.SIGTERM, signal.SIGKILL):
+                    try:
+                        os.killpg(g.pid, sig)
+                    except ProcessLookupError:
+                        break
+                    time.sleep(5)
+                g.wait()
         lines = open(os.path.join(run, 'drive.out'), encoding='utf-8', errors='replace').read().splitlines()
         for l in lines:
             if l.startswith('FAIL') or (l.startswith('     ') and not l.startswith('            ')):
