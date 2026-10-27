@@ -1,0 +1,237 @@
+# Split-screen players 2-4 crashing (docs/splitscreen.md, src/linux/compositor.cpp Crashed): four local players and 61
+# bots offline (65 slots). Each crash is a signal sent to a player's process from outside (winctl kill N SIGNAL, as a
+# crash: no "match ended" message first). The compositor stays, the other players play on; the crashed player's
+# viewport keeps its place with a message (its exported images released at once), its controller stays its, and it
+# is restarted after 3 s; the restarted game proves the same identity, so the server replaces its old connection (its
+# slot freed at once: 65 again, no "server is full"). Player 2 in a round (SIGKILL); players 3 and 4 at once (SIGSEGV,
+# SIGABRT); player 3 during a map change (the match's last round, mp_maxrounds 1, ends after mp_roundtime's minute); player 4 four times in two minutes: the fourth is not restarted ("press
+# START to rejoin"), its old connection times out on the server (64), START on its controller rejoins it (65).
+# Last, player 1 is killed: the compositor ends with it and ends players 2-4, none left running.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --env CSX_SPLIT_COMPOSITOR=1 --env CSX_SPLIT_PLAYERS=4 --env CSX_SPLIT_ZCACHE=$PWD/build/zcache
+# timeout: 1500
+wait log split: player 1 started
+pad 1 attach
+pad 2 attach
+pad 3 attach
+wait log p1: open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+key Down
+sleep 2
+key Space
+sleep 5
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Space
+sleep 5
+expect log p1: pc mouse: screen SuperLauncher_SinglePlayerMatchOptions
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Right
+sleep 0.7
+key Space
+sleep 3
+key Space
+wait log p1: net: split-screen: 64 bots asked, 61 \(65 slots: room for 4 local players, 4 now\)
+wait log split: player 4 started
+wait log p2: net: server 127.0.0.1:27015 connected
+wait log p3: net: server 127.0.0.1:27015 connected
+wait log p4: net: server 127.0.0.1:27015 connected
+wait log p4: pc keys: menu TeamSelect
+sleep 5
+pad 1 button a
+pad 2 button a
+pad 3 button a
+sleep 3
+key Space
+sleep 20
+players p
+expect playercount p 65 65
+pad 1 button b
+pad 2 button b
+pad 3 button b
+click 3
+pckey cmd mp_timelimit 0
+sleep 5
+# player 2 crashes in a round
+mark
+winctl kill 2 9
+wait log split: player 2's game ended unexpectedly \(signal 9\): restarting it in 3 s \(1 of 3
+wait newlog split: player 2's images released
+windowshot crashed2
+players during2
+wait log split: player 2 restarted after its crash
+wait newlog p2: net: server 127.0.0.1:27015 connected
+wait newlog p1: game: "Player 2<[0-9]+><[^>]*><>" entered the game
+wait newlog p2: pc keys: menu TeamSelect
+sleep 6
+pad 1 button a
+sleep 3
+wait newlog p2: pc keys: menu .*BuyMenuRoot
+pad 1 button b
+sleep 2
+wait log p1: game: "Player 2<[0-9]+><[^>]*><[^>]*>" disconnected
+sleep 8
+players after2
+expect playercount after2 65 65
+@2 state m2a
+pad 1 axis lefty -32767
+sleep 1.5
+pad 1 axis lefty 0
+sleep 0.5
+@2 state m2b
+expect moved m2a m2b 100 1000
+# players 3 and 4 at once
+mark
+winctl kill 3 11
+winctl kill 4 6
+wait log split: player 3's game ended unexpectedly \(signal 11\)
+wait log split: player 4's game ended unexpectedly \(signal 6\)
+sleep 1
+windowshot crashed34
+wait log split: player 3 restarted after its crash
+wait newlog p3: net: server 127.0.0.1:27015 connected
+wait newlog p1: game: "Player 3<[0-9]+><[^>]*><>" entered the game
+wait newlog p3: pc keys: menu TeamSelect
+wait log split: player 4 restarted after its crash
+wait newlog p4: net: server 127.0.0.1:27015 connected
+wait newlog p1: game: "Player 4<[0-9]+><[^>]*><>" entered the game
+wait newlog p4: pc keys: menu TeamSelect
+sleep 6
+pad 2 button a
+pad 3 button a
+sleep 3
+wait newlog p3: pc keys: menu .*BuyMenuRoot
+wait newlog p4: pc keys: menu .*BuyMenuRoot
+pad 2 button b
+pad 3 button b
+sleep 2
+sleep 8
+players after34
+expect playercount after34 65 65
+# player 3 during a map change
+mark
+pckey cmd mp_maxrounds 1
+pckey cmd mp_roundtime 1
+pckey cmd sv_restartround 1
+wait newlog p1: net: relaunching into [a-z0-9_]+: the clients
+winctl kill 3 9
+wait newlog split: player 3's game ended unexpectedly \(signal 9\)
+wait newlog p2: net: server 127.0.0.1:27015 connected
+wait newlog p4: net: server 127.0.0.1:27015 connected
+wait newlog p3: net: server 127.0.0.1:27015 connected
+wait newlog p1: pc keys: menu TeamSelect
+wait newlog p2: pc keys: menu TeamSelect
+wait newlog p3: pc keys: menu TeamSelect
+wait newlog p4: pc keys: menu TeamSelect
+pckey cmd mp_maxrounds 0
+pckey cmd mp_roundtime 3
+sleep 3
+key Space
+pad 1 button a
+pad 2 button a
+pad 3 button a
+sleep 5
+click 3
+pad 1 button b
+pad 2 button b
+pad 3 button b
+sleep 15
+players newmap
+expect playercount newmap 65 65
+# player 4 four times in two minutes
+mark
+winctl kill 4 9
+wait newlog split: player 4's game ended unexpectedly \(signal 9\): restarting it in 3 s \(1 of 3
+wait newlog split: player 4 restarted after its crash
+wait newlog p4: net: server 127.0.0.1:27015 connected
+sleep 2
+mark
+winctl kill 4 9
+wait newlog split: player 4's game ended unexpectedly \(signal 9\): restarting it in 3 s \(2 of 3
+wait newlog split: player 4 restarted after its crash
+wait newlog p4: net: server 127.0.0.1:27015 connected
+sleep 2
+mark
+winctl kill 4 9
+wait newlog split: player 4's game ended unexpectedly \(signal 9\): restarting it in 3 s \(3 of 3
+wait newlog split: player 4 restarted after its crash
+wait newlog p4: net: server 127.0.0.1:27015 connected
+sleep 2
+mark
+winctl kill 4 9
+wait newlog split: player 4's game ended unexpectedly \(signal 9\) again: not restarted
+sleep 2
+windowshot start4
+sleep 40
+players gone4
+expect playercount gone4 64 64
+mark
+pad 3 button start
+wait newlog p4: net: server 127.0.0.1:27015 connected
+wait newlog p1: game: "Player 4<[0-9]+><[^>]*><>" entered the game
+wait newlog p4: pc keys: menu TeamSelect
+sleep 6
+pad 3 button a
+sleep 3
+wait newlog p4: pc keys: menu .*BuyMenuRoot
+pad 3 button b
+sleep 2
+sleep 8
+players back4
+expect playercount back4 65 65
+expect nolog p[234]: .*[Ss]erver is full
+expect nolog guest trap
+# player 1 (the game) killed: the compositor ends every player
+winctl kill 1 9
+wait log split: closed, 0 player processes left running

@@ -45,6 +45,9 @@ def options(path):
         for i, w in enumerate(words[:-1]):
             if w in ('--env', '--pc', '--launch'):
                 opts += [w, words[i + 1].replace('$PWD', ROOT).replace('\\n', '\n')]
+    # "timeout: N" in the header: the scenario's seconds (900 otherwise)
+    t = re.search(r'(?:^| )timeout: (\d+)', text)
+    opts += ['--timeout', t.group(1)] if t else []
     return size, opts
 
 
@@ -69,6 +72,7 @@ def main():
         subprocess.run(['rm', '-rf', run])
         os.makedirs(run)
         (w, h, hz), opts = options(path)
+        limit = int(opts[opts.index('--timeout') + 1]) if '--timeout' in opts else 900
         opts = [o.replace('$RUN', run) for o in opts]
         status = os.path.join(run, 'drive_status')
         drive = [sys.executable, '-I', os.path.join(ROOT, 'tools', 'drive.py'), path, '--exe', exe, '--run', run,
@@ -79,7 +83,7 @@ def main():
         with open(os.path.join(run, 'drive.out'), 'w') as out:
             subprocess.run(['gamescope', '--backend', 'headless', '-W', w, '-H', h, '-w', w, '-h', h] +
                            (['-r', hz] if hz else []) + ['--',
-                            'sh', '-c', inner], cwd=ROOT, stdout=out, stderr=subprocess.DEVNULL, timeout=1200)
+                            'sh', '-c', inner], cwd=ROOT, stdout=out, stderr=subprocess.DEVNULL, timeout=limit + 300)
         lines = open(os.path.join(run, 'drive.out'), encoding='utf-8', errors='replace').read().splitlines()
         for l in lines:
             if l.startswith('FAIL') or (l.startswith('     ') and not l.startswith('            ')):

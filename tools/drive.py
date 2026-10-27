@@ -35,7 +35,9 @@ per line, executed in order:
     key NAME [SECONDS]      window build: press an SDL key (SDL key name; NAME#SCANCODE: the key a layout puts at
                             that position, e.g. Å#[ on a Swedish keyboard) through the window's keys file
     point X Y               window build: the mouse pointer to (X, Y) of the menus' 640x480, as SDL motion
-    winctl fullscreen 1|0   window build: the window made full screen or windowed from outside (a compositor's key)
+    winctl fullscreen 1|0   window build: the window made full screen or windowed from outside (a compositor's key);
+                            split-screen compositor: winctl kill N SIGNAL sends player N's process SIGNAL (a crash)
+    @N STEP                 split-screen: STEP's request files in player N's folder (RUN/splitN), e.g. @2 state a
     pointat X Y             window build: the mouse pointer to (X, Y) of the window (logical pixels), as SDL motion
     type TEXT               window build: TEXT as SDL text input (what a keyboard layout types: the console's input)
     windowshot NAME         window build: save the window's output as RUN/shots/NAME.bmp
@@ -80,6 +82,7 @@ per line, executed in order:
     expect movetime MIN MAX        the movement commands' milliseconds per real second (the last two "pc frame" lines,
                                    src/game/pc_frame.cpp) in [MIN, MAX]: the game's movement keeps real time
     expect weapon A ID             the weapon in hand at A (17 Glock, 29 knife, 4 HE grenade, 25 flashbang, 9 smoke)
+    expect sameweapon A B 1|0      the weapon in hand at A and B the same (1) or different (0)
     expect rose A B MIN            the player rose at least MIN units from A to B (a jump)
     expect heading A B MAXDEG [OFF] the move from A to B points along A's yaw (+ OFF degrees: 90 left, -90 right, 180
                                    back, -45 forward right) within MAXDEG degrees
@@ -155,9 +158,10 @@ class Log:
         self.per_frame = 0.0
         self.samples = 0  # renderer lines seen, each a new draws-per-frame measurement
         self.partial = ''  # a line the game has not finished writing (its log is flushed in blocks, not lines)
+        self.run = RUN     # the run folder whose log this is (an @N step's RUN is a player's folder, not the log's)
 
     def poll(self):
-        logs = os.path.join(RUN, 'logs')
+        logs = os.path.join(self.run, 'logs')
         # a relaunched instance (same process, exec) starts a new log file: follow the newest
         if os.path.isdir(logs):
             names = sorted(os.listdir(logs))
@@ -330,7 +334,15 @@ def main():
 
     try:
         input_mark = 0  # the log's length at the last input step (wait newlog)
+        run_base = RUN
         for st in steps:
+            # @N STEP: the step's request files go to split-screen player N's own folder (RUN/splitN; @1 the run
+            # folder): its state, look, place... (its log lines come back as "pN: ...")
+            RUN = run_base
+            if st[0].startswith('@'):
+                if st[0] != '@1':
+                    RUN = os.path.join(run_base, 'split' + st[0][1:])
+                st = st[1:]
             kind = st[0]
             if kind in ('press', 'key', 'click', 'wheel', 'pckey', 'point', 'pointat', 'type', 'mark', 'pad'):
                 input_mark = len(log.lines)
@@ -621,6 +633,12 @@ def main():
                 a = states.get(st[2])
                 good = a is not None and len(a) > 7 and int(a[7]) == int(st[3])
                 print(f'     weapon {int(a[7]) if a and len(a) > 7 else None}')
+            elif kind == 'expect' and st[1] == 'sameweapon':
+                # expect sameweapon A B 1|0: the weapon in hand at states A and B the same (1) or not (0)
+                a, b = states.get(st[2]), states.get(st[3])
+                good = a is not None and b is not None and len(a) > 7 and len(b) > 7 and \
+                    (int(a[7]) == int(b[7])) == (st[4] == '1')
+                print(f'     weapon {int(a[7]) if a and len(a) > 7 else None} -> {int(b[7]) if b and len(b) > 7 else None}')
             elif kind == 'expect' and st[1] in ('moved', 'turned', 'shots', 'still', 'heading', 'yaw', 'pitch', 'rose'):
                 a, b = states.get(st[2]), states.get(st[3])
                 good = a is not None and b is not None
@@ -981,6 +999,7 @@ def main():
                     verdict = 'TIMEOUT'
                     print(f'     TIMEOUT: the scenario\'s {timeout:.0f} s ran out during this step')
                 break
+        RUN = run_base
     finally:
         for p in spawned:
             if p.poll() is None:

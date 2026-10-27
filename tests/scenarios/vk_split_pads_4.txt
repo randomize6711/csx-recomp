@@ -1,0 +1,446 @@
+# Split-screen with 4 controllers and no keyboard or mouse player (player 1 on controller 1: Split Screen > Player 1 > Also a Controller) (docs/splitscreen.md 7). Virtual SDL test controllers made by the compositor
+# (SDL_AttachVirtualJoystick: each reaches its player exactly as a connected controller would; no physical controller
+# is involved). Player 1 plays the whole front end with controller 1 only: no key, mouse or text step in this scenario.
+# A Single Player match with no bots: each player picks the Terrorists with its own controller (d-pad and A; the
+# team limit off: all carry the Glock, whose rounds the state counts), closes its
+# buy menu (B). Then rounds of actions: in each, every player does a different one (move: left stick; aim: right
+# stick; shoot: right trigger; weapon: Y, the next weapon, twice);
+# each player's own state (its process, @N steps) shows its action and nothing of the others'. Over the rounds every
+# player does every action. Each player's scoreboard (Back) and pause menu (START) are its own. Controller 3 is unplugged and another plugged in: it is player 3's, which moves with it.
+# Generated (the N4.6 controller scenarios); run with tools/run_window_tests.py (gamescope --backend headless
+# -W 1920 -H 1080), with
+#   --env CSX_SPLIT_COMPOSITOR=1 --env CSX_SPLIT_PLAYERS=4 --env CSX_SPLIT_ZCACHE=$PWD/build/zcache --pc split_p1_pad=1
+wait log split: player 1 started
+pad 1 attach
+sleep 0.5
+pad 2 attach
+sleep 0.5
+pad 3 attach
+sleep 0.5
+pad 4 attach
+sleep 0.5
+wait log split: controller .* is player 1's
+wait log p1: open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+pad 1 button start
+sleep 5
+pad 1 button a
+sleep 6
+pad 1 button a
+sleep 8
+expect log p1: pc mouse: screen SuperLauncher_MainScreen, 7 rows
+pad 1 button dpdown
+sleep 1
+pad 1 button a
+sleep 5
+pad 1 button dpdown
+sleep 1
+pad 1 button dpdown
+sleep 1
+pad 1 button dpdown
+sleep 1
+pad 1 button dpdown
+sleep 1
+pad 1 button a
+sleep 5
+expect log p1: pc mouse: screen SuperLauncher_SinglePlayerMatchOptions
+pad 1 button dpleft
+sleep 0.7
+pad 1 button dpleft
+sleep 0.7
+pad 1 button dpleft
+sleep 0.7
+pad 1 button dpleft
+sleep 0.7
+pad 1 button dpleft
+sleep 0.7
+pad 1 button dpleft
+sleep 0.7
+pad 1 button dpleft
+sleep 0.7
+pad 1 button a
+sleep 3
+pad 1 button a
+wait log p1: net: split-screen: the match hosts 4 local players
+wait log p2: net: server 127.0.0.1:27015 connected
+wait log p3: net: server 127.0.0.1:27015 connected
+wait log p4: net: server 127.0.0.1:27015 connected
+wait log p1: pc keys: menu TeamSelect
+wait log p2: pc keys: menu TeamSelect
+wait log p3: pc keys: menu TeamSelect
+wait log p4: pc keys: menu TeamSelect
+pckey cmd mp_limitteams 0
+pckey cmd mp_autoteambalance 0
+pckey cmd sv_restartround 1
+sleep 5
+pad 1 button dpdown
+sleep 0.7
+pad 1 button dpdown
+sleep 0.7
+pad 1 button a
+sleep 1
+pad 2 button dpdown
+sleep 0.7
+pad 2 button dpdown
+sleep 0.7
+pad 2 button a
+sleep 1
+pad 3 button dpdown
+sleep 0.7
+pad 3 button dpdown
+sleep 0.7
+pad 3 button a
+sleep 1
+pad 4 button dpdown
+sleep 0.7
+pad 4 button dpdown
+sleep 0.7
+pad 4 button a
+sleep 1
+sleep 4
+wait log p1: pc keys: menu .*BuyMenuRoot
+wait log p2: pc keys: menu .*BuyMenuRoot
+wait log p3: pc keys: menu .*BuyMenuRoot
+wait log p4: pc keys: menu .*BuyMenuRoot
+wait log p1: game: "[^"]*<1><[^>]*><[^>]*>" joined team "TERRORIST"
+wait log p1: game: "Player 2<[0-9]+><[^>]*><[^>]*>" joined team "TERRORIST"
+wait log p1: game: "Player 3<[0-9]+><[^>]*><[^>]*>" joined team "TERRORIST"
+wait log p1: game: "Player 4<[0-9]+><[^>]*><[^>]*>" joined team "TERRORIST"
+pad 1 button b
+sleep 1
+pad 2 button b
+sleep 1
+pad 3 button b
+sleep 1
+pad 4 button b
+sleep 1
+sleep 12
+players teams
+expect playercount teams 4 4
+wait log p1: pc keys: playing
+wait log p2: pc keys: playing
+wait log p3: pc keys: playing
+wait log p4: pc keys: playing
+# round 1: player 1 move, player 2 turn, player 3 shoot, player 4 weapon
+@1 state r0a1
+@2 state r0a2
+@3 state r0a3
+@4 state r0a4
+pad 1 axis lefty -32767
+sleep 1.5
+pad 1 axis lefty 0
+sleep 0.3
+pad 2 axis rightx 26000
+sleep 0.6
+pad 2 axis rightx 0
+sleep 0.3
+pad 3 axis righttrigger 32767
+sleep 0.15
+pad 3 axis righttrigger 0
+sleep 0.8
+pad 4 button y
+sleep 1.5
+@1 state r0m1
+@2 state r0m2
+@3 state r0m3
+@4 state r0m4
+pad 4 button y
+sleep 1.5
+@1 state r0b1
+@2 state r0b2
+@3 state r0b3
+@4 state r0b4
+expect moved r0a1 r0b1 100 1000
+expect yaw r0a1 r0b1 0 0.5
+expect shots r0a1 r0b1 0
+expect turned r0a2 r0b2 5
+expect moved r0a2 r0b2 0 2
+expect shots r0a2 r0b2 0
+expect shots r0a3 r0b3 1
+expect moved r0a3 r0b3 0 2
+expect yaw r0a3 r0b3 0 0.5
+expect sameweapon r0a4 r0m4 0
+expect sameweapon r0a4 r0b4 1
+expect moved r0a4 r0b4 0 2
+expect yaw r0a4 r0b4 0 0.5
+expect shots r0a4 r0b4 0
+# round 2: player 1 turn, player 2 shoot, player 3 weapon, player 4 move
+@1 state r1a1
+@2 state r1a2
+@3 state r1a3
+@4 state r1a4
+pad 1 axis rightx 26000
+sleep 0.6
+pad 1 axis rightx 0
+sleep 0.3
+pad 2 axis righttrigger 32767
+sleep 0.15
+pad 2 axis righttrigger 0
+sleep 0.8
+pad 3 button y
+sleep 1.5
+pad 4 axis lefty -32767
+sleep 1.5
+pad 4 axis lefty 0
+sleep 0.3
+@1 state r1m1
+@2 state r1m2
+@3 state r1m3
+@4 state r1m4
+pad 3 button y
+sleep 1.5
+@1 state r1b1
+@2 state r1b2
+@3 state r1b3
+@4 state r1b4
+expect turned r1a1 r1b1 5
+expect moved r1a1 r1b1 0 2
+expect shots r1a1 r1b1 0
+expect shots r1a2 r1b2 1
+expect moved r1a2 r1b2 0 2
+expect yaw r1a2 r1b2 0 0.5
+expect sameweapon r1a3 r1m3 0
+expect sameweapon r1a3 r1b3 1
+expect moved r1a3 r1b3 0 2
+expect yaw r1a3 r1b3 0 0.5
+expect shots r1a3 r1b3 0
+expect moved r1a4 r1b4 100 1000
+expect yaw r1a4 r1b4 0 0.5
+expect shots r1a4 r1b4 0
+# round 3: player 1 shoot, player 2 weapon, player 3 move, player 4 turn
+@1 state r2a1
+@2 state r2a2
+@3 state r2a3
+@4 state r2a4
+pad 1 axis righttrigger 32767
+sleep 0.15
+pad 1 axis righttrigger 0
+sleep 0.8
+pad 2 button y
+sleep 1.5
+pad 3 axis lefty -32767
+sleep 1.5
+pad 3 axis lefty 0
+sleep 0.3
+pad 4 axis rightx 26000
+sleep 0.6
+pad 4 axis rightx 0
+sleep 0.3
+@1 state r2m1
+@2 state r2m2
+@3 state r2m3
+@4 state r2m4
+pad 2 button y
+sleep 1.5
+@1 state r2b1
+@2 state r2b2
+@3 state r2b3
+@4 state r2b4
+expect shots r2a1 r2b1 1
+expect moved r2a1 r2b1 0 2
+expect yaw r2a1 r2b1 0 0.5
+expect sameweapon r2a2 r2m2 0
+expect sameweapon r2a2 r2b2 1
+expect moved r2a2 r2b2 0 2
+expect yaw r2a2 r2b2 0 0.5
+expect shots r2a2 r2b2 0
+expect moved r2a3 r2b3 100 1000
+expect yaw r2a3 r2b3 0 0.5
+expect shots r2a3 r2b3 0
+expect turned r2a4 r2b4 5
+expect moved r2a4 r2b4 0 2
+expect shots r2a4 r2b4 0
+# round 4: player 1 weapon, player 2 move, player 3 turn, player 4 shoot
+@1 state r3a1
+@2 state r3a2
+@3 state r3a3
+@4 state r3a4
+pad 1 button y
+sleep 1.5
+pad 2 axis lefty -32767
+sleep 1.5
+pad 2 axis lefty 0
+sleep 0.3
+pad 3 axis rightx 26000
+sleep 0.6
+pad 3 axis rightx 0
+sleep 0.3
+pad 4 axis righttrigger 32767
+sleep 0.15
+pad 4 axis righttrigger 0
+sleep 0.8
+@1 state r3m1
+@2 state r3m2
+@3 state r3m3
+@4 state r3m4
+pad 1 button y
+sleep 1.5
+@1 state r3b1
+@2 state r3b2
+@3 state r3b3
+@4 state r3b4
+expect sameweapon r3a1 r3m1 0
+expect sameweapon r3a1 r3b1 1
+expect moved r3a1 r3b1 0 2
+expect yaw r3a1 r3b1 0 0.5
+expect shots r3a1 r3b1 0
+expect moved r3a2 r3b2 100 1000
+expect yaw r3a2 r3b2 0 0.5
+expect shots r3a2 r3b2 0
+expect turned r3a3 r3b3 5
+expect moved r3a3 r3b3 0 2
+expect shots r3a3 r3b3 0
+expect shots r3a4 r3b4 1
+expect moved r3a4 r3b4 0 2
+expect yaw r3a4 r3b4 0 0.5
+@1 state rep1a
+pad 1 axis righttrigger 32767
+sleep 0.12
+pad 1 axis righttrigger 0
+sleep 0.7
+pad 1 axis righttrigger 32767
+sleep 0.12
+pad 1 axis righttrigger 0
+sleep 0.7
+pad 1 axis righttrigger 32767
+sleep 0.12
+pad 1 axis righttrigger 0
+sleep 0.7
+@1 state rep1b
+expect shots rep1a rep1b 3
+@2 state rep2a
+pad 2 axis righttrigger 32767
+sleep 0.12
+pad 2 axis righttrigger 0
+sleep 0.7
+pad 2 axis righttrigger 32767
+sleep 0.12
+pad 2 axis righttrigger 0
+sleep 0.7
+pad 2 axis righttrigger 32767
+sleep 0.12
+pad 2 axis righttrigger 0
+sleep 0.7
+@2 state rep2b
+expect shots rep2a rep2b 3
+@3 state rep3a
+pad 3 axis righttrigger 32767
+sleep 0.12
+pad 3 axis righttrigger 0
+sleep 0.7
+pad 3 axis righttrigger 32767
+sleep 0.12
+pad 3 axis righttrigger 0
+sleep 0.7
+pad 3 axis righttrigger 32767
+sleep 0.12
+pad 3 axis righttrigger 0
+sleep 0.7
+@3 state rep3b
+expect shots rep3a rep3b 3
+@4 state rep4a
+pad 4 axis righttrigger 32767
+sleep 0.12
+pad 4 axis righttrigger 0
+sleep 0.7
+pad 4 axis righttrigger 32767
+sleep 0.12
+pad 4 axis righttrigger 0
+sleep 0.7
+pad 4 axis righttrigger 32767
+sleep 0.12
+pad 4 axis righttrigger 0
+sleep 0.7
+@4 state rep4b
+expect shots rep4a rep4b 3
+windowshot actions
+mark
+pad 1 button back 3
+sleep 1
+wait newlog p1: pc keys: Scoreboard passes the controls through
+expect count p1:.pc.keys:.Scoreboard.passes.the.controls.through 1
+expect count p2:.pc.keys:.Scoreboard.passes.the.controls.through 0
+expect count p3:.pc.keys:.Scoreboard.passes.the.controls.through 0
+expect count p4:.pc.keys:.Scoreboard.passes.the.controls.through 0
+sleep 3
+mark
+pad 1 button start
+sleep 2
+wait newlog p1: pc keys: menu InGame_Root
+expect count p1:.pc.keys:.menu.InGame_Root 1
+expect count p2:.pc.keys:.menu.InGame_Root 0
+expect count p3:.pc.keys:.menu.InGame_Root 0
+expect count p4:.pc.keys:.menu.InGame_Root 0
+pad 1 button b
+sleep 2
+mark
+pad 2 button back 3
+sleep 1
+wait newlog p2: pc keys: Scoreboard passes the controls through
+expect count p1:.pc.keys:.Scoreboard.passes.the.controls.through 1
+expect count p2:.pc.keys:.Scoreboard.passes.the.controls.through 1
+expect count p3:.pc.keys:.Scoreboard.passes.the.controls.through 0
+expect count p4:.pc.keys:.Scoreboard.passes.the.controls.through 0
+sleep 3
+mark
+pad 2 button start
+sleep 2
+wait newlog p2: pc keys: menu InGame_Root
+expect count p1:.pc.keys:.menu.InGame_Root 1
+expect count p2:.pc.keys:.menu.InGame_Root 1
+expect count p3:.pc.keys:.menu.InGame_Root 0
+expect count p4:.pc.keys:.menu.InGame_Root 0
+pad 2 button b
+sleep 2
+mark
+pad 3 button back 3
+sleep 1
+wait newlog p3: pc keys: Scoreboard passes the controls through
+expect count p1:.pc.keys:.Scoreboard.passes.the.controls.through 1
+expect count p2:.pc.keys:.Scoreboard.passes.the.controls.through 1
+expect count p3:.pc.keys:.Scoreboard.passes.the.controls.through 1
+expect count p4:.pc.keys:.Scoreboard.passes.the.controls.through 0
+sleep 3
+mark
+pad 3 button start
+sleep 2
+wait newlog p3: pc keys: menu InGame_Root
+expect count p1:.pc.keys:.menu.InGame_Root 1
+expect count p2:.pc.keys:.menu.InGame_Root 1
+expect count p3:.pc.keys:.menu.InGame_Root 1
+expect count p4:.pc.keys:.menu.InGame_Root 0
+pad 3 button b
+sleep 2
+mark
+pad 4 button back 3
+sleep 1
+wait newlog p4: pc keys: Scoreboard passes the controls through
+expect count p1:.pc.keys:.Scoreboard.passes.the.controls.through 1
+expect count p2:.pc.keys:.Scoreboard.passes.the.controls.through 1
+expect count p3:.pc.keys:.Scoreboard.passes.the.controls.through 1
+expect count p4:.pc.keys:.Scoreboard.passes.the.controls.through 1
+sleep 3
+mark
+pad 4 button start
+sleep 2
+wait newlog p4: pc keys: menu InGame_Root
+expect count p1:.pc.keys:.menu.InGame_Root 1
+expect count p2:.pc.keys:.menu.InGame_Root 1
+expect count p3:.pc.keys:.menu.InGame_Root 1
+expect count p4:.pc.keys:.menu.InGame_Root 1
+pad 4 button b
+sleep 2
+pad 3 detach
+wait log split: player 3's controller disconnected
+sleep 1
+pad 5 attach
+wait log split: controller .* is player 3's
+sleep 2
+@3 state hp_a
+pad 5 axis lefty -32767
+sleep 1.5
+pad 5 axis lefty 0
+sleep 0.5
+@3 state hp_b
+expect moved hp_a hp_b 100 1000
+expect nolog guest trap

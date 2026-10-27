@@ -1,0 +1,281 @@
+# Four split-screen players' audio (docs/splitscreen.md 8): every player's own stream at full Master Volume through
+# SDL to its dummy device (SDL_AUDIO_DRIVER=dummy: nothing reaches the speakers, nothing is muted) and captured as the
+# device gets it (CSX_AUDIO_WAV, each in its own folder), the game sounds each process starts logged (CSX_LOG_SOUNDS,
+# CSX_LOG_MENU_SOUNDS). Four players and 3 bots on de_airstrip: each player's pause menu (menu sounds), gunfire (three
+# shots each), a reload, footsteps, radio (coverme, enemyspot), player 3 firing beside player 2 with player 2 facing
+# one way and then the other (positional), player 4 killed (its death, then spectator audio), a map change (the match's one round over: the next map;
+# the captures go on) and gunfire after it. tools/split_audio.py build/wruns/vk_split_4_sound then reads the four
+# streams: levels, peaks, clipping in each and in their sum, late callbacks, each sound heard in its own stream,
+# duplicates, left and right as expected.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --env CSX_SPLIT_COMPOSITOR=1 --env CSX_SPLIT_PLAYERS=4 --env CSX_SPLIT_ZCACHE=$PWD/build/zcache --env CSX_AUDIO=sdl
+#   --env SDL_AUDIO_DRIVER=dummy --env CSX_AUDIO_WAV=audio.wav --env CSX_LOG_SOUNDS=1 --env CSX_LOG_MENU_SOUNDS=1
+wait log split: player 1 started
+pad 1 attach
+pad 2 attach
+pad 3 attach
+wait log p1: open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+key Down
+sleep 2
+key Space
+sleep 5
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Space
+sleep 5
+expect log p1: pc mouse: screen SuperLauncher_SinglePlayerMatchOptions
+key Left
+sleep 0.7
+key Left
+sleep 0.7
+key Left
+sleep 0.7
+key Left
+sleep 0.7
+key Space
+sleep 3
+key Space
+wait log split: player 4 started
+wait log p2: net: server 127.0.0.1:27015 connected
+wait log p3: net: server 127.0.0.1:27015 connected
+wait log p4: net: server 127.0.0.1:27015 connected
+wait log p4: pc keys: menu TeamSelect
+sleep 5
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Space
+pad 1 button dpdown
+sleep 0.5
+pad 1 button dpdown
+sleep 0.5
+pad 1 button a
+pad 2 button dpdown
+sleep 0.5
+pad 2 button dpdown
+sleep 0.5
+pad 2 button a
+pad 3 button dpdown
+sleep 0.5
+pad 3 button a
+sleep 5
+click 3
+pad 1 button b
+pad 2 button b
+pad 3 button b
+sleep 10
+pckey cmd bot_zombie 1
+pckey cmd mp_freezetime 0
+sleep 2
+# pause menus: their sounds in their own streams
+key Escape
+sleep 1.5
+key Down
+sleep 1
+key Up
+sleep 1
+key Space
+sleep 1.5
+wait newlog p1: pc keys: playing
+pad 1 button start
+sleep 1.5
+pad 1 button dpdown
+sleep 1
+pad 1 button dpup
+sleep 1
+pad 1 button a
+sleep 1.5
+wait newlog p2: pc keys: playing
+pad 2 button start
+sleep 1.5
+pad 2 button dpdown
+sleep 1
+pad 2 button dpup
+sleep 1
+pad 2 button a
+sleep 1.5
+wait newlog p3: pc keys: playing
+pad 3 button start
+sleep 1.5
+pad 3 button dpdown
+sleep 1
+pad 3 button dpup
+sleep 1
+pad 3 button a
+sleep 1.5
+wait newlog p4: pc keys: playing
+# gunfire, three shots each
+click 1 0.1
+sleep 0.6
+click 1 0.1
+sleep 0.6
+click 1 0.1
+sleep 0.6
+pad 1 axis righttrigger 32767
+sleep 0.1
+pad 1 axis righttrigger 0
+sleep 0.6
+pad 1 axis righttrigger 32767
+sleep 0.1
+pad 1 axis righttrigger 0
+sleep 0.6
+pad 1 axis righttrigger 32767
+sleep 0.1
+pad 1 axis righttrigger 0
+sleep 0.6
+pad 2 axis righttrigger 32767
+sleep 0.1
+pad 2 axis righttrigger 0
+sleep 0.6
+pad 2 axis righttrigger 32767
+sleep 0.1
+pad 2 axis righttrigger 0
+sleep 0.6
+pad 2 axis righttrigger 32767
+sleep 0.1
+pad 2 axis righttrigger 0
+sleep 0.6
+pad 3 axis righttrigger 32767
+sleep 0.1
+pad 3 axis righttrigger 0
+sleep 0.6
+pad 3 axis righttrigger 32767
+sleep 0.1
+pad 3 axis righttrigger 0
+sleep 0.6
+pad 3 axis righttrigger 32767
+sleep 0.1
+pad 3 axis righttrigger 0
+sleep 0.6
+# reloads
+key R
+sleep 3
+pad 1 button x
+sleep 3
+pad 2 button x
+sleep 3
+pad 3 button x
+sleep 3
+# footsteps
+key W 2
+sleep 2.5
+pad 1 axis lefty -32767
+sleep 2
+pad 1 axis lefty 0
+sleep 0.5
+pad 2 axis lefty -32767
+sleep 2
+pad 2 axis lefty 0
+sleep 0.5
+pad 3 axis lefty -32767
+sleep 2
+pad 3 axis lefty 0
+sleep 0.5
+# radio
+pckey cmd coverme
+sleep 3
+@2 pckey cmd enemyspot
+sleep 3
+# positional: player 3 fires beside player 2, player 2 facing one way, then turned around
+@2 state pa
+@3 state pb
+pad 2 axis righttrigger 32767
+sleep 0.1
+pad 2 axis righttrigger 0
+sleep 0.8
+pad 2 axis righttrigger 32767
+sleep 0.1
+pad 2 axis righttrigger 0
+sleep 0.8
+pad 2 axis righttrigger 32767
+sleep 0.1
+pad 2 axis righttrigger 0
+sleep 0.8
+pad 1 axis rightx 26000
+sleep 1.0
+pad 1 axis rightx 0
+sleep 0.5
+@2 state pc
+expect turned pa pc 20
+@3 state pd
+pad 2 axis righttrigger 32767
+sleep 0.1
+pad 2 axis righttrigger 0
+sleep 0.8
+pad 2 axis righttrigger 32767
+sleep 0.1
+pad 2 axis righttrigger 0
+sleep 0.8
+pad 2 axis righttrigger 32767
+sleep 0.1
+pad 2 axis righttrigger 0
+sleep 0.8
+# player 4 dies; it hears the match as a spectator
+@4 pckey cmd kill
+sleep 2
+wait log p4: pc keys: Spectator passes the controls through
+sleep 1
+click 1 0.1
+sleep 0.6
+click 1 0.1
+sleep 0.6
+click 1 0.1
+sleep 0.6
+sleep 3
+# a map change
+mark
+pckey cmd mp_maxrounds 1
+pckey cmd mp_roundtime 1
+pckey cmd sv_restartround 1
+wait newlog p1: net: relaunching into [a-z0-9_]+: the clients
+wait newlog p2: net: server 127.0.0.1:27015 connected
+wait newlog p3: net: server 127.0.0.1:27015 connected
+wait newlog p4: net: server 127.0.0.1:27015 connected
+wait newlog p4: pc keys: menu TeamSelect
+pckey cmd mp_maxrounds 0
+pckey cmd mp_roundtime 3
+sleep 4
+key Space
+pad 1 button a
+pad 2 button a
+pad 3 button a
+sleep 5
+click 3
+pad 1 button b
+pad 2 button b
+pad 3 button b
+sleep 12
+click 1 0.1
+sleep 0.6
+click 1 0.1
+sleep 0.6
+click 1 0.1
+sleep 0.6
+pad 1 axis righttrigger 32767
+sleep 0.1
+pad 1 axis righttrigger 0
+sleep 0.6
+pad 2 axis righttrigger 32767
+sleep 0.1
+pad 2 axis righttrigger 0
+sleep 0.6
+pad 3 axis righttrigger 32767
+sleep 0.1
+pad 3 axis righttrigger 0
+sleep 0.6
+sleep 3
+expect nolog guest trap
