@@ -16,7 +16,7 @@ document cites:
 Contents: 1 current architecture, 2 does remote play work today, 3 packet sizes and the transport, 4 options and the
 recommendation, 5 snapshots and replication, 6 security, 7 dedicated server, 8 configuration, 9 server browser,
 10 split-screen, 11 testing, 12 performance, 13 roadmap, 14 open questions and risks, 15 N1 as built, 16 N2 as built
-(the dedicated server), 17 N3 as built (the server browser).
+(the dedicated server), 17 N3 as built (the server browser), 18 N4 as built (split-screen: docs/splitscreen.md).
 
 ## 1. Current architecture
 
@@ -1152,3 +1152,14 @@ answers. Nothing in N3 assumes one player per PC.
 | c84bace | Tests: net_browse_* and vk_browser_* scenarios; drive.py newlog, mark, spawn; the fuzzer at the query |
 | 2ee3883 | A chat line never taken for a server's refusal |
 | (this) | Docs: N3 (this section, FINDINGS, PROGRESS, ROADMAP, TODO, networking.md) |
+
+## 18. N4 as built: split-screen (2026-10-27)
+
+Split-screen is documented in docs/splitscreen.md (the investigation, architectures A and B compared, the decision,
+as built, layouts, input, audio, the setup screen, slots, performance, network, tests, limitations). In short:
+architecture B, section 10 option 1 above: a compositor owns the window and starts one game process per local
+player (up to four); each player is an ordinary client of player 1's server with its own identity, transport
+connection and slot; the server side is unchanged (no local shortcut, protocol 47 and N1-N3's message versions
+unchanged); players 2-4 follow player 1's join with the server's key pinned and the password from the environment.
+Tests: net_split_ded_4, net_split_browse, net_split_listen, net_split_full (network) and the vk_split_* window
+scenarios.

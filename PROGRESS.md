@@ -709,3 +709,36 @@ scenarios, no rerun). Measured: 300 internet servers listed in 1.6 s at
 30 menu frames a second, LAN answers in 0-2 ms from dedicated servers. Not yet secure for the public internet: the
 engine's client parsers against a hostile server (section 17.5). Branch g8.2b, not merged. N4 (split-screen) waits
 for approval.
+
+## 2026-10-27 — N4: split-screen for up to four local players
+
+Approved by the user 2026-10-26 after N3. Built (docs/splitscreen.md): architecture B of the two compared (one game
+process per local player under a compositor that owns the one window, against a second local player inside one
+engine, which the title's single client state, view and pad rule out without a redesign).
+- The compositor (src/linux/compositor.cpp, the window build with CSX_SPLIT_COMPOSITOR=1): the SDL window, the Vulkan
+  swapchain, every input device, the layouts (1 full; 2 top and bottom or side by side; 3 one wide over two; 4 2x2),
+  process supervision; a SOCK_SEQPACKET socketpair to each player (src/linux/split_ipc.h). Players render off screen
+  into three exported Vulkan images each (VK_KHR_external_memory_fd), blitted into their viewports; the existing
+  Vulkan renderer is unchanged otherwise.
+- Players: player 1 plays the front end and hosts or joins; players 2-4 follow with +connect, the server's key pinned
+  and the password from the environment; each is an ordinary client (own identity, connection, slot, entity, HUD,
+  scoreboard, audio stream). The server does not know a client is local. Offline and menu-hosted split matches leave
+  room for four local players (61 bots at most: 65 slots).
+- Input: player 1 on keyboard and mouse (raw mouse kept) or a controller too; controllers to players 2-4 in
+  connection order as virtual SDL gamepads in their processes (no input reaches two players), hotplug, START to join
+  a running match or retry after a refusal. The Split Screen screen in the main menu (count, layout, devices).
+- Player 1's Display Mode and VSync drive the window; full screen, windowed, resize and 4:3 / 16:9 / 21:9 checked.
+- Fixed on the way: a 65-slot offline match had no slot for a joining local player (the bot reserve); views
+  letterboxed after a layout change (filled, cropped sides); the password in the compositor's log; gamescope dropping
+  SDL's full screen flag.
+- Tests: 4 network scenarios (net_split_ded_4, net_split_browse, net_split_listen, net_split_full), 8 window
+  scenarios (vk_split_2, 2v, 2_219, 3, 4, 4_43, play, 4_audio) and 7 benchmarks (vk_perf_split_*,
+  tools/split_perf.py).
+Results on the final build: network 35 of 35 (31 of N1-N3 and the 4 split scenarios; net_split_full failed once on
+its own test, which counted before player 1 picked a team: fixed and rerun alone), headless 46 of 46, window 40 of 40
+(the 27 default, the 6 scoreboard / bot / collision / browser scenarios, the 7 split scenarios), vk_split_4_audio run
+alone, unit tests unchanged and passing. Measured: four players with 61 bots each above 93 frames/s on average,
+460% of one core, 719 MB; one player without split-screen unchanged (vk_perf_aztec_64 90.2 frames/s, against 84.0
+before N4). Not done: a team change through a menu, player 1 on a controller only as its own scenario, a name row,
+a crashed player's restart, latency end to end, listening to four streams (docs/splitscreen.md section 14). Linux
+only, as asked. Branch g8.2b, not merged. N5 waits for approval.

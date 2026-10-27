@@ -55,5 +55,6 @@
   architecture; then N1 — PC transport and remote clients ✅ 2026-10-25 (signed off), N2 — dedicated server
   (csx-server: no host slot, server identity, remote administration, 30 snapshots a second) ✅ 2026-10-25; N3 —
   server browser (LAN discovery, master server csx-master, favorites, direct address, in the title's own menus) ✅
-  2026-10-26, waiting for approval; N4 — split-screen (one client process per local player) after the user's approval
+  2026-10-26; N4 — split-screen for 1-4 local players (a compositor and one game process per player,
+  docs/splitscreen.md) ✅ 2026-10-27, waiting for approval before N5
 - M8 — PC feature set complete

@@ -1941,6 +1941,32 @@ Remaining uncertainty: the bots' avoidance of teammates is their own logic and w
 they can still pause behind each other); hostages keep blocking (they are not players); network play is untested and
 the option is not offered there.
 
+## PC multiplayer N4: split-screen (2026-10-27)
+
+What split-screen (docs/splitscreen.md) found about the title and the platform:
+- **The title has no second local player** (docs/splitscreen.md section 1): one client state, one view, one active
+  pad. Split-screen runs one game process per local player under a compositor that owns the window; each player is
+  an ordinary network client of player 1's server (its own client_t, entity and slot), verified by the server's
+  client count in every split scenario.
+- **The title creates its device once**: the aspect (pc_wide.cpp's Hor+) is fixed when a process boots, so a layout
+  change during a match cannot reshape a running player's frame; a wider frame fills its new viewport with the sides
+  cropped (split::FrameRect) until that player's next boot. Verified in vk_split_3 (the fourth player joining three).
+- **Bots are never removed for a joining player**: the title sets its bots at a match's start and bot_kick has a
+  known crash (TODO 1e3), so a 65-slot offline match with 64 bots left no slot for a second local player (START was
+  refused "The server is full"). Offline and menu-hosted split matches cap bots at 61; verified 4 + 61 = 65.
+- **gamescope drops SDL's full screen flag** (SDL_GetWindowFlags reports windowed after SDL_SetWindowFullscreen
+  succeeded), so a later "windowed" request did nothing: the compositor keeps the state it asked for itself.
+  Verified in vk_split_play (full screen and back through player 1's PC Options).
+- **pc::Set only changes memory**: the compositor applies player 1's Display Mode and VSync with it and never writes
+  player 1's pc_settings.ini.
+- **The buy menu closes on a right click** (`pckey mclick 2` in tests); Escape, B and Left Ctrl on the keyboard do
+  not close it.
+- **The `players` probe counts clients that have joined a team**: a client still at TeamSelect is connected but not
+  listed (net_split_full's first run counted 2 for 3 connected clients until player 1 picked its team).
+- **The compositor's cost**: about a quarter of the frame rate with one player at ~190 frames/s (the copy into the
+  exported image, the notifier thread, a second presenting process); it matters only above the display's rate.
+  Four players on 8 cores: 460% of one core, 719 MB resident, every player above 60 frames/s on average.
+
 ## PC multiplayer N3: the server browser (2026-10-26)
 
 How the title's menus were made to carry a PC server browser (docs/pc_multiplayer.md section 17), and what was found:
