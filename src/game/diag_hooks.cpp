@@ -1,5 +1,6 @@
 // Diagnostic instruction hooks for bring-up, named by [[hook]] entries in config/game.toml.
 #include <cstdlib>
+#include <cstring>
 
 #include "core/log.h"
 #include "cpu/x86_context.h"
@@ -28,4 +29,32 @@ void LogMenuSound(X86Context& ctx, uint8_t*) {
     static const bool on = std::getenv("CSX_LOG_MENU_SOUNDS") && *std::getenv("CSX_LOG_MENU_SOUNDS") == '1';
     uint32_t name = kernel::R32(ctx.esp + 4);
     if (on && name) LOGI("menu sound %s", static_cast<const char*>(kernel::HostPtr(name)));
+}
+
+// 0x100F10: S_StartDynamicSound's entry (cdecl: the entity, the channel, the sfx_t (its name first), the volume, the
+// attenuation, the flags, the pitch; ecx the origin), logged with CSX_LOG_SOUNDS=1: a test finds each game sound a
+// player's process starts (gunfire, footsteps, reloads, radio, pain) in that player's audio capture
+void LogGameSound(X86Context& ctx, uint8_t*) {
+    static const bool on = std::getenv("CSX_LOG_SOUNDS") && *std::getenv("CSX_LOG_SOUNDS") == '1';
+    if (!on) return;
+    uint32_t sfx = kernel::R32(ctx.esp + 0xC);
+    if (!sfx) return;
+    float vol = 0, origin[3] = {};
+    std::memcpy(&vol, kernel::HostPtr(ctx.esp + 0x10), 4);
+    if (ctx.ecx) std::memcpy(origin, kernel::HostPtr(ctx.ecx), sizeof origin);
+    LOGI("sound %.63s ent %d chan %d vol %.2f at %.0f %.0f %.0f", static_cast<const char*>(kernel::HostPtr(sfx)),
+         int(kernel::R32(ctx.esp + 4)), int(kernel::R32(ctx.esp + 8)), vol, origin[0], origin[1], origin[2]);
+}
+
+// 0x1011C0: S_StartStaticSound's entry (ecx the sfx_t, its name first; cdecl: the entity, the channel, the origin,
+// the volume, the attenuation, the flags, the pitch), logged with CSX_LOG_SOUNDS=1 as LogGameSound: this build plays
+// weapon fire on channel 6 (CHAN_STATIC), so the client's events (EV_PlaySound, 0x46290) send gunfire here
+void LogGameStaticSound(X86Context& ctx, uint8_t*) {
+    static const bool on = std::getenv("CSX_LOG_SOUNDS") && *std::getenv("CSX_LOG_SOUNDS") == '1';
+    if (!on || !ctx.ecx) return;
+    float vol = 0, origin[3] = {};
+    std::memcpy(&vol, kernel::HostPtr(ctx.esp + 0x10), 4);
+    if (uint32_t o = kernel::R32(ctx.esp + 0xC)) std::memcpy(origin, kernel::HostPtr(o), sizeof origin);
+    LOGI("sound %.63s ent %d chan %d vol %.2f at %.0f %.0f %.0f", static_cast<const char*>(kernel::HostPtr(ctx.ecx)),
+         int(kernel::R32(ctx.esp + 4)), int(kernel::R32(ctx.esp + 8)), vol, origin[0], origin[1], origin[2]);
 }

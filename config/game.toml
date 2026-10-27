@@ -1309,3 +1309,14 @@ on_true = 0xDB8C0
 at = 0xDB925
 call = "PcProfileSkipScreen"
 on_true = 0xDB9EF
+
+# The engine's S_StartDynamicSound (0x100F10) logged with CSX_LOG_SOUNDS=1 (src/game/diag_hooks.cpp): split-screen audio
+# tests match each player's game sounds to its audio capture
+[[hook]]
+at = 0x100F10
+call = "LogGameSound"
+
+# The engine's S_StartStaticSound (0x1011C0) logged with CSX_LOG_SOUNDS=1 too: weapon fire is on its channel 6
+[[hook]]
+at = 0x1011C0
+call = "LogGameStaticSound"

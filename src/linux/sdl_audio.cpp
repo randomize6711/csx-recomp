@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -69,9 +70,14 @@ void Capture(const float* samples, uint32_t frames) {
     }
 }
 
+std::atomic<uint64_t> g_limited{0};  // chunks the split-screen limiter turned down
+
 // Options > PC Options: Master Volume (0-100, default 100) on what goes to the device, after the game's own mix; a
 // split-screen player's stream also at its share (CSX_AUDIO_GAIN, the compositor's 1/sqrt(players): the system mixes
-// every player's stream, each heard from that player's own position)
+// every player's stream, each heard from that player's own position). The system adds the streams, so each is also
+// held under 1/players of full scale (a peak limiter: a chunk louder than that at once turned down to it, the gain
+// coming back over about 100 ms): four streams together never pass full scale (N4.6: at 1/sqrt(4) alone four players'
+// gunfire summed past it), while sounds below the ceiling keep their level. One player alone: no limiter
 void Volume(float* samples, uint32_t frames) {
     static unsigned seen = ~0u;
     static float gain = 1.0f;
@@ -86,6 +92,20 @@ void Volume(float* samples, uint32_t frames) {
     }
     if (gain != 1.0f)
         for (uint32_t i = 0; i < frames * 2; i++) samples[i] *= gain;
+    static const float ceiling = share < 1.0f ? share * share : 1.0f;  // 1/players
+    static float limit = 1.0f;
+    if (ceiling >= 1.0f) return;
+    float peak = 0.0f;
+    for (uint32_t i = 0; i < frames * 2; i++) peak = std::max(peak, std::fabs(samples[i]));
+    float target = peak > ceiling ? ceiling / peak : 1.0f;
+    if (target < limit) {
+        limit = target;  // at once, for the whole chunk: no sample over the ceiling
+        g_limited++;
+    } else {
+        limit = std::min(target, limit + (1.0f - limit) * 0.1f);  // back up over ~10 chunks of 10 ms
+    }
+    if (limit < 1.0f)
+        for (uint32_t i = 0; i < frames * 2; i++) samples[i] *= limit;
 }
 
 // SDL's audio thread: render what the device asks for
@@ -136,7 +156,7 @@ void StartOutput(std::function<void(float*, uint32_t)> render) {
         } else if ((g_wav = std::fopen(wav, "wb"))) {
             WavHeader(g_wav, 0);
         }
-        LOGI("audio: capturing the output to %s", wav);
+        LOGI("audio: capturing the output to %s from frame %llu", wav, (unsigned long long)g_wav_frames);
     }
     const char* mode = std::getenv("CSX_AUDIO");
     if (mode && std::strcmp(mode, "null") == 0) {
@@ -174,6 +194,11 @@ void StartOutput(std::function<void(float*, uint32_t)> render) {
                 LOGI("audio: %llu late device callbacks of %llu so far", (unsigned long long)g_late.load(),
                      (unsigned long long)g_callbacks.load());
             last = g_late;
+            static uint64_t limited = 0;
+            if (g_limited != limited)
+                LOGI("audio: the split-screen limiter turned %llu chunks of 10 ms down so far",
+                     (unsigned long long)g_limited.load());
+            limited = g_limited;
         }
     }).detach();
 }
