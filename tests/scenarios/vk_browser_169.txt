@@ -6,6 +6,7 @@
 # leaves. Shots of Multiplayer, the list and the details at this aspect ratio.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
 #   --pc aspect=16:9 --pc browser_sort=name
+write profiles/00000000000000a1.ini name = Tester\n
 wait log renderer: vulkan
 spawn build/master/csx-fakeservers --count 6 --port 27015 --bind 0.0.0.0 --seconds 400
 wait log open d:\\Media\\Videos\\ESRB.xmv
@@ -23,7 +24,20 @@ sleep 1
 key Down
 sleep 1
 key Space
-sleep 4
+# N4.8: Multiplayer opens the party first, then Server Browser
+wait log pc mouse: screen SuperLauncher_PCParty
+sleep 2
+key Space
+sleep 2
+key Space
+wait log pc mouse: screen SuperLauncher_PCPartyDestination
+sleep 2
+key Down
+sleep 1
+key Down
+sleep 1
+key Space
+sleep 3
 expect log pc mouse: screen SuperLauncher_SystemLink, 6 rows
 windowshot multiplayer
 key Space

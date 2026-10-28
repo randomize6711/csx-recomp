@@ -31,6 +31,7 @@
 #include <functional>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <string>
 #include <thread>
 #include <vector>
@@ -168,10 +169,11 @@ bool HostInputEvent(const SDL_Event& e) {
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
         case SDL_EVENT_MOUSE_BUTTON_UP: return e.button.which != window::kInjectedDevice;
         case SDL_EVENT_MOUSE_WHEEL: return e.wheel.which != window::kInjectedDevice;
-        case SDL_EVENT_GAMEPAD_ADDED:
-        case SDL_EVENT_GAMEPAD_AXIS_MOTION:
+        // (a virtual gamepad is the test's own: its "pad" requests)
+        case SDL_EVENT_GAMEPAD_ADDED: return !SDL_IsJoystickVirtual(e.gdevice.which);
+        case SDL_EVENT_GAMEPAD_AXIS_MOTION: return !SDL_IsJoystickVirtual(e.gaxis.which);
         case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
-        case SDL_EVENT_GAMEPAD_BUTTON_UP: return true;
+        case SDL_EVENT_GAMEPAD_BUTTON_UP: return !SDL_IsJoystickVirtual(e.gbutton.which);
         default: return false;
     }
 }
@@ -396,6 +398,15 @@ int main(int argc, char** argv) {
         SDL_PushEvent(&ev);
     };
     const std::string mouse_file = (app::ExeDir() / "mouse").string();
+    // "pad" request: test controllers (N4.8: the party screen of the game alone in its window)
+    const std::string pad_file = (app::ExeDir() / "pad").string();
+    std::map<int, SDL_Joystick*> test_pads;
+    struct PadHeld {
+        SDL_Joystick* joy;
+        int button;
+        std::chrono::steady_clock::time_point until;
+    };
+    std::vector<PadHeld> pad_held;
     // "text" request: its contents typed as SDL text input (what a keyboard layout gives while text input is on)
     const std::string text_file = (app::ExeDir() / "text").string();
     const std::string winctl_file = (app::ExeDir() / "winctl").string();
@@ -530,6 +541,48 @@ int main(int argc, char** argv) {
             }
             std::fclose(mf);
             std::remove(mouse_file.c_str());
+        }
+        // "pad N attach | detach | button NAME SECONDS": test controller N, a virtual SDL gamepad (as the compositor's)
+        if (FILE* pf = split_player ? nullptr : std::fopen(pad_file.c_str(), "r")) {  // (a player's are the compositor's)
+            int n = 0;
+            char what[16], name[32], value[32];
+            while (std::fscanf(pf, "%d %15s", &n, what) == 2) {
+                if (!std::strcmp(what, "attach") && !test_pads.count(n)) {
+                    SDL_VirtualJoystickDesc d;
+                    SDL_INIT_INTERFACE(&d);
+                    d.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+                    d.naxes = SDL_GAMEPAD_AXIS_COUNT;
+                    d.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+                    d.name = "Test controller";
+                    SDL_JoystickID id = SDL_AttachVirtualJoystick(&d);
+                    test_pads[n] = SDL_OpenJoystick(id);
+                    SDL_SetJoystickVirtualAxis(test_pads[n], SDL_GAMEPAD_AXIS_LEFT_TRIGGER, -32768);
+                    SDL_SetJoystickVirtualAxis(test_pads[n], SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, -32768);
+                    LOGI("window: test controller %d attached (%u)", n, unsigned(id));
+                } else if (!std::strcmp(what, "detach") && test_pads.count(n)) {
+                    SDL_JoystickID id = SDL_GetJoystickID(test_pads[n]);
+                    SDL_CloseJoystick(test_pads[n]);
+                    SDL_DetachVirtualJoystick(id);
+                    test_pads.erase(n);
+                    LOGI("window: test controller %d detached", n);
+                } else if (!std::strcmp(what, "button") && std::fscanf(pf, "%31s %31s", name, value) == 2 && test_pads.count(n)) {
+                    SDL_GamepadButton b = SDL_GetGamepadButtonFromString(name);
+                    if (b != SDL_GAMEPAD_BUTTON_INVALID) {
+                        SDL_SetJoystickVirtualButton(test_pads[n], b, true);
+                        pad_held.push_back({test_pads[n], b, tnow + std::chrono::milliseconds(long(std::atof(value) * 1000))});
+                    }
+                }
+            }
+            std::fclose(pf);
+            std::remove(pad_file.c_str());
+        }
+        for (size_t i = 0; i < pad_held.size();) {
+            if (tnow >= pad_held[i].until) {
+                SDL_SetJoystickVirtualButton(pad_held[i].joy, pad_held[i].button, false);
+                pad_held.erase(pad_held.begin() + long(i));
+            } else {
+                i++;
+            }
         }
         for (size_t i = 0; i < held.size();) {
             if (tnow >= held[i].until) {

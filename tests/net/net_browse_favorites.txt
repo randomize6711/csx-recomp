@@ -19,6 +19,7 @@ sleep 300
 expect nolog net:.client.[0-9.:]+.connected
 pckey cmd quit
 [adder] --after server2:answering --pc browser_sort=name --env FPS=30
+write profiles/00000000000000a1.ini name = Tester\n
 wait draws==1
 sleep 6
 press START
@@ -32,6 +33,19 @@ wait draws<=20
 sleep 6
 press DOWN
 sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+# N4.8: Multiplayer opens the party first (one player: its only profile), then Server Browser
+wait log pc.mouse:.screen.SuperLauncher_PCParty
+sleep 2
+press A
+sleep 2
+press A
+wait log pc.mouse:.screen.SuperLauncher_PCPartyDestination
+sleep 2
 press DOWN
 sleep 1
 press DOWN
@@ -55,6 +69,7 @@ wait log browser:.127\.0\.0\.1:27015.removed.from.the.favorites
 wait log pc:.favorite\.1.removed
 wait newlog browser:.Favorite.Servers:.0.rows
 [fav] --after server2:answering --pc "favorite.1=127.0.0.2:27016 ebe5ca1e478795b520599a7f66c05815e8f3ea0748482cc8dc6ba6fe6eb65724 Old Bravo" --env FPS=30
+write profiles/00000000000000a1.ini name = Tester\n
 wait draws==1
 sleep 6
 press START
@@ -68,6 +83,19 @@ wait draws<=20
 sleep 6
 press DOWN
 sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+# N4.8: Multiplayer opens the party first (one player: its only profile), then Server Browser
+wait log pc.mouse:.screen.SuperLauncher_PCParty
+sleep 2
+press A
+sleep 2
+press A
+wait log pc.mouse:.screen.SuperLauncher_PCPartyDestination
+sleep 2
 press DOWN
 sleep 1
 press DOWN
@@ -93,6 +121,7 @@ wait log browser:.the.changed.identity.of.127\.0\.0\.2:27016.was.not.trusted
 sleep 2
 expect nolog browser:.joining
 [known] --after adder:removed.from.the.favorites --file known_servers.txt=tests/net/files/known_servers_changed.txt --pc browser_sort=name --env FPS=30
+write profiles/00000000000000a1.ini name = Tester\n
 wait draws==1
 sleep 6
 press START
@@ -106,6 +135,19 @@ wait draws<=20
 sleep 6
 press DOWN
 sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+# N4.8: Multiplayer opens the party first (one player: its only profile), then Server Browser
+wait log pc.mouse:.screen.SuperLauncher_PCParty
+sleep 2
+press A
+sleep 2
+press A
+wait log pc.mouse:.screen.SuperLauncher_PCPartyDestination
+sleep 2
 press DOWN
 sleep 1
 press DOWN

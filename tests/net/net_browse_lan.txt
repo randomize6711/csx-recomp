@@ -13,6 +13,7 @@ wait log net:.answering.server.queries
 sleep 260
 pckey cmd quit
 [host] --pc net_port=27019 --env FPS=30
+write profiles/00000000000000a1.ini name = Tester\n
 wait draws==1
 sleep 6
 press START
@@ -26,6 +27,19 @@ wait draws<=20
 sleep 6
 press DOWN
 sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+# N4.8: Multiplayer opens the party first (one player: its only profile), then Server Browser
+wait log pc.mouse:.screen.SuperLauncher_PCParty
+sleep 2
+press A
+sleep 2
+press A
+wait log pc.mouse:.screen.SuperLauncher_PCPartyDestination
+sleep 2
 press DOWN
 sleep 1
 press DOWN
@@ -51,6 +65,7 @@ wait log net:.a.match.hosted.from.Multiplayer
 wait log net:.answering.server.queries.on.UDP.port.27019
 sleep 230
 [client] --after host:answering.server.queries --env FPS=30 --pc browser_sort=ping
+write profiles/00000000000000a1.ini name = Tester\n
 wait draws==1
 sleep 6
 press START
@@ -64,6 +79,19 @@ wait draws<=20
 sleep 6
 press DOWN
 sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+# N4.8: Multiplayer opens the party first (one player: its only profile), then Server Browser
+wait log pc.mouse:.screen.SuperLauncher_PCParty
+sleep 2
+press A
+sleep 2
+press A
+wait log pc.mouse:.screen.SuperLauncher_PCPartyDestination
+sleep 2
 press DOWN
 sleep 1
 press DOWN

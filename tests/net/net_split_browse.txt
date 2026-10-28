@@ -13,6 +13,8 @@ expect nolog refused
 expect nolog letmein
 pckey cmd quit
 [split] --window 1920x1080 --after pwserver:answering --env CSX_SPLIT_COMPOSITOR=1 --env CSX_SPLIT_PLAYERS=2 --env CSX_SPLIT_ZCACHE=$PWD/build/zcache --env CSX_LOG_NET=1
+write profiles/00000000000000a1.ini name = Tester\n
+write profiles/00000000000000b2.ini name = Second\n
 wait log split: player 1 started
 pad 1 attach
 wait log p1: open d:\\Media\\Videos\\ESRB.xmv
@@ -31,6 +33,26 @@ sleep 1
 key Down
 sleep 1
 key Space
+# N4.8: Multiplayer opens the party first, then Server Browser
+wait log p1: pc mouse: screen SuperLauncher_PCParty
+sleep 2
+key Right
+sleep 1
+pad 1 button a
+sleep 1
+pad 1 button a
+sleep 1
+key Space
+sleep 2
+key Space
+wait log p1: pc mouse: screen SuperLauncher_PCPartyDestination
+sleep 2
+key Down
+sleep 1
+key Down
+sleep 1
+key Space
+sleep 3
 sleep 3
 key Space
 wait log p1: browser: LAN Matches: 1 rows

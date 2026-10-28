@@ -76,6 +76,12 @@ void SetSplitState(const std::string& text);
 // game thread's menu frame in arrival order
 void PushPartyInput(const std::string& text);
 std::vector<std::string> TakePartyInput();
+// the game alone in its window (no compositor) shows a party screen: the window's input watches every controller, and
+// another controller's A or START asks for split screen (pc_party.cpp restarts the window as the compositor)
+void SetPartyScreenOpen(bool open);
+bool PartyScreenOpen();
+void PartyJoinRequest();
+bool TakePartyJoinRequest();
 // a split-screen player is about to relaunch (into a match or back to the menus): its next display aspect set
 void SplitPrepareRelaunch(bool match);
 void SetSplitPrepareRelaunch(void (*prepare)(bool match));

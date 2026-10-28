@@ -7,6 +7,7 @@
 [master] --exec "sh -c 'timeout 200 build/master/csx-master --port 27010 --max-per-ip 400 --rate 2000 --quiet; true'"
 [fakes] --after master:csx-master.on --exec "build/master/csx-fakeservers --count 300 --bind 127.0.0.2 --port 27100 --master 127.0.0.1:27010 --seconds 180"
 [client] --after fakes:300.servers --delay 5 --pc net_master=127.0.0.1:27010 --env FPS=30
+write profiles/00000000000000a1.ini name = Tester\n
 wait draws==1
 sleep 6
 press START
@@ -20,6 +21,19 @@ wait draws<=20
 sleep 6
 press DOWN
 sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+# N4.8: Multiplayer opens the party first (one player: its only profile), then Server Browser
+wait log pc.mouse:.screen.SuperLauncher_PCParty
+sleep 2
+press A
+sleep 2
+press A
+wait log pc.mouse:.screen.SuperLauncher_PCPartyDestination
+sleep 2
 press DOWN
 sleep 1
 press DOWN

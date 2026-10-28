@@ -23,6 +23,7 @@ sleep 290
 expect nolog net:.client.[0-9.:]+.connected
 pckey cmd quit
 [plain] --after full:answering --pc browser_sort=name --env FPS=30
+write profiles/00000000000000a1.ini name = Tester\n
 wait draws==1
 sleep 6
 press START
@@ -36,6 +37,19 @@ wait draws<=20
 sleep 6
 press DOWN
 sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+# N4.8: Multiplayer opens the party first (one player: its only profile), then Server Browser
+wait log pc.mouse:.screen.SuperLauncher_PCParty
+sleep 2
+press A
+sleep 2
+press A
+wait log pc.mouse:.screen.SuperLauncher_PCPartyDestination
+sleep 2
 press DOWN
 sleep 1
 press DOWN
@@ -64,6 +78,7 @@ press A
 sleep 2
 expect log pc.mouse:.screen.SuperLauncher_PCBrowser
 [pw] --after full:answering --pc browser_sort=name --env FPS=30
+write profiles/00000000000000a1.ini name = Tester\n
 wait draws==1
 sleep 6
 press START
@@ -77,6 +92,19 @@ wait draws<=20
 sleep 6
 press DOWN
 sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+# N4.8: Multiplayer opens the party first (one player: its only profile), then Server Browser
+wait log pc.mouse:.screen.SuperLauncher_PCParty
+sleep 2
+press A
+sleep 2
+press A
+wait log pc.mouse:.screen.SuperLauncher_PCPartyDestination
+sleep 2
 press DOWN
 sleep 1
 press DOWN
@@ -104,6 +132,7 @@ press B
 sleep 5
 expect nolog letmein
 [wrong] --after pw:joining --delay 20 --pc browser_sort=name --env FPS=30
+write profiles/00000000000000a1.ini name = Tester\n
 wait draws==1
 sleep 6
 press START
@@ -117,6 +146,19 @@ wait draws<=20
 sleep 6
 press DOWN
 sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+# N4.8: Multiplayer opens the party first (one player: its only profile), then Server Browser
+wait log pc.mouse:.screen.SuperLauncher_PCParty
+sleep 2
+press A
+sleep 2
+press A
+wait log pc.mouse:.screen.SuperLauncher_PCPartyDestination
+sleep 2
 press DOWN
 sleep 1
 press DOWN
@@ -143,6 +185,7 @@ press A
 sleep 2
 expect log pc.mouse:.screen.SuperLauncher_PCBrowser
 [tryfull] --after full:answering --delay 5 --pc browser_sort=name --env FPS=30
+write profiles/00000000000000a1.ini name = Tester\n
 wait draws==1
 sleep 6
 press START
@@ -156,6 +199,19 @@ wait draws<=20
 sleep 6
 press DOWN
 sleep 1
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+# N4.8: Multiplayer opens the party first (one player: its only profile), then Server Browser
+wait log pc.mouse:.screen.SuperLauncher_PCParty
+sleep 2
+press A
+sleep 2
+press A
+wait log pc.mouse:.screen.SuperLauncher_PCPartyDestination
+sleep 2
 press DOWN
 sleep 1
 press DOWN

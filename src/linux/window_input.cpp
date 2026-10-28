@@ -61,6 +61,13 @@ std::set<SDL_Keycode> g_keys;
 uint32_t g_mouse_buttons = 0;
 float g_mouse_dx = 0, g_mouse_dy = 0;  // since the last poll
 SDL_Gamepad* g_pad = nullptr;
+std::vector<SDL_Gamepad*> g_other_pads;  // the game alone: the other controllers, watched on a party screen (N4.8)
+
+// player 1's controller on a party screen, the game alone in its window: the first one when Split Screen Options' Player 1
+// > Also a Controller is on, else none (the keyboard's player: every controller asks to join)
+bool PartyPadIsPlayerOnes(SDL_JoystickID id) {
+    return pc::Get("split_p1_pad", "0") == "1" && g_pad && SDL_GetGamepadID(g_pad) == id;
+}
 constexpr float kMouseScale = 1200.0f;  // CSX_MOUSE=stick: stick units per pixel of motion in one poll
 constexpr float kDegreesPerCount = 0.022f;  // GoldSrc's m_yaw and m_pitch
 
@@ -431,12 +438,28 @@ void HandleEvent(const void* p) {
             if (!g_pad) {
                 g_pad = SDL_OpenGamepad(e.gdevice.which);
                 if (g_pad) LOGI("input: gamepad %s", SDL_GetGamepadName(g_pad));
+            } else if (!splitp::Active()) {
+                if (SDL_Gamepad* gp = SDL_OpenGamepad(e.gdevice.which)) g_other_pads.push_back(gp);
             }
             break;
         case SDL_EVENT_GAMEPAD_REMOVED:
             if (g_pad && SDL_GetGamepadID(g_pad) == e.gdevice.which) {
                 SDL_CloseGamepad(g_pad);
                 g_pad = nullptr;
+            }
+            g_other_pads.erase(std::remove_if(g_other_pads.begin(), g_other_pads.end(), [&](SDL_Gamepad* gp) {
+                                   if (SDL_GetGamepadID(gp) != e.gdevice.which) return false;
+                                   SDL_CloseGamepad(gp);
+                                   return true;
+                               }),
+                               g_other_pads.end());
+            break;
+        case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+            // the game alone on a party screen: a controller that is not player 1's asks for split screen
+            if (!splitp::Active() && csx::PartyScreenOpen() && !PartyPadIsPlayerOnes(e.gbutton.which) &&
+                (e.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH || e.gbutton.button == SDL_GAMEPAD_BUTTON_START)) {
+                LOGI("input: a controller asks to join the party");
+                csx::PartyJoinRequest();
             }
             break;
         case SDL_EVENT_WINDOW_MOUSE_LEAVE:
@@ -611,7 +634,8 @@ Pad Poll(int port) {
     if (g_mouse_buttons & (1u << SDL_BUTTON_RIGHT)) p.analog[6] = 255;
     if (g_mouse_buttons & (1u << SDL_BUTTON_LEFT)) p.analog[7] = 255;
     // the gamepad on top: SDL's y axes point down, the console's up
-    if (g_pad) {
+    // (on a party screen, the game alone, a controller that is not player 1's only asks to join: not player 1's input)
+    if (g_pad && !(csx::PartyScreenOpen() && !splitp::Active() && !PartyPadIsPlayerOnes(SDL_GetGamepadID(g_pad)))) {
         auto axis = [](SDL_GamepadAxis a) { return float(SDL_GetGamepadAxis(g_pad, a)); };
         auto btn = [](SDL_GamepadButton b) { return SDL_GetGamepadButton(g_pad, b); };
         lx += axis(SDL_GAMEPAD_AXIS_LEFTX);

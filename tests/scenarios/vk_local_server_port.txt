@@ -5,6 +5,7 @@
 # on this port?"), and Continue closes the message into that screen.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
 #   --env CSX_SERVER_PROCESS=1
+write profiles/00000000000000a1.ini name = Tester\n
 wait log renderer: vulkan
 spawn python3 -c "import socket,time;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.bind(('0.0.0.0',27015));time.sleep(900)"
 sleep 1
@@ -85,6 +86,19 @@ wait newlog pc mouse: screen SuperLauncher_MainScreen
 point 198 232
 sleep 0.5
 click 1
+# N4.8: Multiplayer opens the party first, then Server Browser
+wait log pc mouse: screen SuperLauncher_PCParty
+sleep 2
+key Space
+sleep 2
+key Space
+wait log pc mouse: screen SuperLauncher_PCPartyDestination
+sleep 2
+key Down
+sleep 1
+key Down
+sleep 1
+key Space
 sleep 3
 expect last pc.mouse:.screen SuperLauncher_SystemLink
 key Down

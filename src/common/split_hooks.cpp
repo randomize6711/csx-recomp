@@ -14,6 +14,7 @@ std::atomic<void (*)(int, const std::string&)> g_send{nullptr};
 std::atomic<void (*)(bool)> g_prepare{nullptr};
 std::atomic<bool (*)(int)> g_starter{nullptr};
 std::atomic<void (*)()> g_quitter{nullptr};
+std::atomic<bool> g_party_open{false}, g_party_join{false};
 std::mutex g_lock;
 std::string g_state;
 std::vector<std::string> g_party;
@@ -57,6 +58,11 @@ std::vector<std::string> TakePartyInput() {
     out.swap(g_party);
     return out;
 }
+
+void SetPartyScreenOpen(bool open) { g_party_open = open; }
+bool PartyScreenOpen() { return g_party_open; }
+void PartyJoinRequest() { g_party_join = true; }
+bool TakePartyJoinRequest() { return g_party_join.exchange(false); }
 
 void SplitPrepareRelaunch(bool match) {
     if (auto f = g_prepare.load()) f(match);

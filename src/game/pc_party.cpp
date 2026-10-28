@@ -101,6 +101,7 @@ struct Member {
     bool ready = false;
 };
 Member g_m[4];
+Member g_solo;                  // player 1's panel while the game is alone in its window (no compositor's party)
 int g_count = 1, g_kbm = 1, g_focus = 0;
 std::string g_note[4];          // a panel's passing message ("That profile is player 2's.")
 std::string g_shown;            // what the panels show now (redrawn when it changes)
@@ -150,12 +151,22 @@ void ReadState() {
             g_focus = n;
         }
     }
-    // without a compositor (the headless harness): player 1 alone, its profile its own
-    if (!csx::SplitPlayer()) g_m[0].profile = pc::ActiveProfile();
+    // without a compositor (the game alone in its window, the headless harness): player 1 alone, its panel kept here
+    if (!csx::SplitPlayer()) {
+        g_m[0] = g_solo;
+        g_m[0].in = true;
+        g_m[0].pad = "0";
+    }
 }
 
 void Tell(int n) {
     const Member& m = g_m[n - 1];
+    if (!csx::SplitPlayer() && n == 1) g_solo = m;  // the game alone: its own panel's state
+    // the slot's profile is remembered for the next party (its own again when it is still free)
+    if (!m.profile.empty() && pc::GetGlobal("party.profile_" + std::to_string(n), "") != m.profile) {
+        pc::Set("party.profile_" + std::to_string(n), m.profile);
+        pc::Save();
+    }
     if (!csx::SplitPlayer()) return;
     csx::SplitSend(csx::kSplitSetup, "party set " + std::to_string(n) + " profile " + (m.profile.empty() ? "-" : m.profile) +
                                          " team " + std::to_string(m.team) + " ready " + (m.ready ? "1" : "0"));
@@ -243,7 +254,7 @@ std::vector<Line> PanelLines(int i) {
     l[0] = {"PLAYER " + std::to_string(n) + (n == 1 ? "  -  PARTY LEADER" : ""), 30, 45, 60};
     if (!m.in) {
         l[2] = {"PRESS A TO JOIN", 120, 120, 120};
-        l[3] = {"(A or START on a free controller)", 120, 120, 120};
+        l[3] = {csx::SplitPlayer() ? "(A or START on a free controller)" : "(the game restarts in split screen)", 120, 120, 120};
         return l;
     }
     std::string dev = m.pad == "1" ? "Controller" : m.pad == "lost" ? "CONTROLLER DISCONNECTED" : "";
@@ -322,6 +333,13 @@ void PanelInput(X86Context& ctx, int n, const std::string& b) {
     Member& m = g_m[n - 1];
     if (b == "joined" || b == "pad on" || b == "pad off") {
         g_note[n - 1].clear();
+        if (b == "joined" && m.profile.empty()) {  // its slot's last profile, while it is free
+            std::string id = pc::GetGlobal("party.profile_" + std::to_string(n), "");
+            if (!id.empty() && Store().Exists(id) && !Taken(id, n)) {
+                m.profile = id;
+                Tell(n);
+            }
+        }
         return ShowParty(ctx, true);
     }
     if (!m.in || g_focus) return;  // a member editing its profile has the menus: the panels wait
@@ -696,21 +714,22 @@ std::string PcPartyExtendInGame(const std::string& text) {
 void PcPartyCommand(X86Context& ctx, const std::vector<std::string>& a) {
     std::string w1 = a.size() > 1 ? a[1] : "", w2 = a.size() > 2 ? a[2] : "";
     if (w1 == "enter") {
-        // alone in the window: the party needs the compositor (every controller is its): restart as it, back here
-        if (!csx::SplitPlayer()) {
-#ifndef _WIN32
-            setenv("CSX_FRONTEND_OPEN", kParty, 1);
-#endif
-            if (csx::SplitStart(1)) return;
-#ifndef _WIN32
-            unsetenv("CSX_FRONTEND_OPEN");
-#endif
-        }
+        // (the game alone in its window stays alone until another controller asks to join: PcPartyMenuFrame)
         Migrate();
         ReadState();
-        if (g_m[0].profile.empty() && !pc::ActiveProfile().empty()) {  // player 1 already plays as a profile
-            g_m[0].profile = pc::ActiveProfile();
-            Tell(1);
+        // each member's profile: the one it plays as, else its slot's last one while it is free, else the only one
+        std::vector<profiles::Info> list = Store().List();
+        for (int n = 1; n <= 4; n++) {
+            Member& m = g_m[n - 1];
+            if (!m.in || !m.profile.empty()) continue;
+            std::string id = n == 1 ? pc::ActiveProfile() : "";
+            if (id.empty()) id = pc::GetGlobal("party.profile_" + std::to_string(n), "");
+            if (id.empty() && n == 1 && list.size() == 1) id = list[0].id;
+            if (!id.empty() && Store().Exists(id) && !Taken(id, n)) {
+                m.profile = id;
+                Tell(n);
+                if (n == 1) UseOwnProfile();
+            }
         }
         g_shown.clear();
         return ShowParty(ctx, true);
@@ -735,6 +754,21 @@ void PcPartyMenuFrame(X86Context& ctx) {
     ApplyControllerOptions();
     std::string screen = PcCurrentScreen();
     bool on = PartyScreen(screen);
+    // the game alone in its window: another controller's A or START (window_input.cpp) restarts it as the
+    // compositor, back on the party screen, where that controller joins with A again
+    csx::SetPartyScreenOpen(on && !csx::SplitPlayer());
+    if (csx::TakePartyJoinRequest() && on && !csx::SplitPlayer()) {
+#ifndef _WIN32
+        setenv("CSX_FRONTEND_OPEN", kParty, 1);
+#endif
+        LOGI("party: another controller asks to join: split screen starts");
+        if (!csx::SplitStart(1)) {
+#ifndef _WIN32
+            unsetenv("CSX_FRONTEND_OPEN");
+#endif
+        }
+        return;
+    }
     if (on != g_party_on && csx::SplitPlayer() == 1) {
         csx::SplitSend(csx::kSplitSetup, on ? "party on" : "party off");
         g_party_on = on;
