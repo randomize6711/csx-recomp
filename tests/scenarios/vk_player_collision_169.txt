@@ -166,5 +166,8 @@ sleep 3
 key Space
 count relaunching.into 6
 wait log pc: player collision on \(Custom Options\)
-expect count pc:.player.collision.off.\(Custom.Options\) 3
+# the match after Reset has collision on: no Off after it (with the local server both its process and the game's log
+# the setting at each match's start, so the lines are not counted)
+sleep 5
+expect last pc:.player.collision.(on|off).\(Custom pc:.player.collision.on
 expect nolog guest trap
