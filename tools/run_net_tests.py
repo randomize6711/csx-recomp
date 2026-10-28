@@ -365,6 +365,19 @@ def run_test(path, exe):
         for role, t in started.items():
             if t is None:
                 verdicts[role] = 'NOT STARTED'
+        # nothing of the test may outlive its processes (a game's local server, a split-screen player: N4.7): one
+        # still running in the test's folder 10 s after they all ended is an orphan, which fails the test (the
+        # finally below ends it)
+        folder = os.path.join(ROOT, 'build', 'nruns', name)
+        left = []
+        for _ in range(40):
+            left = [pid for e in (exe, SERVER, WINDOW) for pid in games_under(folder, e)]
+            if not left:
+                break
+            time.sleep(0.25)
+        if left:
+            print(f'  ORPHANED processes after the test: {left}')
+            verdicts['orphans'] = 'FAIL'
         # the test's verdict: the worst of its processes' (a crash outranks a timeout, a timeout a failed check)
         order = ['PASS', 'FROZEN', 'FAIL', 'NOT STARTED', 'TIMEOUT', 'CRASH']
         verdict = max(verdicts.values(), key=order.index) if verdicts else 'FAIL'
@@ -391,7 +404,7 @@ def run_test(path, exe):
                 p.wait(15)
             except subprocess.TimeoutExpired:
                 p.kill()
-        for e in (exe, SERVER):
+        for e in (exe, SERVER, WINDOW):
             end_games(os.path.join(ROOT, 'build', 'nruns', name), e, 'after its scenario ended')
         holder.kill()
         holder.wait()

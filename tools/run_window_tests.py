@@ -51,6 +51,23 @@ def options(path):
     return size, opts
 
 
+def Orphans(run):
+    """The processes (pid, name) working in the run folder or below it (their cwd)."""
+    where = os.path.realpath(run)
+    found = []
+    for d in os.listdir('/proc'):
+        if not d.isdigit():
+            continue
+        try:
+            cwd = os.readlink('/proc/%s/cwd' % d)
+            name = open('/proc/%s/comm' % d).read().strip()
+        except OSError:
+            continue
+        if cwd == where or cwd.startswith(where + '/'):
+            found.append((int(d), name))
+    return found
+
+
 def main():
     args = sys.argv[1:]
     exe = os.path.join(ROOT, 'build', 'window', 'CounterStrike')
@@ -99,12 +116,28 @@ def main():
                 g.wait()
             # gamescope's own end (its log is gamescope.out): a display server that ended takes the game with it
             gout.write('gamescope exit status %s\n' % g.returncode)
+        # nothing of the run may outlive it (a local server, a player process: N4.7): a process still working in the
+        # run folder 10 s after the run is an orphan, reported (the run fails) and ended
+        orphans = Orphans(run)
+        for _ in range(40):
+            if not orphans:
+                break
+            time.sleep(0.25)
+            orphans = Orphans(run)
+        if orphans:
+            with open(os.path.join(run, 'drive.out'), 'a') as out:
+                out.write('FAIL orphaned processes after the run: %s\n' % ', '.join('%d %s' % o for o in orphans))
+            for pid, _ in orphans:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
         lines = open(os.path.join(run, 'drive.out'), encoding='utf-8', errors='replace').read().splitlines()
         for l in lines:
             if l.startswith('FAIL') or (l.startswith('     ') and not l.startswith('            ')):
                 print('  ' + l)
         code = open(status).read().strip() if os.path.exists(status) else 'none'
-        ok = code == '0'
+        ok = code == '0' and not orphans
         print('  %s (%d steps)' % ('passed' if ok else 'FAILED (status %s)' % code,
                                   sum(1 for l in lines if l.startswith(('ok', 'FAIL')))))
         results.append((base, ok))

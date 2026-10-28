@@ -51,6 +51,8 @@ per line, executed in order:
                             overrun (lasted - length) and drift (real - lasted)
     track NAME SECONDS      follow the player's position that long and log how high it rose and how far it moved
     expect moved A B MIN MAX       horizontal distance between states A and B in [MIN, MAX] game units
+    expect last REGEX1 REGEX2      the last log line matching REGEX1 also matches REGEX2 (no spaces in either)
+    expect rostersame A B 1|0      every client of players steps A and B at the same place (1) or some moved (0)
     expect yaw A B DEG TOL         view yaw (0x552C10) changed by DEG (+ left) within TOL; expect pitch likewise
     expect turned A B MIN          yaw difference between states A and B (shortest way) at least MIN degrees
     expect shots A B N             the shot counter dropped by exactly N from A to B
@@ -96,6 +98,10 @@ per line, executed in order:
     bring N DIST            client N put DIST units in front of client 0 along its view, on the server (network tests)
     aim                     the view turned to the nearest other player this client knows (network tests)
     spawns NAME             the map's spawn points per team, the edicts in use and maxclients logged
+    killserver SIGNAL       the game's local server (N4.7: RUN/local_server/pid) sent SIGNAL (KILL, SEGV, TERM...)
+    killgame SIGNAL         the game's own process sent SIGNAL, and waited for: its end is the scenario's (no CRASH
+                            verdict for it); later steps check what it left (wait noserver)
+    wait noserver S         until no process runs in RUN/local_server (the local server gone), at most S seconds
     setview X Y Z YAW PITCH the player held at that origin (server side, no velocity) with those view angles
                             (src/game/state_probe.cpp): a fixed camera for picture tests; setview off lets go
     pokefile FILE           every "VA FLOAT" line of FILE (relative to the repository) written at once
@@ -152,7 +158,7 @@ FRAME_RE = re.compile(r'renderer: frame (\d+), (\d+) draws')
 
 
 class Log:
-    def __init__(self):
+    def __init__(self, follow_server=True):
         self.lines = []
         self.path = None
         self.prev = None  # (frame, draws) of the previous renderer line
@@ -160,6 +166,10 @@ class Log:
         self.samples = 0  # renderer lines seen, each a new draws-per-frame measurement
         self.partial = ''  # a line the game has not finished writing (its log is flushed in blocks, not lines)
         self.run = RUN     # the run folder whose log this is (an @N step's RUN is a player's folder, not the log's)
+        # a local server's log too (N4.7: RUN/local_server/logs, a match from the menus in csx-server): its lines are
+        # the match's as a listen server's were the game's. Not with the split-screen compositor, whose log already
+        # has player 1's output, its server's lines among them
+        self.server = {'path': None, 'f': None, 'partial': ''} if follow_server else None
 
     def poll(self):
         logs = os.path.join(self.run, 'logs')
@@ -184,6 +194,21 @@ class Log:
                     self.per_frame = (draws - self.prev[1]) / (frame - self.prev[0])
                     self.samples += 1
                 self.prev = (frame, draws)
+        srv = self.server
+        if srv is not None:
+            slogs = os.path.join(self.run, 'local_server', 'logs')
+            if os.path.isdir(slogs):
+                names = sorted(os.listdir(slogs))
+                if names and os.path.join(slogs, names[-1]) != srv['path']:
+                    if srv['f']:
+                        rest = srv['partial'] + srv['f'].read()
+                        self.lines.extend(l + '\n' for l in rest.split('\n') if l)
+                    srv.update(path=os.path.join(slogs, names[-1]), partial='')
+                    srv['f'] = open(srv['path'], 'r', errors='replace')
+            if srv['f']:
+                parts = (srv['partial'] + srv['f'].read()).split('\n')
+                srv['partial'] = parts.pop()
+                self.lines.extend(p + '\n' for p in parts)
 
     def read(self, final=False):
         # the whole lines written since the last read; a line cut by a flush waits for its end (the old instance's
@@ -197,11 +222,29 @@ class Log:
         return any(r.search(l) for l in self.lines)
 
 
-def send_file(name, text):
-    tmp = os.path.join(RUN, name + '.tmp')
+def send_file(name, text, folder=None):
+    folder = folder or RUN
+    tmp = os.path.join(folder, name + '.tmp')
     with open(tmp, 'w') as f:
         f.write(text + '\n')
-    os.replace(tmp, os.path.join(RUN, name))
+    os.replace(tmp, os.path.join(folder, name))
+
+
+SERVER_BASE = None  # the run folder of player 1 (not an @N step's): where a local server keeps its folder
+
+
+def server_dir():
+    """Where the match's server reads its probe requests (players, place, bring, spawns, setview's hold): the game's
+    local server's folder (RUN/local_server, N4.7: a match from the menus runs in csx-server) while it reports ready,
+    else the run folder (a listen server, a client of another server)."""
+    d = os.path.join(SERVER_BASE or RUN, 'local_server')
+    try:
+        with open(os.path.join(d, 'status')) as f:
+            if f.read().startswith('ready'):
+                return d
+    except OSError:
+        pass
+    return RUN
 
 
 def send(text):
@@ -292,12 +335,14 @@ def main():
     elif netns:
         cmd = ['nsenter', '--preserve-credentials', '-U', '-n', '-t', netns, EXE, GAME]
     else:
-        cmd = ['unshare', '-rn', EXE, GAME]
+        # its own network namespace, loopback up as on any machine (a private namespace starts with it down: a local
+        # server's game reaches its server on 127.0.0.1, N4.7); the shell execs the game, which keeps its process id
+        cmd = ['unshare', '-rn', 'sh', '-c', 'ip link set lo up 2>/dev/null; exec "$0" "$@"', EXE, GAME]
     if server is not None:
         cmd = cmd[:-1] + ['--game', GAME] + server
     proc = subprocess.Popen(cmd, cwd=RUN, env=env, stdout=out, stderr=subprocess.STDOUT)
     threading.Thread(target=watch_processes, args=(proc.pid, os.path.join(RUN, 'procs.csv')), daemon=True).start()
-    log, start, ok = Log(), time.time(), True
+    log, start, ok = Log(follow_server=env.get('CSX_SPLIT_COMPOSITOR') != '1'), time.time(), True
     verdict = 'FAIL'
     spawned = []  # spawn steps' helpers, ended with the scenario
     states = {}
@@ -336,7 +381,10 @@ def main():
 
     try:
         input_mark = 0  # the log's length at the last input step (wait newlog)
+        killed = False  # a killgame step ended the game: its exit is the scenario's own
         run_base = RUN
+        global SERVER_BASE
+        SERVER_BASE = run_base
         for st in steps:
             # @N STEP: the step's request files go to split-screen player N's own folder (RUN/splitN; @1 the run
             # folder): its state, look, place... (its log lines come back as "pN: ...")
@@ -350,7 +398,7 @@ def main():
                 input_mark = len(log.lines)
             if kind == 'mark':
                 good = True
-            elif kind == 'wait':
+            elif kind == 'wait' and st[1] != 'noserver':
                 if st[1] == 'log':
                     rx = ' '.join(st[2:])
                     good = wait_until(lambda: log.match(rx))
@@ -478,9 +526,41 @@ def main():
             elif kind == 'look':
                 send_file('look', st[1] + ' ' + st[2])
                 good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'look')))
+            elif kind == 'killserver':
+                try:
+                    pid = int(open(os.path.join(SERVER_BASE or RUN, 'local_server', 'pid')).read())
+                    os.kill(pid, getattr(signal, 'SIG' + st[1]))
+                    print(f'     local server {pid} sent SIG{st[1]}')
+                    good = True
+                except (OSError, ValueError) as e:
+                    print(f'     no local server to signal: {e}')
+                    good = False
+            elif kind == 'killgame':
+                killed = True
+                proc.send_signal(getattr(signal, 'SIG' + st[1]))
+                try:
+                    proc.wait(30)
+                except subprocess.TimeoutExpired:
+                    pass
+                print(f'     the game sent SIG{st[1]}: {exit_text(proc.returncode)}')
+                good = proc.returncode is not None
+            elif kind == 'wait' and st[1] == 'noserver':
+                where = os.path.realpath(os.path.join(SERVER_BASE or RUN, 'local_server'))
+                end = time.time() + float(st[2])
+                left = in_folder(where)
+                while left and time.time() < end:
+                    time.sleep(0.25)
+                    left = in_folder(where)
+                print(f'     processes in local_server: {left or "none"}')
+                good = not left
             elif kind == 'setview':
+                # the game's view, and with a local server the position held there too
+                srv = server_dir()
                 send_file('setview', ' '.join(st[1:6]))
-                good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'setview')))
+                if srv != RUN:
+                    send_file('setview', ' '.join(st[1:6]), srv)
+                good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'setview')) and
+                                  not os.path.exists(os.path.join(srv, 'setview')))
             elif kind == 'pokefile':
                 send_file('poke', open(os.path.join(ROOT, st[1])).read().strip())
                 good = wait_until(lambda: log.match(r'poke: .*writes'))
@@ -499,12 +579,13 @@ def main():
                         tracks[st[1]] = {'rose': float(m.group(1)), 'moved': float(m.group(2))}
             elif kind == 'place':
                 # place N X Y Z: client N (0 the player, then the bots) put at that origin once (src/game/state_probe.cpp)
-                send_file('place', ' '.join(st[1:5]))
-                good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'place'))) and \
+                srv = server_dir()
+                send_file('place', ' '.join(st[1:5]), srv)
+                good = wait_until(lambda: not os.path.exists(os.path.join(srv, 'place'))) and \
                     wait_until(lambda: log.match(r'place: client ' + st[1] + ' at'))
             elif kind == 'players':
                 # players NAME: every active client's origin and health, kept as NAME
-                send_file('players', st[1])
+                send_file('players', st[1], server_dir())
                 good = wait_until(lambda: log.match(r'players ' + re.escape(st[1]) + ' end'))
                 if good:
                     rosters[st[1]] = {}
@@ -516,7 +597,7 @@ def main():
                                               for n, v in sorted(rosters[st[1]].items())))
             elif kind == 'bring':
                 # bring N DIST: client N put DIST units in front of the host's player (server side)
-                send_file('bring', st[1] + ' ' + st[2])
+                send_file('bring', st[1] + ' ' + st[2], server_dir())
                 good = wait_until(lambda: log.match(r'bring: (client|no such)'))
             elif kind == 'aim':
                 # aim: the view turned to the nearest other player this client knows
@@ -524,7 +605,7 @@ def main():
                 good = wait_until(lambda: log.match(r'aim: (player|no other)'))
             elif kind == 'spawns':
                 # spawns NAME: the map's spawn points per team, the edicts in use and maxclients, logged
-                send_file('spawns', st[1])
+                send_file('spawns', st[1], server_dir())
                 good = wait_until(lambda: log.match(r'spawns ' + re.escape(st[1]) + ' ct'))
             elif kind == 'state':
                 send_file('state', st[1])
@@ -976,6 +1057,20 @@ def main():
                 for l in (r.stdout + r.stderr).splitlines():
                     print('     ' + l)
                 good = r.returncode == 0
+            elif kind == 'expect' and st[1] == 'last':
+                # expect last REGEX1 REGEX2: the last log line matching REGEX1 also matches REGEX2 (the screen open now)
+                time.sleep(1.2)
+                log.poll()
+                hits = [l for l in log.lines if re.search(st[2], l)]
+                good = bool(hits) and re.search(st[3], hits[-1]) is not None
+                print('     last: ' + (hits[-1].strip()[-100:] if hits else 'none'))
+            elif kind == 'expect' and st[1] == 'rostersame':
+                # expect rostersame A B 1|0: every client of players steps A and B at the same place (within 1 unit:
+                # a paused match) or not (some moved more: a match going on)
+                a, b = rosters.get(st[2], {}), rosters.get(st[3], {})
+                moved = [n for n in a if n in b and max(abs(a[n][i] - b[n][i]) for i in range(3)) > 1]
+                print(f'     {len(moved)} of {len(a)} clients moved between {st[2]} and {st[3]}')
+                good = bool(a) and bool(b) and (not moved) == (st[4] == '1')
             elif kind == 'expect' and st[1] == 'count':
                 # expect count REGEX N: exactly N log lines match now (no spaces in REGEX: write . for them)
                 time.sleep(1.2)  # the log flushes every second
@@ -1024,7 +1119,7 @@ def main():
                 proc.wait(10)
             except subprocess.TimeoutExpired:
                 proc.kill()
-    if not wine and proc.returncode not in (None, 0, -2, 130) and ok:
+    if not wine and proc.returncode not in (None, 0, -2, 130) and ok and not killed:
         print(f'FAIL harness exited with {exit_text(proc.returncode)}')
         ok = False
         verdict = 'CRASH' if proc.returncode < 0 else 'FAIL'
@@ -1082,6 +1177,22 @@ def watch_processes(root, path):
                 out.write('%.1f,%d,,,ended,,,,%d\n' % (now, root, avail))
                 return
             time.sleep(0.5)
+
+
+def in_folder(where):
+    """The processes (pid, name) whose working folder is where or inside it."""
+    found = []
+    for d in os.listdir('/proc'):
+        if not d.isdigit():
+            continue
+        try:
+            cwd = os.readlink(f'/proc/{d}/cwd')
+            name = open(f'/proc/{d}/comm').read().strip()
+        except OSError:
+            continue
+        if cwd == where or cwd.startswith(where + '/'):
+            found.append((int(d), name))
+    return found
 
 
 def exit_text(code):
