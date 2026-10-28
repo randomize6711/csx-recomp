@@ -111,9 +111,9 @@ int main() {
               ml.find(" +mp_buytime 1.5 ") != std::string::npos && ml.find("de_airstrip") == std::string::npos,
           "match line: the server's map, the menus' settings in their order");
     Check(ml.find("+mp_dedicated_server 0") == std::string::npos && ml.find(" +mp_dedicated_server 1 ") != std::string::npos &&
-              ml.find(" +bot_join_after_player 0 ") != std::string::npos && ml.find(" +maxplayers 65 ") != std::string::npos &&
+              ml.find("bot_join_after_player") == std::string::npos && ml.find(" +maxplayers 65 ") != std::string::npos &&
               ml.find(" +pc_player_collision 1") != std::string::npos,
-          "match line: the server's own settings after the menus' (dedicated, bots without a human, 65 slots)");
+          "match line: the server's own settings after the menus' (dedicated, 65 slots; bots wait for a human as in the game)");
     // Host a Match's line (net_split_listen's)
     const std::string host = "+map de_airstrip   +maxhumanplayers 10   +mp_dedicated_server 0  +mp_match_option_preset 2 "
                              "+mp_timelimit 60 +mp_maxrounds 7 +mp_winlimit 4 +mp_roundtime 5 +mp_freezetime 6 +mp_buytime 1.5 "

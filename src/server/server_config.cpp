@@ -226,7 +226,7 @@ std::string MatchLine(const Config& c, const std::string& menu_line, std::string
         error = "the match line does not start with its map";
         return {};
     }
-    static const char* const kOwn[] = {"map", "mp_dedicated_server", "bot_join_after_player"};
+    static const char* const kOwn[] = {"map", "mp_dedicated_server"};
     std::string s = "+map " + c.map;
     bool collision = false;
     for (auto& v : cvars) {
@@ -235,9 +235,10 @@ std::string MatchLine(const Config& c, const std::string& menu_line, std::string
         s += " +" + v[0];
         for (size_t i = 1; i < v.size(); i++) s += " " + v[i];
     }
-    // after the menus' tokens (the last one set wins): every slot for players and bots, bots that join with no human
-    // yet (the owner joins a moment after the start), the snapshot rate, LAN, the name and the password
-    s += " +maxplayers " + std::to_string(c.max_players) + " +mp_dedicated_server 1 +bot_join_after_player 0 +sv_maxupdaterate " +
+    // after the menus' tokens (the last one set wins): every slot for players and bots, the snapshot rate, LAN, the
+    // name and the password. bot_join_after_player stays the menus' (the engine's 1: the bots join once a human has,
+    // the round starting with the owner in it, as in the game's own listen server)
+    s += " +maxplayers " + std::to_string(c.max_players) + " +mp_dedicated_server 1 +sv_maxupdaterate " +
          std::to_string(c.snapshot_rate) + " +sv_lan " + (c.lan_only ? "1" : "0") + " +hostname \"" + c.name + "\"";
     if (!c.password.empty()) s += " +sv_password " + c.password;
     if (!collision) s += std::string(" +pc_player_collision ") + (c.player_collision ? "1" : "0");
