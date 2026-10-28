@@ -1,0 +1,25 @@
+# A network client's "changemap" (N4.7 security fix, src/game/net_security.cpp): the game code's command relaunches
+# the server into the map its own front end chose, which a listen server's host menu uses; any client of a dedicated
+# server could send it (game mode 3), and the server relaunched into an empty map name, every player sent off to
+# rejoin. Now refused for network clients: the server stays on its map, the client plays on.
+# timeout: 300
+[server] --server "--map de_aztec --bots 2" --env CSX_LOG_NET=1
+wait log net:.server.identity
+wait log net:.client.127\.0\.0\.2:[0-9]+.connected
+wait log changemap.*refused
+sleep 10
+expect nolog relaunching.into
+count net:.server.identity 1
+players after
+expect playercount after 3 3
+pckey cmd quit
+[client] --after server:net:.server.identity --delay 5 --launch tests/launch/connect_local --env FPS=30 --env CSX_LOG_NET=1
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 8
+pckey cmd changemap
+sleep 15
+expect nolog changes.map
+expect nolog guest trap
