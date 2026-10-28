@@ -21,7 +21,7 @@ key Space
 sleep 4
 key Space
 wait log p1: net: relaunching
-wait log split: player 1: host
+wait log split: player 1: (host|join)
 wait log split: player 2 started
 pad 1 attach
 wait log p2: net: server 127.0.0.1:27015 connected

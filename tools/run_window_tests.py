@@ -2,7 +2,7 @@
 """Runs window scenarios (tests/scenarios/vk_*.txt) in the Vulkan window build, each in its own headless gamescope
 (nothing on the desktop, no host input: CSX_TEST_INPUT_ONLY as drive.py sets it), no audio device (CSX_AUDIO=null).
 
-Usage: python3 -I tools/run_window_tests.py [--exe PATH] [--tag TAG] [SCENARIO ...]   (default: the mouse, binding, console, movement, spectator, display, loading, VSync and raw mouse window tests)
+Usage: python3 -I tools/run_window_tests.py [--exe PATH] [--tag TAG] [--env NAME=VALUE] [SCENARIO ...]   (default: the mouse, binding, console, movement, spectator, display, loading, VSync and raw mouse window tests)
 
 Each scenario's header (its leading # lines) gives its gamescope size ("gamescope --backend headless -W W -H H") and
 its refresh rate when given ("... -H H -r HZ"), and its drive.py options (--env NAME=VALUE, --pc NAME=VALUE, --launch
@@ -72,9 +72,12 @@ def main():
     args = sys.argv[1:]
     exe = os.path.join(ROOT, 'build', 'window', 'CounterStrike')
     tag = ''
-    while args and args[0] in ('--exe', '--tag') and len(args) > 1:
+    extra = []  # --env NAME=VALUE for every scenario (after its own: the last one set wins)
+    while args and args[0] in ('--exe', '--tag', '--env') and len(args) > 1:
         if args[0] == '--exe':
             exe = os.path.abspath(args[1])
+        elif args[0] == '--env':
+            extra += ['--env', args[1]]
         else:
             tag = '_' + args[1]
         args = args[2:]
@@ -93,7 +96,7 @@ def main():
         opts = [o.replace('$RUN', run) for o in opts]
         status = os.path.join(run, 'drive_status')
         drive = [sys.executable, '-I', os.path.join(ROOT, 'tools', 'drive.py'), path, '--exe', exe, '--run', run,
-                 '--timeout', '900', '--env', 'CSX_RENDERER=vulkan', '--env', 'FPS=30', '--env', 'CSX_AUDIO=null'] + opts
+                 '--timeout', '900', '--env', 'CSX_RENDERER=vulkan', '--env', 'FPS=30', '--env', 'CSX_AUDIO=null'] + opts + extra
         inner = ' '.join(shlex.quote(a) for a in drive) + '; echo $? > ' + shlex.quote(status)
         print('== %s (gamescope %sx%s)' % (base, w, h))
         sys.stdout.flush()

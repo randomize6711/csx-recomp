@@ -124,13 +124,15 @@ wait log p1: game: "Player 2<[0-9]+><[^>]*><[^>]*>" disconnected
 sleep 8
 players after2
 expect playercount after2 65 65
+# its controller is its own again: it turns player 2 (a turn, not a walk: the spawn auto-assign gives it, CT or T,
+# may face a wall or a crowd of bots a few steps ahead)
 @2 state m2a
-pad 1 axis lefty -32767
-sleep 1.5
-pad 1 axis lefty 0
+pad 1 axis rightx 26000
+sleep 1.0
+pad 1 axis rightx 0
 sleep 0.5
 @2 state m2b
-expect moved m2a m2b 100 1000
+expect turned m2a m2b 20
 # players 3 and 4 at once
 mark
 winctl kill 3 11
