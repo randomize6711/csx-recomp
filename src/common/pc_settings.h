@@ -19,4 +19,17 @@ unsigned Version();  // bumped by every Set, for readers that cache
 bool XboxEffect(const std::string& name);
 bool XboxEffectsMaster();
 
+// The profile this process plays as (N4.8, src/common/profiles.h): its id from CSX_PC_PROFILE when the settings are
+// first read, or UseProfile. While one is in use, the profile-scoped settings (profiles::Scoped: mouse, FOV,
+// bindings, the title's controller options) are read from it (the PC's value when it has none) and Set / Save write
+// them to it; the other settings stay the PC's. UseProfile("") plays as no profile. The id is kept in the environment
+// (CSX_PC_PROFILE) for the title's relaunches.
+bool UseProfile(const std::string& id);
+std::string ActiveProfile();
+// the PC's own value of a setting, past the profile (a new profile starts from these)
+std::string GetGlobal(const std::string& name, const std::string& fallback);
+// the folder holding profiles/: CSX_PROFILE_DIR (the compositor's run folder, for every local player), else this
+// process's own
+std::string ProfileFolder();
+
 }  // namespace pc
