@@ -59,6 +59,11 @@ pad 1 button a
 pad 2 button a
 pad 3 button a
 sleep 3
+# player 1 joins the Terrorists (the team screen's third row; not Auto Assign, so every run draws the same view)
+key Down
+sleep 0.7
+key Down
+sleep 0.7
 key Space
 sleep 6
 key Left_Ctrl

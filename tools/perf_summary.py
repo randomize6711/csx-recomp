@@ -10,11 +10,14 @@ import json, os, re, statistics, sys
 
 
 def window(lines):
-    for l in lines:
+    # (t0, t1, i): from 3 s after the first setview line for 52 s, and that line's index. Only the lines after it
+    # count: the log holds every instance of the game (each relaunch starts its clock again, so the menus before the
+    # match have times inside the window too) and, with a local server, the server's own lines
+    for i, l in enumerate(lines):
         m = re.match(r'\[\s*([\d.]+)\].*setview', l)
         if m and 'off' not in l:
             t0 = float(m.group(1)) + 3
-            return t0, t0 + 52
+            return t0, t0 + 52, i
     return None
 
 
@@ -23,13 +26,13 @@ def summary(run):
     w = window(lines)
     if not w:
         return {'run': run, 'error': 'no setview line'}
-    t0, t1 = w
+    t0, t1, first = w
     iv, gpu, rec, srv, srvmax, moves, rest = [], [], [], [], [], [], []
     lock = [0, 0, 0.0, 0.0, 0.0, 0.0]  # raises, contended, wait ms, wait max, held ms, seconds
     mem = None
     clock_off = None
     players = None
-    for l in lines:
+    for n, l in enumerate(lines):
         m = re.match(r'\[\s*([\d.]+)\]', l)
         if not m:
             continue
@@ -38,7 +41,7 @@ def summary(run):
             clock_off = t - float(l.rsplit(' ', 1)[1])
         if 'memory: user' in l:
             mem = l
-        if not (t0 <= t <= t1):
+        if n < first or not (t0 <= t <= t1):
             continue
         if 'frame intervals:' in l:
             iv += [float(x) for x in l.split('frame intervals:')[1].split()]

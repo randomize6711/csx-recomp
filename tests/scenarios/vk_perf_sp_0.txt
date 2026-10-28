@@ -46,6 +46,11 @@ sleep 3
 key Space
 wait log pc keys: menu TeamSelect
 sleep 5
+# the Terrorists (the team screen's third row; not Auto Assign, so every run draws the same view)
+key Down
+sleep 0.7
+key Down
+sleep 0.7
 key Space
 sleep 6
 key Left_Ctrl

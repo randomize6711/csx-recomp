@@ -39,16 +39,18 @@ def summary(run):
             w = perf_summary.window(per['1'])
     if not w:
         return r
-    t0, t1 = w
+    t0, t1, _ = w
+    # (lines from the held view on: earlier instances of the game, the menus, have times inside the window too)
+    start = next(i for i, l in enumerate(lines) if 'setview' in l and 'off' not in l)
     kb = {}
-    for l in lines:
+    for l in lines[start:]:
         m = re.match(r'\[\s*([\d.]+)\].*?(?:p([1-4]): )?net stats: (server|client) \d+ connections, out ([\d.]+) KB/s.*'
                      r'in ([\d.]+) KB/s', l)
         if m and t0 <= float(m.group(1)) <= t1:
             kb.setdefault('p%s %s' % (m.group(2) or '1', m.group(3)), []).append(float(m.group(4)) + float(m.group(5)))
     r['network_kbs'] = {k: round(statistics.mean(v), 1) for k, v in sorted(kb.items())}
     use = []
-    for l in lines:
+    for l in lines[start:]:
         m = re.match(r'\[\s*([\d.]+)\].*split: use: (\d+) processes, cpu ([\d.]+)%, memory ([\d.]+) MB', l)
         if m and t0 <= float(m.group(1)) <= t1:
             use.append((int(m.group(2)), float(m.group(3)), float(m.group(4))))

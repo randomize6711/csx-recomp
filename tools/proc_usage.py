@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Each process of a window run, from its procs.csv (tools/drive.py: the game's process tree every half second): CPU
 (% of one core) and resident memory over a window of the run, and the total. The window is the benchmarks' held view
-(the log's first "setview: " line to its "setview: off"), or --from / --to seconds of the run.
+(drive.out's setview step to its "setview off" step: the run's own clock, which procs.csv has; the game's log restarts
+its clock at each relaunch), or --from / --to seconds of the run.
 
 Usage: python3 -I tools/proc_usage.py RUN [--from S] [--to S]     (RUN: build/wruns/<scenario>)"""
 import os
@@ -17,12 +18,12 @@ def main():
     lo = float(args[args.index('--from') + 1]) if '--from' in args else None
     hi = float(args[args.index('--to') + 1]) if '--to' in args else None
     if lo is None or hi is None:
-        # the held view in the log (its times are the game's, which starts with the monitor: the same clock to ~0.1 s)
+        # the held view: drive.out's setview steps ("ok   setview ...  [ 133.0s, ...]", the run's seconds)
         times = []
-        for l in open(os.path.join(run, 'run.out'), errors='replace'):
-            m = re.match(r'^\[\s*([\d.]+)\].*setview: (off)?', l)
+        for l in open(os.path.join(run, 'drive.out'), errors='replace'):
+            m = re.match(r'^ok\s+setview (off)?.*\[\s*([\d.]+)s', l)
             if m:
-                times.append((float(m.group(1)), m.group(2) == 'off'))
+                times.append((float(m.group(2)), m.group(1) == 'off'))
         starts = [t for t, off in times if not off]
         ends = [t for t, off in times if off]
         if lo is None and starts:
