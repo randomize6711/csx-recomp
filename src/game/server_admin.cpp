@@ -21,6 +21,7 @@
 #include <fstream>
 #include <functional>
 #include <map>
+#include <atomic>
 #include <mutex>
 #include <set>
 #include <sstream>
@@ -467,6 +468,117 @@ bool AdminCommand(X86Context& ctx, uint32_t cl, const std::string& text) {
         return true;
     }
     return usage();
+}
+
+// a local server (N4.7, local_server.cpp): the identity of the game that started it for its match, which takes the
+// menu's host actions that a listen server ran in that game's own process
+bool OwnedServer() {
+    const char* k = std::getenv("CSX_SERVER_OWNER_KEY");
+    return Dedicated() && k && std::strlen(k) == 64;
+}
+
+// the owner's client slot (0-based), -1 while it is not connected (state_probe.cpp: the host's player)
+int OwnerSlot() {
+    const char* owner = std::getenv("CSX_SERVER_OWNER_KEY");
+    if (!owner) return -1;
+    for (uint32_t slot = 1; slot <= R32(kMaxClients) && slot <= 256; slot++) {
+        uint32_t cl = R32(kClients) + (slot - 1) * kClientSize;
+        if (!R32(cl) || !Network(cl)) continue;
+        auto key = csx::NetPeerIdentity(ClientAddress(cl));
+        if (key && *key == owner) return int(slot - 1);
+    }
+    return -1;
+}
+
+// the owner's pause: the match's simulation stopped (OwnerPausedFrame) while the network goes on. Not the engine's
+// pause (sv.paused, svc_setpause): on this dedicated server it also stopped every packet to the clients, and the
+// owner's game, a network client, timed out on its own server
+std::atomic<bool> g_owner_paused{false};
+
+void SetPause(bool on) {
+    g_owner_paused = on;
+}
+
+// the server is paused (the owner's pause menu) and a human other than the owner is connected (a split-screen
+// player added by START, a LAN player): the match goes on for them (net_engine.cpp, at a connection)
+void OwnerPauseCheck(X86Context&) {
+    if (!OwnedServer() || !g_owner_paused) return;
+    SetPause(false);
+    LOGI("owner: the match unpaused: another player connected");
+}
+
+bool OwnerPaused() { return g_owner_paused; }
+
+// "pc_owner VERB ..." (net_security.cpp ClientCommandAllowed): only from the owner's identity, on this machine
+//   restart          the pause menu's Restart Match (HostRestart, 0xE9110: its game code 0x143730, the rules' complete reset)
+//   changemap MAP    the pause menu's Change Map (the map the owner's menu chose; a relaunch as admin map's)
+//   console HEX      a console line of the owner's for the server (sv_, mp_, bot_ ... : local_server.cpp), one command
+//   pause on|off     the pause menu's pause, while no other human is connected: the simulation stopped (bots, entities,
+//                    the match's clock), the network not
+bool OwnerCommand(X86Context& ctx, uint32_t cl, const std::string& text) {
+    std::string ip = ClientAddress(cl);
+    std::istringstream w(text);
+    std::string word, verb, arg;
+    w >> word >> verb;
+    std::getline(w, arg);
+    arg.erase(0, arg.find_first_not_of(' '));
+    auto key = csx::NetPeerIdentity(ip);
+    if (!OwnedServer() || !key || *key != std::getenv("CSX_SERVER_OWNER_KEY") || ip.rfind("127.", 0) != 0) {
+        LOG_FIRST(16, "owner: \"%s\" from \"%s\" %s refused: not this server's owner", Clean(verb, 16).c_str(),
+                  Name(cl).c_str(), ip.c_str());
+        return true;
+    }
+    if (verb == "restart") {
+        LOGI("owner: Restart Match");
+        Later([](X86Context& c) { kernel::CallGuest(c, 0xE9110, {}); });  // HostRestart (its jump to 0x143730)
+        return true;
+    }
+    if (verb == "changemap") {
+        const char* game = std::getenv("GAME_DIR");
+        if (arg.empty() || arg.size() > 31 || arg.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_") != std::string::npos ||
+            !game || !std::filesystem::exists(std::filesystem::path(game) / (arg + ".SXWad"))) {
+            LOGW("owner: Change Map to \"%s\" refused: no such map", Clean(arg, 32).c_str());
+            return true;
+        }
+        LOGI("owner: Change Map to %s", arg.c_str());
+        Later([arg](X86Context& c) { csx::RelaunchToMap(c, arg); });
+        return true;
+    }
+    if (verb == "console") {
+        std::string line;
+        bool ok = arg.size() % 2 == 0 && arg.size() <= 2 * 200 && arg.find_first_not_of("0123456789abcdef") == std::string::npos;
+        for (size_t i = 0; ok && i < arg.size(); i += 2) {
+            char ch = char(std::stoi(arg.substr(i, 2), nullptr, 16));
+            ok = ch >= 0x20 && ch < 0x7F && ch != ';';
+            line += ch;
+        }
+        if (!ok || line.empty()) {
+            LOGW("owner: a console line refused (one printable command, no ';')");
+            return true;
+        }
+        LOGI("owner: console \"%s\"", line.c_str());
+        csx::QueueEngineCommand(line + "\n");
+        return true;
+    }
+    if (verb == "pause") {
+        if (arg == "on") {
+            for (uint32_t slot = 1; slot <= R32(kMaxClients) && slot <= 256; slot++) {
+                uint32_t other = R32(kClients) + (slot - 1) * kClientSize;
+                if (other != cl && R32(other) && Network(other)) {
+                    LOGI("owner: the pause menu's pause skipped: \"%s\" is playing too", Name(other).c_str());
+                    return true;
+                }
+            }
+            LOGI("owner: paused (the pause menu)");
+            SetPause(true);
+        } else if (arg == "off") {
+            LOGI("owner: unpaused (the pause menu)");
+            SetPause(false);
+        }
+        return true;
+    }
+    LOGW("owner: unknown command \"%s\"", Clean(verb, 32).c_str());
+    return true;
 }
 
 // the admin actions due (DedicatedTick, the host frame's start)

@@ -45,6 +45,11 @@ void ParseFile(Config& c, const std::string& text, const std::string& name, std:
 void CheckTogether(const Config& c, std::vector<Error>& errors);
 // the match command line, ending with its NUL as the front end writes it
 std::string CommandLine(const Config& c);
+// a local server's match (N4.7: the game started it for a match from its menus, CSX_SERVER_MATCH): the front end's
+// own line (its "+cvar value" tokens: the menus' bots, rules and Player Collision) with this server's map and the
+// settings a server needs after them (its slots, bots with no human yet, its name, LAN and password). Empty, with the
+// error, when a token is not a plain "+name value..." of letters, digits and _ . - (nothing that ends or adds a command)
+std::string MatchLine(const Config& c, const std::string& menu_line, std::string& error);
 // the config as "key value" lines again (the effective settings: kept across relaunches; logged with the password
 // shown as "(set)")
 std::string Describe(const Config& c, bool show_password = false);

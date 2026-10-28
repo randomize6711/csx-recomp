@@ -191,6 +191,60 @@ std::string CommandLine(const Config& c) {
     return s;
 }
 
+std::string MatchLine(const Config& c, const std::string& menu_line, std::string& error) {
+    // "+name value..." tokens: the menus' cvars (mp_, bot_, pc_) and their +wait; the map is this server's (a map
+    // change keeps the menus' rules with the next map); the settings a server sets itself are dropped from it and set
+    // after it
+    auto plain = [](const std::string& t, size_t max) {
+        return !t.empty() && t.size() <= max &&
+               t.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-") == std::string::npos;
+    };
+    std::istringstream in(menu_line);
+    std::vector<std::vector<std::string>> cvars;
+    std::string t;
+    while (in >> t) {
+        if (t[0] == '+') {
+            std::string name = t.substr(1);
+            for (char& ch : name) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+            // (Host a Match's line also has +maxhumanplayers, its Max Players)
+            bool known = name == "wait" || name == "map" || name == "maxhumanplayers" || name.rfind("mp_", 0) == 0 ||
+                         name.rfind("bot_", 0) == 0 || name.rfind("pc_", 0) == 0;
+            if (!plain(name, 40) || !known) {
+                error = "the match setting \"" + (plain(t.substr(1), 40) ? t : std::string("(not plain text)")) +
+                        "\" is not one a match from the menus sets";
+                return {};
+            }
+            cvars.push_back({name});
+        } else if (!cvars.empty() && plain(t, 32) && cvars.back().size() < 4) {
+            cvars.back().push_back(t);
+        } else {
+            error = cvars.empty() ? "the match line does not start with a setting" : "a match setting's value is not plain text";
+            return {};
+        }
+    }
+    if (cvars.empty() || cvars[0][0] != "map") {
+        error = "the match line does not start with its map";
+        return {};
+    }
+    static const char* const kOwn[] = {"map", "mp_dedicated_server", "bot_join_after_player"};
+    std::string s = "+map " + c.map;
+    bool collision = false;
+    for (auto& v : cvars) {
+        if (std::find_if(std::begin(kOwn), std::end(kOwn), [&](const char* k) { return v[0] == k; }) != std::end(kOwn)) continue;
+        collision = collision || v[0] == "pc_player_collision";
+        s += " +" + v[0];
+        for (size_t i = 1; i < v.size(); i++) s += " " + v[i];
+    }
+    // after the menus' tokens (the last one set wins): every slot for players and bots, bots that join with no human
+    // yet (the owner joins a moment after the start), the snapshot rate, LAN, the name and the password
+    s += " +maxplayers " + std::to_string(c.max_players) + " +mp_dedicated_server 1 +bot_join_after_player 0 +sv_maxupdaterate " +
+         std::to_string(c.snapshot_rate) + " +sv_lan " + (c.lan_only ? "1" : "0") + " +hostname \"" + c.name + "\"";
+    if (!c.password.empty()) s += " +sv_password " + c.password;
+    if (!collision) s += std::string(" +pc_player_collision ") + (c.player_collision ? "1" : "0");
+    s += '\0';
+    return s;
+}
+
 std::string Describe(const Config& c, bool show_password) {
     std::string s;
     auto add = [&](const char* k, const std::string& v) { s += std::string(k) + " " + v + "\n"; };

@@ -5,12 +5,15 @@
 #include <cstring>
 #include <fstream>
 #include <string>
+#include <vector>
 
+#include "app/app.h"
 #include "common/csx.h"
 #include "common/guest_tables.h"
 #include "common/guest_tables_layout.h"
 #include "core/log.h"
 #include "cpu/x86_context.h"
+#include "game/local_server.h"
 #include "game/net_engine.h"
 #include "kernel/kernel.h"
 #include "net/transport.h"
@@ -43,25 +46,55 @@ constexpr uint32_t kRelaunch = 0xBF0E0;  // the title's relaunch (cdecl: the lau
     uint32_t data = guest_tables::kTables[guest_tables::k_net_launch].va;
     std::memset(kernel::HostPtr(data), 0, 0xC00);
     kernel::W32(data, 4);
+    // the game's own local server (N4.7): the launch data its menu match started with, so the game comes back in
+    // that match's mode (Single Player's pause menu and pause, not System Link's)
+    if (csx::LocalServerRunning()) {
+        std::ifstream f(app::ExeDir() / "local_server" / "launch_match.bin", std::ios::binary);
+        std::vector<char> page(0xC00);
+        if (f.read(page.data(), std::streamsize(page.size()))) std::memcpy(kernel::HostPtr(data), page.data(), page.size());
+    }
     kernel::CallGuest(ctx, kRelaunch, {data});
     std::abort();  // the relaunch does not return
 }
 // back to the front end (a browser join that ended): no match line, the launch data the title's own end of a session
-// writes (0xE6370: 1, then the page); the browser reopens with the message (pc_browser.cpp's PcBrowserMenuFrame)
-[[noreturn]] void RelaunchToFrontEnd(X86Context& ctx, const std::string& message) {
+// writes (0xE6370: 1, then the page); the browser reopens with the message (pc_browser.cpp's PcBrowserMenuFrame). The
+// front end's launch data (FrontEndLaunch) is also what a menu match whose local server did not start relaunches with
+// by_mode: the screen the match was started from, as the title's own end of a session does (0xE6370: the launch data's
+// second word from the game mode 0x5259E0, 2 3 4 5 -> 2 3 6 5, or 0x5259E4 when set): Single Player's match options,
+// Host a Match's. Without it (0) the front end opens its main screen, or (a match from Single Player that did not
+// start) Training
+uint32_t FrontEndLaunch(bool by_mode = false, uint32_t screen_now = 0) {
     for (const char* drive : {"Z:\\releasemap.txt", "T:\\releasemap.txt"}) {
         std::string path = kernel::ResolvePath(drive, 0);
         if (!path.empty()) std::remove(path.c_str());
     }
-#ifdef _WIN32
-    _putenv_s("CSX_BROWSER_MESSAGE", message.c_str());
-#else
-    setenv("CSX_BROWSER_MESSAGE", message.c_str(), 1);
-#endif
-    LOGI("net: back to the front end: %s", message.c_str());
     uint32_t data = guest_tables::kTables[guest_tables::k_net_launch].va;
     std::memset(kernel::HostPtr(data), 0, 0xC00);
     kernel::W32(data, 1);
+    if (by_mode) {
+        uint32_t mode = kernel::R32(0x5259E0), set = kernel::R32(0x5259E4);
+        static const uint32_t kScreen[] = {2, 3, 6, 5};
+        uint32_t screen = screen_now ? screen_now : set ? set : mode >= 2 && mode <= 5 ? kScreen[mode - 2] : 0;
+        kernel::W32(data + 4, screen);
+    }
+    return data;
+}
+
+// the message the front end shows on its return: the browser's (a join's end), or the local server's (CSX_LOCAL_
+// SERVER_MESSAGE: the match's server did not start or stopped; pc_browser.cpp)
+void FrontEndMessage(const char* var, const std::string& message) {
+#ifdef _WIN32
+    _putenv_s(var, message.c_str());
+#else
+    setenv(var, message.c_str(), 1);
+#endif
+}
+
+[[noreturn]] void RelaunchToFrontEnd(X86Context& ctx, const std::string& message, const char* var = "CSX_BROWSER_MESSAGE",
+                                     bool by_mode = false) {
+    uint32_t data = FrontEndLaunch(by_mode);
+    if (!message.empty()) FrontEndMessage(var, message);
+    LOGI("net: back to the front end%s%s", message.empty() ? "" : ": ", message.c_str());
     kernel::CallGuest(ctx, kRelaunch, {data});
     std::abort();
 }
@@ -198,9 +231,10 @@ void MapChangeNotify(X86Context& ctx, uint8_t*) {
 // "+map NAME" (whichever way the match got there: the game DLL's changelevel, the engine's map command at the end of
 // a match), written to Z:\releasemap.txt just before: the clients are told MapChange and rejoin; anything else (a
 // quit, a new match from the menus) is a shutdown
-void RelaunchNotify(X86Context&, uint8_t*) {
+void RelaunchNotify(X86Context& ctx, uint8_t*) {
     // a match started from the front end's menus: System Link's (Multiplayer's) Host a Match hosts it for the network
     // (a PC listen server: its port open, LAN discovery answered); any other menu match does not (CSX_MENU_HOST)
+    bool menu_match = false, hosted = false;
     if (uint32_t screen = kernel::R32(0x5523D4)) {
         std::string name = kernel::ReadCString(kernel::R32(screen), 64);
         if (name.rfind("SuperLauncher_", 0) == 0) {
@@ -213,12 +247,43 @@ void RelaunchNotify(X86Context&, uint8_t*) {
 #endif
             if (host) LOGI("net: a match hosted from Multiplayer (%s): its server takes network players", name.c_str());
             SplitMatchFromMenus(host);
+            menu_match = true, hosted = host;
         }
     }
     std::string line;
     if (std::string path = kernel::ResolvePath("Z:\\releasemap.txt", 0); !path.empty()) {
         std::ifstream f(path, std::ios::binary);
         std::getline(f, line, '\0');
+    }
+    // the match's server: this game's local server ends unless the relaunch rejoins it (a map change); a match from
+    // the menus runs in a new one (N4.7, local_server.cpp): the game relaunches into "+connect" to it, not "+map"
+    // (the pause menu's Quit relaunches with the front end's launch data, type 1 (0xE6370), and the match's line left
+    // in the file: the game is leaving whatever the line says)
+    uint32_t launch = kernel::R32(ctx.esp + 4);
+    bool to_front_end = launch && kernel::R32(launch) == 1;
+    if (csx::LocalServerRunning() && (to_front_end || line != "+connect " + csx::LocalServerAddress()))
+        csx::LocalServerStop(menu_match ? "a new match from the menus" : "the game left its match");
+    if (menu_match && line.rfind("+map ", 0) == 0 && csx::LocalServerWanted()) {
+        std::string connect, error;
+        std::string path = kernel::ResolvePath("Z:\\releasemap.txt", 0);
+        if (csx::LocalServerStart(line, hosted, connect, error)) {
+            std::ofstream(path, std::ios::binary | std::ios::trunc).write(connect.c_str(), std::streamsize(connect.size() + 1));
+            // this launch data again for the game's rejoins after the server's map changes (RelaunchToServer)
+            if (uint32_t launch_data = kernel::R32(ctx.esp + 4))
+                std::ofstream(app::ExeDir() / "local_server" / "launch_match.bin", std::ios::binary | std::ios::trunc)
+                    .write(static_cast<const char*>(kernel::HostPtr(launch_data)), 0xC00);
+            LOGI("net: relaunching into %s in its local server: the game joins it (%s)",
+                 line.substr(5, line.find(' ', 5) == std::string::npos ? std::string::npos : line.find(' ', 5) - 5).c_str(),
+                 connect.c_str());
+            line = connect;
+        } else {
+            // not started: the front end again, with why (the listen server is PC setting server_process 0)
+            LOGE("net: the match's local server did not start: back to the menus (%s)", error.c_str());
+            FrontEndMessage("CSX_LOCAL_SERVER_MESSAGE", error);
+            // (the match's mode is not set yet: the menu it was started from, Host a Match's (6) or Single Player's (3))
+            kernel::W32(ctx.esp + 4, FrontEndLaunch(true, hosted ? 6 : 3));
+            line.clear();
+        }
     }
     // split-screen player 1: the next boot's aspect, its viewport's in a match, the window's in the menus
     if (csx::SplitPlayer() == 1) csx::SplitPrepareRelaunch(line.rfind("+map ", 0) == 0 || line.rfind("+connect ", 0) == 0);
@@ -250,6 +315,15 @@ bool ClDisconnectLostHost(X86Context& ctx, uint8_t*) {
         LOGI("net: split-screen player %d's process ends", csx::SplitPlayer());
         logx::Flush();
         std::_Exit(0);
+    }
+    // a match in this game's local server (N4.7, local_server.cpp) ended for its player (it left, or the server
+    // went): the server stopped, the game back in its menus (with why, unless the player left)
+    if (csx::LocalServerRunning()) {
+        std::string why;
+        bool alive = csx::LocalServerAlive(why);
+        std::string message = !alive ? "The match's server stopped (" + why + ")." : g_close_text.empty() ? "" : ReturnMessage();
+        csx::LocalServerStop("the player's match ended");
+        RelaunchToFrontEnd(ctx, message, "CSX_LOCAL_SERVER_MESSAGE", true);
     }
     // a join from the server browser: back to its list with why, instead of the console's LostHost screen. At once,
     // as that screen does (its own loop ends only in a relaunch): the disconnect's callers do not expect to go on
@@ -288,6 +362,11 @@ bool PcNetworkMatch() {
 // lobby was not set up; it would wait in accept() on a lobby socket nobody opened for listening (true: 0x5D5E1)
 bool HostFrameLobby(X86Context& ctx, uint8_t*) {
     if (!g_reconnect.empty()) RelaunchToServer(ctx, g_reconnect);  // between frames: no engine code is mid-way
+    // this game's local server ended by itself (a crash): back to the menus with why, not after the connection's
+    // timeout
+    if (std::string why; !csx::LocalServerAlive(why))
+        RelaunchToFrontEnd(ctx, "The match's server stopped (" + why + ").", "CSX_LOCAL_SERVER_MESSAGE", true);
+    csx::LocalServerPauseFrame(csx::MenuOpen());
     static uint32_t paused = 0;
     if (kernel::R32(0x5EF7C4) != paused) {
         paused = kernel::R32(0x5EF7C4);
@@ -331,7 +410,34 @@ void ConPrintfLog(X86Context& ctx, uint8_t*) {
 // did: Cbuf_AddText("pause\n") (0x33DB98). With players on the network that froze the match for all of them (their
 // connection timed out): the request is skipped while the server has network clients (true jumps past the call)
 bool UiPause(X86Context&, uint8_t*) {
+    if (csx::LocalServerRunning()) return true;  // a local server's pause: OwnerPauseOpen / OwnerPauseClose
     if (!csx::NetServerHasClients()) return false;
     LOG_FIRST(4, "net: the menu's pause skipped: players are connected over the network");
     return true;
+}
+
+// [[hook]] at 0xCA00F and 0xCA073, where the front end decides to pause (its screen opened, the server not paused:
+// 0xCA017) or to unpause (closed, paused: 0xCA07B) by the server's sv.paused (0x5EF7C4). A game whose match is in its
+// local server has no server of its own (its sv.paused is always 0): its pause goes to its server as the owner's
+// (pc_owner pause, while no other human plays there); true skips the title's check and call (0xCA021, 0xCA085)
+bool OwnerPauseOpen(X86Context&, uint8_t*) {
+    if (!csx::LocalServerRunning()) return false;
+    csx::LocalServerPause(true);
+    return true;
+}
+
+bool OwnerPauseClose(X86Context&, uint8_t*) {
+    if (!csx::LocalServerRunning()) return false;
+    csx::LocalServerPause(false);
+    return true;
+}
+
+// [[hook]] at 0x3CA25 in Cmd_ExecuteString (0x3CA10: its text at esp+8 after its push, cmd_source 0x748648 set,
+// the text tokenized): a command typed or queued in a game whose match is in its local server, which is the server's
+// (its settings, the pause menu's Restart Match and Change Map), goes there as the owner's (local_server.cpp); true
+// returns at once (0x3CB27)
+bool OwnerRoute(X86Context& ctx, uint8_t*) {
+    constexpr uint32_t kCmdSource = 0x748648;  // 1: src_command (this console, the command buffer)
+    if (kernel::R32(kCmdSource) != 1 || !csx::LocalServerRunning()) return false;
+    return csx::LocalServerRoute(kernel::ReadCString(kernel::R32(ctx.esp + 8), 512));
 }

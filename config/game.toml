@@ -1147,6 +1147,28 @@ at = 0xCD913
 call = "UiPause"
 on_true = 0xCD91D
 
+# a match in the game's local server (N4.7, src/game/local_server.cpp): the pause menu's pause decided for its server
+# (the game's own sv.paused is never set), and the server's commands typed or queued in the game sent to it
+[[hook]]
+at = 0xCA00F
+call = "OwnerPauseOpen"
+on_true = 0xCA021
+
+[[hook]]
+at = 0xCA073
+call = "OwnerPauseClose"
+on_true = 0xCA085
+
+[[hook]]
+at = 0x3CA25
+call = "OwnerRoute"
+on_true = 0x3CB27
+
+[[hook]]
+at = 0xA1D64
+call = "OwnerPausedFrame"
+on_true = 0xA1DA4
+
 # the engine's network security (src/game/net_security.cpp; SV_CheckChallenge 0x98CE0 replaced there)
 [[hook]]
 at = 0x9A055

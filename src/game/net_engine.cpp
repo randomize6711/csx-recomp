@@ -15,6 +15,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -23,6 +24,7 @@
 #include "core/log.h"
 #include "cpu/x86_context.h"
 #include "common/csx.h"
+#include "game/local_server.h"
 #include "game/net_engine.h"
 #include "kernel/kernel.h"
 #include "net/transport.h"
@@ -45,6 +47,9 @@ constexpr uint32_t kServerOpenReturn = 0x6D049;  // UDP_OpenSocket's call for th
 constexpr uint32_t kNaBroadcast = 2, kNaIp = 3;
 
 std::unique_ptr<net::Endpoint> g_ep[2];
+std::mutex g_server_lock;  // the server endpoint's key, port and error, read by csx-server's main thread
+std::string g_server_key, g_server_error;
+uint16_t g_server_port = 0;
 
 double Now() {
     using namespace std::chrono;
@@ -118,6 +123,12 @@ std::optional<net::Identity> LoadServerIdentity() {
 // net_tofu 0 refuses servers not known instead). A changed key is refused, never silently taken.
 net::ServerTrust CheckServerKey(const net::Address& server, const std::string& key, std::string& why) {
     std::string addr = server.ToString();
+    // the local server this game started for its match (N4.7, local_server.cpp): the key it reported, at its address;
+    // not remembered in known_servers.txt (its port changes)
+    if (csx::LocalServerTrusted(addr, key)) {
+        LOGI("net: server %s is this game's local server (key %s)", addr.c_str(), key.c_str());
+        return net::ServerTrust::Trusted;
+    }
     std::string pinned = std::getenv("CSX_SERVER_KEY") ? std::getenv("CSX_SERVER_KEY") : pc::Get("net_server_key", "");
     for (auto& c : pinned) c = char(std::tolower(static_cast<unsigned char>(c)));
     if (!pinned.empty()) {
@@ -208,6 +219,8 @@ void Events(X86Context& ctx, int sock) {
                 g_ep[1]->Disconnect(e.peer, net::Reason::Kicked, why);
                 continue;
             }
+            // a local server paused by its owner's menu: another player's match goes on (server_admin.cpp)
+            if (sock == 1 && csx::OwnedServer() && e.identity != std::getenv("CSX_SERVER_OWNER_KEY")) csx::OwnerPauseCheck(ctx);
             if (sock == 0) {
                 csx::NetServerJoined();
                 // split-screen player 1 joined a server: the other local players follow it (its key, its password)
@@ -275,6 +288,21 @@ void StartNetwork() {
 #endif
 }
 
+std::string ServerIdentityKey() {
+    std::lock_guard<std::mutex> l(g_server_lock);
+    return g_server_key;
+}
+
+uint16_t ServerEndpointPort() {
+    std::lock_guard<std::mutex> l(g_server_lock);
+    return g_server_port;
+}
+
+std::string ServerEndpointError() {
+    std::lock_guard<std::mutex> l(g_server_lock);
+    return g_server_error;
+}
+
 bool NetConnected(const std::string& peer) {
     auto a = net::Address::Parse(peer, NetServerPort());
     return a && g_ep[0] && g_ep[0]->Connected(*a);
@@ -340,6 +368,10 @@ X86_FUNC(sub_0006CDE0) {
         auto s = net::OpenUdp(port, error, bind ? &local : nullptr, false, sock == 1 && bind);
         if (!s) {
             LOGE("net: cannot open the %s socket: %s", sock ? "server" : "client", error.c_str());
+            if (sock) {
+                std::lock_guard<std::mutex> l(g_server_lock);
+                g_server_error = "UDP port " + std::to_string(port) + ": " + error;
+            }
         } else {
             LOGI("net: %s endpoint on UDP port %u", sock ? "server" : "client", s->Local().port);
             g_ep[sock] = std::make_unique<net::Endpoint>(sock ? net::Endpoint::Role::Server : net::Endpoint::Role::Client,
@@ -347,6 +379,11 @@ X86_FUNC(sub_0006CDE0) {
             if (sock) {
                 auto id = LoadServerIdentity();
                 g_ep[sock]->SetIdentity(id);
+                {
+                    std::lock_guard<std::mutex> l(g_server_lock);
+                    g_server_port = g_ep[sock]->Local().port;
+                    if (id) g_server_key = net::Identity::Fingerprint(id->public_key);
+                }
                 if (id) csx::ServerQueryStart(*g_ep[sock], *id, bind && !loopback);
             } else {
                 g_ep[sock]->SetIdentity(LoadIdentity());

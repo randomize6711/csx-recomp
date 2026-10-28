@@ -33,6 +33,11 @@ bool NetClientOnly();
 // the match takes network players (its server endpoint opens): CSX_NET_HOST=1, PC setting net_host 1, a test's
 // numbered instance; never in a client-only process
 bool NetHosting();
+// the server endpoint as it opened (N4.7: csx-server's status to the game that started it): its identity key (64 hex
+// digits), its port, or why it could not open (empty until either)
+std::string ServerIdentityKey();
+uint16_t ServerEndpointPort();
+std::string ServerEndpointError();
 // the process is the dedicated server (csx-server: CSX_DEDICATED=1; dedicated.cpp); its host frames so far
 bool Dedicated();
 uint64_t ServerFrames();
@@ -45,6 +50,13 @@ bool AdminCommand(X86Context& ctx, uint32_t cl, const std::string& text);
 void RunAdminActions(X86Context& ctx);
 bool Banned(const std::string& identity, const std::string& ip, std::string& why);
 void DropNetworkClient(X86Context& ctx, const std::string& address, const std::string& reason, bool now);  // server_admin.cpp
+// a local server the game started for its match (N4.7, server_admin.cpp): its owner's "pc_owner" client command (true:
+// it was one, handled), and the owner's pause ended when another player connects
+bool OwnedServer();
+int OwnerSlot();  // the owner's client slot (0-based), -1 while not connected
+bool OwnerCommand(X86Context& ctx, uint32_t cl, const std::string& text);
+void OwnerPauseCheck(X86Context& ctx);
+bool OwnerPaused();  // the owner's pause menu stopped the simulation
 // the server browser's join: the title relaunches into "+connect server" between frames (net_session.cpp)
 void RequestJoin(const std::string& server);
 // the title relaunched into another map, its players told to rejoin (net_session.cpp; the dedicated server)

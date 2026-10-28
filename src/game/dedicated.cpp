@@ -100,3 +100,10 @@ void DedicatedTick(X86Context& ctx, uint8_t*) {
     if (next > now) csx::ServerQueryWait(std::chrono::duration<double>(next - now).count());
     next += period;
 }
+
+// [[hook]] at 0xA1D64 in SV_Frame (0xA1D20), after it read the clients' packets, where it skips the simulation
+// (SV_Physics 0xA6470 and the server's clock) while sv.paused: a local server's owner paused (N4.7,
+// server_admin.cpp OwnerCommand) skips it the same way (true: 0xA1DA4); the clients' messages still go out
+bool OwnerPausedFrame(X86Context&, uint8_t*) {
+    return csx::OwnerPaused();
+}

@@ -1,0 +1,118 @@
+# The PC port taken by another program (N4.7, src/game/local_server.cpp): something holds UDP 27015 on every address.
+# An offline match (Single Player) still starts: its local server listens on 127.0.0.1 and another free port, and the
+# match plays (8 players); Quit stops it. Multiplayer > Host a Match needs the PC port: csx-server cannot open it, says
+# so in its status and ends; the game goes back to the Multiplayer screen it was hosted from with why ("UDP port 27015 ... another server
+# on this port?"), and Continue closes the message into that screen.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --env CSX_SERVER_PROCESS=1
+wait log renderer: vulkan
+spawn python3 -c "import socket,time;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.bind(('0.0.0.0',27015));time.sleep(900)"
+sleep 1
+wait log open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+key Down
+sleep 2
+key Space
+sleep 5
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Space
+sleep 5
+expect log pc mouse: screen SuperLauncher_SinglePlayerMatchOptions
+key Space
+sleep 3
+point 175 197
+sleep 0.5
+click 1
+sleep 1
+key Space
+wait log local server: ready in [0-9.]+ s: process [0-9]+, 127\.0\.0\.1:[0-9]+
+expect nolog local server: ready in [0-9.]+ s: process [0-9]+, 127\.0\.0\.1:27015
+wait log open D:\\de_aztec.sxwad
+sleep 20
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 20
+key Left_Ctrl
+sleep 10
+players p
+expect playercount p 8 8
+mark
+key Escape
+sleep 1.5
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Space
+sleep 1.5
+key Down
+sleep 0.5
+key Space
+wait newlog local server: stopped \(the game left its match\)
+wait newlog pc mouse: screen SuperLauncher_SinglePlayerMatchOptions
+sleep 3
+mark
+key Left_Ctrl
+sleep 2
+key Left_Ctrl
+sleep 2
+wait newlog pc mouse: screen SuperLauncher_MainScreen
+point 198 232
+sleep 0.5
+click 1
+sleep 3
+expect last pc.mouse:.screen SuperLauncher_SystemLink
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Space
+sleep 3
+key Space
+sleep 3
+mark
+key Space
+wait newlog local server: not started: UDP port 27015
+wait newlog pc mouse: screen SuperLauncher_PCServerMessage
+expect log browser: the match server's message: The match's server did not start: UDP port 27015.* \(another server on this port\?\)
+sleep 2
+windowshot message
+expect last pc.mouse:.screen SuperLauncher_PCServerMessage
+mark
+key Space
+wait newlog browser: the message closed .*back to SuperLauncher_
+sleep 2
+expect last pc.mouse:.screen SuperLauncher_SystemLink
+expect nolog guest trap

@@ -1,0 +1,59 @@
+# The local server cannot start (N4.7, src/game/local_server.cpp): csx-server is not where the game looks
+# (CSX_SERVER_EXE names a missing file). A Single Player match from the menus: the game does not relaunch into the
+# match but back into its menus where the match was started (Single Player's map list), which show why (the Match Server message, SuperLauncher_PCServerMessage); Continue closes it into
+# that screen and the menus work on. A second try from there (the map chosen again) says the same.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --env CSX_SERVER_PROCESS=1 --env CSX_SERVER_EXE=/nonexistent/csx-server
+wait log renderer: vulkan
+wait log open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+key Down
+sleep 2
+key Space
+sleep 5
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Space
+sleep 5
+expect log pc mouse: screen SuperLauncher_SinglePlayerMatchOptions
+key Space
+sleep 3
+point 175 197
+sleep 0.5
+click 1
+sleep 1
+key Space
+wait log local server: csx-server not found
+wait log browser: the match server's message: The match's server program \(csx-server\) was not found beside the game\.
+wait log pc mouse: screen SuperLauncher_PCServerMessage
+sleep 2
+windowshot message
+expect last pc.mouse:.screen SuperLauncher_PCServerMessage
+expect image message 10
+mark
+key Space
+wait newlog browser: the message closed .*back to SuperLauncher_SinglePlayerMatchMapList
+sleep 2
+expect last pc.mouse:.screen SuperLauncher_SinglePlayerMatchMapList
+point 175 197
+sleep 0.5
+click 1
+sleep 1
+key Space
+wait newlog pc mouse: screen SuperLauncher_PCServerMessage
+expect count local.server:.csx-server.not.found 2
+expect nolog local server: ready
+expect nolog open D:\\de_aztec.sxwad
+expect nolog guest trap

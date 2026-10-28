@@ -187,6 +187,13 @@ const std::vector<PcScreen>& Screens() {
                           {"Set the volume of everything the game plays.", "Sound Options set its parts."},
                           Numbers({"0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100"}),
                           10},
+                         // N4.7 (src/game/local_server.cpp): a match from the menus in csx-server, or in the game
+                         {"server_process",
+                          "Match Server",
+                          {"Separate runs a match's server (bots, rules) in its",
+                           "own process: smoother play. In Game is the original."},
+                          {{"Separate", "1"}, {"In Game", "0"}},
+                          0},
                      },
                      true,
                      false});

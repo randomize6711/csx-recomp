@@ -41,6 +41,7 @@
 #include "app/app.h"
 #include "common/csx.h"
 #include "common/pc_settings.h"
+#include "core/input.h"
 #include "core/log.h"
 #include "cpu/x86_context.h"
 #include "game/net_engine.h"
@@ -58,6 +59,7 @@ constexpr char kBrowser[] = "SuperLauncher_PCBrowser";
 constexpr char kAddress[] = "SuperLauncher_PCAddress";
 constexpr char kPassword[] = "SuperLauncher_PCPassword";
 constexpr char kMessage[] = "SuperLauncher_PCMessage";
+constexpr char kServerMessage[] = "SuperLauncher_PCServerMessage";  // the local server's (N4.7): did not start, stopped
 constexpr char kIdentity[] = "SuperLauncher_PCIdentity";
 constexpr char kContacting[] = "SuperLauncher_PCContacting";
 constexpr char kMultiplayer[] = "SuperLauncher_SystemLink";
@@ -360,6 +362,9 @@ struct Contact {
 } g_contact;
 
 std::string g_message[3];  // the message screen's lines
+bool g_message_closing = false;  // Continue pressed: the message closes once A and B are released
+// the screen the Match Server message opened over, which it closes back into (logged)
+std::string g_message_under;
 std::atomic<bool> g_browser_keys{false};
 
 net::ViewOptions Options(int tab) {
@@ -981,8 +986,10 @@ std::string ExtendMultiplayer(const std::string& text) {
     out += BrowserScreen();
     out += KeyboardScreen(kAddress, "Join by Address", "pc_browser address", "A server's address, with its port if not 27015.");
     out += KeyboardScreen(kPassword, "Server Password", "pc_browser password", "This server asks for a password.");
-    out += MessageScreen(kMessage, "Multiplayer", 3, "Continue", "!pc_browser message_done; xbui back",
-                         "!pc_browser message_done; xbui back");
+    // Continue closes them once A and B are released (PcBrowserMenuFrame): closed on the press, the screen under them
+    // took the same held A as its own press (the main menu's first row opened, N4.7)
+    out += MessageScreen(kMessage, "Multiplayer", 3, "Continue", "!pc_browser message_done", "!pc_browser message_done");
+    out += MessageScreen(kServerMessage, "Match Server", 3, "Continue", "!pc_browser message_done", "!pc_browser message_done");
     out += MessageScreen(kIdentity, "Server Identity", 7, "Cancel_Accept", "!pc_browser trust", "!pc_browser untrust; xbui back",
                          true);
     out += MessageScreen(kContacting, "Join by Address", 1, "Cancel", "!pc_browser contact_cancel; xbui back",
@@ -1174,6 +1181,8 @@ void PcBrowserCommand(X86Context& ctx, const std::vector<std::string>& a) {
     } else if (cmd == "show") {
         ShowMessageScreen(ctx, arg.c_str());
     } else if (cmd == "message_done") {
+        LOGI("browser: the message's Continue (%s): it closes once A and B are released", CurrentScreen().c_str());
+        g_message_closing = true;
     } else {
         LOGW("browser: unknown command %s", cmd.c_str());
     }
@@ -1189,6 +1198,50 @@ void PcBrowserMenuFrame(X86Context& ctx) {
     (void)ctx;
     g_browser_keys = PcBrowserScreen(CurrentScreen()) && !csx::ConsoleOpen() && !csx::TextEntryOpen();
     ContactFrame();
+    if (g_message_closing) {
+        // released for 150 ms: the title's menus read the pad on their own a frame or more later, and a screen that
+        // opens while they still see A down takes it as a new press
+        static auto released_since = std::chrono::steady_clock::time_point{};
+        bool held = false;
+        for (int port = 0; port < 4; port++) {
+            input::Pad p = input::Poll(port);
+            held = held || (p.connected && (p.analog[0] || p.analog[1]));
+        }
+        auto now = std::chrono::steady_clock::now();
+        if (held || released_since == std::chrono::steady_clock::time_point{}) released_since = held ? decltype(now){} : now;
+        if (!held && now - released_since >= std::chrono::milliseconds(150)) {
+            released_since = {};
+            g_message_closing = false;
+            LOGI("browser: the message closed (%s)%s%s", CurrentScreen().c_str(), g_message_under.empty() ? "" : ", back to ",
+                 g_message_under.c_str());
+            csx::QueueEngineCommand("xbui back\n");
+            g_message_under.clear();
+        }
+    }
+    // the match's local server did not start, or stopped by itself (net_session.cpp): why, on the first front end
+    // screen (the main screen, or the one the title's own return restores)
+    // once the front end has settled (1.5 s after its first screen: its boot opens the main screen again over anything
+    // opened sooner)
+    static auto front_end_since = std::chrono::steady_clock::time_point{};
+    bool front_end = CurrentScreen().rfind("SuperLauncher_", 0) == 0;
+    if (front_end && front_end_since == std::chrono::steady_clock::time_point{}) front_end_since = std::chrono::steady_clock::now();
+    bool settled = front_end && std::chrono::steady_clock::now() - front_end_since > std::chrono::milliseconds(1500);
+    if (const char* m = std::getenv("CSX_LOCAL_SERVER_MESSAGE"); m && *m && settled) {
+        std::string message = m;
+#ifdef _WIN32
+        _putenv_s("CSX_LOCAL_SERVER_MESSAGE", "");
+#else
+        unsetenv("CSX_LOCAL_SERVER_MESSAGE");
+#endif
+        LOGI("browser: the match server's message: %s", message.c_str());
+        for (int i = 0; i < 3; i++) {
+            size_t cut = message.size() > 52 ? message.rfind(' ', 52) : std::string::npos;
+            g_message[i] = cut == std::string::npos || i == 2 ? message.substr(0, 60) : message.substr(0, cut);
+            message = cut == std::string::npos || i == 2 ? "" : message.substr(cut + 1);
+        }
+        g_message_under = CurrentScreen();
+        csx::QueueEngineCommand(std::string("xbui open ") + kServerMessage + "\n");
+    }
     static bool returned = false;
     if (returned) return;
     std::string screen = CurrentScreen();

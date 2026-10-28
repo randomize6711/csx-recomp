@@ -200,9 +200,11 @@ bool ClientCommandAllowed(X86Context& ctx, uint8_t*) {
     for (char& ch : name) ch = char(std::tolower(static_cast<unsigned char>(ch)));
     // remote administration (N2, server_admin.cpp): handled here, never the game DLL's
     if (name == "admin") return csx::AdminCommand(ctx, R32(kHostClient), kernel::ReadCString(ctx.esi, 512)) || true;
+    // a local server's owner (N4.7): its menu's host actions (server_admin.cpp OwnerCommand checks who sent it)
+    if (name == "pc_owner") return csx::OwnerCommand(ctx, R32(kHostClient), kernel::ReadCString(ctx.esi, 512)) || true;
     // the game code's "changemap" (0x13F92C) relaunches the server into the map its own front end chose (0x526EC0): a
     // listen server's host menu; from a network client (any, on a match in game mode 2 or 3) it changed the server's
-    // map
+    // map. A local server's owner sends pc_owner changemap
     if (name == "changemap") {
         LOG_FIRST(16, "net: %s's \"changemap\" refused (the host's menu command, not for network clients)",
                   kernel::ReadCString(R32(kHostClient) + 0x4D10, 32).c_str());

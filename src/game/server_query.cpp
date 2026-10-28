@@ -92,9 +92,11 @@ float CvarValue(X86Context& ctx, const char* name) {
 
 // the server's name: this build registers no "hostname" cvar (the command line's +hostname is dropped), so it comes
 // from csx-server's settings (CSX_SERVER_SETTINGS "name ..."), or for a listen server from PC setting
-// net_server_name, else its host player's name
+// net_server_name, else its host player's name; a local server the game started for its match (N4.7) is named as that
+// game's listen server was (its PC settings are the game's)
 std::string ServerName(const std::string& host_player) {
-    if (const char* s = std::getenv("CSX_SERVER_SETTINGS")) {  // "key value" lines
+    const char* s = std::getenv("CSX_SERVER_OWNER_KEY") ? nullptr : std::getenv("CSX_SERVER_SETTINGS");
+    if (s) {  // "key value" lines
         std::string all = s;
         size_t at = all.rfind("name ", 0) == 0 ? 0 : all.find("\nname ");
         if (at != std::string::npos) {

@@ -7,6 +7,10 @@
 // Its console is stdin: engine commands (status, kick, say ...); quit ends it (the end of input is ignored); SIGINT and SIGTERM
 // end it cleanly (the players are told). A map change is a relaunch of this process (the title's), which comes back
 // without arguments: the settings travel in CSX_SERVER_SETTINGS, the new map from the title's command line.
+// A local server (N4.7, docs/splitscreen.md 17: the game starts one for a match from its menus, src/game/local_server.cpp)
+// also gets CSX_SERVER_MATCH (the menus' match line, server_config.cpp MatchLine), CSX_SERVER_STATUS (a file it writes
+// "ready PORT KEY" or "error TEXT" to), CSX_SERVER_OWNER_PID (it quits when that process, its parent, is gone) and
+// CSX_SERVER_OWNER_KEY (the owner's identity: its menu's host actions, server_admin.cpp OwnerCommand).
 #include <atomic>
 #include <cerrno>
 #include <chrono>
@@ -76,6 +80,38 @@ std::vector<uint8_t> LaunchPage() {
     p[0x400] = 3;
     return p;
 }
+
+// a local server's status for the game that started it (CSX_SERVER_STATUS): written whole (a new file renamed over
+// the old), "ready PORT KEY" or "error TEXT"
+void WriteStatus(const std::string& text) {
+    const char* path = std::getenv("CSX_SERVER_STATUS");
+    if (!path || !*path) return;
+    std::string tmp = std::string(path) + ".new";
+    {
+        std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+        f << text << "\n";
+    }
+    std::error_code ec;
+    fs::rename(tmp, path, ec);
+}
+
+#ifndef _WIN32
+// a local server lives as long as the game that started it (its parent): a game that ended any way (a crash, a
+// SIGKILL, a closed window) leaves no server behind. The title's relaunch keeps a process's id, so the game's map
+// changes and returns to its menus do not count as its end; the game stops the server itself when its match ends.
+void WatchOwner(pid_t owner) {
+    for (;;) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        if (getppid() == owner) continue;
+        LOGI("server: the game that started this server (process %d) is gone: quitting", int(owner));
+        g_stop = true;
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+        LOGW("server: still running 5 s after its game ended: exiting");
+        logx::Flush();
+        std::_Exit(0);
+    }
+}
+#endif
 
 bool WriteFile(const fs::path& path, const void* data, size_t n, bool owner_only) {
     fs::create_directories(path.parent_path());
@@ -227,9 +263,17 @@ int main(int argc, char** argv) {
     else if (!fs::exists(fs::path(game) / IMAGE_XBE)) errors.push_back({"--game", game + " has no " + IMAGE_XBE});
     else if (!fs::exists(fs::path(game) / (cfg.map + ".SXWad"))) errors.push_back({"map", "no map " + cfg.map + " in " + game});
     server::CheckTogether(cfg, errors);
+    // a local server's match: the menus' own line with this server's map and settings
+    std::string line;
+    if (const char* match = std::getenv("CSX_SERVER_MATCH"); match && errors.empty()) {
+        std::string error;
+        line = server::MatchLine(cfg, match, error);
+        if (line.empty()) errors.push_back({"CSX_SERVER_MATCH", error});
+    }
     if (!errors.empty()) {
         for (auto& e : errors) std::fprintf(stderr, "csx-server: %s: %s\n", e.where.c_str(), e.text.c_str());
         std::fprintf(stderr, "csx-server: not started (%zu problems; --help lists the settings)\n", errors.size());
+        WriteStatus("error " + errors[0].where + ": " + errors[0].text);
         return 2;
     }
     game = fs::absolute(game).string();
@@ -250,7 +294,7 @@ int main(int argc, char** argv) {
         auto page = LaunchPage();
         WriteFile(hdd / "launch.bin", page.data(), page.size(), false);
     }
-    std::string line = server::CommandLine(cfg);
+    if (line.empty()) line = server::CommandLine(cfg);
     if (!WriteFile(hdd / "Z" / "releasemap.txt", line.data(), line.size(), true)) {
         std::fprintf(stderr, "csx-server: cannot write %s\n", (hdd / "Z" / "releasemap.txt").c_str());
         return 1;
@@ -272,6 +316,16 @@ int main(int argc, char** argv) {
     std::thread(Console).detach();
 #ifndef _WIN32
     std::thread(Watchdog).detach();
+    if (const char* owner = std::getenv("CSX_SERVER_OWNER_PID"); owner && std::atoi(owner) > 1) {
+        if (getppid() != pid_t(std::atoi(owner))) {
+            LOGE("server: started for process %s, which is not this server's parent: not started", owner);
+            WriteStatus("error the server was not started by its game");
+            return 2;
+        }
+        std::thread(WatchOwner, pid_t(std::atoi(owner))).detach();
+        std::string pid = std::to_string(getpid()) + "\n";  // for tests (tools/drive.py killserver)
+        WriteFile(fs::current_path() / "pid", pid.data(), pid.size(), false);
+    }
 #endif
 
     app::Load();
@@ -280,8 +334,26 @@ int main(int argc, char** argv) {
     std::ifstream f(fs::path(game) / IMAGE_XBE, std::ios::binary);
     std::vector<uint8_t> xbe((std::istreambuf_iterator<char>(f)), {});
     if (!kernel::Boot(std::move(xbe), IMAGE_XBE, game, hdd.string())) return 1;
+    // ready: the match's map loaded (sv.active) and the server endpoint open with its identity; a port that would not
+    // open ends a server nobody could join (its status says why)
+    constexpr uint32_t kSvActive = 0x5EF7C0;  // sv.active (server_query.cpp)
+    bool ready = false;
     while (!csx::ServerFinished()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        std::this_thread::sleep_for(std::chrono::milliseconds(ready ? 200 : 50));
+        if (!ready) {
+            if (std::string e = csx::ServerEndpointError(); !e.empty()) {
+                LOGE("server: the server's network endpoint did not open (%s): quitting", e.c_str());
+                WriteStatus("error " + e);
+                logx::Flush();
+                std::_Exit(3);
+            }
+            if (csx::ServerFrames() > 0 && kernel::R32(kSvActive) && csx::ServerEndpointPort() &&
+                !csx::ServerIdentityKey().empty()) {
+                ready = true;
+                LOGI("server: ready: map %s on UDP port %u", cfg.map.c_str(), csx::ServerEndpointPort());
+                WriteStatus("ready " + std::to_string(csx::ServerEndpointPort()) + " " + csx::ServerIdentityKey());
+            }
+        }
         logx::Flush();
     }
     LOGI("server: shut down");

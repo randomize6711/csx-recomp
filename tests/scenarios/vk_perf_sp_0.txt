@@ -1,0 +1,60 @@
+# Benchmark (N4.7, docs/splitscreen.md 17): the game alone in its window, a Single Player match on de_airstrip from
+# Single Player > Custom with no bots (the default 7, 7 Left presses); VSync Off, Frame Rate Limit 240, 1920x1080.
+# The player is held at one view (setview) for 60 s. Run with CSX_SERVER_PROCESS=0 (the listen server) and 1 (the
+# local server) to compare; tools/split_perf.py and tools/proc_usage.py read it. No limits asserted.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --env CSX_LOG_INTERVALS=1 --env CSX_LOG_SERVERTIME=1 --env CSX_LOG_MEMORY=1 --env CSX_LOG_NET=1 --env CSX_PROFILE_RATE=0 --env CSX_PROFILE=$RUN/threads.txt
+#   --pc vsync=0 --pc frame_rate=240
+wait log open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+key Down
+sleep 2
+key Space
+sleep 5
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Space
+sleep 5
+key Left
+sleep 0.7
+key Left
+sleep 0.7
+key Left
+sleep 0.7
+key Left
+sleep 0.7
+key Left
+sleep 0.7
+key Left
+sleep 0.7
+key Left
+sleep 0.7
+key Space
+sleep 3
+key Space
+wait log pc keys: menu TeamSelect
+sleep 5
+key Space
+sleep 6
+key Left_Ctrl
+sleep 20
+players p
+expect playercount p 1 1
+setview -1680 2337 36 270 0
+sleep 60
+windowshot view
+setview off
+expect nolog guest trap
+expect nolog guest table overrun

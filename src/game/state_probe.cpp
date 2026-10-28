@@ -34,6 +34,7 @@
 #include "common/guest_tables.h"
 #include "common/guest_tables_layout.h"
 #include "core/log.h"
+#include "game/net_engine.h"
 #include "kernel/kernel.h"
 
 namespace csx {
@@ -79,6 +80,14 @@ std::string GuestString(uint32_t va) {
     return s;
 }
 
+// the host's player's slot: 0 on a listen server (its own player); on a local server the game started (N4.7), the
+// owner's (the bots joined before it)
+uint32_t HostSlot() {
+    if (!csx::OwnedServer()) return 0;
+    int slot = csx::OwnerSlot();
+    return slot < 0 ? ~0u : uint32_t(slot);
+}
+
 // client N's edict, 0 when there is no such active client
 uint32_t ClientEdict(uint32_t n) {
     uint32_t clients = kernel::R32(kClients);
@@ -113,17 +122,24 @@ void StartStateProbe() {
                 }
                 fs::remove(look, ec);
             }
-            uint32_t clients = kernel::R32(kClients), edict = clients ? kernel::R32(clients + kClientEdict) : 0;
+            uint32_t edict = ClientEdict(HostSlot());
             if (fs::exists(setview, ec)) {
                 float v[5];
                 char word[8] = "";
                 FILE* f = std::fopen(setview.string().c_str(), "r");
-                if (f && std::fscanf(f, "%f %f %f %f %f", &v[0], &v[1], &v[2], &v[3], &v[4]) == 5 && edict) {
+                bool five = f && std::fscanf(f, "%f %f %f %f %f", &v[0], &v[1], &v[2], &v[3], &v[4]) == 5;
+                if (five && edict) {
                     held = true;
                     std::memcpy(hold, v, sizeof hold);
                     WF(kViewYaw, v[3]);
                     WF(kViewPitch, v[4]);
                     LOGI("setview: %g %g %g, yaw %g pitch %g (edict %08X)", v[0], v[1], v[2], v[3], v[4], edict);
+                } else if (five && csx::NetClientOnly()) {
+                    // a client with no server of its own (a local server's game, N4.7): its view; the server's probe
+                    // holds the position (tools/drive.py sends both)
+                    WF(kViewYaw, v[3]);
+                    WF(kViewPitch, v[4]);
+                    LOGI("setview: view yaw %g pitch %g (the server holds the position)", v[3], v[4]);
                 } else if (f && std::fscanf(f, "%7s", word) == 1 && !std::strcmp(word, "off")) {
                     held = false;
                     LOGI("setview: off");
@@ -176,7 +192,7 @@ void StartStateProbe() {
                 unsigned n = 0;
                 float dist = 0;
                 FILE* f = std::fopen(bring.string().c_str(), "r");
-                uint32_t e = 0, host = ClientEdict(0);
+                uint32_t e = 0, host = ClientEdict(HostSlot());
                 if (f && std::fscanf(f, "%u %f", &n, &dist) == 2 && (e = ClientEdict(n)) && host) {
                     float yaw = F(host + kEdictViewAngle + 4) * 3.14159265f / 180;
                     float to[3] = {F(host + kEdictOrigin) + dist * std::cos(yaw), F(host + kEdictOrigin + 4) + dist * std::sin(yaw),

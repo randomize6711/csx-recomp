@@ -97,6 +97,38 @@ int main() {
     std::vector<Error> e2;
     ParseFile(back, kept, "kept", e2);
     Check(e2.empty() && Describe(back, true) == kept, "describe: the kept settings read back the same");
+
+    // a local server's match (N4.7): the menus' line (vk_split_4's, its spacing kept) with the server's map and settings
+    const std::string menu = "+map de_airstrip +wait +bot_quota 61 +bot_difficulty 1 +bot_join_team any    "
+                             "+mp_match_option_preset 2 +mp_player_voting 0 +mp_dedicated_server 0 +mp_timelimit 60 "
+                             "+mp_maxrounds 7 +mp_buytime 1.5 +bot_allow_rogues 1  +bot_auto_vacate 0";
+    Config lc;
+    lc.map = "de_aztec";
+    std::string err;
+    std::string ml = MatchLine(lc, menu, err);
+    Check(err.empty() && !ml.empty() && ml.back() == '\0', "match line: the menus' line taken");
+    Check(ml.find("+map de_aztec +wait +bot_quota 61 +bot_difficulty 1 +bot_join_team any +mp_match_option_preset 2") == 0 &&
+              ml.find(" +mp_buytime 1.5 ") != std::string::npos && ml.find("de_airstrip") == std::string::npos,
+          "match line: the server's map, the menus' settings in their order");
+    Check(ml.find("+mp_dedicated_server 0") == std::string::npos && ml.find(" +mp_dedicated_server 1 ") != std::string::npos &&
+              ml.find(" +bot_join_after_player 0 ") != std::string::npos && ml.find(" +maxplayers 65 ") != std::string::npos &&
+              ml.find(" +pc_player_collision 1") != std::string::npos,
+          "match line: the server's own settings after the menus' (dedicated, bots without a human, 65 slots)");
+    // Host a Match's line (net_split_listen's)
+    const std::string host = "+map de_airstrip   +maxhumanplayers 10   +mp_dedicated_server 0  +mp_match_option_preset 2 "
+                             "+mp_timelimit 60 +mp_maxrounds 7 +mp_winlimit 4 +mp_roundtime 5 +mp_freezetime 6 +mp_buytime 1.5 "
+                             "+mp_startmoney 800 +mp_friendlyfire 0 +mp_c4timer 45";
+    std::string hl = MatchLine(lc, host, err);
+    Check(!hl.empty() && hl.find(" +maxhumanplayers 10 ") != std::string::npos, "match line: Host a Match's line taken (" + err + ")");
+    std::string off = MatchLine(lc, menu + " +pc_player_collision 0", err);
+    Check(off.find("+pc_player_collision 0") != std::string::npos && off.find("+pc_player_collision 1") == std::string::npos,
+          "match line: the menus' Player Collision kept, not the server's default");
+    for (const char* bad : {"+map de_dust2 +exec evil.cfg", "+map de_dust2 +mp_timelimit 5;quit", "+map de_dust2 +rcon_password x",
+                            "+map de_dust2 +mp_timelimit \"5\"", "+map de_dust2 +connect 1.2.3.4", "de_dust2 +mp_timelimit 5",
+                            "+mp_timelimit 5", "+map de_dust2 +mp_timelimit 5\n+quit", "+map de_dust2 +hostname x"}) {
+        err.clear();
+        Check(MatchLine(lc, bad, err).empty() && !err.empty(), std::string("match line: refused: ") + bad);
+    }
     std::printf("%d checks, %d failed\n", g_checks, g_failed);
     return g_failed ? 1 : 0;
 }
