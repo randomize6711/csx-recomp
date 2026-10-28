@@ -172,7 +172,11 @@ class Log:
         # the match's as a listen server's were the game's. Not with the split-screen compositor, whose log already
         # has player 1's output, its server's lines among them
         self.server = {'path': None, 'f': None, 'partial': ''} if follow_server else None
-        self.started = time.time()  # a server log from before this run (a shared folder: build/run) is not this run's
+        # the server logs already there (a shared folder: build/run, the previous scenario's local server) are not this
+        # run's: never followed (their last lines can be written after this run starts: regress_bots_aztec_11 counted
+        # the previous match's round ends)
+        slogs = os.path.join(self.run, 'local_server', 'logs')
+        self.old_server_logs = set(os.listdir(slogs)) if os.path.isdir(slogs) else set()
 
     def poll(self):
         logs = os.path.join(self.run, 'logs')
@@ -201,8 +205,7 @@ class Log:
         if srv is not None:
             slogs = os.path.join(self.run, 'local_server', 'logs')
             if os.path.isdir(slogs):
-                names = [n for n in sorted(os.listdir(slogs))
-                         if os.path.getmtime(os.path.join(slogs, n)) >= self.started - 1]
+                names = [n for n in sorted(os.listdir(slogs)) if n not in self.old_server_logs]
                 if names and os.path.join(slogs, names[-1]) != srv['path']:
                     if srv['f']:
                         rest = srv['partial'] + srv['f'].read()
