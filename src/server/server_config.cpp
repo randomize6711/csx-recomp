@@ -206,9 +206,10 @@ std::string MatchLine(const Config& c, const std::string& menu_line, std::string
         if (t[0] == '+') {
             std::string name = t.substr(1);
             for (char& ch : name) ch = char(std::tolower(static_cast<unsigned char>(ch)));
-            // (Host a Match's line also has +maxhumanplayers, its Max Players)
-            bool known = name == "wait" || name == "map" || name == "maxhumanplayers" || name.rfind("mp_", 0) == 0 ||
-                         name.rfind("bot_", 0) == 0 || name.rfind("pc_", 0) == 0;
+            // (Host a Match's line also has +maxhumanplayers, its Max Players; Custom Options' one-team row
+            // +teampreference, the players' team as the bots' other)
+            bool known = name == "wait" || name == "map" || name == "maxhumanplayers" || name == "teampreference" ||
+                         name.rfind("mp_", 0) == 0 || name.rfind("bot_", 0) == 0 || name.rfind("pc_", 0) == 0;
             if (!plain(name, 40) || !known) {
                 error = "the match setting \"" + (plain(t.substr(1), 40) ? t : std::string("(not plain text)")) +
                         "\" is not one a match from the menus sets";

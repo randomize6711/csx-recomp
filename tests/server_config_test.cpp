@@ -120,6 +120,10 @@ int main() {
                              "+mp_startmoney 800 +mp_friendlyfire 0 +mp_c4timer 45";
     std::string hl = MatchLine(lc, host, err);
     Check(!hl.empty() && hl.find(" +maxhumanplayers 10 ") != std::string::npos, "match line: Host a Match's line taken (" + err + ")");
+    // Custom Options' one-team row (the bots one team, the players the other)
+    std::string one = MatchLine(lc, menu + " +wait +bot_join_team t +mp_autoteambalance 0 +mp_limitteams 0 +teampreference 2", err);
+    Check(one.find(" +teampreference 2") != std::string::npos && one.find(" +bot_join_team t ") != std::string::npos,
+          "match line: the one-team row's settings taken (" + err + ")");
     std::string off = MatchLine(lc, menu + " +pc_player_collision 0", err);
     Check(off.find("+pc_player_collision 0") != std::string::npos && off.find("+pc_player_collision 1") == std::string::npos,
           "match line: the menus' Player Collision kept, not the server's default");
