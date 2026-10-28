@@ -426,6 +426,7 @@ void SetNameDone(X86Context& ctx) {
             PcSetScreenLine(ctx, kSetName, 1, error);
             return PcTypeAgain();
         }
+        LOGI("lobby: ruleset %s renamed (%zu characters)", g_sets[size_t(g_set_cursor - 1)].id.c_str(), name.size());
     } else {
         std::string id = Sets().Create(name, Rules(), error);
         if (id.empty()) {

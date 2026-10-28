@@ -211,7 +211,8 @@ bool LocalServerStart(const std::string& match_line, bool host, std::string& con
     std::vector<std::string> env;
     static const char* const kDropped[] = {"RELAUNCH_KEEP_FD=", "CSX_SPLIT_", "CSX_LOCAL_SERVER", "CSX_BROWSER_",
                                            "CSX_SERVER_", "CSX_NET_PASSWORD=", "CSX_PLAYER_NAME=", "CSX_MENU_HOST=",
-                                           "CSX_DEDICATED=", "CSX_AUDIO_WAV="};
+                                           "CSX_DEDICATED=", "CSX_AUDIO_WAV=", "CSX_PC_PROFILE=", "CSX_PARTY_",
+                                           "CSX_FRONTEND_OPEN="};
     for (char** e = environ; *e; e++) {
         std::string v = *e;
         bool drop = false;

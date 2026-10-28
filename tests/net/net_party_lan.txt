@@ -1,0 +1,97 @@
+# Host LAN Match from the party (N4.8, docs/multiplayer_frontend.md, src/game/pc_lobby.cpp): a party of one (profile
+# Ace) hosts cs_italy (the map list's tenth: Hostage Rescue, the title's list says so) with the default rules. Its
+# local server binds the PC port on every address and answers LAN discovery (never a master server); another game on
+# the network (127.0.0.2) joins it by address and enters the match beside the party's player.
+# timeout: 600
+[party] --window 1920x1080 --env CSX_SPLIT_COMPOSITOR=1 --env CSX_SPLIT_PLAYERS=1 --env CSX_SPLIT_ZCACHE=$PWD/build/zcache --env CSX_LOG_NET=1
+write profiles/00000000000000a1.ini name = Ace\n
+wait log split: player 1 started
+wait log p1: open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+key Down
+sleep 0.7
+key Down
+sleep 0.7
+key Down
+sleep 0.7
+key Space
+wait log p1: pc mouse: screen SuperLauncher_PCParty
+sleep 2
+key Right
+sleep 1
+key Space
+wait log p1: party: player 1 ready \(Ace
+key Space
+wait log p1: pc mouse: screen SuperLauncher_PCPartyDestination
+sleep 2
+key Down
+sleep 0.7
+key Space
+wait log p1: lobby: Host LAN Match
+wait log p1: pc mouse: screen SuperLauncher_PCMatchMaps
+sleep 2
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 1
+key Space
+wait log p1: lobby: map cs_italy \(Hostage Rescue\)
+wait log p1: pc mouse: screen SuperLauncher_PCMatchModes
+sleep 2
+windowshot modes
+# Bomb Defusal is not on this map: refused; Hostage Rescue taken
+key Up
+sleep 0.7
+key Space
+sleep 1
+expect nolog p1: lobby: cs_italy, Bomb Defusal
+key Down
+sleep 0.7
+key Space
+wait log p1: lobby: cs_italy, Hostage Rescue, Default Rules
+wait log p1: pc mouse: screen SuperLauncher_PCLobby_cs_italy
+sleep 2
+key Space
+sleep 1
+windowshot lobby
+key Return
+wait log p1: lobby: starting cs_italy \(Hostage Rescue, LAN\) for 1 local players and 7 bots
+wait log p1: local server: starting .*\(Host a Match: the network's, 127\.0\.0\.1:27015\)
+wait log p1: net: answering server queries
+wait log p1: net: server 127\.0\.0\.1:27015 connected
+# the LAN player in the match: the server has 9 players (the party's, 7 bots, the LAN player)
+sleep 30
+players p
+expect playercount p 9 9
+expect nolog p1: net: master servers
+expect nolog p1: server: the match: .*sv_password
+expect log p1: game: "Ace<
+[lan] --after party:p1:.net:.answering.server.queries --delay 8 --launch tests/launch/connect_local --env FPS=30 --env CSX_LOG_NET=1
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+sleep 6
+expect nolog pc.keys:.menu.LostHost

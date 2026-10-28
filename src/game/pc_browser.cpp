@@ -1057,7 +1057,9 @@ bool PcBrowserScreen(const std::string& screen) {
 // insert (0xD04D3)
 bool PcEditBoxRoom(X86Context& ctx, uint8_t*) {
     std::string s = CurrentScreen();
-    uint32_t limit = s == kAddress ? 63 : s == kPassword ? 32 : s == "SuperLauncher_PCSplitName" || s == "SuperLauncher_PCProfileName" ? 20 : 0;
+    uint32_t limit = s == kAddress ? 63 : s == kPassword || s == "SuperLauncher_PCMatchPassword" ? 32
+                   : s == "SuperLauncher_PCSplitName" || s == "SuperLauncher_PCProfileName" || s == "SuperLauncher_PCMatchRulesetName" ? 20
+                   : 0;
     return limit && R32(ctx.esi + 0x48) < limit;
 }
 
@@ -1210,6 +1212,7 @@ void PcBrowserMenuFrame(X86Context& ctx) {
     std::string now = CurrentScreen();
     g_browser_keys = (PcBrowserScreen(now) || (now.rfind("SuperLauncher_PCParty", 0) == 0 && now != "SuperLauncher_PCPartyName") ||
                       now == "SuperLauncher_PCProfiles" || now.rfind("SuperLauncher_PCLobby", 0) == 0 ||
+                      now == "SuperLauncher_PCRules" || now == "SuperLauncher_PCProfile" ||
                       now.rfind("SuperLauncher_PCMatch", 0) == 0) &&
                      !csx::ConsoleOpen() && !csx::TextEntryOpen();
     ContactFrame();
