@@ -170,6 +170,7 @@ class Log:
         # the match's as a listen server's were the game's. Not with the split-screen compositor, whose log already
         # has player 1's output, its server's lines among them
         self.server = {'path': None, 'f': None, 'partial': ''} if follow_server else None
+        self.started = time.time()  # a server log from before this run (a shared folder: build/run) is not this run's
 
     def poll(self):
         logs = os.path.join(self.run, 'logs')
@@ -198,7 +199,8 @@ class Log:
         if srv is not None:
             slogs = os.path.join(self.run, 'local_server', 'logs')
             if os.path.isdir(slogs):
-                names = sorted(os.listdir(slogs))
+                names = [n for n in sorted(os.listdir(slogs))
+                         if os.path.getmtime(os.path.join(slogs, n)) >= self.started - 1]
                 if names and os.path.join(slogs, names[-1]) != srv['path']:
                     if srv['f']:
                         rest = srv['partial'] + srv['f'].read()
@@ -235,14 +237,18 @@ SERVER_BASE = None  # the run folder of player 1 (not an @N step's): where a loc
 
 def server_dir():
     """Where the match's server reads its probe requests (players, place, bring, spawns, setview's hold): the game's
-    local server's folder (RUN/local_server, N4.7: a match from the menus runs in csx-server) while it reports ready,
+    local server's folder (RUN/local_server, N4.7: a match from the menus runs in csx-server) while it reports ready
+    and its process is alive (a folder a run shares with an earlier one, build/run, can keep a server's last status),
     else the run folder (a listen server, a client of another server)."""
     d = os.path.join(SERVER_BASE or RUN, 'local_server')
     try:
         with open(os.path.join(d, 'status')) as f:
-            if f.read().startswith('ready'):
-                return d
-    except OSError:
+            ready = f.read().startswith('ready')
+        with open(os.path.join(d, 'pid')) as f:
+            os.kill(int(f.read().strip()), 0)
+        if ready:
+            return d
+    except (OSError, ValueError):
         pass
     return RUN
 

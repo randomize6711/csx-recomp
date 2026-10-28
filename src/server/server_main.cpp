@@ -82,7 +82,8 @@ std::vector<uint8_t> LaunchPage() {
 }
 
 // a local server's status for the game that started it (CSX_SERVER_STATUS): written whole (a new file renamed over
-// the old), "ready PORT KEY" or "error TEXT"
+// the old), "ready PORT KEY", "error TEXT", or "ended" once it is no longer running (a "ready" left behind would
+// name a server that is gone)
 void WriteStatus(const std::string& text) {
     const char* path = std::getenv("CSX_SERVER_STATUS");
     if (!path || !*path) return;
@@ -93,6 +94,13 @@ void WriteStatus(const std::string& text) {
     }
     std::error_code ec;
     fs::rename(tmp, path, ec);
+}
+
+// the server's end: its status says so and its pid file goes (a local server's folder outlives it)
+void Ended() {
+    if (std::getenv("CSX_SERVER_STATUS") && *std::getenv("CSX_SERVER_STATUS")) WriteStatus("ended");
+    std::error_code ec;
+    if (std::getenv("CSX_SERVER_OWNER_PID")) fs::remove(fs::current_path() / "pid", ec);
 }
 
 #ifndef _WIN32
@@ -107,6 +115,7 @@ void WatchOwner(pid_t owner) {
         g_stop = true;
         std::this_thread::sleep_for(std::chrono::seconds(5));
         LOGW("server: still running 5 s after its game ended: exiting");
+        Ended();
         logx::Flush();
         std::_Exit(0);
     }
@@ -357,6 +366,7 @@ int main(int argc, char** argv) {
         logx::Flush();
     }
     LOGI("server: shut down");
+    Ended();
     logx::Flush();
     std::_Exit(0);  // the title's threads are still parked in its code: nothing of theirs to unwind
 }
