@@ -198,15 +198,18 @@ def log_text(run):
 def role_verdict(run, code, frozen):
     # a game's verdict is its drive.py RESULT line (PASS, FAIL, TIMEOUT, CRASH); a tool's (--exec) its exit code; a
     # frozen game (--freeze-after) is ended by the runner, so only a crash before the freeze counts
-    result = None
+    result, runner_kill = None, False
     try:
         for line in open(os.path.join(run, 'drive.out'), errors='replace'):
             if line.startswith('RESULT '):
                 result = line.split()[1]
+            # drive.py's steps notice the game's end at once (sleep polls): the SIGKILL that ends a frozen game is
+            # the runner's own, not a crash
+            runner_kill = runner_kill or 'the game exited during this step: signal SIGKILL' in line
     except OSError:
         pass
     if frozen:
-        return 'CRASH' if result == 'CRASH' else 'FROZEN'
+        return 'CRASH' if result == 'CRASH' and not runner_kill else 'FROZEN'
     if result:
         return result
     if os.path.exists(os.path.join(run, 'scenario.txt')):

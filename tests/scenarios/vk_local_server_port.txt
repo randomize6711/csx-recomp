@@ -55,8 +55,7 @@ expect playercount p 8 8
 mark
 key Escape
 sleep 1.5
-key Down
-sleep 0.5
+# Quit (the Single Player pause menu's seventh row), Yes
 key Down
 sleep 0.5
 key Down

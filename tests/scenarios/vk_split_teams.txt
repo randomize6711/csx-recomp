@@ -3,8 +3,8 @@
 # switch_to_*, which the server's game code handles with its normal team rules) in the pause menu of a network or
 # split-screen match. A Single Player match with no bots; player 1 (keyboard) joins CT, player 2 (controller 1) T.
 # Player 2 opens its own pause menu (START): Change Teams, Counter-Terrorist, Yes: the server moves it to CT (2 CT,
-# 0 T: within mp_limitteams), alive mid-round it dies by the change and spectates until the next round; player 1 is
-# untouched. Player 1 asks for Spectator while alive: the server's game code refuses it (#Cannot_Be_Spectator: only a
+# 0 T: within mp_limitteams), alive mid-round it dies by the change (no Terrorist left: the round ends, it plays on as
+# a CT); player 1 is untouched. Player 1 asks for Spectator while alive: the server's game code refuses it (#Cannot_Be_Spectator: only a
 # dead player, and only with allow_spectators on, may spectate; 0x13E045); it plays on as a CT. With allow_spectators 1
 # and dead (kill) it becomes a spectator (its spectator view), then goes back to the Terrorists. A round restart: both play,
 # CT and T; the scoreboard shows the two; the server has 2 clients throughout (no duplicate, no slot left behind).
@@ -101,7 +101,10 @@ sleep 0.7
 pad 1 button a
 wait log p1: game: "Player 2<2><[^>]*><[^>]*>" joined team "CT"
 sleep 4
-expect log p2: pc keys: Spectator passes the controls through
+# it died by the change (the server's log); no Terrorist left, the round ends and it plays on as a CT. Its Spectator
+# screen shows only if a snapshot falls between the death and the respawn (the listen server's every frame did, a
+# 30 Hz server's often does not): not checked
+expect log p1: game: "Player 2<2><[^>]*><TERRORIST>" committed suicide
 expect nolog p1: pc keys: Spectator passes the controls through
 expect nolog p1: game: "[^"]*<1><[^>]*><[^>]*>" joined team "TERRORIST"
 windowshot switched

@@ -64,7 +64,8 @@ place 0 2352 -400 -251.969
 place 2 2352 0 -141.969
 sleep 2
 players botdrop
-expect bodyz botdrop 2 -253 -251
+# on the floor, standing (-252) or crouched (-270) as it was held (bot_stop keeps its last stance), as for bot 1 below
+expect bodyz botdrop 2 -271 -251
 expect log pc: player bodies: [0-9]+ of [0-9]+ physents \(players\) left out of client 2's move
 expect bodyz botdrop 1 -271 -251
 place 2 2352 400 -251.969
