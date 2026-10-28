@@ -268,6 +268,14 @@ int main(int argc, char** argv) {
             if (!server::Set(cfg, "map", m, error)) errors.push_back({"the title's next map", error});
         }
     }
+    // a local server's password (N4.8: a party's Local Only match, its LAN match's if set) from its game, in the
+    // environment rather than the command line (which every user of the machine can read)
+    if (const char* pw = std::getenv("CSX_SERVER_PASSWORD"); pw && *pw && !relaunch) {
+        if (std::string error; !server::Set(cfg, "password", pw, error)) errors.push_back({"CSX_SERVER_PASSWORD", error});
+#ifndef _WIN32
+        unsetenv("CSX_SERVER_PASSWORD");
+#endif
+    }
     if (game.empty()) errors.push_back({"--game", "the game folder is needed (or GAME_DIR)"});
     else if (!fs::exists(fs::path(game) / IMAGE_XBE)) errors.push_back({"--game", game + " has no " + IMAGE_XBE});
     else if (!fs::exists(fs::path(game) / (cfg.map + ".SXWad"))) errors.push_back({"map", "no map " + cfg.map + " in " + game});
@@ -315,6 +323,14 @@ int main(int argc, char** argv) {
     {
         std::istringstream d(server::Describe(cfg));
         for (std::string l; std::getline(d, l);) LOGI("server setting: %s", l.c_str());
+    }
+    if (!line.empty()) {  // a local server's match line, its password not shown
+        std::string shown = line.substr(0, line.find('\0'));
+        if (size_t pw = shown.find("+sv_password "); pw != std::string::npos) {
+            size_t end = shown.find(' ', pw + 13);
+            shown.replace(pw + 13, end == std::string::npos ? std::string::npos : end - pw - 13, "(set)");
+        }
+        LOGI("server: the match: %s", shown.c_str());
     }
 #ifndef _WIN32
     struct sigaction sa {};

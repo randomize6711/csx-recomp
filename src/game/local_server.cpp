@@ -201,7 +201,9 @@ bool LocalServerStart(const std::string& match_line, bool host, std::string& con
     std::vector<std::string> args = {exe, "--game", game, "--port", std::to_string(port), "--map", map, "--max-players", "65"};
     if (std::string name = pc::Get("net_server_name", ""); !name.empty()) args.insert(args.end(), {"--name", name});
     if (host && pc::Get("net_lan_only", "0") == "1") args.insert(args.end(), {"--lan-only", "on"});
-    if (host && pc::Get("net_master_register", "0") == "1" && !pc::Get("net_master", "").empty())
+    // (a party's LAN match is never announced to a master server, N4.8)
+    const bool party = std::getenv("CSX_PARTY_MATCH") != nullptr;
+    if (host && !party && pc::Get("net_master_register", "0") == "1" && !pc::Get("net_master", "").empty())
         args.insert(args.end(), {"--master", pc::Get("net_master", "")});
 
     // its environment: the game's, without what is the game's own (its compositor socket and split-screen role, a
@@ -224,6 +226,8 @@ bool LocalServerStart(const std::string& match_line, bool host, std::string& con
     env.push_back("CSX_SERVER_OWNER_PID=" + std::to_string(getpid()));
     env.push_back("CSX_SERVER_OWNER_KEY=" + owner_key);
     if (!host) env.push_back("CSX_SERVER_LOOPBACK=1");
+    // the party's password (N4.8): a Local Only match's made at random, a LAN match's if one was set
+    if (const char* pw = std::getenv("CSX_PARTY_PASSWORD"); pw && *pw) env.push_back(std::string("CSX_SERVER_PASSWORD=") + pw);
     std::vector<char*> argv, envp;
     for (auto& a : args) argv.push_back(a.data());
     argv.push_back(nullptr);
