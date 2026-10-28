@@ -63,21 +63,23 @@
    record; the G7 build too): matters for online play, where players disconnect. Needs its own fix and approval.
 1e4. PC multiplayer (docs/pc_multiplayer.md): N0 done 2026-10-24; N1 signed off 2026-10-25 (section 15.8); N2 the
    dedicated server 2026-10-25 (section 16); N3 the server browser built 2026-10-26 (section 17); N4 split-screen
-   built 2026-10-27 (docs/splitscreen.md), waiting for the user's approval before N5. Left (sections 16.9, 17.10): the client-side message parsers against a
+   built 2026-10-27 (docs/splitscreen.md), N4.7 2026-10-28 (a menu match in its own csx-server; the changemap fix), waiting for the user's approval before N5. Left (sections 16.9, 17.10): the client-side message parsers against a
    hostile server (before calling public internet play secure); NAT traversal; IPv6; a Windows csx-server and LAN
    broadcast addresses on Windows (only 255.255.255.255 and loopback there); the players' names in the menus (the
    query has them); password masking on the keyboard screen; bots only set at a match's start; a protocol-only load
    generator for 64 remote clients; a client ended by a signal still not telling its server; admin.log rotation.
-1e5. Split-screen (docs/splitscreen.md sections 14 and 16; N4.6 done 2026-10-27, waiting for approval before N5):
-   player 1's frame pacing with many bots: run the match's server in its own process (csx-server with the menu's match
-   line) instead of in player 1's game: a dedicated server gave player 1 a 1% low of 77 frames/s against 28.5 (16.7);
-   needs a decision (offline / Host a Match behaviour, Restart Match, console commands). Rumble to the physical
-   controller behind a player's virtual gamepad. The manual checks of 16.6 (listening, physical controllers). The
-   dying player's death sound started twice within 20 ms once (16.5); a "!MRAD_" sentence with no message at a round
-   start (the title's). Intermittents of the N4.6 regression (16.8): vk_split_2_219 ended by SIGKILL during the intro
-   once (both processes silent 13 s before; cause unknown); vk_auto_exposure_rates' 0.02 limit is near run-to-run
-   variation (+0.020 failed, +0.017 passed). The compositor's cost at high frame rates (a zero-copy path). The Windows side of the IPC
-   when the Windows port is approved.
+1e5. Split-screen (docs/splitscreen.md sections 14, 16 and 17; N4.7 done 2026-10-28, waiting for approval before N5):
+   the match's server runs in its own process (N4.7, the default; the listen server is PC Options > Match Server > In
+   Game): decide after the user's play-test whether the listen server can be retired. The local server's 30 Hz tick
+   does not hold with 61-64 bots (24-28 ticks a second, frames to 65 ms; the dedicated server the same): spreading the
+   bots' updates over ticks or a higher tick would change gameplay timing and needs approval. The manual checks of
+   17.7 / 16.6 (listening, physical controllers, hotplug, crash messages, LAN hosting between two PCs). Rumble to the
+   physical controller behind a player's virtual gamepad. The dying player's death sound started twice within 20 ms
+   once (16.5); a "!MRAD_" sentence with no message at a round start (the title's). An unexplained SIGKILL from outside
+   (3 times: N4.6's vk_split_2_219, N4.7's vk_local_server_noexe and vk_split_names; the two N4.7 ones within 0.3 s of
+   another session's sandboxed test ending on the machine); tracing the sender needs root (17.3). The compositor's cost at high frame rates
+   (a zero-copy path). The Windows side of the IPC and of the local server (fork / exec, the owner watch) when the
+   Windows port is approved. The benchmarks' players 2-4 still join by Auto Assign (their view differs from run to run).
 1f. Memory modernization (after G8.2B, docs/memory_modernization.md section 4): a configurable contiguous pool and
    real MmQueryStatistics totals, the engine's fixed pools for larger maps and assets, a second data arena only if
    needed, memory dumps over the whole user range; out of memory reports in G8.2B checkpoint 2.

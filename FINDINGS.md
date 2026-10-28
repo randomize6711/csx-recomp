@@ -1941,6 +1941,39 @@ Remaining uncertainty: the bots' avoidance of teammates is their own logic and w
 they can still pause behind each other); hostages keep blocking (they are not players); network play is untested and
 the option is not offered there.
 
+## PC multiplayer N4.7: the local server (2026-10-28)
+
+What running a match from the menus in csx-server (docs/splitscreen.md section 17) found:
+
+- **csx-server let clients change the map**: the game DLL's ClientCommand handles `changemap` (0x13F92C, the host
+  pause menu's Change Map: 0xE7040 with the map at 0x526EC0) for any client when 0x14EA0 reports mode 2 or 3, and a
+  dedicated server's 0x526EC0 is empty: it relaunched into no map. Refused from network clients (b98d769).
+- **The engine's pause stops the network**: sv.paused (0x5EF7C4) makes SV_Frame skip reading and sending, so a
+  remote client of a paused dedicated server times out. The owner's pause skips only the simulation (SV_Physics and
+  the server clock: the jump at 0xA1D64 to 0xA1DA4), packets still flow.
+- **HostRestart's handler** (0xE9110) jumps to 0x143730, which is not a function entry: calling the handler, not the
+  target, restarts the match on the server.
+- **The front end's launch sub-type 0 lands on Training**: a failed start must relaunch with the mode it came from
+  (Single Player 3, Host a Match 6) to come back to its screen.
+- **bot_join_after_player** (the engine's default 1: 0x1625EA keeps the quota at 0 while no human is in the match)
+  must stay 1 for a menu match: at 0 the bots start the round before the owner has a team, so every human joins
+  mid-round and spectates. csx-server's own config sets 0 (bots play with nobody there); MatchLine no longer does.
+- **The title's menu line tokens** (FrontEndUI.txt's ListOption commands): mp_*, bot_*, +wait, +maxhumanplayers,
+  +teampreference (Custom Options' one-team row) and Xbox Live's +friendSlots; Training and Career lines start with
+  `+teampreference` / `+cv_career_gamename`, not `+map`, and keep the listen server.
+- **The dedicated tick with many bots**: the bots' work per second is about the same at 30 Hz as at the listen
+  server's 120-170 simulations a second (about 320-340 ms a second with 64 bots), so each 30 Hz frame carries about four
+  times as much: 11-13 ms on average, bursts to 55-65 ms, 24-28 ticks a second. The players' frames no longer carry it
+  (1% low 29 -> 86-106 frames/s).
+- **Benchmark summaries counted the menus**: the game's log clock restarts at each relaunch, so the menus' lines had
+  times inside the held view's window; only the game alone in its window was affected (vk_perf_split_alone_61: 195.7
+  -> 151.2 frames/s on the same run). Auto Assign put the benchmark's player on either team (a 10% difference in
+  draws). Both fixed (5455eb8).
+- **SIGKILL from outside** (twice in N4.7, once in N4.6): no OOM, no kernel message, no code of ours; the two N4.7
+  kills were within 0.3 s of another Claude session's sandboxed test ending (bwrap under `timeout --kill-after`).
+  Idle `sleep` and idle gamescope processes beside those tests for 80-90 minutes were never killed. Unexplained:
+  tracing a signal's sender needs root here.
+
 ## PC multiplayer N4.6: split-screen completion (2026-10-27)
 
 What finishing split-screen found (docs/splitscreen.md section 16):

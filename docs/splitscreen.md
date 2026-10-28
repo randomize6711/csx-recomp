@@ -197,7 +197,7 @@ the renderer's GPU time, the server frame, the compositor's per-process CPU and 
 
 | Run | Player | frames/s | 1% low | 0.1% low | 99% interval | GPU ms | server frame |
 |---|---|---|---|---|---|---|---|
-| alone (no compositor), 64 bots | 1 | 192.7 | 33.6 | 26.0 | 24.8 ms | 0.24 | 1.45 ms |
+| alone (no compositor), 64 bots (overstated: see 17.6) | 1 | 192.7 | 33.6 | 26.0 | 24.8 ms | 0.24 | 1.45 ms |
 | compositor, 1 player, 61 bots | 1 | 145.6 | 24.9 | 21.2 | 36.1 ms | 0.61 | 2.52 ms |
 | 2 players, 61 bots | 1 (host) | 128.6 | 30.9 | 26.6 | 30.4 ms | 0.58 | 2.97 ms |
 | | 2 | 152.9 | 97.4 | 83.5 | 9.5 ms | 0.96 | |
@@ -224,6 +224,8 @@ the renderer's GPU time, the server frame, the compositor's per-process CPU and 
 - **One-player mode is unchanged**: split-screen off, nothing of it runs. vk_perf_aztec_64 on this build: 90.2
   frames/s, 1% low 21.6, server frame 3.66 ms, against 84.0 / 19.3 / 3.82 recorded before N4 (run-to-run spread
   75.7-88.3 frames/s): within noise.
+- (N4.7 note, 17.6: the "alone" row counted the menus' frames; the match alone is about 151 frames/s, so the cost
+  below is about 18%, not a quarter.)
 - **The compositor with one player** costs about a quarter of the frame rate against the game alone (145.6 against
   192.7 at these rates; GPU 0.61 against 0.24 ms, recording 2.25 against 0.81 ms): the copy into the exported image,
   the notifier and a second process presenting. It matters only above the display's rate.
@@ -279,7 +281,7 @@ Network scenarios: section 12. Unit tests unchanged (the IPC is exercised by eve
 - **Player 1's frame pacing with many bots**: player 1 hosts the match; the bots' AI bursts are its slowest frames
   (16.7). A separate server process would fix it; it needs a decision.
 - **Layout changes during a match** crop the wider players' views until their next boot (section 6).
-- **The compositor costs** about a quarter of the frame rate against the game alone at high frame rates (section 11).
+- **The compositor costs** about 18% of the frame rate against the game alone at high frame rates (section 11, corrected in 17.6; first recorded as a quarter).
 - **Bots for local players**: an offline split-screen match takes at most 61 bots (room for four local players);
   bot_kick's crash (TODO 1e3) stops the server from making room by removing one.
 - **Audio** is one mix of all players (no per-viewport panning); four streams were measured (16.5), not listened to.
@@ -577,3 +579,282 @@ Not a full-suite pass: the three failures above were rerun alone after the run, 
 | 2542e20 | The scripted-input poll every 20 ms; GPU waits with a timeout, the compositor closes when the display is gone |
 | c89b5a6 | Window test runner: per-scenario timeout, gamescope's process group ended; perf scenarios |
 | (this) | Docs (16, PROGRESS, FINDINGS, ROADMAP, TODO, pc_multiplayer.md); net_split_full's timing |
+
+## 17. N4.7: the local server and final stabilization (2026-10-28)
+
+### 17.1 Hosting: a match from the menus runs in its own server process
+
+Before N4.7 a match started from the menus (Single Player, Multiplayer > Host a Match, split-screen) ran its server
+inside the game's own process (the title's listen server): the bots' thinking and the rules ran in the game's frame.
+Now the game starts **csx-server** (the N2 dedicated server, unchanged as a program) for it and joins it as a client
+over the PC transport. PC Options > **Match Server**: Separate (1, the default) or In Game (0: the listen server, kept
+unchanged as the fallback; also `CSX_SERVER_PROCESS=0|1`). Split-screen players 2-4 and csx-server itself never start
+one.
+
+```
+ game (player 1, the window)                          csx-server (local_server/ beside the game)
+ menus: Start ──> RelaunchNotify (0xBF0E0)
+                    LocalServerStart ── fork+exec ──> --game --port P --map M --max-players 65
+                    waits for local_server/status       CSX_SERVER_MATCH = the menus' line (MatchLine)
+                    <── "ready PORT KEY" (or "error")    CSX_SERVER_OWNER_KEY = the game's identity
+                    Z:\releasemap.txt = +connect ADDR
+                  relaunch (same process, CSX_LOCAL_SERVER = "PID ADDR KEY" kept)
+ +connect ADDR ── PC transport (authenticated) ──────> slot like any client (65 slots)
+ pause menu / console ── cmd pc_owner ... ───────────> OwnerCommand (owner key + 127.x only)
+ Quit / new match / exit ── SIGTERM (5 s, SIGKILL) ──> ends; watches getppid(): quits if the game dies
+ split players 2-4 ── +connect ADDR (key pinned) ────> their own slots
+ LAN players (Host a Match) ── PC port 27015 ────────> found by LAN discovery like any server
+```
+
+- **Where it listens.** Offline: 127.0.0.1 only, the PC port if free, else a free port (a second game, or a
+  dedicated server on 27015, does not stop an offline match). Host a Match: the PC port (net_port) on every address,
+  LAN discovery and queries answered by the server; a port in use is an error (below). The game trusts the server's
+  key for that address only while it runs (LocalServerTrusted, not remembered).
+- **The match.** The menus' match line goes to the server whole (server_config.cpp MatchLine): only `+wait`, `+map`,
+  `+maxhumanplayers`, `+teampreference` and `mp_` / `bot_` / `pc_` cvars with plain values; anything else is refused
+  (no `exec`, `;`, quotes, `rcon_password`, `connect`). The map is the server's; it adds `+maxplayers 65`,
+  `+mp_dedicated_server 1`, the snapshot rate, LAN, name, password and Player Collision (unless the menus set it).
+  The menus' own `bot_join_after_player` (the engine's 1) is kept: bots join once a human has, as in the listen server.
+- **Same settings.** The player's pc_settings.ini is copied into local_server/ at each start (Player Collision,
+  bots, snapshot rate: the match runs as the game's own server did).
+- **Owner commands** (the pause menu and the console in a match of the game's own server; server_admin.cpp
+  OwnerCommand, accepted only from the owner's identity on 127.x):
+  - Restart Match: `pc_owner restart` (the title's HostRestart, 0xE9110, on the server).
+  - Change Map: `pc_owner changemap MAP` (the map the front end chose; the server relaunches into it, the game and
+    every client rejoin; the game keeps its Single Player / Host launch data, so the same pause menu).
+  - The server's settings typed in the game's console (`sv_*`, `mp_*`, `bot_*`, allow_spectators, pausable,
+    pc_player_collision, kick, banid, removeid, addip, removeip, writeid, writeip, changelevel, restart): sent as
+    `pc_owner console HEX`, one printable command, no `;`, run on the server. Everything else runs in the game.
+  - Network clients' `changemap` is refused (a security fix, b98d769: on csx-server it relaunched into an empty
+    map).
+- **The pause menu.** Offline, alone: the pause menu pauses the server's simulation (`pc_owner pause on|off`: SV_Physics
+  skipped, 0xA1D64, while packets still flow: the engine's own pause stops the network too and a client would time
+  out). With any other client on the server (split-screen players, LAN players) the pause is not taken, as with
+  the listen server. The offline Single Player match keeps its pause menu as it was (no Change Teams row;
+  split-screen and Host a Match have it).
+
+### 17.2 Lifecycle and cleanup
+
+| Event | What happens |
+|---|---|
+| Start | ready in 0.7 s on this machine (the map loaded, sv.active, the port bound, the key) |
+| csx-server missing | "Match Server" message ("csx-server not found ..."), back on Single Player's map list |
+| Port in use (Host a Match) | message naming the UDP port; back on Multiplayer (System Link) |
+| Map change, round restart | in the server; the game rejoins after a map change (MapChange) |
+| Quit / Return to the menus / a new match | SIGTERM (players told "server shut down"), SIGKILL after 5 s, reaped; exit code logged |
+| The server crashes mid-match | the game returns to Single Player Match Options with "The match's server stopped (signal 11)" within 250 ms |
+| The game is killed (SIGKILL) | the server sees its parent gone within 250 ms and quits (no orphan) |
+| The game exits normally | the server is stopped first |
+| The server's end, any way | its status file says "ended", its pid file is removed |
+
+The window and network test runners now fail a run that leaves any process behind (a process still working in the
+run folder 10 s after the run) and end it.
+
+### 17.3 Intermittent failures (N4.6's three)
+
+| Test | Cause | Resolution |
+|---|---|---|
+| vk_auto_exposure_rates | **Test.** Its mouse turn drove the pitch into the 89° clamp; returning, the view stopped at -48°, so the 120 and 240 frames/s passes looked at the sky, not the scene the 30 frames/s pass measured. The tight tolerance was not the problem. | The turn stays inside the clamp (60°), and the pitch is checked before each measurement. Differences now +0.000 and -0.002 (limit 0.02); passed in the complete suite (17.8). 5d89631 |
+| net_split_full | **Test.** The split side's script ended about 20 s in; the server counted 60 s after the first refusal, when player 1 had timed out (15 s). It failed 4 of 4 (quiet and loaded) as it was. | The split side is kept until the server has counted: 4 of 4 quiet and loaded (468751a, N4.6); passed in the complete suite (17.8). |
+| vk_split_2_219 (SIGKILL) | **External, not identified.** The process was SIGKILLed from outside: no out-of-memory kill, no kernel message, no code of ours sends it, healthy memory (17 GB free). It happened twice more during N4.7 (vk_local_server_noexe: the game; vk_split_names: gamescope itself; N4.6's was the compositor). Both N4.7 kills came within 0.3 s of another session's sandboxed test (KUF COD, bwrap + timeout) ending on the same machine. Idle `sleep` and idle gamescope processes watched for 80-90 minutes beside those tests were never killed. | Not fixed: the sender cannot be traced without root (no perf / bpftrace, tracefs root only). 20 of 20 passes alone (10 quiet, 10 loaded); the runners keep gamescope's exit status and the process table (procs.csv) of each run, so the next one is recorded. Unexplained intermittent. |
+
+(Additional N4.7 fixes found by the new mode are in 17.6.)
+
+### 17.4 Performance: the listen server against the local server
+
+Same machine as section 11 (Ryzen 7 5700X3D, RX 9070 XT), headless gamescope 1920x1080, VSync off, Frame Rate Limit
+240, de_airstrip from Single Player > Custom, player 1 a Terrorist held at one view for 60 s (setview). Each scenario
+ran with `CSX_SERVER_PROCESS=0` (old: the listen server) and then `=1` (new: the local server), back to back
+(2026-10-28 07:32-08:13). **Another session's GPU tests ran on the machine throughout (load average 4-9)**: both
+runs of each pair had the same background, but absolute numbers are lower than an idle machine's, and one run per mode
+is not enough to call differences of a few percent. Bot intelligence, the tick, graphics and the PC settings are the
+same in both (nothing was changed to improve the numbers). tools/split_perf.py, tools/proc_usage.py and the server's
+own timing (CSX_LOG_SERVERTIME); the player's lines only after the held view starts (17.6).
+
+Player 1 (the player who started the match):
+
+| Run | Old frames/s | Old 1% / 0.1% low | Old 99% interval | New frames/s | New 1% / 0.1% low | New 99% interval |
+|---|---|---|---|---|---|---|
+| Single player, 0 bots | 181.9 | 117.5 / 86.3 | 6.90 ms | 185.2 | 119.9 / 100.2 | 7.49 ms |
+| Single player, 16 bots | 170.3 | 110.9 / 94.8 | 8.36 ms | 180.9 | 129.2 / 102.6 | 6.96 ms |
+| Single player, 64 bots | 118.0 | 28.8 / 25.6 | 32.19 ms | **162.7** | **106.4 / 89.3** | 8.59 ms |
+| 4 players split, 0 bots | 152.4 | 99.7 / 85.6 | 9.17 ms | 158.4 | 94.1 / 52.1 | 9.01 ms |
+| 4 players split, 16 bots | 140.3 | 89.8 / 75.5 | 10.35 ms | 160.9 | 105.3 / 86.8 | 8.88 ms |
+| 4 players split, 61 bots | 95.0 | 28.9 / 23.5 | 31.38 ms | **138.1** | **85.6 / 58.9** | 10.57 ms |
+| 4 players split, dedicated csx-server, 61 bots | | | | 130.3 | 76.7 / 35.5 | 10.77 ms |
+
+Players 2-4 (clients in both modes) were within run-to-run spread: 61 bots old 126.5 / 154.1 / 126.5, new 141.3 /
+122.9 / 143.2 frames/s (they join by Auto Assign, so their team and view differ from run to run).
+
+| Run | CPU old (% of one core, all processes) | CPU new | Memory old | Memory new | Network new (loopback) |
+|---|---|---|---|---|---|
+| Single player, 0 bots | 101% | 105% (server 4%) | 189 MB | 295 MB | 6.0 KB/s |
+| Single player, 16 bots | 102% | 109% (server 7%) | 190 MB | 298 MB | 6.0 KB/s |
+| Single player, 64 bots | 102% | 135% (server 33%) | 190 MB | 299 MB | 7.5 KB/s |
+| 4 players, 0 bots | 457% | 467% | 716 MB | 808 MB | server 24.0 KB/s |
+| 4 players, 16 bots | 468% | 478% | 719 MB | 812 MB | server 23.9 KB/s |
+| 4 players, 61 bots | 468% | 507% | 717 MB | 813 MB | server 27.4 KB/s |
+
+Server tick (the server frame, CSX_LOG_SERVERTIME):
+
+| Run | Old: simulations/s, frame mean / worst | New: ticks/s (lowest second), frame mean / worst, seconds with a frame over 33 ms |
+|---|---|---|
+| Single player, 16 bots | 170.9, 0.37 / 4.0 ms | 30.6 (30), 1.49 / 6.0 ms, 0 of 51 |
+| Single player, 64 bots | 118.7, 2.90 / 36.9 ms | 27.8 (24), 11.41 / 54.7 ms, 27 of 51 |
+| 4 players, 16 bots | about 147 (player 1's frames) | 30.6 (30), 2.18 / 6.9 ms, 0 of 51 |
+| 4 players, 61 bots | about 126, 4.03 ms mean | 25.5 (24), 13.01 / 65.2 ms, 42 of 50 |
+| Dedicated csx-server, 61 bots | | 25.3 (23), 13.34 / 59.8 ms, 48 of 50 |
+
+- **The bots no longer cost the player's frames.** With 61-64 bots the listen server's bot bursts were player 1's
+  frame-time spikes (99% interval 31-32 ms, 1% low 29); in its own process they are not: 1% low 86-106, 99%
+  interval 9-11 ms, average +38% (single player) and +45% (four players). With 0-16 bots the difference is within the
+  spread (0-16 bots: +2% to +15% average).
+- **Single-player has not regressed** in any measured case.
+- **Cost:** one more process, about 100 MB resident, and its CPU: 4-7% of a core with 0-16 bots, 33-39% with 61-64.
+  Network overhead is loopback only (6-7.5 KB/s for player 1, 24-27 KB/s at the server with four players).
+- **The tick is the dedicated server's: a fixed 30 Hz** (the console's simulation rate, pc_multiplayer.md "The
+  tick"), where the listen server simulated once per rendered frame (118-171 times a second here). Game time follows
+  real time in both, so the game's speed is the same; the server's steps are coarser and the bots think per tick.
+  **With 61-64 bots the 30 Hz tick does not hold**: the bots' work per second is about the same, but at 30 Hz it lands in
+  fewer, larger frames (11-13 ms mean, bursts to 55-65 ms), so the server runs 24-28 ticks a second (the same as the
+  standalone csx-server since N2: 25.3 here). Clients interpolate between snapshots, so it is not visible as stutter
+  in the players' frames, but it is a less steady server than the listen one. Not changed in N4.7: a higher tick or
+  spreading the bots' updates would change gameplay timing (TODO).
+- **Input responsiveness**: not measured end to end (no instrument for input-to-photon latency). What was measured:
+  the game reads input and predicts the player's movement every rendered frame in both modes (the frame interval
+  percentiles above: the 99% interval falls from 31-32 ms to 9-11 ms with 61-64 bots); the server's confirmation of
+  a move waits for its next tick (up to 33 ms, longer in a slow second) plus loopback, where the listen server ran it in
+  the same frame.
+
+### 17.5 What the tests show in the new mode
+
+- **Offline** (vk_local_server): Single Player > Custom, de_aztec, 7 bots: the server ready in 0.7 s, 8 players on
+  it; the pause menu pauses the simulation (0 of 8 moved while paused, all moved after); `mp_roundtime 2` and
+  `sv_restartround 1` typed in the game run on the server (a new round); Restart Match and Change Map (de_airstrip)
+  from the pause menu run there and the game rejoins; Quit stops the server (exit code 0), back in the menus.
+  vk_bot_count_* (bot counts, the one-team option, the options kept across matches), vk_player_collision_* (Player
+  Collision Off through map changes, Reset back to On), vk_ae_maps, vk_loading, vk_xbox_effects_169 pass in the new
+  mode.
+- **Failures** (vk_local_server_noexe / _port / _crash): csx-server missing, the port taken, the server killed
+  (SIGSEGV) mid-match: each a message in the game and back to the screen the match was started from; a new match
+  works after it; the game killed (SIGKILL): no server left.
+- **Split-screen**: the 16 split window scenarios and the 4 split network scenarios in the new mode (player 1 starts
+  the local server and joins it; players 2-4 join it; four players and 61 bots: 65 of 65 slots, vk_split_4_audio,
+  vk_split_crash): 15 of 16 and 4 of 4 in the complete suite, vk_split_teams after a test change (17.8). Team changes,
+  names, controller hotplug (virtual controllers), crash recovery of players 2-4, four-player audio as before.
+- **LAN hosting** (net_split_listen, net_browse_lan): Host a Match runs the server on the PC port; games on other addresses
+  of the same machine find it in the LAN list (counted 1/65 with its owner, net_browse_lan) and join it by address
+  (net_split_listen: split-screen players 1-2 and the remote player each have a slot; the remote player leaving frees
+  its slot). Two physical PCs were not tested.
+
+### 17.6 Defects found and fixed in N4.7 (beyond the hosting itself)
+
+| Defect | Cause | Fix | Commit |
+|---|---|---|---|
+| A network client could make csx-server relaunch into an empty map | the game DLL's `changemap` (the host's menu command) was allowed from clients | refused from network clients; regression test net_ded_changemap | b98d769 |
+| In the local server the players joined after the round had started (spectating) | the server forced `bot_join_after_player 0`: the bots filled it and started the round before the owner picked a team | the menus' value (the engine's 1) kept | b3820ed |
+| An offline match's pause menu had a Change Teams row (the rows below it moved) | the game is a network client of its local server | not in an offline local-server match outside split-screen | 07d9814 |
+| Custom Options' one-team row: the match did not start ("+teampreference is not one a match from the menus sets") | the match line check did not know the title's `+teampreference` | allowed (the title's UI has no other such token reachable on the PC) | 24d705b |
+| Benchmarks counted the menus' frames | each relaunch restarts the game's log clock: menu lines fell inside the held view's times. Only the game alone in its window was affected (the compositor's log has no such overlap: its runs summarise the same with the fix). The vk_perf_split_alone_61 run on disk: 195.7 frames/s as summarised before, 151.2 for the match alone; section 11's 192.7 was overstated the same way, and with it the compositor's cost ("about a quarter"): about 18% from the runs on disk (124.1 against 151.2) | only the lines after the held view starts | 5455eb8 |
+| Benchmarks' player 1 joined by Auto Assign | another team, viewmodel and view from run to run (a 10% difference in one pair) | the Terrorists | 5455eb8 |
+| A local server that quit by itself (its game gone) left "ready" in its status file | only the game removed it (when it stopped the server) | the server writes "ended" and removes its pid file; drive.py checks the process and follows only its own run's server logs (found by the headless regression: two scenarios after a menu match in the shared build/run) | 004b6f9 |
+| vk_split_crash checked player 2's controller by walking from its spawn | auto-assign can put it at a spawn facing a crowd of bots | it turns instead | cafdfc1 |
+
+### 17.7 Manual checks (need the user; not done)
+
+None of these were performed: they need a person, a listener or physical controllers. The automated virtual-controller
+tests stay as they are. Start with `./run_game.sh --splitscreen 4` (or main menu > Split Screen); PC Options > Match
+Server is Separate (the default).
+
+1. **Four physical controllers**: plug in three (four with Player 1 > Also a Controller); each takes the next player in
+   order; every player picks a team with its own A and plays.
+2. **Controller-only player 1**: Split Screen > Player 1 > Also a Controller, then intro, menus, Player Names (the
+   on-screen keyboard), a match, the pause menu, Quit, all with the controller.
+3. **Hotplug**: in a match, unplug player 3's controller (its view says so), plug it back: the same player; START on a
+   spare controller adds a player.
+4. **Four-player audio**: each player fires alone (one clean shot), all four fire together (loud, not crackling),
+   footsteps, reload, radio (the team only); section 16.6 items 1-10.
+5. **Positional sound**: a player standing to another's left fires: the shot comes more from the left for that
+   player (weaker with four streams mixed than alone).
+6. **Team-change menus**: a player's own pause menu > Change Teams > the other team > Yes: it moves (dies if alive;
+   plays again next round, or at once when its old team is left empty); the others untouched.
+7. **Crash-recovery messages**: (needs a terminal: `kill -SEGV <player 2's pid>`): player 2's view shows the
+   message, it comes back after 3 s; the fourth crash in two minutes asks for START.
+8. **Local server**: an offline match from Single Player > Custom, then Escape: the match pauses. In split-screen it
+   does not (another player). Quit the game during a match: no `csx-server` left in a process list. Host a Match on one
+   PC and join it from another on the same network (Multiplayer > the server browser's LAN tab).
+
+### 17.8 Full regression (the final build, 004b6f9; 2026-10-28 09:00-14:49)
+
+One run, every suite one after another, nothing built or run beside it by this session (another session's GPU tests
+ran on the machine throughout). A first attempt (08:14) was stopped after 40 minutes when two headless scenarios
+showed the stale local server status (17.6, fixed in 004b6f9) and is not counted.
+
+Complete suite:
+- Unit: **8 of 8** (net_transport 115 checks, net_browser 103, net_buffers 18314, scoreboard_rows 1222,
+  server_config 37, stuff_filter 14, slot_audit, guest_tables).
+- Headless offline regression (tests/run_regression.sh): **44 of 46**. Failed:
+  - regress_bots_aztec_11: `expect spawnapart freeze 31`. Taken 6.5 s after the third round end, the snapshot still
+    showed the old round (bots at 1 and -13 health, one on another's spot). Listen server, launch fixture: nothing of
+    N4.7 is in its path. It failed the same way once in a targeted run and passed twice alone. **Not explained**
+    (recorded, TODO).
+  - regress_player_collision_off: `expect bodyz botdrop 2 -253 -251` was -270: bot 2 fell through bot 1 to the
+    floor but crouched (it was crouched before the drop). A test assumption; the check now takes bot 1's range
+    (1a58994).
+- Network (every scenario of tests/net): **35 of 37**. Failed: net_ded_lifecycle and net_disconnect, both CRASH of
+  their frozen client3: N4.7's drive.py sleep (78c454c) now notices the game's end, so the runner's SIGKILL of the
+  frozen game (--freeze-after) read as a crash. Fixed in the runner (1a58994). The changemap fix's net_ded_changemap,
+  net_split_full (an N4.6 intermittent), net_browse_lan, net_split_listen, net_split_ded_4 and
+  net_perf_split_ded_4 passed.
+- Window, the 27 default scenarios: **27 of 27** (vk_auto_exposure_rates, an N4.6 intermittent, among them).
+- Window extra: **16 of 17** (vk_scoreboard_169, vk_bot_count_43 / 169 / 219, vk_player_collision_43 / 169 / 219,
+  vk_browser_43 / 169 / 219, vk_ae_maps, vk_xbox_effects_169, vk_perf_aztec_64, vk_local_server, _noexe, _crash).
+  Failed: **vk_local_server_port**: its Quit still pressed Down seven times (the pause menu's row before 07d9814);
+  my test's error, fixed (1a58994).
+- Split-screen: **15 of 16** (vk_split_2, 2v, 2_219, 3, 4, 4_43, play, names, pads_2, pads_3, pads_4, kbm_3, crash,
+  4_sound, 4_audio). **65 of 65 slots** with four local players and 61 bots (vk_split_4_audio, vk_split_crash after
+  each restart). Failed: **vk_split_teams**: after player 2's team change its Spectator screen never showed. It died
+  by the change (the server's log), and with no Terrorist left the round ended and it respawned as a CT at once;
+  the screen between the two shows only when a snapshot falls between them. The listen server's every-frame snapshots
+  did (0.5 s of it in the old-mode run), the 30 Hz server's often do not (passed 2 of 3 in the new mode). The test
+  now checks the death in the server's log (1a58994).
+
+Not a full-suite pass. Reruns after the fixes (alone, 14:50-15:03): regress_player_collision_off PASS,
+regress_bots_aztec_11 PASS, net_ded_lifecycle PASS (client3 FROZEN), net_disconnect PASS (client3 FROZEN),
+vk_local_server_port PASS, vk_split_teams PASS. tools/split_audio.py on the run's vk_split_4_sound: PASS (four
+streams mixed, peak -2.6 dBFS, 0 clipped; own gunfire 7/7, 3/3, 9/9, 4/4 heard; positional, player 2: 19 from the
+expected side, 1 from the other; players 1, 3, 4 too few samples to say). Measured, not listened to.
+
+### 17.9 Limitations
+
+- **The local server's tick** with 61-64 bots: 24-28 ticks a second instead of 30, frames to 65 ms (17.4); the same
+  as the standalone csx-server. Not visible in the players' frame rates; a steadier tick would mean changing how the
+  bots' work is scheduled or the tick rate: gameplay timing, needs approval.
+- **One more process and about 100 MB** per match; xnet's system link ports (1102-1104) are held by the server, so
+  the game's own binds of them fail (logged, harmless: the PC transport does not use them).
+- **Linux only**: fork / exec, the parent watch, SIGTERM. Windows needs its own (CreateProcess, a job object).
+- **The listen server stays** (PC Options > Match Server > In Game): needed until the user has played the new mode;
+  Training and Career (their lines start without `+map`) always use it.
+- **Unexplained**: the outside SIGKILL (17.3, three times), regress_bots_aztec_11's spawn check (17.8, once in the
+  complete suite).
+- **Not measured**: input latency end to end (17.4); a LAN between two physical PCs (the tests use addresses on one
+  machine); the manual checks of 17.7.
+
+### 17.10 Commits (branch g8.2b, not merged)
+
+| Commit | What |
+|---|---|
+| 5d89631 | vk_auto_exposure_rates compares the same views at every rate (the intermittent's fix) |
+| 78c454c | Test tools: procs.csv (the process tree every half second), deaths seen during sleeps, gamescope's log kept |
+| b98d769 | Security: a network client's `changemap` is refused (net_ded_changemap) |
+| d65b2ee | Test tools for the local server: loopback in the namespace, the server's log and probes, orphans fail a run |
+| c0c60ee | A match from the menus runs in a local csx-server; the listen server is the fallback (PC Options > Match Server) |
+| b3820ed | The engine's bot_join_after_player kept |
+| cafdfc1 | Split tests: player 1 hosts or joins; the crash test turns instead of walking; run_window_tests --env |
+| 07d9814 | An offline match keeps the Single Player pause menu |
+| 24d705b | Custom Options' `+teampreference` taken |
+| 1a0398c | Tests: PC Options 14 rows; the collision test checks the last match |
+| 5455eb8 | Benchmarks: the match only, the same team every run |
+| 004b6f9 | A server that ended says so; tests ignore an earlier run's server |
+| 1a58994 | Tests: frozen roles, a crouched bot, the port test's Quit row, a team change's outcome |
+| (this) | Docs (17, section 11's note, pc_multiplayer.md 19, PROGRESS, FINDINGS, ROADMAP, TODO) |

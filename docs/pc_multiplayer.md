@@ -1171,3 +1171,33 @@ read, so the replacing join finds the slot free) or at the next tick, instead of
 proved identity (the handshake's signature) replaces; anonymous clients never do; no protocol or version changed.
 Tests: tests/net_transport_test.cpp (identity reconnect), vk_split_crash (65 slots after each restart). The split
 benchmark against a dedicated server is tests/net/net_perf_split_ded_4.txt.
+
+## 19. N4.7: a match from the menus in its own server (2026-10-28)
+
+Documented in docs/splitscreen.md section 17. What it changes here:
+
+- **Hosting.** Single Player, Multiplayer > Host a Match and split-screen matches from the menus run in csx-server
+  (this document's section 16), which the game starts beside itself (local_server/, its own logs, identity and disk)
+  and joins as a client over the PC transport; the title's listen server is kept as the fallback (PC Options > Match
+  Server > In Game, or CSX_SERVER_PROCESS=0) and is unchanged. Offline the server binds 127.0.0.1 only; Host a Match
+  binds the PC port and answers LAN discovery and queries itself (section 17.7's hosting, now by csx-server). All 65
+  slots are the server's; the game's own player is a client like the others.
+- **The match line.** The menus' "+map ... +cvar value" line reaches the server as CSX_SERVER_MATCH and is checked
+  (src/server/server_config.cpp MatchLine): `+wait`, `+map`, `+maxhumanplayers`, `+teampreference` and `mp_` / `bot_`
+  / `pc_` cvars with plain values only; nothing else (no `exec`, `;`, quotes, `connect`, `rcon_password`). The server
+  sets its own slots (65), `mp_dedicated_server 1`, the snapshot rate, LAN, name and password after it.
+- **Trust.** The game trusts its local server's key for that address while the server runs (not saved with the known
+  servers). The server accepts `pc_owner` commands (restart, changemap, console, pause) only from the identity that
+  started it (CSX_SERVER_OWNER_KEY), from 127.x; a console line is one printable command without `;` and goes to
+  the engine as hex in the command, so it cannot carry a second command.
+- **Lifecycle.** SIGTERM when the game leaves the match (the players are told the server shut down), SIGKILL after
+  5 s, always reaped; the server quits within 250 ms when its parent (the game) is gone; a server that ends by itself
+  sends the game back to its menus with a message. A failed start (no csx-server, the port taken) is a message in the
+  game's menus.
+- **Security fix (found while testing).** csx-server let any client run the game DLL's `changemap` (the host's pause
+  menu command, 0x13F92C): the server relaunched into an empty map name. Network clients' `changemap` is now refused
+  (src/game/net_security.cpp); the owner's Change Map goes through `pc_owner changemap`, which checks the map. Test:
+  tests/net/net_ded_changemap.txt. Commit b98d769.
+- **Tick.** A local server has the dedicated server's 30 Hz tick (section 16.6), not the listen server's frame-rate
+  simulation; with 61-64 bots it runs 24-28 ticks a second (docs/splitscreen.md 17.4).
+- **Windows.** The local server uses fork / exec, the parent watch and SIGTERM: Linux only, like csx-server.

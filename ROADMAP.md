@@ -57,6 +57,8 @@
   server browser (LAN discovery, master server csx-master, favorites, direct address, in the title's own menus) ✅
   2026-10-26; N4 — split-screen for 1-4 local players (a compositor and one game process per player,
   docs/splitscreen.md) ✅ 2026-10-27; N4.6 — completion (player names, controller-only play, team changes,
-  crash recovery, audio, player 1's frame pacing; docs/splitscreen.md section 16) ✅ 2026-10-27, waiting for approval
-  before N5
+  crash recovery, audio, player 1's frame pacing; docs/splitscreen.md section 16) ✅ 2026-10-27; N4.7 — final
+  stabilization: a match from the menus runs in its own csx-server (the listen server kept as PC Options > Match
+  Server > In Game), the N4.6 intermittents, the benchmarks (docs/splitscreen.md section 17) ✅ 2026-10-28, waiting
+  for approval before N5
 - M8 — PC feature set complete

@@ -772,3 +772,33 @@ unchanged:
   the intro, unexplained).
 Commits 36d10dc, 6482d5e, 8ed2944, fca4389, 2b83464, 2542e20, c89b5a6 and the docs. Linux only. Branch g8.2b, not
 merged. N5 waits for approval.
+
+## 2026-10-28 — N4.7: final stabilization, a match in its own server process
+
+Approved by the user 2026-10-27 after N4.6. Done (docs/splitscreen.md section 17):
+- Hosting: a match from the menus (Single Player, Host a Match, split-screen) runs in csx-server, which the game
+  starts in local_server/ and joins over the PC transport; offline on 127.0.0.1, Host a Match on the PC port with LAN
+  discovery; 65 slots; the pause menu pauses the simulation (alone), Restart Match, Change Map and the server's
+  console commands go to the server as the owner's commands; the server ends with the match and when the game dies;
+  a failed start is a message in the menus. The listen server is kept: PC Options > Match Server > In Game.
+- Security: a network client's `changemap` relaunched csx-server into an empty map; refused (net_ded_changemap).
+- N4.6's intermittents: vk_auto_exposure_rates (the test's view went into the pitch clamp: fixed) and net_split_full
+  (fixed in N4.6) passed in the complete suite; vk_split_2_219's SIGKILL came from outside, twice more in N4.7, cause
+  not found (needs root to trace).
+- Found and fixed by the new mode: bots starting the round before the owner joined, the offline pause menu's extra
+  row, Custom Options' one-team row refused, a quit server's status left "ready"; the benchmarks counted the menus'
+  frames and joined by Auto Assign (section 11's "alone" figure overstated).
+- Measured (old listen against new local server, one run each, the machine shared): 64 bots single player 118.0 ->
+  162.7 frames/s, 1% low 28.8 -> 106.4; four players with 61 bots, player 1 95.0 -> 138.1, 1% low 28.9 -> 85.6; 0-16
+  bots within the spread; single-player not regressed; the server costs about 100 MB and 4-39% of a core; its 30 Hz
+  tick drops to 24-28 with 61-64 bots (as the dedicated server's).
+- Full regression on the final build: unit 8/8, headless 44/46, network 35/37, window 27/27 + 16/17, split 15/16
+  (65 of 65 slots). The six failures (section 17.8): regress_bots_aztec_11's spawn check (unexplained, listen
+  server), regress_player_collision_off (a crouched bot: test assumption), net_ded_lifecycle and net_disconnect (the
+  runner's kill of a frozen client read as a crash since N4.7's drive.py change), vk_local_server_port (its Quit row,
+  not updated with the pause menu fix), vk_split_teams (a momentary Spectator screen a 30 Hz server often skips). All
+  six PASS when rerun alone after the fixes.
+- Manual checks not performed (section 17.7: physical controllers, listening, hotplug, crash messages, LAN between
+  two PCs).
+Commits 5d89631, 78c454c, b98d769, d65b2ee, c0c60ee, b3820ed, cafdfc1, 07d9814, 24d705b, 1a0398c, 5455eb8, 004b6f9,
+1a58994 and the docs. Linux only. Branch g8.2b, not merged. N5 waits for approval.
