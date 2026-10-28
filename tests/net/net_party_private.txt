@@ -1,0 +1,61 @@
+# Local Only is private (N4.8, docs/multiplayer_frontend.md, src/game/pc_lobby.cpp): a party of one (profile Ace)
+# starts a Local Only match from the lobby (de_airstrip, Bomb Defusal, the default rules). Its local server listens
+# on 127.0.0.1 only and answers no one's queries (no LAN discovery, no master), and it takes a password made at random that only the party's processes have:
+# another game on this machine that connects to it by address (the intruder) is refused ("bad password") and never
+# enters the game, while the party's player plays on.
+# timeout: 600
+[party] --window 1920x1080 --env CSX_SPLIT_COMPOSITOR=1 --env CSX_SPLIT_PLAYERS=1 --env CSX_SPLIT_ZCACHE=$PWD/build/zcache --env CSX_LOG_NET=1
+write profiles/00000000000000a1.ini name = Ace\n
+wait log split: player 1 started
+wait log p1: open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+key Down
+sleep 0.7
+key Down
+sleep 0.7
+key Down
+sleep 0.7
+key Space
+wait log p1: pc mouse: screen SuperLauncher_PCParty
+sleep 2
+key Right
+sleep 1
+key Space
+wait log p1: party: player 1 ready \(Ace
+key Space
+wait log p1: pc mouse: screen SuperLauncher_PCPartyDestination
+sleep 2
+key Space
+wait log p1: pc mouse: screen SuperLauncher_PCMatchMaps
+sleep 2
+key Space
+wait log p1: pc mouse: screen SuperLauncher_PCMatchModes
+sleep 2
+key Space
+wait log p1: pc mouse: screen SuperLauncher_PCLobby_de_airstrip
+sleep 2
+key Space
+sleep 1
+key Return
+wait log p1: lobby: starting de_airstrip \(Bomb Defusal, Local Only\) for 1 local players
+wait log p1: local server: starting .*\(offline: this machine's, 127\.0\.0\.1:27015\)
+wait log p1: server: the match: .*\+sv_password \(set\)
+wait log p1: net: server 127\.0\.0\.1:27015 connected
+# the intruder's own side shows its refusal (LostHost, never in the game); here: it never enters this match
+sleep 30
+expect log p1: net: a server on this machine's loopback only: not announced
+expect nolog p1: net: answering server queries
+expect nolog p1: net: LAN discovery listener
+expect log p1: game: "Ace<
+expect nolog p1: game: "intruder
+[intruder] --after party:p1:.server:.the.match --delay 8 --launch tests/launch/connect_local --env FPS=30 --env CSX_LOG_NET=1 --env CSX_PLAYER_NAME=intruder
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.LostHost
+expect nolog entered.the.game
+sleep 3

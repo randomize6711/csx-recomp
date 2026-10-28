@@ -150,6 +150,9 @@ void Receiver() {
                 pc::Set("split_players", std::to_string(players));
             break;
         }
+        case split::Msg::Party:
+            csx::PushPartyInput(m.Text());
+            break;
         case split::Msg::Quit:
             Quit("the compositor ended the player");
             return;

@@ -5,6 +5,7 @@
 #include <cstring>
 #include <fstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "app/app.h"
@@ -27,6 +28,8 @@ bool g_connecting = false;   // CL_Connect_f is closing the old connection befor
 bool g_lobby_off = false;    // the system link lobby was not set up (a PC direct connect)
 bool g_joined = false;       // this process's client connected to a network server (and so loaded its world)
 std::string g_reconnect;     // a server that relaunched into another map: the client relaunches to rejoin it
+std::string g_match_line;    // the party's lobby started a match (N4.8): the title relaunches into it
+bool g_front_end = false;    // the party's leader returns to its lobby (N4.8): the title relaunches into the front end
 std::string g_close_text;    // why the transport connection to the server ended (its peer's text or the reason)
 std::string g_refusal;       // a refusal the server printed (bad password, banned, kicked)
 constexpr uint32_t kRelaunch = 0xBF0E0;  // the title's relaunch (cdecl: the launch data), as 0x5F750 calls it
@@ -107,7 +110,9 @@ void FrontEndMessage(const char* var, const std::string& message) {
 // compositor running even one player hosts so (START joins a second); the game alone in its window is unchanged.
 void SplitMatchFromMenus(bool host) {
     if (csx::SplitPlayer() != 1) return;
-    constexpr int kLocal = 4;
+    // a party's match (N4.8) has room for its own players exactly (65 - them for bots); otherwise four
+    int kLocal = 4;
+    if (const char* p = std::getenv("CSX_PARTY_MATCH"); p && std::atoi(p) >= 1 && std::atoi(p) <= 4) kLocal = std::atoi(p);
     int players = csx::SplitPlayers();
     setenv("CSX_MENU_HOST", "1", 1);
     if (host) unsetenv("CSX_SERVER_LOOPBACK");
@@ -146,6 +151,33 @@ namespace csx {
 // the server browser's join (pc_browser.cpp): the title relaunches into it between frames
 void RequestJoin(const std::string& server) {
     g_reconnect = server;
+}
+
+// the party lobby's Start (pc_lobby.cpp): the title relaunches into its match line between frames
+void RequestMatch(const std::string& line) {
+    g_match_line = line;
+}
+
+void RequestFrontEnd() {
+    g_front_end = true;
+}
+
+// the party's lobby starts its match (N4.8, pc_lobby.cpp): the title relaunches into the lobby's "+map ..." line from
+// a front end screen, as Single Player's Start does (launch data 3: a Single Player match's mode), so RelaunchNotify
+// starts its local server and the game joins it (docs/splitscreen.md 17)
+[[noreturn]] void RelaunchIntoMatch(X86Context& ctx, const std::string& line) {
+    // Z: as the title's own Start writes it (RelaunchNotify turns it into the local server's "+connect"); a T: copy
+    // left from a rejoin would be read first
+    if (std::string t = kernel::ResolvePath("T:\\releasemap.txt", 0); !t.empty()) std::remove(t.c_str());
+    if (std::string path = kernel::ResolvePath("Z:\\releasemap.txt", 0); !path.empty()) {
+        std::ofstream f(path, std::ios::binary | std::ios::trunc);
+        f.write(line.c_str(), std::streamsize(line.size() + 1));
+    }
+    uint32_t data = guest_tables::kTables[guest_tables::k_net_launch].va;
+    std::memset(kernel::HostPtr(data), 0, 0xC00);
+    kernel::W32(data, 3);
+    kernel::CallGuest(ctx, kRelaunch, {data});
+    std::abort();
 }
 
 // the dedicated server's map change (admin map): the title relaunched into "+map NAME" as its own map change does;
@@ -238,7 +270,10 @@ void RelaunchNotify(X86Context& ctx, uint8_t*) {
     if (uint32_t screen = kernel::R32(0x5523D4)) {
         std::string name = kernel::ReadCString(kernel::R32(screen), 64);
         if (name.rfind("SuperLauncher_", 0) == 0) {
-            bool host = name.rfind("SuperLauncher_LocalServer", 0) == 0;
+            // (the party's lobby, N4.8: its Host LAN Match, CSX_PARTY_HOST; its Local Only is offline)
+            bool host = name.rfind("SuperLauncher_LocalServer", 0) == 0 ||
+                        (name.rfind("SuperLauncher_PCLobby", 0) == 0 && std::getenv("CSX_PARTY_HOST") &&
+                         *std::getenv("CSX_PARTY_HOST") == '1');
 #ifdef _WIN32
             _putenv_s("CSX_MENU_HOST", host ? "1" : "");
 #else
@@ -246,6 +281,12 @@ void RelaunchNotify(X86Context& ctx, uint8_t*) {
             else unsetenv("CSX_MENU_HOST");
 #endif
             if (host) LOGI("net: a match hosted from Multiplayer (%s): its server takes network players", name.c_str());
+            // a match that is not the party lobby's (N4.8) leaves the party's settings behind
+            if (name.rfind("SuperLauncher_PCLobby", 0) != 0)
+                for (const char* v : {"CSX_PARTY_MATCH", "CSX_PARTY_HOST", "CSX_PARTY_PASSWORD", "CSX_PARTY_TEAM", "CSX_PARTY_LOBBY",
+                                      "CSX_PARTY_MODE",
+                                      "CSX_NET_PASSWORD"})
+                    unsetenv(v);
             SplitMatchFromMenus(host);
             menu_match = true, hosted = host;
         }
@@ -362,6 +403,8 @@ bool PcNetworkMatch() {
 // lobby was not set up; it would wait in accept() on a lobby socket nobody opened for listening (true: 0x5D5E1)
 bool HostFrameLobby(X86Context& ctx, uint8_t*) {
     if (!g_reconnect.empty()) RelaunchToServer(ctx, g_reconnect);  // between frames: no engine code is mid-way
+    if (!g_match_line.empty()) csx::RelaunchIntoMatch(ctx, std::exchange(g_match_line, std::string()));
+    if (std::exchange(g_front_end, false)) RelaunchToFrontEnd(ctx, "");
     // this game's local server ended by itself (a crash): back to the menus with why, not after the connection's
     // timeout
     if (std::string why; !csx::LocalServerAlive(why))

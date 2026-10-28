@@ -1,0 +1,175 @@
+# A party match from the lobby (N4.8, docs/multiplayer_frontend.md, src/game/pc_lobby.cpp): two saved profiles (Ace,
+# Bravo). Player 1 (keyboard) and test controller 1 (player 2, joined with A) pick them with right; both ready;
+# player 1 continues: Local Only, the map list (de_dust2, the title's list's seventh), Bomb Defusal, Y the rules:
+# 3 bots, starting money $16000 (Accept). The lobby: player 2 changes its team (down: Terrorist) and readies, player 1
+# readies and starts (START). The local server takes the lobby's line (its log shows it, the password as "(set)": a
+# Local Only match has one only the party knows); player 2 is started into it; each joins its lobby team; 2 local
+# players and 3 bots. Pause menus by player: player 2's has 5 rows (no Change Map, Restart Match; Leave Match),
+# player 1's 9 (Return to Lobby, End Match, Quit Game). Return to Lobby: the server stops, player 2 ends, player 1 is
+# on the lobby again with the party (both not ready again).
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --env CSX_SPLIT_COMPOSITOR=1 --env CSX_SPLIT_PLAYERS=1 --env CSX_SPLIT_ZCACHE=$PWD/build/zcache --env CSX_LOG_NET=1
+# timeout: 600
+write profiles/00000000000000a1.ini name = Ace\n
+write profiles/00000000000000b2.ini name = Bravo\nmouse_sensitivity = 2\n
+wait log split: player 1 started
+wait log p1: open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+key Down
+sleep 0.7
+key Down
+sleep 0.7
+key Down
+sleep 0.7
+key Space
+wait log p1: pc mouse: screen SuperLauncher_PCParty
+sleep 2
+key Right
+sleep 1
+wait log p1: pc: playing as profile 00000000000000a1 \(Ace\)
+pad 1 attach
+sleep 1
+pad 1 button a
+wait log split: party: player 2 joined
+sleep 2
+pad 1 button dpright
+sleep 1
+pad 1 button a
+wait log p1: party: player 2 ready \(Bravo, Auto-Select\)
+key Space
+wait log p1: party: player 1 ready \(Ace, Auto-Select\)
+sleep 1
+key Space
+wait log p1: pc mouse: screen SuperLauncher_PCPartyDestination
+sleep 2
+windowshot destination
+key Space
+wait log p1: lobby: Local Only
+wait log p1: pc mouse: screen SuperLauncher_PCMatchMaps
+sleep 2
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Down
+sleep 1
+windowshot maps
+key Space
+wait log p1: lobby: map de_dust2 \(Bomb Defusal\)
+wait log p1: pc mouse: screen SuperLauncher_PCMatchModes
+sleep 2
+windowshot modes
+key Q
+wait log p1: pc mouse: screen SuperLauncher_PCRules
+sleep 2
+key Left
+sleep 0.4
+key Left
+sleep 0.4
+key Left
+sleep 0.4
+key Left
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Right
+sleep 0.3
+key Right
+sleep 0.3
+key Right
+sleep 0.3
+key Right
+sleep 0.3
+key Right
+sleep 0.3
+key Right
+sleep 0.3
+key Right
+sleep 1
+windowshot rules
+key Space
+wait log p1: lobby: rules saved \(Custom Rules
+sleep 2
+key Space
+wait log p1: lobby: de_dust2, Bomb Defusal, Custom Rules
+wait log p1: pc mouse: screen SuperLauncher_PCLobby_de_dust2
+sleep 2
+pad 1 button dpdown
+sleep 1
+pad 1 button a
+sleep 1
+key Space
+sleep 1
+windowshot lobby
+key Return
+wait log p1: lobby: starting de_dust2 \(Bomb Defusal, Local Only\) for 2 local players and 3 bots
+wait log p1: local server: ready in
+wait log p1: server: the match: \+map de_dust2 \+wait \+bot_quota 3 .*\+mp_startmoney 16000 .*\+sv_password \(set\)
+wait log split: player 2 started
+wait log p1: lobby: joining a team \(Auto-Select\)
+wait log p2: lobby: joining the Terrorists
+wait log p1: game: "Bravo<[0-9]+><[^>]*><>" joined team "TERRORIST"
+sleep 15
+players p
+expect playercount p 5 5
+windowshot play
+# player 2's pause menu: its own, no match-wide action
+pad 1 button start
+wait log p2: lobby: the pause menu for player 2: 5 rows
+wait log p2: pc mouse: screen InGame_RootSinglePlayer, 5 rows
+sleep 1
+pad 1 button b
+sleep 2
+# player 1's: Return to Lobby (the seventh row)
+key Escape
+wait log p1: pc mouse: screen InGame_RootSinglePlayer, 9 rows
+sleep 1
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Space
+wait log p1: pc mouse: screen InGame_PCConfirmLobby
+sleep 1
+key Space
+wait log p1: lobby: the party returns to the lobby
+wait log p1: local server: stopped
+wait log split: player 2's process ended \(exit 0\)
+wait log p1: pc mouse: screen SuperLauncher_PCLobby_de_dust2
+sleep 3
+windowshot back
+expect log split: party: player 2 joined
+expect nolog guest trap
+expect nolog p1: password =

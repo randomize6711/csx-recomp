@@ -54,6 +54,7 @@
 
 #include "app/app.h"
 #include "common/pc_settings.h"
+#include "common/profiles.h"
 #include "core/log.h"
 #include "linux/split_ipc.h"
 #include "linux/window.h"
@@ -102,6 +103,13 @@ struct Player {
     Imported label{};         // that message as an image (MakeLabel), and its text and size
     std::string label_text;
     uint32_t label_w = 0, label_h = 0;
+    // the party (N4.8, docs/multiplayer_frontend.md): kept here through player 1's relaunches, set by player 1's party
+    // screens, given to the player's process when it starts
+    std::string profile;      // its profile's id ("" none chosen)
+    int team = 0;             // 0 auto, 1 Terrorist, 2 Counter-Terrorist
+    bool party_ready = false;
+    std::string pad_guid;     // its last controller's GUID: that controller plugged in again comes back to it
+    int stick = 0;            // the left stick's last direction while it drives a party panel (0 none, 1-4)
 };
 
 std::array<Player, kMaxPlayers> g_players;
@@ -349,6 +357,8 @@ bool g_fullscreen = false;     // asked for (F11, Display Mode, a test): some co
 SDL_Window* g_win = nullptr;
 bool g_focus = true, g_captured = false, g_capture_play = true;
 int g_kbm = 1;             // the player who has the keyboard and mouse
+bool g_party = false;      // player 1 shows a party screen: the other members' controllers drive their panels there
+int g_menu_focus = 0;      // a member whose controller drives player 1's menus (editing its profile); 0 none
 bool g_test_only = false;  // CSX_TEST_INPUT_ONLY: only the test's input (no host keyboard, mouse or controllers)
 
 bool InLayout(const Player& p) { return p.alive || p.crashed; }  // a crashed player keeps its viewport
@@ -520,7 +530,16 @@ void Spawn(Player& p, const std::string& line, const std::string& key, const std
         unsetenv("CSX_TEST_INPUT_ONLY");
         if (p.n > 1) {  // players 2..4 in folders of their own (player 1 keeps this PC's INSTANCE: its disk folder)
             unsetenv("INSTANCE");
-            setenv("CSX_PLAYER_NAME", FileSetting("split_name_" + std::to_string(p.n), "Player " + std::to_string(p.n)).c_str(), 1);
+            // its profile (N4.8): its settings and its name; without one the setting split_name_N, else "Player N"
+            std::string name = FileSetting("split_name_" + std::to_string(p.n), "Player " + std::to_string(p.n));
+            if (!p.profile.empty() && profiles::IdValid(p.profile)) {
+                if (std::string pn = profiles::Store(pc::ProfileFolder()).Name(p.profile); !pn.empty()) name = pn;
+                setenv("CSX_PC_PROFILE", p.profile.c_str(), 1);
+            } else {
+                unsetenv("CSX_PC_PROFILE");
+            }
+            setenv("CSX_PLAYER_NAME", name.c_str(), 1);
+            setenv("CSX_PARTY_TEAM", std::to_string(p.team).c_str(), 1);
             if (!key.empty()) setenv("CSX_SERVER_KEY", key.c_str(), 1);
             if (!password.empty()) setenv("CSX_NET_PASSWORD", password.c_str(), 1);
             else unsetenv("CSX_NET_PASSWORD");
@@ -546,8 +565,9 @@ void Spawn(Player& p, const std::string& line, const std::string& key, const std
          line.c_str());
     Relayout();
     SendFocus(p);
-    // a controller already assigned to this player is attached in its process
-    if (p.pad) {
+    // a controller already assigned to this player is attached in its process (player 1's always: a party member's
+    // controller drives player 1's menus through it, N4.8)
+    if (p.pad || p.n == 1) {
         split::Message pm;
         pm.type = split::Msg::Pad;
         pm.Put(uint8_t(2));
@@ -645,16 +665,33 @@ void SendPad(Player& p, uint8_t kind, uint8_t index, int16_t value) {
     split::Send(p.fd, m);
 }
 
-// a controller connected: the next player without one (2, 3, 4; player 1 first with split_p1_pad 1)
+std::string PadGuid(SDL_JoystickID id) {
+    char g[64] = {};
+    SDL_GUIDToString(SDL_GetGamepadGUIDForID(id), g, sizeof g);
+    return g;
+}
+
+void GivePad(Player& p, SDL_JoystickID id) {
+    p.pad = id;
+    p.pad_guid = PadGuid(id);
+    LOGI("split: controller %s (%u) is player %d's", SDL_GetGamepadNameForID(id), unsigned(id), p.n);
+    if (p.alive) SendPad(p, 2, 0, 0);
+}
+
+// a controller connected: the player it was taken from (unplugged: its GUID, N4.8), else the next player without one
+// (2, 3, 4; player 1 first with split_p1_pad 1)
 void AssignPad(SDL_JoystickID id) {
     if (PadOwner(id)) return;
+    std::string guid = PadGuid(id);
+    for (auto& p : g_players)
+        if (!p.pad && p.n <= g_configured && !p.pad_guid.empty() && p.pad_guid == guid) {
+            LOGI("split: player %d's controller is back", p.n);
+            return GivePad(p, id);
+        }
     bool p1 = pc::Get("split_p1_pad", "0") == "1" || g_kbm != 1;
     for (auto& p : g_players) {
         if (p.pad || (p.n == 1 && !p1) || p.n > g_configured) continue;
-        p.pad = id;
-        LOGI("split: controller %s (%u) is player %d's", SDL_GetGamepadNameForID(id), unsigned(id), p.n);
-        if (p.alive) SendPad(p, 2, 0, 0);
-        return;
+        return GivePad(p, id);
     }
     LOGI("split: controller %s (%u) has no player (all %d have one)", SDL_GetGamepadNameForID(id), unsigned(id),
          g_configured);
@@ -663,9 +700,106 @@ void AssignPad(SDL_JoystickID id) {
 void UnassignPad(SDL_JoystickID id) {
     if (Player* p = PadOwner(id)) {
         LOGI("split: player %d's controller disconnected", p->n);
-        if (p->alive) SendPad(*p, 3, 0, 0);
+        if (p->alive && p->n != 1) SendPad(*p, 3, 0, 0);  // player 1's stays (its menus, a member's focus)
         p->pad = 0;
     }
+}
+
+// ---- the party (N4.8): player 1's party screens -------------------------------------------------------------------------
+// While they are shown (Setup "party on") the other members have no process: their controllers' buttons go to player
+// 1 as Party messages ("N BUTTON"), a free controller's A or START joins the party (PartyJoin). A member editing its
+// profile has the menu focus: its controller drives player 1's front end as player 1's own controller would, and
+// player 1's devices are held, so no member works another's menus.
+void SendState();
+
+void PartyInput(int n, const std::string& what) {
+    Player& one = g_players[0];
+    if (!one.alive || one.fd < 0) return;
+    split::Message m;
+    m.type = split::Msg::Party;
+    m.PutText(std::to_string(n) + " " + what);
+    split::Send(one.fd, m);
+}
+
+const char* ButtonName(int b) {
+    switch (b) {
+    case SDL_GAMEPAD_BUTTON_SOUTH: return "a";
+    case SDL_GAMEPAD_BUTTON_EAST: return "b";
+    case SDL_GAMEPAD_BUTTON_WEST: return "x";
+    case SDL_GAMEPAD_BUTTON_NORTH: return "y";
+    case SDL_GAMEPAD_BUTTON_START: return "start";
+    case SDL_GAMEPAD_BUTTON_BACK: return "back";
+    case SDL_GAMEPAD_BUTTON_DPAD_UP: return "up";
+    case SDL_GAMEPAD_BUTTON_DPAD_DOWN: return "down";
+    case SDL_GAMEPAD_BUTTON_DPAD_LEFT: return "left";
+    case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: return "right";
+    case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER: return "lb";
+    case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: return "rb";
+    default: return nullptr;
+    }
+}
+
+// the member whose controller drives player 1's menus (0: player 1's own), through player 1's controller (always
+// attached in its process: a controller plugged in only then is seen by the title seconds late, its first presses lost)
+void SetMenuFocus(int n) {
+    if (n == g_menu_focus) return;
+    g_menu_focus = n > 1 && n <= g_configured ? n : 0;
+    LOGI("split: party: %s", g_menu_focus ? ("player " + std::to_string(g_menu_focus) + " has the menus").c_str()
+                                           : "player 1 has the menus");
+}
+
+// a free controller's A or START on a party screen: the next member (up to four), its panel waiting for a profile
+void PartyJoin(SDL_JoystickID id) {
+    std::string guid = PadGuid(id);
+    for (auto& m : g_players)
+        if (!m.pad && m.n <= g_configured && !m.pad_guid.empty() && m.pad_guid == guid) {  // a member's, back
+            AssignPad(id);
+            PartyInput(m.n, "pad on");
+            SendState();
+            return;
+        }
+    if (g_configured >= kMaxPlayers) {
+        LOGI("split: party: a controller asked to join: the party is full");
+        return;
+    }
+    g_configured++;
+    Player& p = g_players[size_t(g_configured - 1)];
+    p.profile.clear();
+    p.team = 0;
+    p.party_ready = false;
+    p.pad_guid.clear();
+    AssignPad(id);
+    LOGI("split: party: player %d joined (%s)", p.n, SDL_GetGamepadNameForID(id) ? SDL_GetGamepadNameForID(id) : "controller");
+    PartyInput(p.n, "joined");
+    SendState();
+}
+
+// a member leaves the party (its panel's B, before a match): the members after it move up a place, its controller is
+// free (A joins again)
+void PartyLeave(int n) {
+    if (n < 2 || n > g_configured) return;
+    for (int i = 1; i < kMaxPlayers; i++)
+        if (g_players[size_t(i)].alive) return;  // only in the menus
+    LOGI("split: party: player %d left", n);
+    if (g_menu_focus == n) SetMenuFocus(0);
+    for (int i = n; i < g_configured; i++) {
+        Player& to = g_players[size_t(i - 1)];
+        Player& from = g_players[size_t(i)];
+        to.pad = from.pad;
+        to.pad_guid = from.pad_guid;
+        to.profile = from.profile;
+        to.team = from.team;
+        to.party_ready = from.party_ready;
+    }
+    Player& last = g_players[size_t(g_configured - 1)];
+    last.pad = 0;
+    last.pad_guid.clear();
+    last.profile.clear();
+    last.team = 0;
+    last.party_ready = false;
+    g_configured--;
+    if (g_kbm > n && g_kbm > 1) g_kbm--;
+    SendState();
 }
 
 // ---- input --------------------------------------------------------------------------------------------------------------
@@ -704,6 +838,12 @@ void HandleInput(const SDL_Event& e) {
             return;
         if (e.type == SDL_EVENT_MOUSE_WHEEL && e.wheel.which != window::kInjectedDevice) return;
     }
+    // another member has player 1's menus (N4.8): the keyboard and mouse (player 1's) wait, but the window's keys
+    bool held = g_party && g_menu_focus && g_menu_focus != g_kbm;
+    if (held && (e.type == SDL_EVENT_KEY_UP || e.type == SDL_EVENT_TEXT_INPUT || e.type == SDL_EVENT_MOUSE_MOTION ||
+                 e.type == SDL_EVENT_MOUSE_BUTTON_DOWN || e.type == SDL_EVENT_MOUSE_BUTTON_UP ||
+                 e.type == SDL_EVENT_MOUSE_WHEEL))
+        return;
     switch (e.type) {
     case SDL_EVENT_KEY_DOWN:
         if (!e.key.repeat && (e.key.key == SDLK_F11 || (e.key.key == SDLK_RETURN && (e.key.mod & SDL_KMOD_ALT)))) {
@@ -718,6 +858,7 @@ void HandleInput(const SDL_Event& e) {
             UpdateCapture();
             return;
         }
+        if (held) return;
         [[fallthrough]];
     case SDL_EVENT_KEY_UP:
         Forward(k, e);
@@ -757,6 +898,7 @@ void HandleInput(const SDL_Event& e) {
         SendState();
         break;
     case SDL_EVENT_GAMEPAD_REMOVED:
+        if (Player* p = PadOwner(e.gdevice.which); p && g_party) PartyInput(p->n, "pad off");
         UnassignPad(e.gdevice.which);
         g_pads.erase(std::remove_if(g_pads.begin(), g_pads.end(), [&](SDL_Gamepad* gp) {
                          if (SDL_GetGamepadID(gp) != e.gdevice.which) return false;
@@ -767,10 +909,43 @@ void HandleInput(const SDL_Event& e) {
         SendState();
         break;
     case SDL_EVENT_GAMEPAD_AXIS_MOTION:
-        if (Player* p = PadOwner(e.gaxis.which)) SendPad(*p, 0, e.gaxis.axis, e.gaxis.value);
+        if (Player* p = PadOwner(e.gaxis.which)) {
+            if (g_party && p->n == g_menu_focus) SendPad(g_players[0], 0, e.gaxis.axis, e.gaxis.value);
+            else if (g_party && p->n == 1 && g_menu_focus) break;  // held while a member has the menus
+            else if (g_party && p->n > 1 && !p->alive) {
+                // its panel: the left stick as the d-pad, a press each time it leaves the middle
+                if (e.gaxis.axis != SDL_GAMEPAD_AXIS_LEFTX && e.gaxis.axis != SDL_GAMEPAD_AXIS_LEFTY) break;
+                int v = e.gaxis.value, dir = 0;
+                if (v > 20000) dir = e.gaxis.axis == SDL_GAMEPAD_AXIS_LEFTX ? 4 : 2;
+                else if (v < -20000) dir = e.gaxis.axis == SDL_GAMEPAD_AXIS_LEFTX ? 3 : 1;
+                else if (std::abs(v) > 12000) break;  // between: no change
+                if (dir && dir != p->stick) PartyInput(p->n, dir == 1 ? "up" : dir == 2 ? "down" : dir == 3 ? "left" : "right");
+                p->stick = dir;
+            } else {
+                SendPad(*p, 0, e.gaxis.axis, e.gaxis.value);
+            }
+        }
         break;
     case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
     case SDL_EVENT_GAMEPAD_BUTTON_UP:
+        if (g_party) {  // player 1's party screens (N4.8)
+            Player* p = PadOwner(e.gbutton.which);
+            if (p && p->n == g_menu_focus) {
+                SendPad(g_players[0], 1, e.gbutton.button, e.gbutton.down ? 1 : 0);
+                break;
+            }
+            if (p && p->n == 1 && g_menu_focus) break;  // held while a member has the menus
+            if (p && p->n > 1 && !p->alive) {
+                if (e.gbutton.down)
+                    if (const char* b = ButtonName(e.gbutton.button)) PartyInput(p->n, b);
+                break;
+            }
+            if (!p) {
+                if (e.gbutton.down && (e.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH || e.gbutton.button == SDL_GAMEPAD_BUTTON_START))
+                    PartyJoin(e.gbutton.which);
+                break;
+            }
+        }
         if (Player* p = PadOwner(e.gbutton.which)) {
             SendPad(*p, 1, e.gbutton.button, e.gbutton.down ? 1 : 0);
             if (e.gbutton.down)
@@ -805,6 +980,13 @@ void HandleInput(const SDL_Event& e) {
 // what player 1's Split Screen screen shows: "slot N TEXT" lines (a device, "join" for a free slot, "-" for none)
 void SendState() {
     std::string t = "players " + std::to_string(g_configured) + "\n";
+    // the party (N4.8): each member's devices, profile, team and readiness, and who has the menus
+    t += "kbm " + std::to_string(g_kbm) + "\nfocus " + std::to_string(g_menu_focus) + "\n";
+    for (auto& p : g_players)
+        if (p.n <= g_configured)
+            t += "member " + std::to_string(p.n) + " pad " + (p.pad ? "1" : p.pad_guid.empty() ? "0" : "lost") +
+                 " profile " + (p.profile.empty() ? "-" : p.profile) + " team " + std::to_string(p.team) + " ready " +
+                 (p.party_ready ? "1" : "0") + "\n";
     for (auto& p : g_players) {
         std::string what = "-";
         if (p.n <= g_configured) {
@@ -828,7 +1010,7 @@ void SendState() {
 void Reassign() {
     for (auto& p : g_players)
         if (p.pad) {
-            if (p.alive) SendPad(p, 3, 0, 0);
+            if (p.alive && p.n != 1) SendPad(p, 3, 0, 0);
             p.pad = 0;
         }
     for (SDL_Gamepad* gp : g_pads) AssignPad(SDL_GetGamepadID(gp));
@@ -837,6 +1019,32 @@ void Reassign() {
 // "players N layout horizontal|vertical p1pad 0|1" from player 1's Split Screen screen: applied at once (players
 // beyond N ended; added ones join player 1's match when it plays one)
 void OnSetup(const std::string& text) {
+    // player 1's party screens (N4.8)
+    if (text.rfind("party ", 0) == 0) {
+        char verb[16] = {}, id[24] = {};
+        int n = 0, team = 0, ready = 0;
+        if (std::sscanf(text.c_str(), "party %15s", verb) != 1) return;
+        if (!std::strcmp(verb, "on") || !std::strcmp(verb, "off")) {
+            bool on = !std::strcmp(verb, "on");
+            if (on != g_party) LOGI("split: party screens %s", on ? "shown" : "closed");
+            g_party = on;
+            if (!on) SetMenuFocus(0);
+            for (auto& p : g_players) p.stick = 0;
+        } else if (!std::strcmp(verb, "focus") && std::sscanf(text.c_str(), "party focus %d", &n) == 1) {
+            SetMenuFocus(n);
+        } else if (!std::strcmp(verb, "leave") && std::sscanf(text.c_str(), "party leave %d", &n) == 1) {
+            PartyLeave(n);
+        } else if (!std::strcmp(verb, "set") &&
+                   std::sscanf(text.c_str(), "party set %d profile %23s team %d ready %d", &n, id, &team, &ready) == 4 &&
+                   n >= 1 && n <= g_configured) {
+            Player& p = g_players[size_t(n - 1)];
+            p.profile = profiles::IdValid(id) ? id : "";
+            p.team = std::clamp(team, 0, 2);
+            p.party_ready = ready != 0;
+        }
+        SendState();
+        return;
+    }
     char mode[16] = {};
     int vsync = 1;
     if (std::sscanf(text.c_str(), "display %15s vsync %d", mode, &vsync) == 2) {  // player 1's PC Options
@@ -1014,7 +1222,7 @@ void HandleMessage(Player& p, const split::Message& m) {
         p.view_px = {};
         Relayout();
         SendFocus(p);
-        if (p.pad) SendPad(p, 2, 0, 0);
+        if (p.pad || p.n == 1) SendPad(p, 2, 0, 0);
         if (p.n == 1) SendState();
         LOGI("split: player %d (re)started", p.n);
         break;
@@ -1653,6 +1861,11 @@ int CompositorMain(const std::string& game) {
     LoopbackUp();
     g_game = game;
     g_root = app::ExeDir().string();
+    // every local player's profiles are the party's: this folder's profiles/, whichever folder a player runs in
+    if (!std::getenv("CSX_PROFILE_DIR")) {
+        std::error_code ec;
+        setenv("CSX_PROFILE_DIR", fs::absolute(g_root, ec).string().c_str(), 1);
+    }
     char exe[4096];
     ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
     g_exe = n > 0 ? std::string(exe, size_t(n)) : "";

@@ -20,7 +20,7 @@ key Space
 sleep 6
 key Space
 sleep 8
-expect log p1: pc mouse: screen SuperLauncher_MainScreen, 7 rows
+expect log p1: pc mouse: screen SuperLauncher_MainScreen, 6 rows
 point 150 160
 sleep 0.5
 click 1
@@ -81,7 +81,7 @@ expect playercount start 2 2
 mark
 pad 1 button start
 sleep 2
-wait newlog p2: pc mouse: screen InGame_RootSinglePlayer, 8 rows
+wait newlog p2: pc mouse: screen InGame_RootSinglePlayer, 5 rows
 windowshot pause2
 pad 1 button dpdown
 sleep 0.7

@@ -277,6 +277,13 @@ int main(int argc, char** argv) {
     g_window = win;
     if (split_player) splitp::Start(win);
     else csx::SetSplitStarter(splitp::StartFromWindow);  // the Split Screen screen restarts the window as the compositor
+    // the party leader's Quit Game (N4.8): as the window's own close (under the compositor: player 1 ends, and with it
+    // the compositor and every player)
+    csx::SetAppQuitter([] {
+        SDL_Event e{};
+        e.type = SDL_EVENT_QUIT;
+        SDL_PushEvent(&e);
+    });
     if (win) {
         int pw = 0, ph = 0;
         SDL_GetWindowSizeInPixels(win, &pw, &ph);

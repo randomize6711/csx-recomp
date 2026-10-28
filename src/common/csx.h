@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 // Counter-Strike specific host code shared by every image
 namespace csx {
@@ -71,6 +72,10 @@ void SplitSend(int kind, const std::string& text);
 void SetSplitSender(void (*send)(int kind, const std::string& text));
 std::string SplitState();
 void SetSplitState(const std::string& text);
+// player 1's party screens (N4.8, src/game/pc_party.cpp): what the compositor sent (split::Msg::Party), taken by the
+// game thread's menu frame in arrival order
+void PushPartyInput(const std::string& text);
+std::vector<std::string> TakePartyInput();
 // a split-screen player is about to relaunch (into a match or back to the menus): its next display aspect set
 void SplitPrepareRelaunch(bool match);
 void SetSplitPrepareRelaunch(void (*prepare)(bool match));
@@ -78,6 +83,9 @@ int SplitPlayers();  // the local players configured (CSX_SPLIT_PLAYERS, the set
 // the game alone in its window starts split-screen (the window front end restarts as the compositor); false where
 // there is none (the headless harness)
 bool SplitStart(int players);
+// the whole game closes (the party leader's Quit Game, N4.8): the window front end registers how (its window's quit)
+void AppQuit();
+void SetAppQuitter(void (*quit)());
 void SetSplitStarter(bool (*start)(int players));
 // the network's process settings (src/game/net_engine.cpp)
 void StartNetwork();

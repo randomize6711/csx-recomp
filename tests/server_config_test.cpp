@@ -124,6 +124,10 @@ int main() {
     std::string one = MatchLine(lc, menu + " +wait +bot_join_team t +mp_autoteambalance 0 +mp_limitteams 0 +teampreference 2", err);
     Check(one.find(" +teampreference 2") != std::string::npos && one.find(" +bot_join_team t ") != std::string::npos,
           "match line: the one-team row's settings taken (" + err + ")");
+    // the party lobby's line (N4.8): its rules, allow_spectators among them
+    std::string party = MatchLine(lc, "+map de_dust2 +wait +bot_quota 3 +bot_difficulty 1 +mp_startmoney 16000 +allow_spectators 1 +pc_player_collision 0", err);
+    Check(party.find(" +allow_spectators 1") != std::string::npos && party.find(" +mp_startmoney 16000") != std::string::npos,
+          "match line: the party lobby's rules taken (" + err + ")");
     std::string off = MatchLine(lc, menu + " +pc_player_collision 0", err);
     Check(off.find("+pc_player_collision 0") != std::string::npos && off.find("+pc_player_collision 1") == std::string::npos,
           "match line: the menus' Player Collision kept, not the server's default");

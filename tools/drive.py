@@ -130,6 +130,8 @@ per line, executed in order:
     expect log REGEX        fail unless a log line matches
     expect quiet REGEX S    wait S seconds; fail if a log line logged meanwhile matches (no spaces: write . for them)
     expect nolog REGEX      fail if a log line matches
+    expect nonewlog REGEX   fail if a log line written since the last input step (key, pad, click...) matches
+    write PATH TEXT         a file PATH under the run folder with TEXT (\n a line break): saved profiles, rulesets
     expect count REGEX N    fail unless exactly N log lines match (no spaces: write . for them)
     expect before A B       in this instance's log (since the last relaunch) a line matching A comes before the first
                             one matching B, and both are there (no spaces: write . for them)
@@ -417,6 +419,14 @@ def main():
                     m = re.match(r'draws(>=|==|<=)(\d+)', st[1])
                     n, op = int(m.group(2)), m.group(1)
                     good = wait_until(lambda: log.per_frame >= n if op == '>=' else log.per_frame <= n if op == '<=' else round(log.per_frame) == n)
+            elif kind == 'write':
+                # write PATH TEXT: a file under the run folder (a test's saved profiles or rulesets), \n a line break
+                path = os.path.abspath(os.path.join(RUN, st[1]))
+                good = path.startswith(os.path.abspath(RUN) + os.sep)
+                if good:
+                    os.makedirs(os.path.dirname(path), exist_ok=True)
+                    with open(path, 'w') as f:
+                        f.write(' '.join(st[2:]).replace('\\n', '\n'))
             elif kind == 'spawn':
                 # spawn COMMAND...: a helper (tools/master's fake servers) in the game's network namespace, loopback
                 # up there (a private namespace starts without it); its output in RUN/spawn_N.out
@@ -1090,7 +1100,11 @@ def main():
                 time.sleep(1.2)  # the log flushes every second
                 log.poll()
                 rx = ' '.join(st[2:])
-                good = log.match(rx) if st[1] == 'log' else not log.match(rx)
+                if st[1] == 'nonewlog':  # none since the scenario's last input
+                    crx = re.compile(rx)
+                    good = not any(crx.search(l) for l in log.lines[input_mark:])
+                else:
+                    good = log.match(rx) if st[1] == 'log' else not log.match(rx)
             else:
                 sys.exit('unknown step ' + ' '.join(st))
             print(f'{"ok  " if good else "FAIL"} {" ".join(st)}  [{time.time() - start:6.1f}s, {log.per_frame:.0f} draws/frame]')

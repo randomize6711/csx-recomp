@@ -59,8 +59,16 @@ void OwnerPauseCheck(X86Context& ctx);
 bool OwnerPaused();  // the owner's pause menu stopped the simulation
 // the server browser's join: the title relaunches into "+connect server" between frames (net_session.cpp)
 void RequestJoin(const std::string& server);
+// the party lobby's Start (N4.8): the title relaunches into that "+map ..." line between frames
+void RequestMatch(const std::string& line);
+// back to the front end between frames (the party leader's Return to Lobby: the local server stopped as the title's
+// own end of a match stops it)
+void RequestFrontEnd();
 // the title relaunched into another map, its players told to rejoin (net_session.cpp; the dedicated server)
 [[noreturn]] void RelaunchToMap(X86Context& ctx, const std::string& map);
+// the party's lobby starts its match (N4.8): the title relaunches into the lobby's "+map ..." line, a Single Player
+// match's launch data (RelaunchNotify starts the local server)
+[[noreturn]] void RelaunchIntoMatch(X86Context& ctx, const std::string& line);
 // the match's Player Collision (pc_collision.cpp)
 bool PlayerCollisionOn();
 // the server browser's server side (server_query.cpp): queries answered and master servers registered with on the

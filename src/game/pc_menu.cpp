@@ -35,6 +35,7 @@
 #include "kernel/kernel.h"
 
 bool PcNetworkMatch();  // net_session.cpp
+std::string PcPartyExtendInGame(const std::string& text);  // pc_party.cpp
 
 namespace {
 
@@ -63,7 +64,9 @@ struct PcScreen {
     const char* on_entry = nullptr;   // console commands run after the lists are loaded, and on Accept after the save
     const char* on_accept = nullptr;
     int status_lines = 0;             // BackgroundText lines under a shorter list, set by its commands (Split Screen)
-    const char* on_y = nullptr;       // Y opens another screen (Split Screen: the players' names)
+    const char* on_y = nullptr;       // Y opens another screen
+    const char* external = nullptr;   // its values are not pc_settings.ini's: "!<external>_load" fills it, its Accept runs
+                                      // "!<external>_save" (a profile's settings, the match rules)
 };
 
 std::vector<Choice> Numbers(std::initializer_list<const char*> v) {
@@ -252,16 +255,12 @@ const std::vector<PcScreen>& Screens() {
                          false,
                          true};
         v.push_back(filters);
-        // split-screen (src/game/pc_split.cpp, docs/splitscreen.md), opened from the main menu
+        // split-screen's options (src/game/pc_split.cpp, docs/splitscreen.md), opened from the party screen (BACK):
+        // the players are the party's (N4.8)
         PcScreen split{"Split",
-                       "Split Screen",
+                       "Split Screen Options",
                        {"", ""},
                        {
-                           {"split_players",
-                            "Local Players",
-                            {"Play with up to four players on this PC: one with the", "keyboard and mouse, the others with controllers."},
-                            {{"1 (Off)", "1"}, {"2", "2"}, {"3", "3"}, {"4", "4"}},
-                            0},
                            {"split_layout",
                             "Two Players",
                             {"Split the screen top and bottom, or side by side.", ""},
@@ -278,9 +277,72 @@ const std::vector<PcScreen>& Screens() {
                        true,
                        "pc_split show",
                        "pc_split apply",
-                       5,
-                       "open SuperLauncher_PCSplitNames"};
+                       5};
         v.push_back(split);
+        // a profile's own settings (N4.8, src/game/pc_party.cpp: Profiles > Y), loaded from and saved to that profile;
+        // the PC Options rows (their choices as there) and the title's Controller Options (pad.*: their rows' values)
+        PcScreen profile{"Profile", "Profile Settings", {"", ""}, {}, true, false, true};
+        profile.external = "pc_party edit";
+        for (const char* key : {"mouse_sensitivity", "mouse_invert", "mouse_raw", "fov"})
+            for (const Setting& r : v[0].settings)
+                if (r.key == key) profile.settings.push_back(r);
+        const std::vector<Choice> off_on = {{"Off", "0"}, {"On", "1"}};
+        profile.settings.push_back({"pad.invert", "Inverted Look", {"The controller's vertical look reversed.", ""}, off_on, 0});
+        profile.settings.push_back({"pad.sensitivity", "Look Sensitivity", {"How fast the aiming thumbstick turns.", ""},
+                                    {{"Very Low", "0"}, {"Low", "1"}, {"Medium", "2"}, {"High", "3"}, {"Very High", "4"}}, 1});
+        profile.settings.push_back({"pad.fast_look", "Fast Look", {"Faster turning while the aiming thumbstick is held.", ""}, off_on, 0});
+        profile.settings.push_back({"pad.left_hand", "Left-Hand Weapons", {"The weapon shown at the left of the screen.", ""}, off_on, 0});
+        profile.settings.push_back({"pad.vibration", "Damage Vibration", {"The controller vibrates on damage.", ""}, off_on, 1});
+        profile.settings.push_back({"pad.hints", "Automatic Hints", {"Help text shown in the game.", ""}, off_on, 1});
+        v.push_back(profile);
+        // the match rules (N4.8, src/game/pc_lobby.cpp: the game mode screen's Y), the server's own cvars only (no
+        // maximum money: the game has none); loaded from and saved to the party's rules, Y the rulesets
+        auto list = [](std::initializer_list<std::pair<const char*, const char*>> v) {
+            std::vector<Choice> c;
+            for (auto& [l, x] : v) c.push_back({l, x});
+            return c;
+        };
+        std::vector<Choice> bots;
+        for (int n = 0; n <= 16; n++) bots.push_back({std::to_string(n), std::to_string(n)});
+        for (int n = 20; n <= 60; n += 4) bots.push_back({std::to_string(n), std::to_string(n)});
+        bots.push_back({"61", "61"});
+        PcScreen rules{"Rules", "Custom Rules", {"", ""}, {}, true, false, true};
+        rules.external = "pc_lobby rules";
+        rules.on_y = "open SuperLauncher_PCMatchRulesets";
+        rules.settings = {
+            {"bot_quota", "Bots", {"Computer players (at most 65 with the local players).", ""}, bots, 7},
+            {"bot_difficulty", "Bot Difficulty", {"How well the bots play.", ""},
+             list({{"Easy", "0"}, {"Normal", "1"}, {"Hard", "2"}, {"Expert", "3"}}), 1},
+            {"bot_join_team", "Bot Team", {"The team the bots join.", ""},
+             list({{"Both", "any"}, {"Terrorist", "t"}, {"Counter-Terrorist", "ct"}}), 0},
+            {"mp_friendlyfire", "Friendly Fire", {"Shots hurt teammates.", ""}, off_on, 0},
+            {"mp_roundtime", "Round Time", {"Minutes a round lasts.", ""},
+             list({{"1 min", "1"}, {"1.5 min", "1.5"}, {"2 min", "2"}, {"2.5 min", "2.5"}, {"3 min", "3"}, {"4 min", "4"},
+                   {"5 min", "5"}, {"6 min", "6"}, {"7 min", "7"}, {"8 min", "8"}, {"9 min", "9"}}), 6},
+            {"mp_freezetime", "Freeze Time", {"Seconds before a round's players may move.", ""},
+             list({{"None", "0"}, {"3 s", "3"}, {"6 s", "6"}, {"10 s", "10"}, {"15 s", "15"}}), 2},
+            {"mp_buytime", "Buy Time", {"Minutes the buy menu stays open in a round.", ""},
+             list({{"15 s", "0.25"}, {"30 s", "0.5"}, {"1 min", "1"}, {"1.5 min", "1.5"}, {"2 min", "2"}, {"3 min", "3"}}), 3},
+            {"mp_startmoney", "Starting Money", {"Each player's money at the start.", ""},
+             list({{"$800", "800"}, {"$1000", "1000"}, {"$2000", "2000"}, {"$4000", "4000"}, {"$6000", "6000"},
+                   {"$8000", "8000"}, {"$10000", "10000"}, {"$16000", "16000"}}), 0},
+            {"mp_maxrounds", "Rounds", {"The match ends after this many rounds.", ""},
+             list({{"No Limit", "0"}, {"5", "5"}, {"7", "7"}, {"10", "10"}, {"12", "12"}, {"15", "15"}, {"20", "20"},
+                   {"30", "30"}}), 2},
+            {"mp_winlimit", "Win Limit", {"The match ends when a team wins this many rounds.", ""},
+             list({{"No Limit", "0"}, {"4", "4"}, {"7", "7"}, {"10", "10"}, {"15", "15"}}), 1},
+            {"mp_timelimit", "Time Limit", {"The match ends after this many minutes.", ""},
+             list({{"No Limit", "0"}, {"10 min", "10"}, {"20 min", "20"}, {"30 min", "30"}, {"45 min", "45"},
+                   {"60 min", "60"}}), 5},
+            {"mp_limitteams", "Team Balance", {"How many more players one team may have.", ""},
+             list({{"Off", "0"}, {"1", "1"}, {"2", "2"}, {"3", "3"}, {"4", "4"}}), 2},
+            {"mp_autoteambalance", "Auto Team Balance", {"Players moved to even the teams between rounds.", ""}, off_on, 1},
+            {"mp_c4timer", "C4 Timer", {"Seconds before a planted bomb explodes.", ""},
+             list({{"35 s", "35"}, {"45 s", "45"}, {"60 s", "60"}, {"90 s", "90"}}), 1},
+            {"pc_player_collision", "Player Collision", {"Players and bots block each other.", ""}, list({{"On", "1"}, {"Off", "0"}}), 0},
+            {"allow_spectators", "Spectators", {"Dead players may join the spectators.", ""}, off_on, 0},
+        };
+        v.push_back(rules);
         return v;
     }();
     return s;
@@ -337,6 +399,10 @@ std::string ListRows(const PcScreen& s, bool help) {
 }
 
 std::string Commands(const std::string& name, const PcScreen& s) {
+    if (s.external)  // a profile's settings (pc_party.cpp), the match rules (pc_lobby.cpp)
+        return "\tOnEntry \"!" + std::string(s.external) + "_load\"\r\n\tOnButtonDownB \"back\"\r\n"
+               "\tOnButtonDownA \"!" + std::string(s.external) + "_save; xbui back\"\r\n\tOnButtonDownX \"!pc_options_defaults " + name +
+               "\"\r\n" + (s.on_y ? "\tOnButtonDownY \"" + std::string(s.on_y) + "\"\r\n" : std::string());
     std::string entry = s.on_entry ? std::string("; ") + s.on_entry : "", accept = s.on_accept ? std::string("; ") + s.on_accept : "";
     std::string t = "\tOnEntry \"!pc_options_load " + name + entry + "\"\r\n\tOnButtonDownB \"back\"\r\n"
                     "\tOnButtonDownA \"!pc_options_save " + name + accept + "; xbui back\"\r\n";
@@ -548,7 +614,7 @@ std::string ExtendInGame(const std::string& text) {
                 "\r\n\t\t\tCellFixed \" \"\r\n\t\t}\r\n";
         screens += InGameScreen(s);
     }
-    return ExtendPauseTeams(text.substr(0, end) + rows + text.substr(end) + screens);
+    return PcPartyExtendInGame(ExtendPauseTeams(text.substr(0, end) + rows + text.substr(end) + screens));
 }
 
 constexpr uint32_t kExtra = 512 * 1024;  // room added to the load buffer (the controls screens' lists are long)
@@ -756,6 +822,83 @@ void BindInput(int key) {
 }
 }  // namespace csx
 
+// a PC screen's rows as values (key -> the chosen choice's value) and set from values (a key not given: its
+// default), for screens whose values are not pc_settings.ini's (pc_party.cpp's profile settings)
+std::map<std::string, std::string> PcScreenValues(const std::string& name) {
+    std::map<std::string, std::string> out;
+    const PcScreen* s = FindScreen(name);
+    if (!s) return out;
+    std::vector<uint32_t> cells = Cells(name, *s);
+    for (size_t i = 0; i < cells.size(); i++) {
+        uint32_t pick = R32(cells[i]);
+        if (pick < s->settings[i].choices.size()) out[s->settings[i].key] = s->settings[i].choices[pick].value;
+    }
+    return out;
+}
+
+void PcSetScreenValues(const std::string& name, const std::map<std::string, std::string>& values) {
+    const PcScreen* s = FindScreen(name);
+    if (!s) return;
+    std::vector<uint32_t> cells = Cells(name, *s);
+    for (size_t i = 0; i < cells.size(); i++) {
+        const Setting& r = s->settings[i];
+        auto it = values.find(r.key);
+        kernel::W32(cells[i], uint32_t(it == values.end() ? r.def : IndexOf(r, it->second)));
+    }
+}
+
+// a screen's table's highlighted row (the title's own map list, N4.8's copy of it), -1 when not loaded; and set
+int PcSelectedRow(const std::string& screen) {
+    uint32_t table = FindTable(screen);
+    return table ? int(R32(table + 0x9C)) : -1;
+}
+
+void PcSetSelectedRow(const std::string& screen, int row) {
+    if (uint32_t table = FindTable(screen)) kernel::W32(table + 0x9C, uint32_t(row));
+}
+
+// a PC screen's defaults (key -> value) and every value a row may have (the match rules' checks, pc_lobby.cpp)
+std::map<std::string, std::string> PcScreenDefaults(const std::string& name) {
+    std::map<std::string, std::string> out;
+    if (const PcScreen* s = FindScreen(name))
+        for (const Setting& r : s->settings) out[r.key] = r.choices[size_t(r.def)].value;
+    return out;
+}
+
+std::map<std::string, std::vector<std::string>> PcScreenChoices(const std::string& name) {
+    std::map<std::string, std::vector<std::string>> out;
+    if (const PcScreen* s = FindScreen(name))
+        for (const Setting& r : s->settings)
+            for (const Choice& c : r.choices) out[r.key].push_back(c.value);
+    return out;
+}
+
+// any screen's list rows by position (the title's own: Controller Options, N4.8's profiles): the choice index of each
+// row's list (-1 a row without one), and set so; empty / false when the screen is not loaded
+std::vector<int> PcListRows(const std::string& screen) {
+    std::vector<int> out;
+    uint32_t table = FindTable(screen);
+    if (!table) return out;
+    for (size_t row = 0; row < 64; row++) {
+        uint32_t rows = R32(table + 0x60), end = R32(table + 0x64);
+        if (rows + (row + 1) * 0x20 > end) break;
+        uint32_t cell = ListCell(table, row);
+        out.push_back(cell && Choices(cell) ? int(R32(cell)) : -1);
+    }
+    return out;
+}
+
+bool PcSetListRows(const std::string& screen, const std::vector<int>& picks) {
+    uint32_t table = FindTable(screen);
+    if (!table) return false;
+    for (size_t row = 0; row < picks.size(); row++) {
+        uint32_t cell = ListCell(table, row);
+        if (!cell || picks[row] < 0) continue;
+        if (uint32_t(picks[row]) < Choices(cell)) kernel::W32(cell, uint32_t(picks[row]));
+    }
+    return true;
+}
+
 // a PC binding screen of either menu (pc_mouse.cpp: a click on a row's key name waits for a key there)
 bool PcBindingScreen(const std::string& name) {
     const PcScreen* s = FindScreen(name);
@@ -765,10 +908,14 @@ bool PcBindingScreen(const std::string& name) {
 // on the game thread every frame (pc_keys.cpp's PcKeysFrame): the capture started, fed or ended with its screen
 void PcBrowserMenuFrame(X86Context& ctx);  // pc_browser.cpp
 void PcSplitMenuFrame(X86Context& ctx);    // pc_split.cpp
+void PcPartyMenuFrame(X86Context& ctx);    // pc_party.cpp
+void PcLobbyMenuFrame(X86Context& ctx);    // pc_lobby.cpp
 
 void PcMenuFrame(X86Context& ctx) {
     PcBrowserMenuFrame(ctx);
     PcSplitMenuFrame(ctx);
+    PcPartyMenuFrame(ctx);
+    PcLobbyMenuFrame(ctx);
     bool start;
     std::deque<int> keys;
     {
@@ -805,6 +952,10 @@ std::string ExtendMultiplayer(const std::string& text);  // pc_browser.cpp
 void PcBrowserCommand(X86Context& ctx, const std::vector<std::string>& args);  // pc_browser.cpp
 void PcSplitCommand(X86Context& ctx, const std::vector<std::string>& args);    // pc_split.cpp
 std::string ExtendSplitMenu(const std::string& text);                          // pc_split.cpp
+std::string ExtendParty(const std::string& text);                              // pc_party.cpp
+std::string ExtendLobby(const std::string& text);                              // pc_lobby.cpp
+void PcLobbyCommand(X86Context& ctx, const std::vector<std::string>& args);    // pc_lobby.cpp
+void PcPartyCommand(X86Context& ctx, const std::vector<std::string>& args);    // pc_party.cpp
 void PcPlayerCollisionCommand(const std::string& arg);  // pc_collision.cpp
 
 // [[hook]] at 0xCDB1A: read and closed, esi = the buffer (ebp + 1 bytes, the file's text first); the extended text
@@ -818,7 +969,7 @@ void PcUiLoadText(X86Context& ctx, uint8_t*) {
         std::filesystem::create_directories(app::ExeDir() / "uidump");
         std::ofstream(app::ExeDir() / "uidump" / name, std::ios::binary) << text;
     }
-    std::string out = name.rfind("FrontEndUI", 0) == 0 ? ExtendFrontEnd(ExtendSplitMenu(ExtendMultiplayer(ExtendBotCount(ExtendCustomOptions(text)))))
+    std::string out = name.rfind("FrontEndUI", 0) == 0 ? ExtendFrontEnd(ExtendLobby(ExtendParty(ExtendSplitMenu(ExtendMultiplayer(ExtendBotCount(ExtendCustomOptions(text)))))))
                                                        : ExtendInGame(text);
     if (name.rfind("InGameUI", 0) == 0 && !out.empty()) out = ExtendScoreboard(out);
     PcMouseLearnUi(out.empty() ? text : out);
@@ -863,6 +1014,18 @@ bool PcConsoleCommand(X86Context& ctx, uint8_t*) {
         std::vector<std::string> args;
         for (uint32_t i = 0; i < R32(0x4253E8) && i < 8; i++) args.push_back(GuestString(R32(0x4251A8 + 4 * i)));
         PcSplitCommand(ctx, args);
+        return true;
+    }
+    if (cmd == "pc_lobby") {
+        std::vector<std::string> args;
+        for (uint32_t i = 0; i < R32(0x4253E8) && i < 8; i++) args.push_back(GuestString(R32(0x4251A8 + 4 * i)));
+        PcLobbyCommand(ctx, args);
+        return true;
+    }
+    if (cmd == "pc_party") {
+        std::vector<std::string> args;
+        for (uint32_t i = 0; i < R32(0x4253E8) && i < 8; i++) args.push_back(GuestString(R32(0x4251A8 + 4 * i)));
+        PcPartyCommand(ctx, args);
         return true;
     }
     if (cmd == "pc_browser") {

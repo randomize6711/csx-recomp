@@ -540,7 +540,8 @@ void PcMouseFrame(X86Context& ctx) {
     if (name != shown) {
         shown = name;
         // the browser's address and password screens, a split-screen player's name: the keyboard types into them at once
-        if (name == "SuperLauncher_PCAddress" || name == "SuperLauncher_PCPassword" || name == "SuperLauncher_PCSplitName")
+        if (name == "SuperLauncher_PCAddress" || name == "SuperLauncher_PCPassword" || name == "SuperLauncher_PCSplitName" ||
+            name == "SuperLauncher_PCProfileName")
             SetTyping(true, "a server's address or password, a player's name", R32(screen + 0x38C));
         char rows[96] = "";
         if (uint32_t t = R32(screen + 0x380)) {

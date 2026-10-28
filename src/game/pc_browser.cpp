@@ -727,6 +727,11 @@ void JoinEntry(const net::BrowserEntry& e) {
     const net::ServerInfo& s = e.info;
     if (s.protocol != 47) return Message("The server runs another version of the game.", "(protocol " + Num(s.protocol) + ")");
     if (s.Full()) return Message("The server is full.", Num(s.Total()) + " of " + Num(s.max_players) + " player slots are taken.");
+    // the whole local party goes (N4.8): a slot for every member, or none of them
+    int party = csx::SplitPlayer() ? csx::SplitPlayers() : 1;
+    if (party > 1 && int(s.max_players) - int(s.Total()) < party)
+        return Message("The server has room for " + Num(int(s.max_players) - int(s.Total())) + " more players.",
+                       "Your party has " + Num(party) + ": choose a server with more free slots.");
     g_join = {};
     g_join.active = true;
     g_join.address = e.address;
@@ -1008,6 +1013,11 @@ void PcClearEdit(X86Context& ctx, const char* screen, const std::string& text) {
 void PcSetScreenLine(X86Context& ctx, const char* screen, int index, const std::string& text) {
     SetLine(ctx, FindScreen(screen), index, text);
 }
+// the same with its colour (0-255; alpha 0 hides it): the party's panels (pc_party.cpp)
+void PcSetScreenLineColour(X86Context& ctx, const char* screen, int index, const std::string& text, float r, float g, float b,
+                           float a) {
+    SetLine(ctx, FindScreen(screen), index, text, r, g, b, a);
+}
 std::string PcCurrentScreen() { return CurrentScreen(); }
 
 // the browser's mouse targets (pc_mouse.cpp): the tabs, the header's columns, the action lines; true when (x, y) hit
@@ -1047,7 +1057,7 @@ bool PcBrowserScreen(const std::string& screen) {
 // insert (0xD04D3)
 bool PcEditBoxRoom(X86Context& ctx, uint8_t*) {
     std::string s = CurrentScreen();
-    uint32_t limit = s == kAddress ? 63 : s == kPassword ? 32 : s == "SuperLauncher_PCSplitName" ? 20 : 0;
+    uint32_t limit = s == kAddress ? 63 : s == kPassword ? 32 : s == "SuperLauncher_PCSplitName" || s == "SuperLauncher_PCProfileName" ? 20 : 0;
     return limit && R32(ctx.esi + 0x48) < limit;
 }
 
@@ -1196,7 +1206,12 @@ bool BrowserKeys() { return g_browser_keys; }
 // that ended (net_session.cpp left a message: the front end opens Multiplayer, the browser and the message)
 void PcBrowserMenuFrame(X86Context& ctx) {
     (void)ctx;
-    g_browser_keys = PcBrowserScreen(CurrentScreen()) && !csx::ConsoleOpen() && !csx::TextEntryOpen();
+    // (and the party's screens, N4.8: Escape goes back there too)
+    std::string now = CurrentScreen();
+    g_browser_keys = (PcBrowserScreen(now) || (now.rfind("SuperLauncher_PCParty", 0) == 0 && now != "SuperLauncher_PCPartyName") ||
+                      now == "SuperLauncher_PCProfiles" || now.rfind("SuperLauncher_PCLobby", 0) == 0 ||
+                      now.rfind("SuperLauncher_PCMatch", 0) == 0) &&
+                     !csx::ConsoleOpen() && !csx::TextEntryOpen();
     ContactFrame();
     if (g_message_closing) {
         // released for 150 ms: the title's menus read the pad on their own a frame or more later, and a screen that

@@ -1,0 +1,96 @@
+# The party with controllers only (N4.8, docs/multiplayer_frontend.md, src/linux/compositor.cpp PartyJoin / PartyLeave,
+# src/game/pc_party.cpp): player 1 on test controller 1 (Split Screen Options' Player 1 > Also a Controller), four
+# saved profiles. Controllers 2 and 3 join with A, controller 4 with START: four members. Player 3 leaves (B): player 4
+# moves up to its place (3); controller 3's A joins it again as player 4. Player 2's controller is unplugged: its
+# panel says so and its place is kept; plugged in again it is player 2's once more. Each member picks a profile
+# (right: the next one no other member has) and readies; a ready member's B only makes it not ready again (its panel's,
+# player 1's screen does not move). Player 1 continues: the destination screen.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --env CSX_SPLIT_COMPOSITOR=1 --env CSX_SPLIT_PLAYERS=1 --env CSX_SPLIT_ZCACHE=$PWD/build/zcache --pc split_p1_pad=1
+# timeout: 600
+write profiles/00000000000000a1.ini name = Ace\n
+write profiles/00000000000000b2.ini name = Bravo\n
+write profiles/00000000000000c3.ini name = Charlie\n
+write profiles/00000000000000d4.ini name = Delta\n
+wait log split: player 1 started
+pad 1 attach
+wait log split: controller .* is player 1's
+wait log p1: open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+pad 1 button start
+sleep 5
+pad 1 button a
+sleep 6
+pad 1 button a
+sleep 8
+expect log p1: pc mouse: screen SuperLauncher_MainScreen, 6 rows
+pad 1 button dpdown
+sleep 0.7
+pad 1 button dpdown
+sleep 0.7
+pad 1 button dpdown
+sleep 0.7
+pad 1 button a
+wait log p1: pc mouse: screen SuperLauncher_PCParty
+sleep 2
+pad 2 attach
+pad 3 attach
+pad 4 attach
+sleep 2
+expect nolog split: controller .* is player [234]'s
+pad 2 button a
+wait log split: party: player 2 joined
+pad 3 button a
+wait log split: party: player 3 joined
+pad 4 button start
+wait log split: party: player 4 joined
+sleep 2
+windowshot four
+# player 3 leaves: player 4 moves up
+pad 3 button b
+wait log split: party: player 3 left
+sleep 1
+wait log p1: party: player 3 leaves
+pad 3 button a
+wait log split: party: player 4 joined
+sleep 2
+# every member a profile (right: the next free one), player 1's own with its controller
+pad 1 button dpright
+wait log p1: pc: playing as profile 00000000000000a1 \(Ace\)
+pad 2 button dpright
+sleep 0.7
+pad 4 button dpright
+sleep 0.7
+pad 3 button dpright
+sleep 1
+windowshot profiles
+# player 2's controller unplugged and back
+pad 2 detach
+wait log split: player 2's controller disconnected
+sleep 1
+windowshot lost
+pad 2 attach
+wait log split: player 2's controller is back
+sleep 1
+# ready: player 2's B after its A only makes it not ready; player 1's screen does not move
+pad 2 button a
+wait log p1: party: player 2 ready \(Bravo
+mark
+pad 2 button b
+sleep 1
+expect nonewlog p1: pc mouse: screen
+expect nonewlog split: party: player 2 left
+pad 2 button a
+wait newlog p1: party: player 2 ready \(Bravo
+pad 4 button a
+wait log p1: party: player 3 ready \(Charlie
+pad 3 button a
+wait log p1: party: player 4 ready \(Delta
+pad 1 button a
+wait log p1: party: player 1 ready \(Ace
+sleep 1
+windowshot ready
+pad 1 button a
+wait log p1: party: player 1 continues with 4 players
+wait log p1: pc mouse: screen SuperLauncher_PCPartyDestination
+expect nolog guest trap

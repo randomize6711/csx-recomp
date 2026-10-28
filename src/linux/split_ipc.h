@@ -31,6 +31,8 @@ enum class Msg : uint16_t {
     Focus = 104,     // the window has the input focus (u8 on); the player's mouse captured by the compositor (u8 on)
     State = 105,     // for player 1's setup screen (text: the players' lines, "slot N device|join|-")
     Quit = 106,      // end the process (players 2-4 when their match ended)
+    Party = 107,     // player 1's party screens (N4.8): another member's input or a party event (text: "N BUTTON",
+                     // "N joined", "N left", "N pad on|off"; BUTTON a b x y start back up down left right lb rb)
 };
 
 constexpr size_t kMaxBody = 4096;

@@ -1,0 +1,130 @@
+# The multiplayer party (N4.8, docs/multiplayer_frontend.md, src/game/pc_party.cpp): main menu > Multiplayer opens the
+# party screen (four panels) under the compositor. Player 1 (keyboard) opens Profiles (R, the pad's X); "Bad;Name" is
+# refused (a ';' could end the console command a name goes into: the keyboard stays), then it creates "Ace" on the
+# profile keyboard (typed) and plays as it. Test controller 1 presses A: it joins as player 2 (the
+# compositor's PartyJoin), opens its Profiles with its own X (it has the menus: the keyboard waits), picks Ace (refused:
+# player 1's), goes down to Create New Profile and types "ab" on the on-screen keyboard with its d-pad and A, START
+# (Done): profile "ab" is player 2's. Its d-pad changes only its own panel (its team), not player 1's screen. Both
+# ready (A); player 1 continues (A): the destination screen opens. The profiles are files that the next start
+# reads (profiles/<id>.ini).
+# timeout: 400
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --env CSX_SPLIT_COMPOSITOR=1 --env CSX_SPLIT_PLAYERS=1 --env CSX_SPLIT_ZCACHE=$PWD/build/zcache
+wait log split: player 1 started
+wait log p1: open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+expect log p1: pc mouse: screen SuperLauncher_MainScreen, 6 rows
+key Down
+sleep 0.7
+key Down
+sleep 0.7
+key Down
+sleep 0.7
+key Space
+wait log p1: pc mouse: screen SuperLauncher_PCParty
+wait log split: party screens shown
+sleep 2
+windowshot party_empty
+# player 1: Profiles, Create New Profile (the only row), "Ace"
+key R
+wait log p1: party: player 1 opens Profiles
+wait log p1: pc mouse: screen SuperLauncher_PCProfiles
+sleep 1
+key Space
+wait log p1: pc mouse: name typing on
+type Bad;Name
+sleep 1
+key Return
+wait log p1: pc mouse: name typing on \(the text was refused: typing again\)
+expect nolog p1: party: profile [0-9a-f]+ created
+key BackSpace
+sleep 0.3
+key BackSpace
+sleep 0.3
+key BackSpace
+sleep 0.3
+key BackSpace
+sleep 0.3
+key BackSpace
+sleep 0.3
+key BackSpace
+sleep 0.3
+key BackSpace
+sleep 0.3
+key BackSpace
+sleep 0.3
+type Ace
+sleep 1
+key Return
+wait log p1: party: profile [0-9a-f]+ created \(3 characters\)
+wait log p1: pc: playing as profile [0-9a-f]+ \(Ace\)
+sleep 2
+key Escape
+wait log p1: pc mouse: screen SuperLauncher_PCParty
+sleep 1
+# a controller joins
+pad 1 attach
+sleep 1
+pad 1 button a
+wait log split: party: player 2 joined
+sleep 2
+windowshot joined
+# its own Profiles: it has the menus
+pad 1 button x
+wait log p1: party: player 2 opens Profiles
+wait log split: party: player 2 has the menus
+sleep 2
+# the keyboard waits while player 2 has the menus
+key Escape
+sleep 1
+expect nonewlog p1: pc mouse: screen SuperLauncher_PCParty
+pad 1 button a
+sleep 1
+expect log p1: pc mouse: screen SuperLauncher_PCProfiles
+pad 1 button dpdown
+sleep 0.7
+pad 1 button a
+wait newlog p1: pc mouse: name typing on
+sleep 3
+pad 1 button dpdown
+sleep 0.7
+pad 1 button dpright
+sleep 0.7
+pad 1 button a
+sleep 0.7
+pad 1 button dpright
+sleep 0.7
+pad 1 button a
+sleep 0.7
+windowshot onscreen
+pad 1 button start
+wait log p1: party: profile [0-9a-f]+ created \(2 characters\)
+sleep 2
+pad 1 button b
+wait log split: party: player 1 has the menus
+wait log p1: pc mouse: screen SuperLauncher_PCParty
+sleep 2
+# player 2's d-pad: its own panel (its team), not player 1's screen
+mark
+pad 1 button dpdown
+sleep 1
+expect nonewlog p1: pc mouse: screen SuperLauncher_PCSplit
+windowshot team
+pad 1 button a
+wait log p1: party: player 2 ready \(ab, Terrorist\)
+key Space
+wait log p1: party: player 1 ready \(Ace, Auto-Select\)
+sleep 1
+windowshot ready
+key Space
+wait log p1: party: player 1 continues with 2 players
+sleep 2
+expect log split: party: player 2 joined
+expect nolog guest trap
+expect nolog split: player 2 started
