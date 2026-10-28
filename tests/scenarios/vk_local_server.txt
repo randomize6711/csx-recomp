@@ -2,7 +2,7 @@
 # Single Player > Custom, de_aztec with the default 7 bots. The game starts csx-server in local_server/ (offline: on
 # 127.0.0.1, a free port), waits until it is ready and relaunches into "+connect" to it; it trusts the server's key
 # for that address (not remembered). The match has 8 players (the server's slots, read in its folder). The pause
-# menu pauses the server's simulation (pc_owner pause: the owner alone; the network goes on) and its Return to Game unpauses it; the server's console commands
+# menu (the Single Player one, as with the listen server) pauses the server's simulation (pc_owner pause: the owner alone; the network goes on) and its Return to Game unpauses it; the server's console commands
 # typed in the game go there (mp_roundtime, sv_restartround: a new round). Restart Match and Change Map (to
 # de_airstrip, the list's first) from the pause menu run on the server (pc_owner restart / changemap: the server
 # relaunches into the map, the game rejoins it). Quit: back to the menus, the server stopped (SIGTERM, reaped).
@@ -88,12 +88,10 @@ pckey cmd sv_restartround 1
 wait newlog owner: console "sv_restartround 1"
 wait newlog "Round_Start"
 sleep 3
-# Restart Match (the pause menu's fifth row, Change Teams being the third), Yes
+# Restart Match (the pause menu's fourth row: the Single Player menu as the listen server had it, no Change Teams), Yes
 mark
 key Escape
 sleep 1.5
-key Down
-sleep 0.5
 key Down
 sleep 0.5
 key Down
@@ -110,12 +108,10 @@ wait newlog local server: Restart Match sent to the server
 wait newlog owner: Restart Match
 wait newlog "Round_Start"
 sleep 5
-# Change Map (the fourth row) to the list's first map, Yes: the server relaunches, the game rejoins
+# Change Map (the third row) to the list's first map, Yes: the server relaunches, the game rejoins
 mark
 key Escape
 sleep 1.5
-key Down
-sleep 0.5
 key Down
 sleep 0.5
 key Down
@@ -146,15 +142,13 @@ players p2
 expect playercount p2 8 8
 windowshot airstrip
 expect image airstrip 20
-# Quit (the eighth row), Yes: the menus, the server stopped. After the map change the game is still in its Single
+# Quit (the seventh row), Yes: the menus, the server stopped. After the map change the game is still in its Single
 # Player match's mode (the launch data kept): the same pause menu, which pauses again
 mark
 key Escape
 wait newlog pc mouse: screen InGame_RootSinglePlayer
 wait newlog owner: paused \(the pause menu\)
 sleep 1.5
-key Down
-sleep 0.5
 key Down
 sleep 0.5
 key Down

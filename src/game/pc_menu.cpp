@@ -30,6 +30,7 @@
 #include "common/pc_settings.h"
 #include "core/log.h"
 #include "cpu/x86_context.h"
+#include "game/local_server.h"
 #include "game/player_slots.h"
 #include "kernel/kernel.h"
 
@@ -510,9 +511,13 @@ std::string ExtendFrontEnd(const std::string& text) {
 // Change Teams row after Match Statistics, as its system link menus have it (InGame_RootHost / RootClient: the team
 // screen TeamSelect_StartMenu, the confirmation InGame_ConfirmSwitchTeams, then switch_to_terrorist /
 // _counter_terrorist / _spectator / _auto, which the server's game code handles with its own team rules). Only in
-// network and split-screen matches (PcNetworkMatch); unchanged when the menu is not laid out as expected
+// network and split-screen matches (PcNetworkMatch), not in an offline match in the game's own local server (a
+// client of it, but the Single Player match the listen server ran: its pause menu as it was; a hosted one keeps
+// CSX_MENU_HOST); unchanged when the menu is not laid out as expected
 std::string ExtendPauseTeams(const std::string& text) {
-    if (!PcNetworkMatch()) return text;
+    const char* host = std::getenv("CSX_MENU_HOST");
+    bool offline_local = csx::LocalServerRunning() && csx::SplitPlayer() == 0 && !(host && *host == '1');
+    if (!PcNetworkMatch() || offline_local) return text;
     size_t screen = text.find("\nInGame_RootSinglePlayer\r\n");
     size_t next = screen == std::string::npos ? screen : text.find("\nInGame_", screen + 1);
     size_t stats = screen == std::string::npos ? screen : text.find("\"open InGame_StatsDisplay\"", screen);
