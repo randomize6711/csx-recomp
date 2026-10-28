@@ -282,11 +282,15 @@ void RelaunchNotify(X86Context& ctx, uint8_t*) {
 #endif
             if (host) LOGI("net: a match hosted from Multiplayer (%s): its server takes network players", name.c_str());
             // a match that is not the party lobby's (N4.8) leaves the party's settings behind
-            if (name.rfind("SuperLauncher_PCLobby", 0) != 0)
+            // (the join password is the party's only when it was the lobby's: a browser join's own is kept)
+            if (name.rfind("SuperLauncher_PCLobby", 0) != 0) {
+                const char* pp = std::getenv("CSX_PARTY_PASSWORD");
+                const char* np = std::getenv("CSX_NET_PASSWORD");
+                if (pp && np && *pp && !std::strcmp(pp, np)) unsetenv("CSX_NET_PASSWORD");
                 for (const char* v : {"CSX_PARTY_MATCH", "CSX_PARTY_HOST", "CSX_PARTY_PASSWORD", "CSX_PARTY_TEAM", "CSX_PARTY_LOBBY",
-                                      "CSX_PARTY_MODE",
-                                      "CSX_NET_PASSWORD"})
+                                      "CSX_PARTY_MODE"})
                     unsetenv(v);
+            }
             SplitMatchFromMenus(host);
             menu_match = true, hosted = host;
         }
