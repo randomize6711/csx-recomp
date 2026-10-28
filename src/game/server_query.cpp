@@ -203,6 +203,13 @@ namespace csx {
 
 void ServerQueryStart(net::Endpoint& ep, const net::Identity& id, bool bound_to_one) {
     g_ep = &ep;
+    // a server on this machine's loopback only (an offline match's local server: N4.7, the party's Local Only, N4.8)
+    // is found by no one: no LAN discovery listener (which would answer on every address), no master server, no
+    // queries answered; its local players join it by address with its key pinned
+    if (const char* lb = std::getenv("CSX_SERVER_LOOPBACK"); lb && *lb == '1') {
+        LOGI("net: a server on this machine's loopback only: not announced, no queries answered");
+        return;
+    }
     net::QueryServer::Config qc;
     const char* lan = std::getenv("CSX_NET_LAN_ONLY");
     qc.lan_only = lan ? *lan == '1' : pc::Get("net_lan_only", "0") == "1";
