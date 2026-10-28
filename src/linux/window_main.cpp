@@ -222,6 +222,12 @@ int main(int argc, char** argv) {
     // the renderer survives a title relaunch (exec without arguments) through the environment
     g_vulkan = std::getenv("CSX_RENDERER") && !std::strcmp(std::getenv("CSX_RENDERER"), "vulkan");
     if (game.empty() && std::getenv("GAME_DIR")) game = std::getenv("GAME_DIR");
+    // absolute: the processes this one starts run in other folders (split-screen players in split2..4, the local
+    // server in local_server/), where a relative path (run_game.sh's ../gamedata) names nothing
+    if (!game.empty()) {
+        std::error_code ec;
+        if (auto a = std::filesystem::absolute(game, ec); !ec) game = a.lexically_normal().string();
+    }
     SetEnv("GAME_DIR", game.c_str());
     SetEnv("FPS", "30", false);
     if (game.empty()) {

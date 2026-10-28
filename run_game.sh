@@ -78,13 +78,20 @@ run=build/play
 [ -n "$connect" ] && run=build/play-client
 rm -rf "$run/logs" "$run/hdd"
 mkdir -p "$run/hdd"
-# the network: none (a private, empty network namespace) unless the run hosts or joins
-sandbox="unshare -rn"
+# the network: none (a private network namespace with only its loopback, which a match's local server listens on:
+# docs/splitscreen.md 17) unless the run hosts or joins
+offline=1
 if [ $host = 1 ] || [ -n "$connect" ]; then
-    sandbox="unshare -r"
+    offline=0
     [ $host = 1 ] && export CSX_NET_HOST=1
     [ -n "$port" ] && export CSX_NET_PORT=$port
 fi
+sandboxed() {
+    if [ $offline = 1 ]; then
+        exec unshare -rn sh -c 'ip link set lo up 2>/dev/null; exec "$0" "$@"' "$@"
+    fi
+    exec unshare -r "$@"
+}
 if [ -n "$connect" ]; then
     # what a join leaves for the title: the launch page and "+connect HOST[:PORT]" (src/game/net_session.cpp)
     mkdir -p "$run/hdd/Z"
@@ -95,7 +102,7 @@ if [ -n "$connect" ]; then
     unset CSX_TEST_INPUT_ONLY
     echo "joining $connect (log: $run/run.out); click the window to capture the mouse, F1 releases it, close the window to quit"
     cd "$run"
-    exec $sandbox ../window/CounterStrike ../gamedata > run.out 2>&1
+    sandboxed ../window/CounterStrike ../gamedata > run.out 2>&1
 fi
 if [ -n "$split" ]; then
     case "$split" in [1-4]) ;; *) echo "--splitscreen wants 1 to 4 local players"; exit 1 ;; esac
@@ -111,7 +118,7 @@ if [ $match = 0 ]; then
     echo "starting from the intro movies (log: $run/run.out); click the window to capture the mouse, F1 releases it, close the window to quit"
     cd "$run"
     # no network namespace access (offline, as the tests run it); the front end caches its own sound banks on Z:
-    exec $sandbox ../window/CounterStrike ../gamedata > run.out 2>&1
+    sandboxed ../window/CounterStrike ../gamedata > run.out 2>&1
 fi
 # what the front end leaves for its relaunch into a match: the launch page and the command line on the cache
 # partition Z:, plus the sound banks it caches there (build/zcache, tools/make_zcache.sh; without it no weapon sounds)
@@ -132,4 +139,4 @@ unset CSX_TEST_INPUT_ONLY
 echo "starting $map with $bots bots$([ $collide = 1 ] || echo ", player collision off")$([ $host = 1 ] && echo ", taking network players on UDP port ${port:-27015}") (log: $run/run.out); click the window to capture the mouse, F1 releases it, close the window to quit"
 cd "$run"
 # no network namespace access (offline, as the tests run it) unless --host
-exec $sandbox ../window/CounterStrike ../gamedata > run.out 2>&1
+sandboxed ../window/CounterStrike ../gamedata > run.out 2>&1

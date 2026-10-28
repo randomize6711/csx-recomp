@@ -158,11 +158,16 @@ bool LocalServerStart(const std::string& match_line, bool host, std::string& con
         LOGE("local server: csx-server not found (beside %s, or CSX_SERVER_EXE)", fs::read_symlink("/proc/self/exe", ec).c_str());
         return false;
     }
-    const char* game = std::getenv("GAME_DIR");
-    if (!game || !*game) {
+    const char* game_env = std::getenv("GAME_DIR");
+    if (!game_env || !*game_env) {
         error = "The game folder is not known (GAME_DIR).";
         return false;
     }
+    // absolute: the server runs in local_server/, where the game's own relative path (run_game.sh: ../gamedata)
+    // names nothing
+    std::error_code abs_ec;
+    std::string game = fs::absolute(game_env, abs_ec).lexically_normal().string();
+    if (abs_ec) game = game_env;
     std::string idmsg;
     auto id = net::Identity::LoadOrCreate((app::ExeDir() / "identity.key").string(), idmsg);
     if (!id) {
