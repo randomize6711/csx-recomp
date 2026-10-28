@@ -480,7 +480,9 @@ bool OwnedServer() {
 // the owner's client slot (0-based), -1 while it is not connected (state_probe.cpp: the host's player)
 int OwnerSlot() {
     const char* owner = std::getenv("CSX_SERVER_OWNER_KEY");
-    if (!owner) return -1;
+    // (no clients yet: a server still booting, asked from the tests' probe thread, had none to read: N4.8's LAN test
+    // crashed there)
+    if (!owner || !R32(kClients)) return -1;
     for (uint32_t slot = 1; slot <= R32(kMaxClients) && slot <= 256; slot++) {
         uint32_t cl = R32(kClients) + (slot - 1) * kClientSize;
         if (!R32(cl) || !Network(cl)) continue;
