@@ -226,7 +226,9 @@ void Events(X86Context& ctx, int sock) {
                 // split-screen player 1 joined a server: the other local players follow it (its key, its password)
                 if (csx::SplitPlayer() == 1) {
                     const char* pw = std::getenv("CSX_NET_PASSWORD");
-                    csx::SplitSend(csx::kSplitMatch, "join " + who + " " + e.identity + " " + (pw && *pw ? pw : "-"));
+                    const char* lobby = std::getenv("CSX_PARTY_LOBBY");  // a party lobby's match: its teams (N4.8)
+                    csx::SplitSend(csx::kSplitMatch, "join " + who + " " + e.identity + " " + (pw && *pw ? pw : "-") +
+                                                         (lobby && *lobby ? " party" : ""));
                 }
             }
             continue;

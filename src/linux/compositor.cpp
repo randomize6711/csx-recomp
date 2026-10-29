@@ -487,6 +487,8 @@ void PrepareFolder(Player& p, const std::string& line) {
     for (auto& [k, v] : mine) out << k << " = " << v << "\n";
 }
 
+bool g_match_party = false;  // that match is a party lobby's (N4.8): the members join their lobby teams
+
 // a setting as player 1's pc_settings.ini holds it now (player 1 edits the file: the players' names), else fallback
 std::string FileSetting(const std::string& name, const std::string& fallback) {
     std::ifstream in(fs::path(g_root) / "pc_settings.ini");
@@ -539,7 +541,9 @@ void Spawn(Player& p, const std::string& line, const std::string& key, const std
                 unsetenv("CSX_PC_PROFILE");
             }
             setenv("CSX_PLAYER_NAME", name.c_str(), 1);
-            setenv("CSX_PARTY_TEAM", std::to_string(p.team).c_str(), 1);
+            // the lobby's team only in a party lobby's match (another match: the title's own team screen)
+            if (g_match_party) setenv("CSX_PARTY_TEAM", std::to_string(p.team).c_str(), 1);
+            else unsetenv("CSX_PARTY_TEAM");
             if (!key.empty()) setenv("CSX_SERVER_KEY", key.c_str(), 1);
             if (!password.empty()) setenv("CSX_NET_PASSWORD", password.c_str(), 1);
             else unsetenv("CSX_NET_PASSWORD");
@@ -617,8 +621,8 @@ void SendState();
 
 // player 1 plays somewhere: players 2..N follow it there; back in the menus, they end
 void OnMatch(const std::string& text) {
-    char kind[16] = {}, addr[128] = {}, key[80] = {}, password[64] = {};
-    int got = std::sscanf(text.c_str(), "%15s %127s %79s %63s", kind, addr, key, password);
+    char kind[16] = {}, addr[128] = {}, key[80] = {}, password[64] = {}, party[8] = {};
+    int got = std::sscanf(text.c_str(), "%15s %127s %79s %63s %7s", kind, addr, key, password, party);
     // the password is in no log (N3): logged as whether there is one
     LOGI("split: player 1: %s%s%s%s%s", kind, got >= 2 ? " " : "", got >= 2 ? addr : "", got >= 3 ? " " : "",
          got >= 3 ? (std::string(key) + (got >= 4 ? std::strcmp(password, "-") ? " with a password" : " no password" : ""))
@@ -638,6 +642,7 @@ void OnMatch(const std::string& text) {
     g_match_line = std::string("+connect ") + addr;
     g_match_key = got >= 3 ? key : "";
     g_match_password = got >= 4 && std::strcmp(password, "-") ? password : "";
+    g_match_party = got >= 5 && !std::strcmp(party, "party");
     for (int i = 1; i < g_configured; i++) {
         Player& p = g_players[size_t(i)];
         if (p.alive && p.target == g_match_line) continue;  // already there (a map change brings it back by itself)
