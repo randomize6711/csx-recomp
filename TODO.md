@@ -68,6 +68,14 @@
    broadcast addresses on Windows (only 255.255.255.255 and loopback there); the players' names in the menus (the
    query has them); password masking on the keyboard screen; bots only set at a match's start; a protocol-only load
    generator for 64 remote clients; a client ended by a signal still not telling its server; admin.log rotation.
+1e6. Multiplayer frontend (docs/multiplayer_frontend.md; N4.8 done 2026-10-28, waiting for approval before N5): a
+   pre-match lobby shared with LAN players (needs a lobby session protocol before the server starts); map objectives
+   learned when a map loads (custom maps' modes by their entities, not their prefix); previews for the maps the title's
+   list leaves out (de_inferno, cs_office); per-member key bindings for a keyboard player other than player 1 (the
+   keyboard is always player 1's); a leadership hand-over if player 1 has neither keyboard nor controller; End Match /
+   Quit Game and the profile settings screen by a member with the menus covered by tests (manual so far); the manual
+   checks of multiplayer_frontend.md section 7; the party screen's profile names cached (now read from their files each
+   redraw).
 1e5. Split-screen (docs/splitscreen.md sections 14, 16 and 17; N4.7 done 2026-10-28, waiting for approval before N5):
    the match's server runs in its own process (N4.7, the default; the listen server is PC Options > Match Server > In
    Game): decide after the user's play-test whether the listen server can be retired. The local server's 30 Hz tick

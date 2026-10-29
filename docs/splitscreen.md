@@ -859,3 +859,21 @@ expected side, 1 from the other; players 1, 3, 4 too few samples to say). Measur
 | 004b6f9 | A server that ended says so; tests ignore an earlier run's server |
 | 1a58994 | Tests: frozen roles, a crouched bot, the port test's Quit row, a team change's outcome |
 | (this) | Docs (17, section 11's note, pc_multiplayer.md 19, PROGRESS, FINDINGS, ROADMAP, TODO) |
+
+## 18. N4.8: the multiplayer frontend (2026-10-28)
+
+Split-screen's setup is now Multiplayer's party screen: docs/multiplayer_frontend.md (the party, profiles,
+destinations, maps, modes, rules, lobby, pause menus by player). What changed here:
+
+- **Section 9's setup screen** is gone from the main menu: Multiplayer opens the party (four panels, a controller's A
+  or START joins; the game alone in its window restarts as the compositor when a second controller asks to join); its options (two-player layout, player 1's controller) are Split Screen Options, BACK on the party
+  screen. Player Names (16.1) are replaced by saved profiles (split_name_N migrated once); vk_split_names is retired,
+  its checks in vk_party_join (a refused name) and vk_party_match (a profile's name in the server's log).
+- **The compositor keeps the party** (members, controllers by GUID, profiles, teams, ready) through player 1's
+  relaunches; party input and menu focus (section 5.2 of multiplayer_frontend.md); player 1's virtual gamepad is
+  always attached.
+- **Players 2-4's pause menu** has no match-wide action (Change Map, Restart Match, Friends List gone; Quit is Leave
+  Match): 5 rows (vk_split_teams updated).
+- **Players 2-4 start as their profile** (CSX_PC_PROFILE, its name; CSX_PARTY_TEAM, their lobby team).
+- A controller's START on the old flow (a Single Player match with the compositor) still adds a player; the party's
+  joined members follow player 1 into any match it starts, as before.

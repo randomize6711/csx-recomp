@@ -802,3 +802,23 @@ Approved by the user 2026-10-27 after N4.6. Done (docs/splitscreen.md section 17
   two PCs).
 Commits 5d89631, 78c454c, b98d769, d65b2ee, c0c60ee, b3820ed, cafdfc1, 07d9814, 24d705b, 1a0398c, 5455eb8, 004b6f9,
 1a58994 and the docs. Linux only. Branch g8.2b, not merged. N5 waits for approval.
+
+## 2026-10-29 — N4.8: the multiplayer frontend
+
+Approved by the user 2026-10-28 after N4.7. Done (docs/multiplayer_frontend.md):
+- Main menu > Multiplayer: the party screen (four panels, A or START joins, B leaves, controllers remembered by GUID),
+  saved player profiles (create, rename, edit the title's controller options, delete with a confirmation; migrated from
+  split_name_N), then Local Only (csx-server on loopback, a random password, not announced), Host LAN Match (LAN
+  discovery, an optional password, no master server) or the Server Browser (a party-sized slot check); maps from the
+  title's list and the map folder, Bomb Defusal / Hostage Rescue by map, Custom Rules (Y) and saved rulesets, a lobby
+  with teams and ready, START by player 1; per-player pause menus (player 1's Return to Lobby, End Match, Quit Game;
+  players 2-4 Leave Match).
+- Found and fixed: a loopback server answering LAN discovery, OwnerSlot before clients (a LAN host's crash), a stale
+  T:\releasemap.txt, a browser join losing its password, the tests following an earlier run's server log, and (by the
+  full regression) the lobby's team in plain split matches.
+- Full regression on 38691c6: unit 9/9, headless 46/46, network 39/39, window 27/27 + 17/17, split 15/20; the five
+  failures were the lobby team bug, fixed, and pass rerun with the two lobby team tests (7/7).
+- Measured: the party screen with four members, 2 processes (compositor 46 MB, player 1 154 MB), 7% CPU; lobby start to
+  both players in game 4.3 s.
+- Manual checks not performed (physical controllers, a second PC on the LAN, the look next to the title's screens).
+Branch g8.2b, not merged. N5 waits for approval.

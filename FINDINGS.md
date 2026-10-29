@@ -1941,6 +1941,36 @@ Remaining uncertainty: the bots' avoidance of teammates is their own logic and w
 they can still pause behind each other); hostages keep blocking (they are not players); network play is untested and
 the option is not offered there.
 
+## PC multiplayer N4.8: the multiplayer frontend (2026-10-28)
+
+What building the party, profiles and lobby (docs/multiplayer_frontend.md) found:
+
+- **The pad's directions run only the title's own table commands**: Generic_4_1..4's CommandHighlight with a console
+  command ("!...") never runs. Screens whose lines our commands draw read the directions from an unseen three-row
+  table the title navigates itself (PcProbeTable); a screen just opened starts on that table's first row (not a
+  press), and only those screens' tables may be put back (doing it on the main menu moved its cursor).
+- **A screen holds at most 60 BackgroundText lines and 8 BackgroundImages** (0xCDDE6 cmpl $0x3c, 0xCDD56 cmpl $0x8).
+- **A gamepad plugged into a player's process only when needed** (a member's menu focus) was seen by the title seconds
+  late and its first presses were lost: player 1's virtual gamepad is attached for good under the compositor.
+- **The title's Controller Options** are applied by its own commands: the in-game screen's Accept runs
+  `stuffUItoPlayerData;SetCurrentControllerOptions`, the front end's `stuffUItoPlayerData`; their rows by position
+  (the front end has 6: no thumbstick or button configuration; the pause menu's 8).
+- **Launch data**: a Single Player match starts with {3, ...}, Host a Match with {4, 0} (the game mode); the party's
+  matches use 3 (the Single Player pause menu, rebuilt by player).
+- **T:\releasemap.txt is read before Z:\**: a match line written to both (as a rejoin writes them) made the game boot
+  the T: copy ("+map") instead of the local server's "+connect" on Z: and end at once.
+- **N4.7's loopback server answered LAN discovery on every address** (its socket bound to 127.0.0.1 also opened the
+  LAN listener all addresses share): fixed, a loopback-only server is not announced at all (2be7610).
+- **N4.7's OwnerSlot read the client array before it existed** (the tests' probe thread on a booting server):
+  csx-server crashed (SIGSEGV) at a LAN host's start; fixed (eb8ce34).
+- **The title's map list** is the best map metadata available before a map loads (the map archives are compressed):
+  names, previews and "Demolition" / "Hostage Rescue"; 18 maps of the 29 archives (de_inferno, cs_office and the
+  training maps are not listed). No mp_maxmoney cvar exists (the 16000 cap is the game's code).
+- **The lobby's team leaked into plain split matches**: the compositor gave players 2-4 CSX_PARTY_TEAM for every match,
+  so in a Single Player split match (no lobby) they joined Auto-Select before their own controllers chose; five split
+  tests failed in the full regression (vk_split_teams, pads_2/3/4, kbm_3). Fixed: the team only for a lobby's match
+  (player 1's "join ... party").
+
 ## PC multiplayer N4.7: the local server (2026-10-28)
 
 What running a match from the menus in csx-server (docs/splitscreen.md section 17) found:

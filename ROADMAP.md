@@ -59,6 +59,8 @@
   docs/splitscreen.md) ✅ 2026-10-27; N4.6 — completion (player names, controller-only play, team changes,
   crash recovery, audio, player 1's frame pacing; docs/splitscreen.md section 16) ✅ 2026-10-27; N4.7 — final
   stabilization: a match from the menus runs in its own csx-server (the listen server kept as PC Options > Match
-  Server > In Game), the N4.6 intermittents, the benchmarks (docs/splitscreen.md section 17) ✅ 2026-10-28, waiting
-  for approval before N5
+  Server > In Game), the N4.6 intermittents, the benchmarks (docs/splitscreen.md section 17) ✅ 2026-10-28; N4.8 —
+  the multiplayer frontend: party screen, saved profiles, Local Only / Host LAN Match / Server Browser, map, mode, rules
+  and rulesets, ready-up lobby, pause menus by player, return to lobby (docs/multiplayer_frontend.md) ✅ 2026-10-28,
+  waiting for approval before N5
 - M8 — PC feature set complete

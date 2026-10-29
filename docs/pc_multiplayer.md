@@ -1201,3 +1201,19 @@ Documented in docs/splitscreen.md section 17. What it changes here:
 - **Tick.** A local server has the dedicated server's 30 Hz tick (section 16.6), not the listen server's frame-rate
   simulation; with 61-64 bots it runs 24-28 ticks a second (docs/splitscreen.md 17.4).
 - **Windows.** The local server uses fork / exec, the parent watch and SIGTERM: Linux only, like csx-server.
+
+## 20. N4.8: the party's matches (2026-10-28)
+
+docs/multiplayer_frontend.md. For the network side:
+
+- **Local Only** is private: its local server binds 127.0.0.1, is not announced (a loopback-only server opens no LAN
+  discovery listener, registers with no master server and answers no queries: also N4.7's offline matches, which
+  answered LAN discovery on every address before, 2be7610) and takes a password made at random for the match that
+  only the party's processes have (the server gets it as CSX_SERVER_PASSWORD, never on its command line; it logs
+  "(set)"). Test: net_party_private (another game on the machine is refused).
+- **Host LAN Match** is N4.7's Host a Match from the lobby: the PC port on every address, LAN discovery, never a
+  master server for a party, an optional password. Test: net_party_lan.
+- **The browser's join** checks the server has a free slot for every local member before connecting.
+- **No pre-match lobby over the network**: the server exists only from the match's start; LAN players join the match.
+  A shared lobby before it would need its own session protocol (a later milestone).
+- **Fixed**: csx-server's OwnerSlot read its client array before it existed (eb8ce34).
