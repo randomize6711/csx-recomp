@@ -9,6 +9,10 @@ count net:.client.127\.0\.0\.[12]:[0-9]+.connected 2
 sleep 30
 players two
 expect playercount two 4 4
+# up past the next round's start: player 2 joining late in a round spawns there (the split side waits for it)
+mark
+wait newlog game: World triggered "Round_Start"
+sleep 10
 expect nolog refused
 expect nolog letmein
 pckey cmd quit
@@ -74,6 +78,8 @@ sleep 2
 key Space
 sleep 10
 windowshot browse
-expect log p2: pc keys: menu .*BuyMenuRoot
+# player 2 plays: its buy menu at its spawn, this round or (a join late in a round the server's bots already play:
+# the title's own rule, a spectator until the round ends) the next one
+wait log p2: pc keys: menu .*BuyMenuRoot
 expect nolog letmein
 expect nolog guest trap
