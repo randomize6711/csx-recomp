@@ -652,6 +652,15 @@ on_true = 0x58FEB
 at = 0x6F080
 call = "PcWideRect2D"
 
+# the loading screen's progress bar held inside its frame (src/game/pc_loading.cpp)
+[[hook]]
+at = 0xC2F69
+call = "PcLoadingBar"
+
+[[hook]]
+at = 0xC2F18
+call = "PcLoadingBarStart"
+
 [[hook]]
 at = 0xB9B20
 call = "PcWideText"

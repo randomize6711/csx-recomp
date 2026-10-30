@@ -159,6 +159,10 @@ bool DrawingToFrame() {
     return FrameWidth() != 640 && R32(vp) == 0 && R32(vp + 8) == FrameWidth();
 }
 
+// the side column's width while 2D lands on the wide frame (0 otherwise): what moves 640x480 drawing to the centred
+// 640 columns (pc_loading.cpp's progress bar, drawn with its own vertices)
+float PcWideSide() { return DrawingToFrame() ? (float(FrameWidth()) - 640.0f) / 2.0f : 0.0f; }
+
 // [[hook]] at 0x4D877 (R_PolyBlend 0x4D860 with a fade to draw, FINDINGS.md "Flashbang") and 0x4DAA7 (its return).
 // It draws the screen fade (the flashbang's white-out) over the GL size: glViewport(glx, gly, glwidth, glheight),
 // glOrtho(0, glwidth, glheight, 0) and a quad from 0, 0 to glwidth, glheight. It runs inside the VGUI paint (0xB4560),
