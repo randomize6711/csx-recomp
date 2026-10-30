@@ -2,8 +2,8 @@
 # front end, Options > PC Controls. A click on Jump's key name waits for a key (the pad's A meanwhile does nothing), K
 # becomes Jump's; Enter (pckey bindstart, as the window sends it) on Fire waits, Mouse 5 becomes Fire's; Reload's wait
 # is cancelled by Escape (bindcancel) and by the pad's B, Reload unchanged and the screen still open; Use stepped by the
-# pad's right (the list as before); Next Weapon takes Wheel Up, which Previous Weapon held (the save keeps it with the
-# first row: Previous Weapon unbound); Toggle Developer Console refuses an unknown key and takes F2. A saves them all.
+# pad's right (the list as before); Next Weapon takes Wheel Up, which Previous Weapon held (the key goes to the row
+# just bound: Previous Weapon shows None at once); Toggle Developer Console refuses an unknown key and takes F2. A saves them all.
 # A Single Player match (the title relaunches: a new process reading pc_settings.ini): K jumps, Space does not, Mouse 5
 # fires, Mouse 1 does not. In the pause menu's PC Controls X restores the defaults and A saves them: Space jumps again.
 # The window's own routing (SDL keys, buttons, wheel, Escape, layouts) is vk_bind_capture.txt.
@@ -102,7 +102,7 @@ expect log pc: bind.attack = MOUSE5
 expect log pc: bind.reload = r
 expect log pc: bind.use = f
 expect log pc: bind.weapon_next = MWHEELUP
-expect log pc menu: Wheel Up is already Next Weapon's, Previous Weapon is left unbound
+expect log pc menu: Previous Weapon is left unbound \(its key is Next Weapon's now\)
 expect log pc: bind.weapon_prev = $
 expect log pc: bind.console = F2
 expect log pc: settings saved

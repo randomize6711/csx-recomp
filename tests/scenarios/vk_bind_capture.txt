@@ -5,7 +5,7 @@
 #   click's second press (not a key) and the wheel up (its key); Enter then Escape (cancelled, still on the screen);
 #   Enter, F1 (the window's: not bindable, still waiting), Escape; Walk takes the key right of P on a Swedish keyboard
 #   (Å, shown as Å); the wheel scrolls to Toggle Developer Console, Enter, F2; Accept on the help bar saves (Wheel Up
-#   stays Crouch's, Previous Weapon unbound); F2 opens the console, Escape closes it;
+#   Crouch's, Previous Weapon unbound when Crouch took it); F2 opens the console, Escape closes it;
 # - a Single Player match (relaunched: the saved keys): I walks forward, Mouse 4 jumps, F2 opens the console; the pause
 #   menu's PC Controls: a click on Jump's key name, J; Space accepts; Return to Game clicked: J jumps at once.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), the Swedish names as
@@ -100,7 +100,7 @@ expect log pc: bind.forward = i
 expect log pc: bind.jump = MOUSE4
 expect log pc: bind.duck = MWHEELUP
 expect log pc: bind.walk = \[
-expect log pc menu: Wheel Up is already Crouch's, Previous Weapon is left unbound
+expect log pc menu: Previous Weapon is left unbound \(its key is Crouch's now\)
 expect log pc: bind.console = F2
 expect log pc: settings saved
 key F2

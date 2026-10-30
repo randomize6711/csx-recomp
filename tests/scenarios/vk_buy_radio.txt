@@ -1,8 +1,9 @@
 # N5C in a match (src/game/pc_buy.cpp, pc_radio.cpp, mouse_look.cpp; the window): a Terrorist alone on de_dust2 with
 # $16000. Autobuy: the M4A1 passed over (the Counter-Terrorists'), the AK-47 bought, the other rifles passed over, the
 # armour bought. A round restart makes those the last round's: Rebuy buys them again. An HE grenade bought (CS 1.6's alias hegren) and
-# its own key (weapon_hegrenade) takes it in hand. Radio: the commands menu (radio1) and its first line by the number
-# key (the menu's look: a window shot); Condition Zero's "circle back" through csx_radio: the local server plays it
+# its own key (weapon_hegrenade) takes it in hand. Radio: the commands menu (radio1, the radio menus' screen: issue 11 of the
+# bug-fix pass) and its first line by Space (the menu's look: a window shot); the responses menu's CZ "I'm hit" by the
+# arrow keys; Condition Zero's "circle back" through csx_radio: the local server plays it
 # (its log) and the game plays its sound. Scoped Sensitivity 0.5: through the AWP's scope 1000 counts turn half as far
 # as without.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), with
@@ -59,12 +60,41 @@ expect weapon g 4
 # radio: the commands menu, its first line
 mark
 pckey cmd radio1
+wait newlog pc mouse: screen InGame_PCRadio1
 sleep 1
 windowshot radio_menu
-pckey cmd slot1
+key Space
 sleep 2
 windowshot radio_said
 expect log sound .*(coverme|COVERME)
+expect log pc keys: playing
+# the responses menu: Condition Zero's "I'm hit" (its tenth row) by the keys
+mark
+pckey cmd radio3
+wait newlog pc mouse: screen InGame_PCRadio3
+sleep 1
+key Down
+sleep 0.3
+key Down
+sleep 0.3
+key Down
+sleep 0.3
+key Down
+sleep 0.3
+key Down
+sleep 0.3
+key Down
+sleep 0.3
+key Down
+sleep 0.3
+key Down
+sleep 0.3
+key Down
+sleep 0.3
+windowshot radio_menu3
+key Space
+wait newlog radio: .*: imhit \(radio/ct_imhit.wav\)
+sleep 3
 # Condition Zero's extra line
 mark
 pckey cmd csx_radio circleback

@@ -988,6 +988,41 @@ std::string ExtendMultiplayer(const std::string& text) {
     out.replace(out.find("CellFixed \"System Link\""), std::strlen("CellFixed \"System Link\""), "CellFixed \"Multiplayer\"");
     std::string help = "\"Compete with other players on System Link.\"";
     out.replace(out.find(help), help.size(), "\"Play with others on your network or the internet.\"");
+    // the main menu's Xbox Live (its !enterLive started the Live sign-in, which has no service to reach: the screen went
+    // black and the game stopped): Online Play, the PC's own online menu above (LAN, internet, favourites, recent,
+    // an address, hosting), for a player on their own; Multiplayer stays the party's way in. No Live screen is
+    // reachable from anywhere else (their only entry was this row)
+    {
+        const std::string live_cmd = "CommandSelect \"!enterLive\"";
+        size_t c = out.find(live_cmd);
+        size_t label = c == std::string::npos ? c : out.find("CellFixed \"Xbox Live\"", c);
+        size_t help = c == std::string::npos ? c : out.rfind("\"Compete with other players on Xbox Live.\"", c);
+        if (c == std::string::npos || label == std::string::npos || help == std::string::npos || label - c > 200) {
+            LOGW("browser: the main menu's Xbox Live row not as expected: left as it is");
+        } else {
+            size_t line_end = out.find("\r\n", c);
+            out.replace(label, std::strlen("CellFixed \"Xbox Live\""), "CellFixed \"Online Play\"");
+            // (spaced unlike the Multiplayer row's own: pc_party.cpp's ExtendParty turns that one, the first exactly
+            // so written, into the party's)
+            out.replace(c, line_end - c, "CommandSelect \"!SystemLinkSetup; xbui open SuperLauncher_SystemLink\"");
+            out.replace(help, std::strlen("\"Compete with other players on Xbox Live.\""),
+                        "\"Join or host a match on your network or the internet.\"");
+            LOGI("browser: the main menu's Xbox Live is Online Play (the PC's online menu)");
+        }
+        // its Xbox Live status and gamertag lines ("Sign In failed": the title fills them in by their order, the first
+        // two texts) drawn transparent, in their places
+        size_t main = out.find("\nSuperLauncher_MainScreen\r\n");
+        size_t main_end = main == std::string::npos ? main : out.find("\n}", main);
+        int hidden = 0;
+        for (const char* line : {"BackgroundText \"255 255 255 255 75 410 400 30 0.75\" \"<live status>\"",
+                                 "BackgroundText \"255 255 255 255 165 410 400 30 0.75\" \"<Gamertag>\""}) {
+            size_t at = main == std::string::npos ? main : out.find(line, main);
+            if (at == std::string::npos || at > main_end) continue;
+            out.replace(at + std::strlen("BackgroundText \"255 255 255 "), 3, "  0");
+            hidden++;
+        }
+        if (hidden != 2) LOGW("browser: the main menu's Xbox Live status lines not as expected (%d hidden)", hidden);
+    }
     out += BrowserScreen();
     out += KeyboardScreen(kAddress, "Join by Address", "pc_browser address", "A server's address (port if not 27015), or an invite code.");
     out += KeyboardScreen(kPassword, "Server Password", "pc_browser password", "This server asks for a password.");

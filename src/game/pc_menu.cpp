@@ -42,6 +42,8 @@ bool PcNetworkMatch();  // net_session.cpp
 void PcSetScreenLineColour(X86Context& ctx, const char* screen, int index, const std::string& text, float r, float g, float b,
                            float a);  // pc_browser.cpp
 std::string PcPartyExtendInGame(const std::string& text);  // pc_party.cpp
+std::string PcRadioScreens();                                // pc_radio.cpp
+bool PcRadioMenuCommand(const std::string& cmd);
 std::string ExtendMapSearch(const std::string& text);  // pc_mapsearch.cpp
 std::string ExtendDlcMaps(const std::string& text);  // pc_dlc.cpp
 std::string ExtendPrompts(const std::string& text);  // pc_prompts.cpp
@@ -1269,6 +1271,32 @@ std::string ExtendPauseTeams(const std::string& text) {
            text.substr(row);
 }
 
+// the pause menus' Xbox Live leftovers (the bug-fix pass's issue 4): Friends List (Live's friends, no service to reach)
+// is Copy Invite Code (pc_invite.cpp: the PC's way to bring a friend in, F6's), in its place so the rows below keep
+// theirs; the Live status line ("Not Signed In", the title fills the first text in by its order) and the gamertag
+// line drawn transparent in their places
+std::string ExtendXboxLeftovers(const std::string& text) {
+    std::string out = text;
+    int rows = 0, lines = 0;
+    for (const char* cmd : {"\"!LiveAware\"", "\"!manageFriends\""})
+        for (size_t at = out.find(cmd); at != std::string::npos; at = out.find(cmd, at + 1)) {
+            size_t label = out.find("CellFixed \"Friends List\"", at);
+            if (label == std::string::npos || label - at > 80) continue;
+            out.replace(label, std::strlen("CellFixed \"Friends List\""), "CellFixed \"Copy Invite Code\"");
+            out.replace(at, std::strlen(cmd), "\"!pc_invite\"");
+            rows++;
+        }
+    for (const char* text_line : {"BackgroundText \"255 255 255 255  75 410 400 30 0.75\" \"<live status>\"",
+                                  "BackgroundText \"255 255 255 255 165 410 400 30 0.75\"  \"<Gamertag>\""})
+        for (size_t at = out.find(text_line); at != std::string::npos; at = out.find(text_line, at + 1)) {
+            out.replace(at + std::strlen("BackgroundText \"255 255 255 "), 3, "  0");
+            lines++;
+        }
+    LOGI("pc menu: the pause menus' Xbox Live leftovers: %d Friends List rows are Copy Invite Code, %d Live lines hidden",
+         rows, lines);
+    return out;
+}
+
 std::string ExtendInGame(const std::string& text) {
     size_t screen = text.find("\nOptions\r\n{");
     size_t online = screen == std::string::npos ? screen : text.find("\"open InGame_OnlineOptions\"", screen);
@@ -1287,7 +1315,8 @@ std::string ExtendInGame(const std::string& text) {
         screens += s.opens.empty() ? InGameScreen(s) : HubInGame(s);
     }
     screens += DetailsScreen(false);
-    return PcPartyExtendInGame(ExtendPauseTeams(text.substr(0, end) + rows + text.substr(end) + screens));
+    screens += PcRadioScreens();  // pc_radio.cpp: the radio menus
+    return PcPartyExtendInGame(ExtendXboxLeftovers(ExtendPauseTeams(text.substr(0, end) + rows + text.substr(end) + screens)));
 }
 
 constexpr uint32_t kExtra = 512 * 1024;  // room added to the load buffer (the controls screens' lists are long)
@@ -1431,28 +1460,40 @@ void DefaultScreen(const std::string& name, const PcScreen& s) {
     if (!cells.empty()) LOGI("pc menu: %s shows its defaults", name.c_str());
 }
 
-// the rows' choices saved; with unique values a value chosen twice stays with the first row and the later row is
-// cleared (shown as its empty choice, "None", from then on)
+// the rows' choices saved; with unique values a value chosen twice stays with the row it was just given to (the row
+// whose value changed on this screen; the first of them when none or both did) and the other is cleared (shown as its
+// empty choice, "None", from then on): a key bound to a later row (a Condition Zero radio line) no longer loses to the
+// row that had it
 void SaveScreen(const std::string& name, const PcScreen& s) {
     std::vector<uint32_t> cells = Cells(name, s);
     if (cells.empty()) return;
-    std::map<std::string, size_t> taken;
+    std::vector<std::string> values(cells.size());
+    std::vector<bool> listed(cells.size()), changed(cells.size());
     for (size_t i = 0; i < cells.size(); i++) {
         const Setting& r = s.settings[i];
-        uint32_t pick = R32(cells[i]);
-        if (pick >= Listed(r)) continue;
-        std::string value = CellValue(cells[i], r);
-        if (s.unique_values && !value.empty()) {
-            auto [it, fresh] = taken.emplace(value, i);
-            if (!fresh) {
-                LOGI("pc menu: %s is already %s's, %s is left unbound", Utf8(r.choices[pick].label).c_str(),
-                     s.settings[it->second].label.c_str(), r.label.c_str());
-                value.clear();
-                kernel::W32(cells[i], uint32_t(IndexOf(r, "")));
-            }
-        }
-        pc::Set(r.key, value);
+        listed[i] = R32(cells[i]) < Listed(r);
+        if (!listed[i]) continue;
+        values[i] = CellValue(cells[i], r);
+        changed[i] = values[i] != pc::Get(r.key, r.choices[size_t(r.def)].value);
     }
+    if (s.unique_values) {
+        std::map<std::string, size_t> owner;  // value -> the row keeping it
+        for (size_t i = 0; i < cells.size(); i++) {
+            if (!listed[i] || values[i].empty()) continue;
+            auto [it, fresh] = owner.emplace(values[i], i);
+            if (fresh) continue;
+            size_t keep = it->second, lose = i;
+            if (changed[i] && !changed[keep]) std::swap(keep, lose);
+            it->second = keep;
+            const Setting& r = s.settings[lose];
+            LOGI("pc menu: %s is %s's now, %s is left unbound", Utf8(r.choices[R32(cells[lose])].label).c_str(),
+                 s.settings[keep].label.c_str(), r.label.c_str());
+            values[lose].clear();
+            kernel::W32(cells[lose], uint32_t(IndexOf(r, "")));
+        }
+    }
+    for (size_t i = 0; i < cells.size(); i++)
+        if (listed[i]) pc::Set(s.settings[i].key, values[i]);
     pc::Save();
 }
 
@@ -1535,6 +1576,14 @@ void CaptureKey(int key) {
         EndCapture("done");
         kernel::W32(g_capture.cell, uint32_t(c));
         LOGI("pc menu: %s set to %s (saved with Accept)", r.label.c_str(), Utf8(r.choices[c].label).c_str());
+        // the row that had the key shows None at once (the key goes to the row just bound)
+        std::vector<uint32_t> cells = Cells(g_capture.screen, *s);
+        for (size_t i = 0; i < cells.size(); i++) {
+            const Setting& o = s->settings[i];
+            if (i == g_capture.row || R32(cells[i]) >= Listed(o) || CellValue(cells[i], o) != r.choices[c].value) continue;
+            kernel::W32(cells[i], uint32_t(IndexOf(o, "")));
+            LOGI("pc menu: %s is left unbound (its key is %s's now)", o.label.c_str(), r.label.c_str());
+        }
         return;
     }
     LOGI("pc menu: key %d cannot be bound, still waiting", key);
@@ -2045,6 +2094,9 @@ bool PcConsoleCommand(X86Context& ctx, uint8_t*) {
         csx::AppQuit();
         return true;
     }
+    // radio1..3 of this game's own player (the console's or a key's, not a client's on a listen server): the radio
+    // menus' screens (pc_radio.cpp)
+    if (R32(0x748648) == 1 && !csx::Dedicated() && PcRadioMenuCommand(cmd)) return true;
     if (cmd == "csx_radio") {  // N5C (pc_radio.cpp): sent on only to a server that serves it
         return PcRadioClientCommand(R32(0x4253E8) > 1 ? GuestString(R32(0x4251AC)) : std::string());
     }
