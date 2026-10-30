@@ -63,4 +63,19 @@
   the multiplayer frontend: party screen, saved profiles, Local Only / Host LAN Match / Server Browser, map, mode, rules
   and rulesets, ready-up lobby, pause menus by player, return to lobby (docs/multiplayer_frontend.md) ✅ 2026-10-28,
   automated regression complete 2026-10-30, manual checks pending; waiting for approval before N5
+- N5 — menu usability, input, controller prompts, settings, quality of life (docs/n5_plan.md: N5A Escape navigation,
+  smooth scrolling, Exit, reorganized settings; N5B descriptions, collision explanation, numeric entry; N5C ammo buying,
+  radio, grenade keys, zoom sensitivity; N5D controller prompt styles; N5E audio, viewmodel FOV, net_graph, scoreboard;
+  N5F back to the single window when one local player is left; N5G regression) — proposed 2026-10-30, waiting for
+  approval
 - M8 — PC feature set complete
+
+## Future (requested, not scheduled, nothing started)
+
+- Deferred by the user: server performance optimization; the Windows port.
+- Maps: the official map DLC; custom maps (loading, the browser and lobby, downloads).
+- Modes and rules: Deathmatch, Gun Game, further gameplay rules; Condition Zero equipment.
+- Presentation: ragdolls, sprays, the flashlight, HD artwork (alongside the original's), a HUD editor.
+- Larger matches (past 65 players).
+- Modding support; Half-Life compatibility research.
+- Steam / Discord invitations; a server GUI.
