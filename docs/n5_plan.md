@@ -36,6 +36,13 @@ its slot configured, and player 1's next "join" (every map change relaunch sends
 (compositor.cpp:646 OnMatch; 1265 told_end; g_configured never decremented). Leave Match therefore lasts only until
 the next map. Proposed as the first fix of N5A (or as N4.8.1 before it), with a test (leave, then a map change).
 
+## Status (2026-10-30)
+
+N5A done (71cc8c0, 81038b0). N5B to N5F are built and tested with targeted runs, in the autonomous pass's combined
+commit (docs/autonomous_pass.md). Results and limitations are in docs/n5_usability.md. Not done: Wii Remote motion
+and pointer (prompts only), and the party screen's text prompts (not style-aware). N5G's complete regression is
+deferred by the user's mandate: targeted tests only until they approve.
+
 ## 1. Checkpoints
 
 ### N5A: Escape navigation, smooth scrolling, Exit, reorganized settings

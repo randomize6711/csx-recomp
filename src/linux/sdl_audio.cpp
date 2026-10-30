@@ -25,6 +25,7 @@
 
 #include "audio/audio.h"
 #include "common/pc_settings.h"
+#include "linux/split_player.h"
 #include "core/log.h"
 
 namespace audio {
@@ -78,9 +79,12 @@ std::atomic<uint64_t> g_limited{0};  // chunks the split-screen limiter turned d
 // held under 1/players of full scale (a peak limiter: a chunk louder than that at once turned down to it, the gain
 // coming back over about 100 ms): four streams together never pass full scale (N4.6: at 1/sqrt(4) alone four players'
 // gunfire summed past it), while sounds below the ceiling keep their level. One player alone: no limiter
+std::atomic<bool> g_focused{true};  // the window (a split-screen player: the compositor's) has the keyboard focus
+
 void Volume(float* samples, uint32_t frames) {
     static unsigned seen = ~0u;
     static float gain = 1.0f;
+    static bool background = true;  // Audio in the Background (N5E): heard while another window has the focus
     static const float share = [] {
         const char* g = std::getenv("CSX_AUDIO_GAIN");
         float v = g ? float(std::atof(g)) : 1.0f;
@@ -89,6 +93,11 @@ void Volume(float* samples, uint32_t frames) {
     if (pc::Version() != seen) {
         seen = pc::Version();
         gain = std::clamp(pc::GetFloat("master_volume", 100.0f), 0.0f, 100.0f) / 100.0f * share;
+        background = pc::Get("audio_background", "1") != "0";
+    }
+    if (!background && !(splitp::Active() ? splitp::Focused() : g_focused.load())) {
+        std::fill(samples, samples + frames * 2, 0.0f);
+        return;
     }
     if (gain != 1.0f)
         for (uint32_t i = 0; i < frames * 2; i++) samples[i] *= gain;
@@ -125,6 +134,24 @@ void SDLCALL Feed(void*, SDL_AudioStream* stream, int additional, int) {
         SDL_PutAudioStreamData(stream, buf.data(), int(n * 8));
         frames -= n;
     }
+}
+
+std::atomic<SDL_AudioStream*> g_stream{nullptr};
+
+// a stream on PC Options > Audio > Output Device (pc_settings.ini audio_device: a device's name; the system's
+// default when empty or not there now)
+SDL_AudioStream* OpenStream() {
+    SDL_AudioSpec spec{SDL_AUDIO_F32, 2, int(kRate)};
+    SDL_AudioDeviceID id = SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK;
+    std::string want = pc::Get("audio_device", "");
+    int n = 0;
+    if (SDL_AudioDeviceID* ids = want.empty() ? nullptr : SDL_GetAudioPlaybackDevices(&n)) {
+        for (int i = 0; i < n; i++)
+            if (const char* name = SDL_GetAudioDeviceName(ids[i]); name && want == name) id = ids[i];
+        SDL_free(ids);
+    }
+    LOGI("audio: output to %s", id == SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK ? "the default device" : want.c_str());
+    return SDL_OpenAudioDeviceStream(id, &spec, Feed, nullptr);
 }
 
 void NullPump() {
@@ -171,8 +198,21 @@ void StartOutput(std::function<void(float*, uint32_t)> render) {
     }
     int ms = std::clamp(std::getenv("CSX_AUDIO_MS") ? std::atoi(std::getenv("CSX_AUDIO_MS")) : 20, 5, 200);
     SDL_SetHint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, std::to_string(kRate * ms / 1000).c_str());
-    SDL_AudioSpec spec{SDL_AUDIO_F32, 2, int(kRate)};
-    SDL_AudioStream* stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, Feed, nullptr);
+    // the playback devices, for PC Options > Audio > Output Device (pc_menu.cpp reads CSX_AUDIO_DEVICES as it builds
+    // the menus, which comes after this): their names, separated by '|'
+    {
+        int n = 0;
+        std::string names;
+        if (SDL_AudioDeviceID* ids = SDL_GetAudioPlaybackDevices(&n)) {
+            for (int i = 0; i < n; i++)
+                if (const char* name = SDL_GetAudioDeviceName(ids[i]); name && !std::strchr(name, '|') && !std::strchr(name, '"'))
+                    names += (names.empty() ? "" : "|") + std::string(name);
+            SDL_free(ids);
+        }
+        SDL_setenv_unsafe("CSX_AUDIO_DEVICES", names.c_str(), 1);
+        LOGI("audio: %d playback devices%s%s", n, names.empty() ? "" : ": ", names.c_str());
+    }
+    SDL_AudioStream* stream = OpenStream();
     if (!stream) {
         LOGW("audio: no playback device (%s), null output", SDL_GetError());
         NullPump();
@@ -185,6 +225,24 @@ void StartOutput(std::function<void(float*, uint32_t)> render) {
          SDL_GetCurrentAudioDriver(), dev.freq, dev.channels, unsigned(dev.format), dev_frames);
     if (dev.freq > 0 && dev_frames > 0) g_period_ms = 1000.0 * dev_frames / dev.freq;
     SDL_ResumeAudioStreamDevice(stream);
+    g_stream = stream;
+    // Output Device changed: the stream reopened on the new one (the mixer goes on: only its device changes)
+    std::thread([] {
+        unsigned seen = pc::Version();
+        std::string device = pc::Get("audio_device", "");
+        for (;;) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            if (pc::Version() == seen) continue;
+            seen = pc::Version();
+            if (pc::Get("audio_device", "") == device) continue;
+            device = pc::Get("audio_device", "");
+            SDL_DestroyAudioStream(g_stream.exchange(nullptr));
+            SDL_AudioStream* s = OpenStream();
+            if (s) SDL_ResumeAudioStreamDevice(s);
+            else LOGW("audio: the output device could not be opened (%s): no sound", SDL_GetError());
+            g_stream = s;
+        }
+    }).detach();
     // late callbacks in the log every 30 s when there were any (the device may have played silence)
     std::thread([] {
         uint64_t last = 0;
@@ -204,3 +262,8 @@ void StartOutput(std::function<void(float*, uint32_t)> render) {
 }
 
 }  // namespace audio
+
+namespace csx {
+// the window's focus (window_input.cpp), for Audio in the Background
+void SetWindowFocused(bool focused) { audio::g_focused = focused; }
+}  // namespace csx

@@ -1,0 +1,26 @@
+# Deathmatch (N6C, src/game/pc_modes.cpp, docs/n6_modes.md), headless: de_aztec, 7 bots, rounds of 1 minute (the
+# fixture's +mp_roundtime 1) and "+pc_gamemode deathmatch". Dead players and bots spawn again (respawned lines), no
+# round ends (no Round_End in the game's log past the round's minute), the fights go on (kills); then the frag limit
+# set on the server's console (pc_fraglimit 2) ends the match: the game's intermission and the next map's load.
+#   --env FPS=30 --launch tests/launch/de_aztec_dm
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+expect log pc mode: Deathmatch
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 1
+count pc.mode:.*.respawned.\(deathmatch\) 3
+count game:.*killed 4
+sleep 70
+expect nolog game:.World.triggered."Round_End"
+expect nolog pc.mode:.*respawn.refused
+pckey cmd pc_fraglimit 2
+count pc.mode:.the.match.ends 1
+count open.D:\\(de|cs)_[a-z0-9_]*\.sxwad 2
+expect nolog guest trap

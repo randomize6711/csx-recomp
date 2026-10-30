@@ -1,0 +1,40 @@
+# N7 gameplay (docs/n7_gameplay.md, src/game/pc_gameplay.cpp), headless: de_aztec, no bots, the match line's
+# "+mp_flashlight 1 +pc_gravity 400", PC Options > Gameplay > Flashbang Effect Black. The gravity is set on the
+# server; the flashlight (impulse 100, the binding's command) turns on and off on the server; held looking down
+# (tools/drive.py setview), the spray (impulse 201) sprays a logo on the floor (the server's spray, its next spray
+# time set; a snap shows what the client draws) and a flashbang bought (buyitem) and thrown at the player's feet
+# blinds it with the fade drawn black.
+#   --env FPS=30 --pc flashbang_colour=black --launch tests/launch/de_aztec_n7
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+count pc.gameplay:.gravity.400 1
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 14
+pckey cmd impulse 100
+count pc.gameplay:.*'s.flashlight.on 1
+sleep 1
+pckey cmd impulse 100
+count pc.gameplay:.*'s.flashlight.off 1
+pckey cmd buyitem weapon_flashbang
+sleep 2
+setview 2352 -256 -251.969 135 80
+sleep 1
+pckey cmd impulse 201
+count pc.gameplay:.*.sprayed.a.logo 1
+sleep 1
+snap spray
+pckey cmd weapon_flashbang
+sleep 2
+pckey cmd +attack
+sleep 0.3
+pckey cmd -attack
+count pc.gameplay:.a.flashbang's.white.fade.drawn.black 1
+setview off
+expect nolog guest trap

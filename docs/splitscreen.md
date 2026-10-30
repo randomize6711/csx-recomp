@@ -897,3 +897,33 @@ Now (src/game/net_session.cpp, src/game/pc_menu.cpp, src/game/pc_browser.cpp, sr
   party's lobby), not only on the main menu.
 - Test: vk_split_leave (three players; player 2 leaves; a map change brings players 1 and 3 back and not player 2,
   the server's count 2; START rejoins it, 3; it leaves again; in the menus player 3 moves up).
+
+## 20. N5F: back to one window when player 1 is alone (2026-10-30)
+
+The user's decision: when only player 1 remains, its viewport fills the window at once; at the next safe map change
+or menu transition the game returns to its ordinary single window, without a needless disconnect, a server restart
+or lost profile and settings state.
+
+- **At once**: the layout counts the seated players (N4.8.1): with players 2..4 gone player 1's viewport is the whole
+  window (Relayout), as before.
+- **Alone** (compositor.cpp UpdateAlone): after two or more members played together, when no other member is seated
+  (left the match, or left the party in the menus) and no other player process runs, the compositor tells player 1
+  (Msg::Alone 1; 0 if a member comes back first). A party of one from the start is never "alone": it stays in the
+  compositor (the party screens, the tests' "p1:" log).
+- **The next relaunch** (split_player.cpp LeaveSplitScreen, from the title's relaunch preparation: a map change, the
+  menus, a match from the menus): player 1 leaves the split screen's environment (CSX_SPLIT_*, RELAUNCH_KEEP_FD: its
+  socket closes at the exec, CSX_DISPLAY_ASPECT, CSX_AUDIO_GAIN), clears the death signal the compositor gave it,
+  sends Msg::Solo, points its standard output away from the compositor's pipe, and the title's own relaunch (an exec:
+  the same process) starts the game on its own: its own SDL window, its own input (keyboard, mouse, controllers),
+  full volume. The same process keeps the local server (its owner check is the process id, N4.7), the connection
+  key, the profile and the PC settings (files), so the match continues: the map change's rejoin goes to the same
+  server, which was not restarted.
+- **The compositor** (Msg::Solo): hides its window, closes player 1's socket and images at the socket's end, and goes
+  on without a window (its log flushed; the local server's output, which it still receives, logged as "p1:") until
+  player 1's process ends, then exits as before: run_game.sh and the tests see the session end with the game's end.
+- **Rejoining**: back in one window, a second controller's A or START on the party screen starts split screen again
+  (N4.8's StartFromWindow), as from any single-window game (N4.8's behaviour; not exercised again by N5F's test).
+- Test: vk_split_solo (two players; player 2 leaves; "alone"; the owner's Change Map: player 1 continues in its own
+  window, rejoins the same local server on the new map, plays, 1 player on the server; nothing restarted).
+  tools/drive.py follows the game's own log (the newest cs_*.log that does not name the compositor) once the
+  compositor says player 1 continues in its own window.

@@ -279,7 +279,8 @@ bool LocalServerStart(const std::string& match_line, bool host, std::string& con
                 return false;
             }
             std::string address = ip + ":" + std::to_string(port);
-            SetEnv("CSX_LOCAL_SERVER", std::to_string(pid) + " " + address + " " + key);
+            // (the fourth word for invite codes, pc_invite.cpp: host, Host a Match's network server, or offline)
+            SetEnv("CSX_LOCAL_SERVER", std::to_string(pid) + " " + address + " " + key + (host ? " host" : " offline"));
             connect_line = "+connect " + address;
             double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
             LOGI("local server: ready in %.1f s: process %d, %s, server identity %s; the game joins it", s, int(pid),
@@ -392,7 +393,7 @@ bool LocalServerRoute(const std::string& line) {
     }
     // the server's own settings and commands, typed in the game's console (or a test's): run there
     static const char* const kPrefixes[] = {"sv_", "mp_", "bot_"};
-    static const char* const kNames[] = {"allow_spectators", "pausable", "pc_player_collision", "kick", "banid", "removeid",
+    static const char* const kNames[] = {"allow_spectators", "pausable", "pc_player_collision", "pc_gamemode", "pc_fraglimit", "pc_gungame_order", "pc_gravity", "pc_rotation", "kick", "banid", "removeid",
                                          "addip", "removeip", "writeid", "writeip", "changelevel", "restart"};
     bool server = false;
     for (const char* p : kPrefixes) server = server || word.rfind(p, 0) == 0;

@@ -1,6 +1,8 @@
 // The dedicated server's configuration (server_config.h).
 #include "server/server_config.h"
 
+#include "game/player_slots.h"
+
 #include <algorithm>
 
 #include <cctype>
@@ -84,6 +86,15 @@ const std::vector<Key>& Keys() {
         {"bots", "bots kept in the match, 0..max_players (0)"},
         {"bot_difficulty", "0 easy, 1 normal, 2 hard, 3 expert (1)"},
         {"player_collision", "on or off (on): off lets players pass through each other, for crowded matches"},
+        {"game_mode", "classic, deathmatch or gungame (classic): Deathmatch respawns players with no rounds; Gun Game "
+                      "climbs a ladder of weapons by kills, the knife last"},
+        {"gungame_order", "Gun Game's weapons in order, comma separated without spaces (the default: glock18,usp,p228,"
+                          "deagle,fiveseven,elite,m3,xm1014,tmp,mac10,mp5navy,ump45,p90,galil,famas,ak47,m4a1,sg552,"
+                          "aug,scout,awp,m249,knife); the knife is always last"},
+        {"map_rotation", "maps played in turn when a match ends, comma separated (none: the same map again)"},
+        {"flashlight", "on or off (on): players may use their flashlights (mp_flashlight)"},
+        {"gravity", "the match's gravity (sv_gravity), 50..4000 (800, the original's)"},
+        {"frag_limit", "Deathmatch: the match ends when a player has this many frags, 0..999 (0: none)"},
         {"friendly_fire", "on or off (off)"},
         {"round_time", "minutes a round lasts, 1..9 (3)"},
         {"freeze_time", "seconds of freeze at a round's start, 0..60 (3)"},
@@ -116,10 +127,31 @@ bool Set(Config& c, const std::string& key, const std::string& value, std::strin
         c.map = value;
         return true;
     }
-    if (key == "max_players") return Int(value, 1, 65, c.max_players, error);
-    if (key == "bots") return Int(value, 0, 65, c.bots, error);
+    if (key == "max_players") return Int(value, 1, int(slots::kMaxPlayers), c.max_players, error);
+    if (key == "bots") return Int(value, 0, int(slots::kMaxPlayers), c.bots, error);
     if (key == "bot_difficulty") return Int(value, 0, 3, c.bot_difficulty, error);
     if (key == "player_collision") return Bool(value, c.player_collision, error);
+    if (key == "game_mode") {
+        if (value != "classic" && value != "deathmatch" && value != "gungame")
+            return error = "classic, deathmatch or gungame, not \"" + value + "\"", false;
+        c.game_mode = value;
+        return true;
+    }
+    if (key == "gungame_order") {
+        if (value.size() > 300 || value.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789,") != std::string::npos)
+            return error = "weapon names (lower case) separated by commas", false;
+        c.gungame_order = value;
+        return true;
+    }
+    if (key == "map_rotation") {
+        if (value.size() > 600 || value.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_,") != std::string::npos)
+            return error = "map names (lower case) separated by commas", false;
+        c.map_rotation = value;
+        return true;
+    }
+    if (key == "flashlight") return Bool(value, c.flashlight, error);
+    if (key == "gravity") return Int(value, 50, 4000, c.gravity, error);
+    if (key == "frag_limit") return Int(value, 0, 999, c.frag_limit, error);
     if (key == "friendly_fire") return Bool(value, c.friendly_fire, error);
     if (key == "round_time") return Number(value, 1, 9, c.round_time, error);
     if (key == "freeze_time") return Number(value, 0, 60, c.freeze_time, error);
@@ -187,6 +219,10 @@ std::string CommandLine(const Config& c) {
                     " +hostname \"" + c.name + "\"";
     if (!c.password.empty()) s += " +sv_password " + c.password;
     s += std::string(" +pc_player_collision ") + (c.player_collision ? "1" : "0");
+    s += " +pc_gamemode " + c.game_mode + " +pc_fraglimit " + std::to_string(c.frag_limit) +
+         (c.gungame_order.empty() ? std::string() : " +pc_gungame_order " + c.gungame_order) +
+         " +pc_gravity " + std::to_string(c.gravity) + " +mp_flashlight " + (c.flashlight ? "1" : "0") +
+         (c.map_rotation.empty() ? std::string() : " +pc_rotation " + c.map_rotation);
     s += '\0';
     return s;
 }
@@ -230,10 +266,11 @@ std::string MatchLine(const Config& c, const std::string& menu_line, std::string
     }
     static const char* const kOwn[] = {"map", "mp_dedicated_server"};
     std::string s = "+map " + c.map;
-    bool collision = false;
+    bool collision = false, mode = false;
     for (auto& v : cvars) {
         if (std::find_if(std::begin(kOwn), std::end(kOwn), [&](const char* k) { return v[0] == k; }) != std::end(kOwn)) continue;
         collision = collision || v[0] == "pc_player_collision";
+        mode = mode || v[0] == "pc_gamemode";
         s += " +" + v[0];
         for (size_t i = 1; i < v.size(); i++) s += " " + v[i];
     }
@@ -244,6 +281,10 @@ std::string MatchLine(const Config& c, const std::string& menu_line, std::string
          std::to_string(c.snapshot_rate) + " +sv_lan " + (c.lan_only ? "1" : "0") + " +hostname \"" + c.name + "\"";
     if (!c.password.empty()) s += " +sv_password " + c.password;
     if (!collision) s += std::string(" +pc_player_collision ") + (c.player_collision ? "1" : "0");
+    if (!mode) s += " +pc_gamemode " + c.game_mode + " +pc_fraglimit " + std::to_string(c.frag_limit) +
+         (c.gungame_order.empty() ? std::string() : " +pc_gungame_order " + c.gungame_order) +
+         " +pc_gravity " + std::to_string(c.gravity) + " +mp_flashlight " + (c.flashlight ? "1" : "0") +
+         (c.map_rotation.empty() ? std::string() : " +pc_rotation " + c.map_rotation);
     s += '\0';
     return s;
 }
@@ -258,6 +299,12 @@ std::string Describe(const Config& c, bool show_password) {
     add("bots", std::to_string(c.bots));
     add("bot_difficulty", std::to_string(c.bot_difficulty));
     add("player_collision", c.player_collision ? "on" : "off");
+    add("game_mode", c.game_mode);
+    add("frag_limit", std::to_string(c.frag_limit));
+    add("gravity", std::to_string(c.gravity));
+    add("flashlight", c.flashlight ? "on" : "off");
+    add("map_rotation", c.map_rotation.empty() ? "none" : c.map_rotation);
+    add("gungame_order", c.gungame_order.empty() ? "default" : c.gungame_order);
     add("friendly_fire", c.friendly_fire ? "on" : "off");
     add("round_time", Num(c.round_time));
     add("freeze_time", Num(c.freeze_time));

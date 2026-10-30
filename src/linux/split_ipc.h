@@ -23,6 +23,7 @@ enum class Msg : uint16_t {
     Match = 5,       // where the player plays (text: "host ADDRESS KEY" / "join ADDRESS KEY PASSWORD" / "menu")
     Log = 6,         // a line for the compositor's log (text)
     Setup = 7,       // player 1's setup screen asks (text: "open", "close", "players N", "layout NAME", "end", "start")
+    Solo = 8,        // player 1's relaunch continues in a window of its own (N5F): the compositor's window closes
     // compositor -> player
     Size = 100,      // the viewport's pixel size (u32 width, height)
     Event = 101,     // an SDL_Event, as bytes
@@ -33,6 +34,7 @@ enum class Msg : uint16_t {
     Quit = 106,      // end the process (players 2-4 when their match ended)
     Party = 107,     // player 1's party screens (N4.8): another member's input or a party event (text: "N BUTTON",
                      // "N joined", "N left", "N pad on|off"; BUTTON a b x y start back up down left right lb rb)
+    Alone = 108,     // player 1 is the only player left (u8 on): its next relaunch may leave split screen (N5F)
 };
 
 constexpr size_t kMaxBody = 4096;

@@ -2957,6 +2957,60 @@ regress_pc_console_wide.txt (21:9, F2 from pc_settings.ini, sv_gravity 600 set a
 vk_console.txt (Vulkan window at 16:9: the ` key, W and mouse motion not reaching the game, text input, Enter,
 Up, Backspace, Escape closing without the pause menu, mouse capture restored, the console over the pause menu).
 
+## Autonomous pass N6..N11 (2026-10-30)
+
+- **Game rules (CHalfLifeMultiplay).**
+  - `Think` is at 0x147620; the rules object is in esi from 0x147639.
+  - `CheckWinConditions` (0x144E20) has its own early exit (0x144E44 -> 0x145E43). Every round end goes through it:
+    team elimination, the bomb exploding and being defused, hostages rescued.
+  - The round time running out is checked at 0x147DC3 (-> 0x1482A8 skips it).
+  - `TimeRemaining` (0x116A40) is +0x38 (round seconds) - time + +0x30 (round start).
+  - The "end in a moment" stamp is rules +0x2BC: Think calls `GoToIntermission` (vtable +0x110) after a delay.
+  - `ChangeLevel` reaches CHANGE_LEVEL at 0x14A8BA with the next map's buffer at [esp].
+- **Players.**
+  - `respawn` (0x13AC10) is CopyToBodyQue plus the player's `Spawn` (vtable +0).
+  - `ClientKill` (0x13AC70) checks the joining state (player +0x1FC == 0) and iuser1.
+  - `GiveDefaultItems` 0x118D00; `RemoveAllItems` 0x118DB0 (eax player, push removeSuit, ret 4); `GiveNamedItem`
+    0x120720 (eax name, edi player); `GiveAmmo` is player vtable +0x70 (thiscall: amount, name, max).
+  - `AddAccount` 0x11B710 (esi player, eax amount, push track).
+  - The spray impulse (201) is at 0x120BC6: the next spray time is at player +0x854 and `decalfrequency` is read.
+  - `mp_flashlight` defaults to "0" (cvar at 0x37D4AC).
+- **Engine function tables.**
+  - The game DLL's g_engfuncs is at 0x527AA0 (MessageBegin 0x527B58, WriteByte +8, WriteString 0x527B78,
+    MessageEnd 0x527B5C, AlertMessage 0x527B94, ServerCommand 0x527B3C, CVarGetFloat 0x527B84, ChangeLevel 0x527AB8).
+  - The game's TextMsg number is at 0x5529EC.
+  - The client's cl_enginefuncs table is at 0x371610 (copied to 0x5430E8):
+    | Function | Address |
+    |---|---|
+    | SPR_Draw | 0x22F70 |
+    | SPR_DrawHoles | 0x22FF0 |
+    | SPR_DrawAdditive | 0x23070 |
+    | FillRGBA | 0x476C0 |
+    | DrawCharacter | 0xB0F40 |
+    | DrawConsoleString | 0x47060 |
+    | CenterPrint | 0x1C5B0 |
+  - The sprite draws call no-op adjustment pointers (0x3784D4 ...) first, then the quad draw 0x47470.
+- **View and screen fade.**
+  - The engine's ClientDLL_CalcRefdef is at 0xB5F20 (the client's `V_CalcRefdef` 0x1A0F10; ref_params at esp+0x10
+    after it returns, health +0x8C).
+  - `V_ScreenFade` is at 0xB6500 (the fade's colour at 0x74A254).
+  - SCR_UpdateScreen calls SCR_DrawNetGraph (0x6E4B0) unconditionally after the menus.
+- **HUD elements' Draw functions** (vtable entries): health 0x1D3E30 (which also calls the radar's 0x1D5310), armor
+  0x1D6470, timer 0x1D4B70, money 0x1ADDC0, ammunition 0x1ACC70 (which also calls the pickup history's 0x1DB570),
+  status icons 0x1D7640, kill feed 0x1D6830. The number helpers are 0x1AEC60, 0x1AECD0 and 0x1AEDB0. The HUD draws
+  in 640x480 units.
+- **Files.**
+  - The game reads files from one current SXWad archive (*0x552744): 0x1FC4F0 "is it here", 0x1FC6B0 "open it" (a
+    name -> entry map at +0x10, entries +0x28 offset, +0x2C stored size, +0x30 size), and from the disk when the
+    archive lacks the name (COM_LoadFile-style callers fall back to CreateFile).
+  - Model textures are not in the .mdl files but in the archives' XPR registry, named "<model path><texture name>".
+  - Player models are per map (models\player\MAP\CLASS.mdl, version 11); weapon models are version 10.
+  - Sounds come from the XACT wave banks; the archives' sound\*.wav entries are empty placeholders.
+- **Title update.** The update's game code differs from the disc's only in addresses (three candidate functions
+  compared with addresses masked: identical). Its behaviour changes are the Live / system link versions.
+- **Map list.** `pc_dlc.cpp` inserted a row in the middle of the row before it (just before that row's line break),
+  so the next search for that row found both. Inferno appeared twice in Custom Game's list; fixed.
+
 ## Assumptions / to verify
 
 - Third-party licenses (from prior knowledge, confirm before reusing any code): Half-Life SDK — Valve's restrictive

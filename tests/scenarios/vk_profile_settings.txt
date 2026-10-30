@@ -1,6 +1,7 @@
 # A profile's own settings (N4.8, src/game/pc_party.cpp, pc_menu.cpp's PcScreen "Profile"): Multiplayer's party,
-# Profiles (R), "Ace" created, then Profiles again and Y (Q) on it: Profile Settings shows its 10 rows (the PC Options
-# rows Mouse Sensitivity, Invert Mouse, Raw Mouse Input and Field of View, then the 6 controller rows). N5A split PC
+# Profiles (R), "Ace" created, then Profiles again and Y (Q) on it: Profile Settings shows its 12 rows (the PC Options
+# rows Mouse Sensitivity, Scoped Sensitivity, Invert Mouse, Raw Mouse Input, Field of View and Button Prompts, then the
+# 6 controller rows). N5A split PC
 # Options into screens; the profile took its four PC rows from the first screen and lost them (fixed: by key from any).
 # Escape goes back to Profiles.
 # timeout: 300
@@ -45,7 +46,7 @@ key R
 wait newlog p1: pc mouse: screen SuperLauncher_PCProfiles
 sleep 1
 key Q
-wait newlog p1: pc mouse: screen SuperLauncher_PCProfile, 10 rows
+wait newlog p1: pc mouse: screen SuperLauncher_PCProfile, 12 rows
 sleep 1
 windowshot profile_settings
 mark

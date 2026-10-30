@@ -34,9 +34,9 @@ sleep 1
 pckey mclick 1
 sleep 3
 expect log pc mouse: screen SuperLauncher_PCGraphics,
-pckey pointer 450 121
+pckey pointer 500 121
 sleep 0.5
-pckey pointer 545 121
+pckey pointer 566 121
 sleep 0.5
 pckey mclick 1
 sleep 1
@@ -48,7 +48,7 @@ sleep 0.5
 pckey mclick 1
 sleep 1.5
 expect log pc menu: SuperLauncher_PCGraphics shows its defaults
-pckey pointer 545 121
+pckey pointer 566 121
 sleep 0.5
 pckey mclick 1
 sleep 1

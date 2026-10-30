@@ -15,6 +15,10 @@
 // game key), Escape cancels; F1 and F11 stay the window's. The name field of the profile's virtual keyboard
 // (src/game/pc_mouse.cpp), once clicked: typed text (the layout's characters), Backspace, the arrows, Enter (Done),
 // Escape (typing ends) go to the game's edit box.
+// A number's row in a PC settings screen (N5B, src/game/pc_menu.cpp): a digit or a point starts typing its value
+// there; digits, the point, Backspace, Enter (kept) and Escape (cancelled) go to it and nothing else.
+// A map list (N5B, src/game/pc_mapsearch.cpp): letters and digits search it, Backspace takes one back (there the
+// letters are not the pad's W A S D, Q and R).
 // Keys by layout: letters are the letter the layout prints; the digit row and the punctuation keys are taken by their
 // position (US names: Swedish Å is [, Ö ;, Ä ', the key left of Z <), so every layout can bind them; the menus show
 // them as the layout prints them (CSX_KEY_LABELS, set here once the window is up).
@@ -30,6 +34,7 @@
 // applies at once. Either way the game adds no curve, smoothing or frame time to it.
 #include <SDL3/SDL.h>
 
+#include "linux/pad_style.h"
 #include "linux/split_player.h"
 #include "linux/split_ipc.h"
 
@@ -295,6 +300,23 @@ int ConsoleKeyNumber() {
     return key;
 }
 
+// a controller's prompt style: a split-screen player's virtual one is the real one the compositor gave it
+int PadStyleOf(SDL_JoystickID id) {
+    if (splitp::Active()) return splitp::PadStyle() >= 0 ? splitp::PadStyle() : int(padstyle::kX360);
+    return padstyle::Of(id);
+}
+
+// a typed number's character for a key (the digit row's by position, as bindings take it, so every layout types
+// digits there; the keypad's; a point or comma), 0 for none
+int NumberChar(SDL_Keycode k, SDL_Scancode sc) {
+    if (sc >= SDL_SCANCODE_1 && sc <= SDL_SCANCODE_9) return '1' + int(sc - SDL_SCANCODE_1);
+    if (sc == SDL_SCANCODE_0) return '0';
+    if (k >= SDLK_KP_1 && k <= SDLK_KP_9) return '1' + int(k - SDLK_KP_1);
+    if (k == SDLK_KP_0) return '0';
+    if (k == SDLK_PERIOD || k == SDLK_COMMA || k == SDLK_KP_PERIOD || k == SDLK_KP_DECIMAL) return '.';
+    return 0;
+}
+
 // a key while the console is open: its editing keys; the rest only type (through text input)
 void ConsoleEditKey(SDL_Keycode k) {
     using K = csx::ConsoleKey;
@@ -318,6 +340,13 @@ namespace window {
 void HandleEvent(const void* p) {
     const SDL_Event& e = *static_cast<const SDL_Event*>(p);
     std::lock_guard<std::mutex> lock(g_lock);
+    // the device last used, for the prompts' automatic style (N5D): a key or a mouse button the keyboard's, a
+    // controller's button or a stick pushed far its own
+    if ((e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat) || e.type == SDL_EVENT_MOUSE_BUTTON_DOWN)
+        csx::SetPromptDevice(padstyle::kPc);
+    else if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) csx::SetPromptDevice(PadStyleOf(e.gbutton.which));
+    else if (e.type == SDL_EVENT_GAMEPAD_AXIS_MOTION && std::abs(int(e.gaxis.value)) > 20000)
+        csx::SetPromptDevice(PadStyleOf(e.gaxis.which));
     switch (e.type) {
         case SDL_EVENT_KEY_DOWN:
             if (csx::BindCapturing()) {  // a binding waits: this key is its, Escape cancels, repeats do nothing
@@ -336,8 +365,61 @@ void HandleEvent(const void* p) {
                     case SDLK_RIGHT: csx::QueueTextEntryKey(T::Right); break;
                     case SDLK_RETURN: case SDLK_KP_ENTER: if (!e.key.repeat) csx::QueueTextEntryKey(T::Enter); break;
                     case SDLK_ESCAPE: if (!e.key.repeat) csx::QueueTextEntryKey(T::Escape); break;
+                    case SDLK_V:  // Ctrl+V pastes (N9: an invite code)
+                        if ((e.key.mod & SDL_KMOD_CTRL) && !e.key.repeat) {
+                            if (char* t = SDL_GetClipboardText()) {
+                                std::string s = t;
+                                SDL_free(t);
+                                s.erase(std::remove_if(s.begin(), s.end(), [](char c) { return c < 0x20 || c > 0x7E; }), s.end());
+                                if (!s.empty()) csx::QueueTextEntry(s.substr(0, 140));
+                            }
+                        }
+                        break;
                     default: break;
                 }
+                break;
+            }
+            if (csx::HudEditing() && !g_console) {  // the HUD editor (N10): its keys only
+                const bool shift = (e.key.mod & SDL_KMOD_SHIFT) != 0;
+                int k = 0;
+                switch (e.key.key) {
+                    case SDLK_TAB: k = shift ? 'p' : 'n'; break;
+                    case SDLK_LEFT: k = shift ? 'L' : 'l'; break;
+                    case SDLK_RIGHT: k = shift ? 'R' : 'r'; break;
+                    case SDLK_UP: k = shift ? 'U' : 'u'; break;
+                    case SDLK_DOWN: k = shift ? 'D' : 'd'; break;
+                    case SDLK_EQUALS: case SDLK_KP_PLUS: k = '+'; break;
+                    case SDLK_MINUS: case SDLK_KP_MINUS: k = '-'; break;
+                    case SDLK_R: k = 'x'; break;
+                    case SDLK_DELETE: k = 'X'; break;
+                    case SDLK_RETURN: case SDLK_KP_ENTER: k = e.key.repeat ? 0 : 's'; break;
+                    case SDLK_ESCAPE: k = e.key.repeat ? 0 : 'c'; break;
+                    default: break;
+                }
+                if (k) csx::HudEditInput(k);
+                break;
+            }
+            if (csx::NumberTyping() && !g_console) {  // a typed number (N5B): Enter keeps it, Escape cancels
+                if (int c = NumberChar(e.key.key, e.key.scancode)) csx::NumberInput(c);
+                else if (e.key.key == SDLK_BACKSPACE) csx::NumberInput(csx::kNumberBackspace);
+                else if (!e.key.repeat && (e.key.key == SDLK_RETURN || e.key.key == SDLK_KP_ENTER))
+                    csx::NumberInput(csx::kNumberEnter);
+                else if (!e.key.repeat && e.key.key == SDLK_ESCAPE) csx::NumberInput(csx::kNumberCancel);
+                break;
+            }
+            if (!g_console && csx::MapSearchKeys()) {  // a map list (N5B): letters and digits search it
+                int c = e.key.key >= SDLK_A && e.key.key <= SDLK_Z ? 'a' + int(e.key.key - SDLK_A) : NumberChar(e.key.key, e.key.scancode);
+                if (c && c != '.') {
+                    if (!e.key.repeat) csx::MapSearchInput(c);
+                    break;
+                }
+                if (e.key.key == SDLK_BACKSPACE) {
+                    csx::MapSearchInput(-2);
+                    break;
+                }
+            }
+            if (!g_console && !e.key.repeat && NumberChar(e.key.key, e.key.scancode) && csx::NumberRowSelected()) {
+                csx::NumberInput(NumberChar(e.key.key, e.key.scancode));  // a digit on a number's row starts typing it
                 break;
             }
             if ((e.key.key == SDLK_RETURN || e.key.key == SDLK_KP_ENTER) && !g_console && csx::BindRowSelected()) {
@@ -435,6 +517,27 @@ void HandleEvent(const void* p) {
         case SDL_EVENT_GAMEPAD_ADDED:
             // a split-screen player takes only the controller the compositor gives it (a virtual one)
             if (splitp::Active() && !SDL_IsJoystickVirtual(e.gdevice.which)) break;
+            if (!splitp::Active()) {
+                padstyle::Of(e.gdevice.which);  // logged: what it is, which prompts
+                // Steam Input reads a Valve controller itself and offers a virtual one for it: the real one read too
+                // would act twice (N5D). The virtual one is kept (Steam's remapping is the player's)
+                auto steam_virtual_open = [] {
+                    if (g_pad && padstyle::SteamVirtual(SDL_GetGamepadID(g_pad))) return true;
+                    for (SDL_Gamepad* gp : g_other_pads)
+                        if (padstyle::SteamVirtual(SDL_GetGamepadID(gp))) return true;
+                    return false;
+                };
+                if (padstyle::SteamPhysical(e.gdevice.which) && steam_virtual_open()) {
+                    LOGI("input: %s left to Steam Input (its virtual controller is open)",
+                         SDL_GetGamepadNameForID(e.gdevice.which));
+                    break;
+                }
+                if (padstyle::SteamVirtual(e.gdevice.which) && g_pad && padstyle::SteamPhysical(SDL_GetGamepadID(g_pad))) {
+                    LOGI("input: %s left to Steam Input (its virtual controller appeared)", SDL_GetGamepadName(g_pad));
+                    SDL_CloseGamepad(g_pad);
+                    g_pad = nullptr;
+                }
+            }
             if (!g_pad) {
                 g_pad = SDL_OpenGamepad(e.gdevice.which);
                 if (g_pad) LOGI("input: gamepad %s", SDL_GetGamepadName(g_pad));
@@ -465,7 +568,11 @@ void HandleEvent(const void* p) {
         case SDL_EVENT_WINDOW_MOUSE_LEAVE:
             csx::MenuPointer(-1, -1);
             break;
+        case SDL_EVENT_WINDOW_FOCUS_GAINED:
+            csx::SetWindowFocused(true);
+            break;
         case SDL_EVENT_WINDOW_FOCUS_LOST:
+            csx::SetWindowFocused(false);
             g_keys.clear();
             g_mouse_buttons = 0;
             for (int k : std::set<int>(g_engine_held)) EngineKeyEvent(k, false);
@@ -686,6 +793,94 @@ Pad Poll(int port) {
             std::remove(cmd.c_str());
         }
         if (harness::g_frames.load() <= g_scripted.until) ApplyScripted(g_scripted.buttons, p, lx, ly, rx, ry);
+    }
+    // Flashlight and Spray Logo on the controller (N7, PC Options > Controller, pad_flashlight / pad_spray): in play, a
+    // chord of BACK with a D-pad direction (the direction then not passed on: it keeps no action of its own while BACK
+    // shows the scoreboard) or a newer controller's extra button (Share, the paddles, the touchpad: player 1's own
+    // controller; a split-screen player's virtual one has none) runs the action's command at its press
+    if (!menu) {
+        static unsigned seen = ~0u;
+        static std::string chosen[2];
+        static bool was[2] = {};
+        static const char* const kCmd[2] = {"impulse 100\n", "impulse 201\n"};
+        if (pc::Version() != seen) {
+            seen = pc::Version();
+            chosen[0] = pc::Get("pad_flashlight", "back_up");
+            chosen[1] = pc::Get("pad_spray", "back_down");
+        }
+        const bool back = (p.buttons & 32) != 0;
+        auto extra = [](SDL_GamepadButton b) { return g_pad && SDL_GetGamepadButton(g_pad, b); };
+        uint16_t taken = 0;
+        for (int i = 0; i < 2; i++) {
+            const std::string& c = chosen[i];
+            bool down = false;
+            static const struct { const char* name; uint16_t bit; } kChords[] = {
+                {"back_up", 1}, {"back_down", 2}, {"back_left", 4}, {"back_right", 8}};
+            for (const auto& ch : kChords)
+                if (c == ch.name && back && (p.buttons & ch.bit)) down = true, taken |= ch.bit;
+            if (c == "share") down = extra(SDL_GAMEPAD_BUTTON_MISC1);
+            if (c == "paddle1") down = extra(SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1);
+            if (c == "paddle2") down = extra(SDL_GAMEPAD_BUTTON_LEFT_PADDLE1);
+            if (c == "paddle3") down = extra(SDL_GAMEPAD_BUTTON_RIGHT_PADDLE2);
+            if (c == "paddle4") down = extra(SDL_GAMEPAD_BUTTON_LEFT_PADDLE2);
+            if (c == "touchpad") down = extra(SDL_GAMEPAD_BUTTON_TOUCHPAD);
+            if (down && !was[i]) {
+                csx::QueueEngineCommand(kCmd[i]);
+                LOGI("input: controller %s (%s)", i ? "spray" : "flashlight", c.c_str());
+            }
+            was[i] = down;
+        }
+        if (back) p.buttons = uint16_t(p.buttons & ~taken);
+    }
+    // the HUD editor (N10): the pad's buttons are its keys (edges), nothing reaches the game meanwhile
+    {
+        static uint16_t was_buttons = 0;
+        static uint8_t was_analog[8] = {};
+        if (csx::HudEditing()) {
+            auto edge = [&](bool now, bool before, int k) {
+                if (now && !before) csx::HudEditInput(k);
+            };
+            edge(p.buttons & 4, was_buttons & 4, 'l');
+            edge(p.buttons & 8, was_buttons & 8, 'r');
+            edge(p.buttons & 1, was_buttons & 1, 'u');
+            edge(p.buttons & 2, was_buttons & 2, 'd');
+            edge(p.analog[5] > 128, was_analog[5] > 128, 'p');  // white (left bumper)
+            edge(p.analog[4] > 128, was_analog[4] > 128, 'n');  // black (right bumper)
+            edge(p.analog[6] > 128, was_analog[6] > 128, '-');
+            edge(p.analog[7] > 128, was_analog[7] > 128, '+');
+            edge(p.analog[3] > 128, was_analog[3] > 128, 'x');  // Y
+            edge(p.analog[0] > 128, was_analog[0] > 128, 's');  // A
+            edge(p.analog[1] > 128, was_analog[1] > 128, 'c');  // B
+            was_buttons = p.buttons;
+            std::memcpy(was_analog, p.analog, sizeof was_analog);
+            p.buttons = 0;
+            std::memset(p.analog, 0, sizeof p.analog);
+            lx = ly = rx = ry = 0;
+        } else {
+            was_buttons = p.buttons;
+            std::memcpy(was_analog, p.analog, sizeof was_analog);
+        }
+    }
+    // an invite code to copy (N9, pc_invite.cpp)
+    if (std::string code = csx::TakeClipboardRequest(); !code.empty()) SDL_SetClipboardText(code.c_str());
+    // Scoreboard: Toggle (N5E, PC Options > HUD and Menus, scoreboard_mode): in play (the Scoreboard screen passes the
+    // controls through, so it is play too) a press of BACK (Tab, the controller's) keeps it held until the next press;
+    // Hold, the default, is the title's own. Menus keep BACK as it is
+    {
+        static unsigned seen = ~0u;
+        static bool toggle = false, back_was = false, shown = false;
+        if (pc::Version() != seen) {
+            seen = pc::Version();
+            toggle = pc::Get("scoreboard_mode", "hold") == "toggle";
+        }
+        bool back = (p.buttons & 32) != 0;
+        if (toggle && !menu) {
+            if (back && !back_was) shown = !shown;
+            p.buttons = uint16_t(shown ? (p.buttons | 32) : (p.buttons & ~32));
+        } else {
+            shown = false;
+        }
+        back_was = back;
     }
     p.lx = Stick(lx);
     p.ly = Stick(ly);

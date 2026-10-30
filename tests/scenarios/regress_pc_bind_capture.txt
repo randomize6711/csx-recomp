@@ -29,7 +29,7 @@ pckey pointer 150 268
 sleep 1
 pckey mclick 1
 sleep 3
-expect log pc mouse: screen SuperLauncher_PCControls, 28 rows from 83 108, 26 high
+expect log pc mouse: screen SuperLauncher_PCControls, 69 rows from 83 108, 26 high
 pckey pointer 470 225
 sleep 0.5
 pckey mclick 1

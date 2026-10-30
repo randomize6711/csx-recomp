@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 
+#include "common/mods.h"
 #include "core/log.h"
 #include "cpu/x86_context.h"
 #include "game/net_engine.h"
@@ -193,11 +194,17 @@ void ConnectUserinfo(X86Context& ctx, uint8_t*) {
 // engine command): a network client's "admin" goes to the server's administration; it may not kick, pause or use the
 // cheats (without sv_cheats), which the engine let any client run; true ends the command (0xAB541)
 bool ClientCommandAllowed(X86Context& ctx, uint8_t*) {
-    if (!NetworkClient(R32(kHostClient))) return false;
     // the name as the engine's own check (0xAA680) read it: COM_Parse's token (com_token 0x747DC0), which skips every
     // character up to a space and strips quotes; splitting the text again here let " kick 2" or "\"kick\" 2" through
     std::string name = kernel::ReadCString(kComToken, 128);
     for (char& ch : name) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+    static const bool log_cmds = std::getenv("CSX_LOG_CLIENTCMDS") && *std::getenv("CSX_LOG_CLIENTCMDS") == '1';
+    if (log_cmds)  // every client's string command (a debugging aid: what the menus send)
+        LOGI("net: client command from %s: %s", kernel::ReadCString(R32(kHostClient) + 0x4D10, 32).c_str(),
+             kernel::ReadCString(ctx.esi, 200).c_str());
+    // Condition Zero's extra radio lines (N5C, pc_radio.cpp): any client's, the listen server's own player's too
+    if (name == "csx_radio") return csx::RadioCommand(ctx, R32(kHostClient), kernel::ReadCString(ctx.esi, 512)) || true;
+    if (!NetworkClient(R32(kHostClient))) return false;
     // remote administration (N2, server_admin.cpp): handled here, never the game DLL's
     if (name == "admin") return csx::AdminCommand(ctx, R32(kHostClient), kernel::ReadCString(ctx.esi, 512)) || true;
     // a local server's owner (N4.7): its menu's host actions (server_admin.cpp OwnerCommand checks who sent it)
@@ -265,7 +272,11 @@ void DropClientReason(X86Context& ctx, uint8_t*) {
 // network client is sent the match's Player Collision (pc_collision.cpp), which its own prediction needs
 void SignonPlayerCollision(X86Context& ctx, uint8_t*) {
     if (!NetworkClient(R32(kHostClient))) return;
-    std::string cmd = std::string("pc_player_collision ") + (csx::PlayerCollisionOn() ? "1" : "0") + "\n";
+    // and what this server serves of the PC port's own (N5C: Condition Zero's extra radio lines, pc_radio.cpp)
+    // and its content mods (N8, common/mods.h), which every player of its matches needs
+    std::string mods = csx::mods::ContentSignature();
+    std::string cmd = std::string("pc_player_collision ") + (csx::PlayerCollisionOn() ? "1" : "0") +
+                      "\npc_server_features radio2\npc_server_mods \"" + (mods.empty() ? "none" : mods) + "\"\n";
     uint32_t msg = ctx.esp + 0x14;
     uint32_t esp = ctx.esp, eax = ctx.eax, ecx = ctx.ecx, edx = ctx.edx;
     ctx.esp -= 0x40;

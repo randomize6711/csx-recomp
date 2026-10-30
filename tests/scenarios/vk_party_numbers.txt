@@ -1,0 +1,123 @@
+# Typed rule values and the rules' Details (N5B, src/game/pc_menu.cpp, pc_lobby.cpp): a party of one (profile Ace),
+# Local Only, de_airstrip, Bomb Defusal; Y (Q) opens Custom Rules. Starting Money typed 1234 and Buy Time typed 0.75
+# (neither in the lists: the rows' own values); BACK (Tab) on Player Collision opens its Details (Y is Rulesets
+# there), Escape comes back with the typed values kept; Accept saves the rules and the lobby's Start sends them on the
+# match's line (the local server's "the match:" log).
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --env CSX_SPLIT_COMPOSITOR=1 --env CSX_SPLIT_PLAYERS=1 --env CSX_SPLIT_ZCACHE=$PWD/build/zcache
+# timeout: 400
+write profiles/00000000000000a1.ini name = Ace\n
+wait log split: player 1 started
+wait log p1: open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+key Down
+sleep 0.7
+key Down
+sleep 0.7
+key Down
+sleep 0.7
+key Space
+wait log p1: pc mouse: screen SuperLauncher_PCParty
+sleep 2
+key Right
+sleep 1
+key Space
+wait log p1: party: player 1 ready \(Ace
+key Space
+wait log p1: pc mouse: screen SuperLauncher_PCPartyDestination
+sleep 2
+key Space
+wait log p1: pc mouse: screen SuperLauncher_PCMatchMaps
+sleep 2
+key Space
+wait log p1: pc mouse: screen SuperLauncher_PCMatchModes
+sleep 2
+key Q
+wait log p1: pc mouse: screen SuperLauncher_PCRules
+sleep 2
+# Starting Money (the eighth row)
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key 1
+sleep 0.3
+key 2
+sleep 0.3
+key 3
+sleep 0.3
+key 4
+sleep 0.3
+key Return
+wait log p1: pc menu: Starting Money typed 1234 \(saved with Accept\)
+sleep 0.5
+# Buy Time (the seventh)
+key Up
+sleep 0.4
+key 0
+sleep 0.3
+key .
+sleep 0.3
+key 7
+sleep 0.3
+key 5
+sleep 0.3
+key Return
+wait log p1: pc menu: Buy Time typed 0.75 \(saved with Accept\)
+sleep 0.5
+# Player Collision (the fifteenth): BACK, its Details
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+windowshot rules
+key Tab
+wait log p1: pc menu: details of Player Collision \(SuperLauncher_PCRules\)
+wait log p1: pc mouse: screen SuperLauncher_PCDetails
+sleep 1
+windowshot details
+key Escape
+wait log p1: pc menu: back from details, SuperLauncher_PCRules as it was
+sleep 1
+windowshot back
+key Space
+wait log p1: lobby: rules saved \(Custom Rules
+sleep 2
+key Space
+wait log p1: pc mouse: screen SuperLauncher_PCLobby_
+sleep 2
+# ready in the lobby (A), then Start
+key Space
+sleep 1
+key Return
+wait log p1: local server: ready in
+wait log p1: server: the match: \+map de_airstrip .*\+mp_buytime 0.75 \+mp_startmoney 1234 .*\+sv_password \(set\)
+expect nolog p1: guest trap

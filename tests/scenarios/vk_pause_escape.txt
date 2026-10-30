@@ -55,7 +55,7 @@ windowshot pc_options
 key Down
 sleep 0.5
 key Space
-wait newlog pc mouse: screen InGame_PCGraphics, 4 rows
+wait newlog pc mouse: screen InGame_PCGraphics, 5 rows
 sleep 1
 windowshot graphics
 mark

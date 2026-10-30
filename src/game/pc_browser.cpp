@@ -989,7 +989,7 @@ std::string ExtendMultiplayer(const std::string& text) {
     std::string help = "\"Compete with other players on System Link.\"";
     out.replace(out.find(help), help.size(), "\"Play with others on your network or the internet.\"");
     out += BrowserScreen();
-    out += KeyboardScreen(kAddress, "Join by Address", "pc_browser address", "A server's address, with its port if not 27015.");
+    out += KeyboardScreen(kAddress, "Join by Address", "pc_browser address", "A server's address (port if not 27015), or an invite code.");
     out += KeyboardScreen(kPassword, "Server Password", "pc_browser password", "This server asks for a password.");
     // Continue closes them once A and B are released (PcBrowserMenuFrame): closed on the press, the screen under them
     // took the same held A as its own press (the main menu's first row opened, N4.7)
@@ -1049,8 +1049,8 @@ bool PcBrowserClick(const std::string& screen, float x, float y) {
 
 bool PcBrowserScreen(const std::string& screen) {
     if (screen.rfind("SuperLauncher_PC", 0) != 0) return false;
-    // PC Options (its screens, N5A) and PC Controls are settings screens, not the browser's or the party's
-    for (const char* s : {"Options", "Controls", "Video", "Graphics", "Mouse", "Audio", "Game"})
+    // PC Options (its screens, N5A, N5B) and PC Controls are settings screens, not the browser's or the party's
+    for (const char* s : {"Options", "Controls", "Video", "Graphics", "Mouse", "Audio", "Hud", "Multiplayer", "Controller", "Details"})
         if (screen == std::string("SuperLauncher_PC") + s) return false;
     return true;
 }
@@ -1060,7 +1060,7 @@ bool PcBrowserScreen(const std::string& screen) {
 // insert (0xD04D3)
 bool PcEditBoxRoom(X86Context& ctx, uint8_t*) {
     std::string s = CurrentScreen();
-    uint32_t limit = s == kAddress ? 63 : s == kPassword || s == "SuperLauncher_PCMatchPassword" ? 32
+    uint32_t limit = s == kAddress ? 140 : s == kPassword || s == "SuperLauncher_PCMatchPassword" ? 32
                    : s == "SuperLauncher_PCSplitName" || s == "SuperLauncher_PCProfileName" || s == "SuperLauncher_PCMatchRulesetName" ? 20
                    : 0;
     return limit && R32(ctx.esi + 0x48) < limit;
@@ -1140,6 +1140,17 @@ void PcBrowserCommand(X86Context& ctx, const std::vector<std::string>& a) {
         std::string text = EditText(kAddress);
         text.erase(0, text.find_first_not_of(' '));
         while (!text.empty() && text.back() == ' ') text.pop_back();
+        // an invite code (N9, pc_invite.cpp): "ADDRESS/KEY", the server's identity pinned as a favourite's
+        std::string key;
+        if (size_t slash = text.find('/'); slash != std::string::npos) {
+            key = text.substr(slash + 1);
+            text = text.substr(0, slash);
+            for (char& c : key) c = char(std::tolower(static_cast<unsigned char>(c)));
+            if (key.size() != 64 || key.find_first_not_of("0123456789abcdef") != std::string::npos) {
+                csx::QueueEngineCommand("xbui back\n");
+                return Message("That invite code is not whole.", "Copy all of it: the address, '/', and 64 characters.");
+            }
+        }
         bool ok = !text.empty() && text.size() <= 63 &&
                   text.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-:") == std::string::npos;
         if (!ok) {
@@ -1148,9 +1159,9 @@ void PcBrowserCommand(X86Context& ctx, const std::vector<std::string>& a) {
         }
         pc::Set("browser_last_address", text);
         pc::Save();
-        LOGI("browser: contacting %s", text.c_str());
+        LOGI("browser: contacting %s%s", text.c_str(), key.empty() ? "" : " (an invite code: its key pinned)");
         g_contact = {true, text, Now()};
-        AddAddress(text, net::kDirect, "");
+        AddAddress(text, net::kDirect, key);
         csx::QueueEngineCommand("xbui back\n");
         Open(kContacting);
     } else if (cmd == "contact_cancel") {

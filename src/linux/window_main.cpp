@@ -38,6 +38,7 @@
 
 #include "app/app.h"
 #include "common/csx.h"
+#include "common/map_imports.h"
 #include "common/pc_settings.h"
 #include "core/log.h"
 #include "harness.h"
@@ -229,6 +230,7 @@ int main(int argc, char** argv) {
     if (!game.empty()) {
         std::error_code ec;
         if (auto a = std::filesystem::absolute(game, ec); !ec) game = a.lexically_normal().string();
+        game = csx::GameDirWithImports(game, app::ExeDir().string());  // imported maps (N6B): an overlay of it
     }
     SetEnv("GAME_DIR", game.c_str());
     SetEnv("FPS", "30", false);
@@ -249,6 +251,11 @@ int main(int argc, char** argv) {
     WatchExit();
     OpenHandover();
 
+    // controllers SDL reads only when asked (N5D): a Steam Controller over Bluetooth without Steam (Steam's virtual
+    // controller is preferred where both are there, window_input.cpp), Wii Remotes (with a Nunchuk); the environment's
+    // SDL_JOYSTICK_HIDAPI_* still decide
+    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_STEAM, "1");
+    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_WII, "1");
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD | SDL_INIT_EVENTS)) {
         LOGE("window: SDL_Init failed: %s", SDL_GetError());
         logx::Flush();
@@ -346,6 +353,21 @@ int main(int argc, char** argv) {
     if (app::kGame.init) app::kGame.init();
     if (app::kGame.window) app::kGame.window(win);
     std::string hdd = app::Instance() > 1 ? "hdd" + std::to_string(app::Instance()) : "hdd";
+    // the button prompts' artwork (N5D, tools/make_prompts.py, src/game/pc_prompts.cpp): from the build beside the
+    // program onto this run's hard disk, where the game's texture loader opens it (Z:\media\textures)
+    {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        fs::path from = fs::canonical("/proc/self/exe", ec).parent_path() / "prompts" / "csx_prompts.xpr";
+        fs::path to = app::ExeDir() / hdd / "Z" / "media" / "textures";
+        if (!fs::is_regular_file(from, ec)) {
+            LOGW("window: no prompts' artwork (%s): the menus show text for the buttons", from.string().c_str());
+        } else {
+            fs::create_directories(to, ec);
+            fs::copy_file(from, to / "csx_prompts.xpr", fs::copy_options::overwrite_existing, ec);
+            if (ec) LOGW("window: the prompts' artwork not copied (%s)", ec.message().c_str());
+        }
+    }
     std::ifstream f(game + "/" + IMAGE_XBE, std::ios::binary);
     std::vector<uint8_t> xbe((std::istreambuf_iterator<char>(f)), {});
     if (!kernel::Boot(std::move(xbe), IMAGE_XBE, game, (app::ExeDir() / hdd).string())) return 1;

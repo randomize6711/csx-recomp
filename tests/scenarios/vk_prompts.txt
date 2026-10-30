@@ -1,0 +1,63 @@
+# Button prompts (N5D, src/game/pc_prompts.cpp, tools/make_prompts.py): the artwork loads beside the launcher's own
+# textures; the front end's legend strips are drawn as glyphs and the title's text. Automatic: the keyboard used (the
+# keys that pass the intro) shows the keyboard's keys. PC Options > Controller > Button Prompts (pc_settings.ini
+# prompt_style) chosen: PlayStation, Nintendo Switch, Wii Remote, Xbox (Original) each take the glyphs' place on the
+# same screen (window shots, looked at by hand); Automatic again shows the keyboard's. No physical controller here:
+# a controller's own style (linux/pad_style.h) is not exercised.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960)
+# timeout: 300
+wait log renderer: vulkan
+expect log pc prompts: artwork loaded
+expect log pc prompts: [0-9]+ legends drawn as prompts
+wait log open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+wait log pc prompts: pc \(automatic, 16 buttons\)
+key Down
+sleep 0.7
+key Down
+sleep 0.7
+key Down
+sleep 0.7
+key Down
+sleep 0.7
+key Space
+wait log pc mouse: screen SuperLauncher_Options
+sleep 2
+key Down
+sleep 0.7
+key Down
+sleep 0.7
+key Down
+sleep 0.7
+key Space
+wait log pc mouse: screen SuperLauncher_PCOptions, 10 rows
+sleep 1
+key Space
+wait log pc mouse: screen SuperLauncher_PCVideo
+sleep 1.5
+windowshot keyboard
+pckey set prompt_style ps
+wait log pc prompts: ps \(chosen, 16 buttons\)
+sleep 1
+windowshot playstation
+pckey set prompt_style switch
+wait log pc prompts: switch \(chosen
+sleep 1
+windowshot switch
+pckey set prompt_style wii
+wait log pc prompts: wii \(chosen
+sleep 1
+windowshot wii
+pckey set prompt_style xbox
+wait log pc prompts: xbox \(chosen
+sleep 1
+windowshot xbox
+pckey set prompt_style auto
+wait newlog pc prompts: pc \(automatic
+expect nolog guest trap

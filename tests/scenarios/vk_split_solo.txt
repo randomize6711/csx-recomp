@@ -1,0 +1,106 @@
+# Back to one window (N5F, src/linux/compositor.cpp UpdateAlone, split_player.cpp LeaveSplitScreen): two local players
+# in a Single Player match with no bots; player 2 leaves (its pause menu's Leave Match): player 1's viewport fills the
+# window at once and the compositor tells player 1 it is alone. At the next map change (the owner's Change Map) player
+# 1's relaunch is the game on its own: the compositor's window closes, the same process (the local server's owner: the
+# server is not restarted) opens its own window, rejoins the match on the new map and plays; the compositor waits,
+# windowless, for its end. Its log lines are then its own (no "p1:").
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --env CSX_SPLIT_COMPOSITOR=1 --env CSX_SPLIT_PLAYERS=2 --env CSX_SPLIT_ZCACHE=$PWD/build/zcache
+# timeout: 600
+wait log split: player 1 started
+pad 1 attach
+wait log p1: open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+expect log p1: pc mouse: screen SuperLauncher_MainScreen, 7 rows
+point 150 160
+sleep 0.5
+click 1
+sleep 5
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Space
+sleep 5
+expect log p1: pc mouse: screen SuperLauncher_SinglePlayerMatchOptions
+key Left
+sleep 0.7
+key Left
+sleep 0.7
+key Left
+sleep 0.7
+key Left
+sleep 0.7
+key Left
+sleep 0.7
+key Left
+sleep 0.7
+key Left
+sleep 0.7
+key Space
+sleep 3
+key Space
+wait log p1: net: split-screen: the match hosts 2 local players
+wait log p2: net: server 127.0.0.1:27015 connected
+wait log p2: pc keys: menu TeamSelect
+sleep 4
+key Space
+pad 1 button a
+sleep 6
+click 3
+pad 1 button b
+pckey cmd mp_timelimit 0
+sleep 5
+players two
+expect playercount two 2 2
+expect nolog split: player 1 is alone now
+# player 2 leaves
+pad 1 button start
+wait log p2: pc mouse: screen InGame_RootSinglePlayer
+sleep 1
+pad 1 button dpdown
+sleep 0.7
+pad 1 button dpdown
+sleep 0.7
+pad 1 button dpdown
+sleep 0.7
+pad 1 button dpdown
+sleep 0.7
+pad 1 button a
+wait log p2: pc mouse: screen InGame_ConfirmQuit
+sleep 1
+pad 1 button dpdown
+sleep 0.7
+pad 1 button a
+wait log split: player 2 left the match: 1 local players play on
+wait log split: player 1 is alone now
+wait log p1: split: player 1 is the only player left
+sleep 3
+windowshot alone
+# the map change: player 1 continues as the game on its own
+mark
+pckey cmd cmd pc_owner changemap de_dust
+wait newlog p1: split: player 1 alone: continuing in its own window
+wait newlog split: player 1 continues in its own window
+wait newlog \] window: SDL
+wait newlog \] net: server 127\.0\.0\.1:27015 connected
+wait newlog \] pc keys: menu TeamSelect
+sleep 3
+expect nonewlog local server: starting
+expect nonewlog split: player 1's process ended
+key Space
+sleep 8
+windowshot solo
+players one
+expect playercount one 1 1
+expect nolog guest trap

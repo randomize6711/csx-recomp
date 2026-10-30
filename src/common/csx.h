@@ -24,6 +24,10 @@ void AddLook(float right_degrees, float up_degrees);
 // handed to the engine on the game thread; the engine's current binding of a key
 void QueueEngineKey(int key, bool down);
 void QueueEngineCommand(const std::string& text);
+// invite codes (N9, src/game/pc_invite.cpp): this match's "ADDRESS/KEY" (empty with why_none set when it has none),
+// and a code pc_invite asked the window to copy to the clipboard (empty: none; taken once)
+std::string InviteCode(std::string& why_none);
+std::string TakeClipboardRequest();
 std::string EngineBinding(int key);
 // the developer console (src/game/pc_console.cpp): keys and typed text for it, handled on the game thread; whether
 // it is shown (the window sends the keyboard there while it is)
@@ -58,6 +62,26 @@ bool BindRowSelected();
 bool BindCapturing();
 void BindStart();
 void BindInput(int key);
+// a typed number in a PC settings screen (N5B, src/game/pc_menu.cpp): whether the selected row takes one (a digit
+// or a point starts typing it there), whether one is being typed (the keyboard goes there, nothing else); input:
+// a character ('0'..'9', '.'), or kNumberCancel / kNumberBackspace / kNumberEnter
+constexpr int kNumberCancel = -1, kNumberBackspace = -2, kNumberEnter = -3;
+bool NumberRowSelected();
+bool NumberTyping();
+// the HUD editor (N10, src/game/pc_hud_layout.cpp): on while it edits (the keys and pad go to it); input: 'n' / 'p'
+// next / previous element, 'l' 'r' 'u' 'd' move (upper case: larger steps), '+' '-' size, 'x' reset it, 'X' reset all,
+// 's' save, 'c' cancel
+bool HudEditing();
+void HudEditInput(int key);
+void NumberInput(int c);
+// the device last used (N5D, src/game/pc_prompts.cpp; linux/pad_style.h's styles): the prompts' automatic style
+void SetPromptDevice(int style);
+// the window's keyboard focus (src/linux/sdl_audio.cpp: Audio in the Background, N5E)
+void SetWindowFocused(bool focused);
+int PromptDevice();
+// a map list is open (N5B, src/game/pc_mapsearch.cpp): letters and digits search it (-2 Backspace)
+bool MapSearchKeys();
+void MapSearchInput(int c);
 // a menu screen of the game is open (keyboard and mouse act as the pad there; otherwise as engine keys)
 bool MenuOpen();
 // a server browser screen is open (src/game/pc_browser.cpp): Escape is the pad's B there, F5 its X (refresh),

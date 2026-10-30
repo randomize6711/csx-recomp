@@ -1,0 +1,30 @@
+# Death Camera First Person (N7, src/game/pc_gameplay.cpp, docs/n7_gameplay.md): in a match on de_dust2 (no bots), the
+# player dies (kill) with PC Options > Gameplay > Death Camera First Person: the view stays at its eyes, sinking and
+# rolling onto its side (window shots during the fall and after it), then after 3 s the original's camera (a shot).
+# Looked at by hand; the log says the camera ran.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), with
+#   --launch tests/launch/de_dust2_nobots --pc death_camera=first_person
+# timeout: 240
+wait log open D:\\de_dust2.sxwad
+sleep 25
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 10
+closebuymenu
+sleep 2
+closebuymenu
+sleep 1
+windowshot alive
+pckey cmd kill
+sleep 0.2
+windowshot falling
+sleep 1
+windowshot fallen
+wait log pc gameplay: death camera: first person for 3.0 s
+sleep 3
+windowshot original
+expect nolog Host_Error
+expect nolog guest trap

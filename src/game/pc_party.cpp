@@ -547,7 +547,7 @@ void NameDone(X86Context& ctx) {
     std::string error;
     if (g_naming == Naming::Create) {
         std::map<std::string, std::string> first;
-        for (const char* k : {"mouse_sensitivity", "mouse_invert", "mouse_raw", "fov"})
+        for (const char* k : {"mouse_sensitivity", "mouse_zoom_sensitivity", "mouse_invert", "mouse_raw", "fov", "prompt_style"})
             if (std::string v = pc::GetGlobal(k, ""); !v.empty()) first[k] = v;
         std::string id = Store().Create(name, first, error);
         if (id.empty()) {
@@ -587,7 +587,7 @@ void NameOpen(X86Context& ctx) {
 void EditLoad() {
     if (!profiles::IdValid(g_edit_profile)) return;
     auto values = Store().Values(g_edit_profile);
-    for (const char* k : {"mouse_sensitivity", "mouse_invert", "mouse_raw", "fov"})
+    for (const char* k : {"mouse_sensitivity", "mouse_zoom_sensitivity", "mouse_invert", "mouse_raw", "fov", "prompt_style"})
         if (!values.count(k))
             if (std::string v = pc::GetGlobal(k, ""); !v.empty()) values[k] = v;
     PcSetScreenValues(kEdit, values);

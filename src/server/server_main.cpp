@@ -40,6 +40,7 @@
 #include "game/net_engine.h"
 #include "image_symbols.h"
 #include "kernel/kernel.h"
+#include "common/map_imports.h"
 #include "server/server_config.h"
 
 namespace fs = std::filesystem;
@@ -278,7 +279,12 @@ int main(int argc, char** argv) {
     }
     if (game.empty()) errors.push_back({"--game", "the game folder is needed (or GAME_DIR)"});
     else if (!fs::exists(fs::path(game) / IMAGE_XBE)) errors.push_back({"--game", game + " has no " + IMAGE_XBE});
-    else if (!fs::exists(fs::path(game) / (cfg.map + ".SXWad"))) errors.push_back({"map", "no map " + cfg.map + " in " + game});
+    // imported maps (N6B, common/map_imports.cpp): an overlay of the game folder in this server's folder (a game's
+    // local server is given its game's overlay, which is kept as it is)
+    if (!game.empty() && errors.empty()) {
+        game = csx::GameDirWithImports(fs::absolute(game).lexically_normal().string(), fs::current_path().string(), false);
+        if (!fs::exists(fs::path(game) / (cfg.map + ".SXWad"))) errors.push_back({"map", "no map " + cfg.map + " in " + game});
+    }
     server::CheckTogether(cfg, errors);
     // a local server's match: the menus' own line with this server's map and settings
     std::string line;

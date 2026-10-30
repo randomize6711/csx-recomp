@@ -1,0 +1,32 @@
+# HUD draw map (N10, src/game/pc_hud_layout.cpp; a diagnostic, not a regression): in a match on de_aztec with 7 bots,
+# each new caller of the engine's HUD drawing functions logged once (CSX_LOG_HUDDRAW=1: function, caller, place),
+# with the buy menu, the scoreboard, the radio menu, a kill, the timer and money all on screen at some point.
+#   --env FPS=30 --env CSX_LOG_HUDDRAW=1 --launch tests/launch/de_aztec_bots7
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 3
+pckey tap +buymenu 0.2
+sleep 2
+closebuymenu
+pckey cmd buyitem weapon_ak47
+sleep 1
+pckey cmd radio1
+sleep 2
+pckey cmd slot1
+sleep 1
+pckey cmd +showscores
+sleep 2
+pckey cmd -showscores
+sleep 30
+count game:.*killed 1
+sleep 5
+count hud.draw: 10
+expect nolog guest trap

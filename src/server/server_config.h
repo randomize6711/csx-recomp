@@ -14,10 +14,16 @@ struct Config {
     std::string name = "Counter-Strike Xbox PC server";  // hostname: what a server list shows
     int port = 27015;                                    // UDP
     std::string map = "de_dust2";
-    int max_players = 65;                                // 1..65: every slot for remote players and bots
+    int max_players = 65;                                // 1..65 (an experimental build's more): players and bots
     int bots = 0;                                        // bot_quota, at most max_players
     int bot_difficulty = 1;                              // 0 easy, 1 normal, 2 hard, 3 expert
-    bool player_collision = true;                        // Off: players pass through each other (crowded matches)
+    bool player_collision = true;
+    std::string game_mode = "classic";                  // classic, deathmatch or gungame (src/game/pc_modes.cpp)
+    std::string gungame_order;                           // Gun Game's ladder (pc_gungame_order), empty the default
+    std::string map_rotation;                            // maps in order after each match (pc_rotation), empty the game's
+    bool flashlight = true;                              // mp_flashlight
+    int gravity = 800;                                   // sv_gravity (pc_gravity), 50..4000
+    int frag_limit = 0;                                  // Deathmatch: the match ends at this many frags (0 none)                        // Off: players pass through each other (crowded matches)
     bool friendly_fire = false;
     double round_time = 3;                               // minutes, 1..9
     double freeze_time = 3;                              // seconds, 0..60

@@ -1,0 +1,98 @@
+# N5C in a match (src/game/pc_buy.cpp, pc_radio.cpp, mouse_look.cpp; the window): a Terrorist alone on de_dust2 with
+# $16000. Autobuy: the M4A1 passed over (the Counter-Terrorists'), the AK-47 bought, the other rifles passed over, the
+# armour bought. A round restart makes those the last round's: Rebuy buys them again. An HE grenade bought (CS 1.6's alias hegren) and
+# its own key (weapon_hegrenade) takes it in hand. Radio: the commands menu (radio1) and its first line by the number
+# key (the menu's look: a window shot); Condition Zero's "circle back" through csx_radio: the local server plays it
+# (its log) and the game plays its sound. Scoped Sensitivity 0.5: through the AWP's scope 1000 counts turn half as far
+# as without.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), with
+#   --launch tests/launch/de_dust2_nobots --env CSX_LOG_SOUNDS=1
+# timeout: 400
+wait log open D:\\de_dust2.sxwad
+sleep 25
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 10
+closebuymenu
+pckey cmd mp_startmoney 16000
+sleep 1
+pckey cmd mp_buytime 5
+sleep 1
+mark
+pckey cmd sv_restartround 1
+wait newlog Round_Start
+sleep 3
+closebuymenu
+sleep 1
+expect log input: relative mouse mode on through 
+# Autobuy
+mark
+pckey cmd autobuy
+wait newlog pc buy: weapon_ak47 bought
+wait newlog pc buy: item_assaultsuit bought
+sleep 3
+expect nonewlog pc buy: weapon_m4a1
+expect nonewlog pc buy: weapon_famas
+expect nonewlog pc buy: weapon_galil
+expect nonewlog pc buy: item_kevlar
+# Rebuy after a round restart (sv_restartround set to another value: the same value again restarts nothing)
+mark
+pckey cmd sv_restartround 2
+wait newlog pc buy: a round starts: Rebuy has 2 buys
+sleep 3
+closebuymenu
+mark
+pckey cmd rebuy
+wait newlog pc buy: weapon_ak47 bought
+wait newlog pc buy: item_assaultsuit bought
+# a grenade's own key
+pckey cmd hegren
+wait newlog pc buy: weapon_hegrenade bought
+sleep 1
+pckey cmd weapon_hegrenade
+sleep 1.5
+state g
+expect weapon g 4
+# radio: the commands menu, its first line
+mark
+pckey cmd radio1
+sleep 1
+windowshot radio_menu
+pckey cmd slot1
+sleep 2
+windowshot radio_said
+expect log sound .*(coverme|COVERME)
+# Condition Zero's extra line
+mark
+pckey cmd csx_radio circleback
+wait newlog radio: .*: circleback \(radio/circleback.wav\)
+sleep 2
+expect newlog sound .*circleback
+windowshot cz_radio
+# Scoped Sensitivity
+pckey cmd buyitem weapon_awp
+wait newlog pc buy: weapon_awp bought
+sleep 1
+pckey cmd slot1
+sleep 1.5
+pckey set mouse_zoom_sensitivity 0.5
+sleep 1
+state u0
+mousestream 2 0 500 1000
+sleep 0.5
+state u1
+expect yaw u0 u1 -66 0.05
+pckey cmd +attack2
+sleep 0.2
+pckey cmd -attack2
+sleep 1
+windowshot scoped
+state z0
+mousestream 2 0 500 1000
+sleep 0.5
+state z1
+expect yaw z0 z1 -33 0.05
+expect nolog guest trap

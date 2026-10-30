@@ -31,7 +31,7 @@ key Down
 sleep 1
 key Space
 sleep 5
-expect log pc mouse: screen SuperLauncher_SinglePlayerMatchOptions, 4 rows
+expect log pc mouse: screen SuperLauncher_SinglePlayerMatchOptions, 6 rows
 windowshot options
 key Right
 sleep 0.7

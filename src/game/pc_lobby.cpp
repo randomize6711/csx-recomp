@@ -40,6 +40,7 @@ std::map<std::string, std::string> PcScreenValues(const std::string& name);  // 
 void PcSetScreenValues(const std::string& name, const std::map<std::string, std::string>& values);
 std::map<std::string, std::string> PcScreenDefaults(const std::string& name);
 std::map<std::string, std::vector<std::string>> PcScreenChoices(const std::string& name);
+std::string PcNumberValue(const std::string& key, const std::string& value);  // pc_menu.cpp
 int PcSelectedRow(const std::string& screen);
 std::string PcProbeTable();                                       // pc_party.cpp
 std::vector<std::string> PcProbeTake(const std::string& screen);
@@ -90,7 +91,8 @@ profiles::Store Sets() { return profiles::Store(pc::ProfileFolder(), "rulesets",
 const char* ModeName(const std::string& kind) { return kind == "hostage" ? "Hostage Rescue" : "Bomb Defusal"; }
 
 // ---- the rules --------------------------------------------------------------------------------------------------------
-// the party's current rules: PC settings party.rule.<cvar> (the default where unset or not one of the row's values)
+// the party's current rules: PC settings party.rule.<cvar> (the default where unset or neither one of the row's values
+// nor a number of its range, typed: N5B)
 std::map<std::string, std::string> Rules() {
     auto d = PcScreenDefaults(kRules);
     auto choices = PcScreenChoices(kRules);
@@ -98,6 +100,7 @@ std::map<std::string, std::string> Rules() {
         std::string set = pc::GetGlobal("party.rule." + k, "");
         const auto& ok = choices[k];
         if (!set.empty() && std::find(ok.begin(), ok.end(), set) != ok.end()) v = set;
+        else if (!set.empty() && PcNumberValue(k, set) == set) v = set;
     }
     return d;
 }
@@ -127,6 +130,7 @@ std::string Label(const std::string& key, const std::string& value) {
     static const std::map<std::string, std::map<std::string, std::string>> labels = {
         {"bot_difficulty", {{"0", "Easy"}, {"1", "Normal"}, {"2", "Hard"}, {"3", "Expert"}}},
         {"bot_join_team", {{"any", "both teams"}, {"t", "Terrorists"}, {"ct", "Counter-Terrorists"}}},
+        {"pc_gamemode", {{"classic", "Classic"}, {"deathmatch", "Deathmatch"}, {"gungame", "Gun Game"}}},
     };
     auto k = labels.find(key);
     if (k != labels.end())
@@ -479,7 +483,7 @@ void ShowLobby(X86Context& ctx) {
     PcSetScreenLine(ctx, n, 8, "Bots: " + std::to_string(bots) + " (" + Label("bot_difficulty", r["bot_difficulty"]) + ", " +
                                    Label("bot_join_team", r["bot_join_team"]) + ")    Slots: " + std::to_string(count) +
                                    " on this PC + " + std::to_string(bots) + " bots of 65");
-    PcSetScreenLine(ctx, n, 9, "Round " + r["mp_roundtime"] + " min   Freeze " + r["mp_freezetime"] + " s   Buy " +
+    PcSetScreenLine(ctx, n, 9, Label("pc_gamemode", r["pc_gamemode"]) + "   Round " + r["mp_roundtime"] + " min   Freeze " + r["mp_freezetime"] + " s   Buy " +
                                    r["mp_buytime"] + " min   Money $" + r["mp_startmoney"]);
     PcSetScreenLine(ctx, n, 10, "Rounds " + (r["mp_maxrounds"] == "0" ? std::string("no limit") : r["mp_maxrounds"]) +
                                     "   Wins " + (r["mp_winlimit"] == "0" ? std::string("no limit") : r["mp_winlimit"]) +
@@ -525,7 +529,8 @@ void StartMatch(X86Context& ctx) {
     std::string line = "+map " + map->value + " +wait +bot_quota " + std::to_string(bots);
     for (const char* k : {"bot_difficulty", "bot_join_team", "mp_friendlyfire", "mp_roundtime", "mp_freezetime",
                           "mp_buytime", "mp_startmoney", "mp_maxrounds", "mp_winlimit", "mp_timelimit", "mp_limitteams",
-                          "mp_autoteambalance", "mp_c4timer", "allow_spectators", "pc_player_collision"})
+                          "mp_autoteambalance", "mp_c4timer", "allow_spectators", "pc_player_collision", "pc_gamemode",
+                          "pc_fraglimit", "pc_gravity", "mp_flashlight"})
         line += std::string(" +") + k + " " + r[k];
     std::string password = g_dest == "lan" ? g_lan_password : RandomPassword();
     SetEnv("CSX_PARTY_MATCH", std::to_string(PcPartyCount()));

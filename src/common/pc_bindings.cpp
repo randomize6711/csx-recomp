@@ -120,6 +120,51 @@ const std::vector<Action>& Actions() {
         {"report", "Radio: Report In", "report", "c"},
         {"needhelp", "Radio: Need Backup", "needhelp", "v"},
         {"console", "Toggle Developer Console", "toggleconsole", "`"},
+        // N5C (appended: the rows above keep their places): CS 1.6 / Condition Zero style buying, grenades, radio
+        {"buyammo1", "Buy Primary Ammo", "buyammo1", ","},
+        {"buyammo2", "Buy Secondary Ammo", "buyammo2", "."},
+        {"autobuy", "Autobuy", "autobuy", "F3"},
+        {"rebuy", "Rebuy", "rebuy", "F4"},
+        // N7 (docs/n7_gameplay.md): the game's own impulses (the flashlight where the server allows it, mp_flashlight;
+        // the spray logo)
+        {"flashlight", "Flashlight", "impulse 100", "f"},
+        {"spray", "Spray Logo", "impulse 201", "t"},
+        {"invite", "Copy Invite Code", "pc_invite", "F6"},  // N9 (src/game/pc_invite.cpp)
+        {"hud_edit", "Edit HUD Layout", "pc_hud_edit", "F7"},  // N10 (src/game/pc_hud_layout.cpp)
+        {"hegrenade", "HE Grenade", "weapon_hegrenade", ""},
+        {"flashbang", "Flashbang", "weapon_flashbang", ""},
+        {"smokegrenade", "Smoke Grenade", "weapon_smokegrenade", ""},
+        {"radio1", "Radio Menu: Commands", "radio1", ""},
+        {"radio2", "Radio Menu: Group", "radio2", ""},
+        {"radio3", "Radio Menu: Responses", "radio3", ""},
+        {"coverme", "Radio: Cover Me", "coverme", ""},
+        {"takepoint", "Radio: You Take the Point", "takepoint", ""},
+        {"regroup", "Radio: Regroup Team", "regroup", ""},
+        {"takingfire", "Radio: Taking Fire", "takingfire", ""},
+        {"go", "Radio: Go Go Go", "go", ""},
+        {"fallback", "Radio: Team, Fall Back", "fallback", ""},
+        {"sticktog", "Radio: Stick Together", "sticktog", ""},
+        {"getinpos", "Radio: Get in Position", "getinpos", ""},
+        {"stormfront", "Radio: Storm the Front", "stormfront", ""},
+        {"roger", "Radio: Affirmative", "roger", ""},
+        {"enemyspot", "Radio: Enemy Spotted", "enemyspot", ""},
+        {"sectorclear", "Radio: Sector Clear", "sectorclear", ""},
+        {"inposition", "Radio: In Position", "inposition", ""},
+        {"reportingin", "Radio: Reporting In", "reportingin", ""},
+        {"getout", "Radio: Get Out of There", "getout", ""},
+        {"negative", "Radio: Negative", "negative", ""},
+        {"enemydown", "Radio: Enemy Down", "enemydown", ""},
+        // Condition Zero's extra lines (pc_radio.cpp): only on servers that serve them (this game's)
+        {"cz_circleback", "CZ Radio: Circle Around Back", "csx_radio circleback", ""},
+        {"cz_flankthem", "CZ Radio: Flank Them", "csx_radio flankthem", ""},
+        {"cz_meetme", "CZ Radio: Meet at My Location", "csx_radio meetme", ""},
+        {"cz_matedown", "CZ Radio: Teammate Down", "csx_radio matedown", ""},
+        {"cz_imhit", "CZ Radio: I'm Hit", "csx_radio imhit", ""},
+        {"cz_fireassis", "CZ Radio: Need Fire Assistance", "csx_radio fireassis", ""},
+        {"cz_hitassist", "CZ Radio: Hit, Need Assistance", "csx_radio hitassist", ""},
+        {"cz_bombpl", "CZ Radio: Bomb Planted", "csx_radio bombpl", ""},
+        {"cz_bombdef", "CZ Radio: Bomb Defused", "csx_radio bombdef", ""},
+        {"cz_hosdown", "CZ Radio: Hostage Down", "csx_radio hosdown", ""},
     };
     return a;
 }

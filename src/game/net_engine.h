@@ -55,6 +55,8 @@ void DropNetworkClient(X86Context& ctx, const std::string& address, const std::s
 bool OwnedServer();
 int OwnerSlot();  // the owner's client slot (0-based), -1 while not connected
 bool OwnerCommand(X86Context& ctx, uint32_t cl, const std::string& text);
+// a client's "csx_radio NAME" (N5C, pc_radio.cpp): Condition Zero's extra radio lines, checked and played
+bool RadioCommand(X86Context& ctx, uint32_t client, const std::string& text);
 void OwnerPauseCheck(X86Context& ctx);
 bool OwnerPaused();  // the owner's pause menu stopped the simulation
 // the server browser's join: the title relaunches into "+connect server" between frames (net_session.cpp)

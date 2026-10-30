@@ -28,7 +28,7 @@ point 150 268
 sleep 0.5
 click 1
 sleep 3
-expect log pc mouse: screen SuperLauncher_PCControls, 28 rows from 83 108, 26 high
+expect log pc mouse: screen SuperLauncher_PCControls, 69 rows from 83 108, 26 high
 key Return 0.4
 sleep 1
 expect log pc menu: Move Forward waits for a key

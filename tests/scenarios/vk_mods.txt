@@ -1,0 +1,37 @@
+# Mods (N8, src/common/mods.cpp, src/game/pc_mods.cpp, docs/n8_mods.md): a mod made beforehand with tools/make_mod.py
+# from the user's own Condition Zero files (read only), Condition Zero's AK-47 view model and GIGN player model:
+#   tools/make_mod.py <czero> --id cz_ak47_gign --name "CZ AK-47 and GIGN" --version 1.0 --only v_ak47.mdl,gign.mdl
+#       --game build/gamedata --out build/mods
+# enabled (mod.cz_ak47_gign = 1). On de_inferno (no bots: the Counter-Terrorists are GIGN there) the overlay holds the
+# mod's files, the archive answers "not here" for them and the game reads them (an AK-47 bought and held: window
+# shots to compare by eye with the original's), the match plays on; no Host_Error.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), with
+#   --launch tests/launch/de_inferno_nobots --env CSX_MODS=$PWD/build/mods --pc mod.cz_ak47_gign=1
+# timeout: 300
+expect log mods: cz_ak47_gign 1.0 \(cosmetic, 5 files\)
+wait log open D:\\de_inferno.sxwad
+wait log mods: models/player/de_inferno/gign.mdl from a mod
+expect log open d:.cstrike.models.player.de_inferno.gign.mdl
+sleep 25
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 10
+closebuymenu
+sleep 2
+closebuymenu
+pckey cmd buyitem weapon_ak47
+sleep 3
+pckey cmd weapon_ak47
+sleep 3
+expect log mods: models/v_ak47.mdl from a mod
+expect log open d:.cstrike.models.v_ak47.mdl
+windowshot ak47
+pckey cmd thirdperson
+sleep 2
+windowshot thirdperson
+pckey cmd firstperson
+expect nolog Host_Error
+expect nolog guest trap

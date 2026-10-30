@@ -51,6 +51,9 @@ press RIGHT
 sleep 1
 press RIGHT
 sleep 1
+# (Scoped Sensitivity, N5C, then Invert Mouse)
+press DOWN
+sleep 1
 press DOWN
 sleep 1
 press RIGHT

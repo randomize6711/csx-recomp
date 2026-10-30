@@ -19,7 +19,8 @@ inline const std::set<std::string> kStuffAllowed = {
     "-moveleft", "-moveright", "-left", "-right", "-lookup", "-lookdown", "-strafe", "-showscores",
     "cl_minmodels", "spec_mode", "spec_pip", "spec_autodirector", "spec_drawnames", "spec_drawcone", "spec_drawstatus",
     "hud_takesshots", "hud_centerid", "cl_righthand", "cl_corpsestay", "voice_modenable", "voice_scale",
-    "room_type", "say", "say_team", "fov", "default_fov", "hideradar", "drawradar", "unpause", "pc_player_collision",
+    "room_type", "say", "say_team", "fov", "default_fov", "hideradar", "drawradar", "unpause", "pc_player_collision", "pc_server_features",
+    "pc_server_mods",
     "firstperson", "thirdperson", "bot_menu", "menuselect", "showbriefing", "chooseteam", "buy", "buyequip",
     "cl_dlmax", "cl_lc", "cl_lw", "cl_updaterate", "rate", "cl_cmdrate", "ex_interp", "gl_spriteblend",
 };

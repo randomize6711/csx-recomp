@@ -19,6 +19,7 @@
 #include "common/csx.h"
 #include "core/log.h"
 #include "cpu/x86_context.h"
+#include "common/pc_settings.h"
 #include "kernel/kernel.h"
 
 namespace csx {
@@ -45,9 +46,32 @@ void AddLook(float right_degrees, float up_degrees) {
 
 }  // namespace csx
 
+namespace {
+// Scoped Sensitivity (N5C, PC Options > Mouse, pc_settings.ini mouse_zoom_sensitivity): through a scope (the game's
+// zoom: scr_fov, 0x377668, at 10 to 55 degrees; the player's own Field of View is 60 or more) the mouse's turn is
+// multiplied by it; 1 (the default) turns as unscoped, as before
+float ZoomScale() {
+    static unsigned seen = ~0u;
+    static float ratio = 1.0f;
+    if (pc::Version() != seen) {
+        seen = pc::Version();
+        ratio = pc::GetFloat("mouse_zoom_sensitivity", 1.0f);
+        if (!(ratio > 0.0f && ratio <= 5.0f)) ratio = 1.0f;
+    }
+    float fov;
+    std::memcpy(&fov, kernel::HostPtr(0x377668), 4);
+    return fov > 0.0f && fov < 59.0f ? ratio : 1.0f;
+}
+}  // namespace
+
 // [[hook]] at 0x19E4EB (config/game.toml): the game thread, once per pass through the look routine
 void MouseLookApply(X86Context&, uint8_t*) {
     float right = csx::g_right.exchange(0), up = csx::g_up.exchange(0);
+    if (right != 0 || up != 0) {
+        float zoom = ZoomScale();
+        right *= zoom;
+        up *= zoom;
+    }
     if (right != 0) csx::AddTo(csx::kYaw, -right);
     if (up != 0) csx::AddTo(csx::kPitch, -up);
     static unsigned passes = 0, moved = 0;

@@ -179,6 +179,9 @@ class Log:
         # the previous match's round ends)
         slogs = os.path.join(self.run, 'local_server', 'logs')
         self.old_server_logs = set(os.listdir(slogs)) if os.path.isdir(slogs) else set()
+        # split screen's player 1 continuing in its own window (N5F): its own log (the newest cs_*.log) is followed
+        # too from then on, beside the compositor's
+        self.solo = None  # {'path', 'f', 'partial'} once the compositor said so
 
     def poll(self):
         logs = os.path.join(self.run, 'logs')
@@ -194,6 +197,24 @@ class Log:
                 self.f = open(self.path, 'r', errors='replace')
         if self.path is None:
             return
+        if self.solo is None and any('split: player 1 continues in its own window' in l for l in self.lines[-400:]):
+            self.solo = {'path': None, 'f': None, 'partial': '', 'old': set()}
+        if self.solo is not None and os.path.isdir(logs):
+            # a split-screen player's own logs (before: its lines came through the compositor's) start by naming the
+            # compositor; the game on its own does not
+            for n in os.listdir(logs):
+                if n.startswith('cs_') and n not in self.solo['old'] and os.path.join(logs, n) != self.solo['path']:
+                    with open(os.path.join(logs, n), 'r', errors='replace') as h:
+                        if 'the compositor on descriptor' in h.read(20000):
+                            self.solo['old'].add(n)
+            games = sorted(n for n in os.listdir(logs) if n.startswith('cs_') and n not in self.solo['old'])
+            if games and os.path.join(logs, games[-1]) != self.solo['path']:
+                self.solo.update(path=os.path.join(logs, games[-1]), partial='')
+                self.solo['f'] = open(self.solo['path'], 'r', errors='replace')
+            if self.solo['f']:
+                parts = (self.solo['partial'] + self.solo['f'].read()).split('\n')
+                self.solo['partial'] = parts.pop()
+                self.lines.extend(p + '\n' for p in parts)
         for line in self.read():
             self.lines.append(line)
             m = FRAME_RE.search(line)
@@ -273,6 +294,9 @@ def main():
     if not args:
         sys.exit(__doc__)
     scenario, timeout, env = args[0], 600.0, dict(os.environ)
+    # no imported maps unless the scenario asks (--env CSX_MAPS=DIR): a map list as the game folder has it
+    # (common/map_imports.cpp: an empty CSX_MAPS is none)
+    env.setdefault('CSX_MAPS', '')
     launch = None
     wine = False
     netns = None
@@ -456,12 +480,12 @@ def main():
                 # buy menu (a spawn's, which opens at a round's start), Escape (Back, N5A) closes it and play is waited for
                 pre = re.escape(st[1] + ' ') if len(st) > 1 else ''
                 rx = re.compile(pre + r'pc keys: (menu \S+|playing)')
-                states = [m.group(1) for m in (rx.search(l) for l in log.lines) if m]
-                if states and re.match(r'menu \w*BuyMenu', states[-1]):
+                menus = [m.group(1) for m in (rx.search(l) for l in log.lines) if m]
+                if menus and re.match(r'menu \w*BuyMenu', menus[-1]):
                     seen = len(log.lines)
                     send_file('keys', 'Escape 0.12')
                     good = wait_until(lambda: any(re.search(pre + 'pc keys: playing', l) for l in log.lines[seen:]))
-                    print('     closed ' + states[-1][5:])
+                    print('     closed ' + menus[-1][5:])
                     time.sleep(1)
             elif kind == 'key':
                 send_file('keys', st[1] + ' ' + (st[2] if len(st) > 2 else '0.12'))

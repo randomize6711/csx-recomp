@@ -14,6 +14,7 @@
 #include <thread>
 
 #include <fcntl.h>
+#include <sys/prctl.h>
 #include <unistd.h>
 
 #include "app/app.h"
@@ -44,6 +45,8 @@ std::mutex g_pad_lock;
 std::deque<PadOp> g_pad_ops;
 SDL_Joystick* g_vpad = nullptr;
 SDL_JoystickID g_vpad_id = 0;
+std::atomic<bool> g_alone{false};  // player 1 alone (N5F: the compositor's Alone): its relaunch leaves split screen
+std::atomic<int> g_pad_style{-1};  // the real controller's prompt style (N5D: the attach's index, the style + 1)
 
 // the text of text-input events: SDL keeps the pointer, so the strings stay (the last 64)
 std::mutex g_text_lock;
@@ -132,6 +135,15 @@ void Receiver() {
             }
             break;
         }
+        case split::Msg::Alone: {
+            uint8_t on = 0;
+            if (m.Get(at, on)) {
+                g_alone = on != 0;
+                LOGI("split: player 1 %s", g_alone ? "is the only player left: the next relaunch continues in its own window"
+                                                   : "has company again: split screen stays");
+            }
+            break;
+        }
         case split::Msg::Focus: {
             uint8_t focus = 1, captured = 0;
             m.Get(at, focus);
@@ -165,7 +177,29 @@ void Receiver() {
 
 // the next boot's display aspect (pc_wide.cpp reads CSX_DISPLAY_ASPECT once per boot): a match's viewport, or the
 // whole window back in the menus (player 1 is alone there)
+// player 1 alone (N5F, docs/splitscreen.md 20): this relaunch (a map change, the menus) is the game on its own again,
+// in a window of its own, the same process (its local server's owner, its profile and settings unchanged): the split
+// screen's environment and its socket left behind, its output away from the compositor's pipe, no death signal from
+// the compositor, which is told and closes its window (it waits for the game's end as before)
+void LeaveSplitScreen() {
+    for (const char* v : {"CSX_SPLIT_FD", "CSX_SPLIT_PLAYER", "CSX_SPLIT_PLAYERS", "CSX_SPLIT_GPU", "RELAUNCH_KEEP_FD",
+                          "CSX_DISPLAY_ASPECT", "CSX_AUDIO_GAIN"})
+        unsetenv(v);
+    prctl(PR_SET_PDEATHSIG, 0);
+    split::Message m;
+    m.type = split::Msg::Solo;
+    SendLocked(m);
+    LOGI("split: player 1 alone: continuing in its own window (no split screen from this relaunch)");
+    logx::Flush();
+    if (int null = ::open("/dev/null", O_WRONLY | O_CLOEXEC); null >= 0) {
+        ::dup2(null, 1);
+        ::dup2(null, 2);
+        ::close(null);
+    }
+}
+
 void PrepareRelaunch(bool match) {
+    if (g_alone && Player() == 1) return LeaveSplitScreen();
     float a = match ? g_match_aspect.load() : g_menu_aspect.load();
     if (match && a <= 0) a = g_lh ? float(g_lw) / float(g_lh) : 0.0f;
     if (a <= 0) return;
@@ -183,6 +217,8 @@ void Sender(int kind, const std::string& text) {
 }
 
 }  // namespace
+
+int PadStyle() { return g_pad_style; }
 
 bool Active() {
     static const bool on = std::getenv("CSX_SPLIT_FD") != nullptr;
@@ -222,6 +258,7 @@ void Frame() {
         ops.swap(g_pad_ops);
     }
     for (const PadOp& op : ops) {
+        if (op.kind == 2) g_pad_style = int(op.index) - 1;  // 0: not said
         if (op.kind == 2 && !g_vpad) {
             SDL_VirtualJoystickDesc d;
             SDL_INIT_INTERFACE(&d);

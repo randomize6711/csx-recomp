@@ -21,6 +21,7 @@ bool Size(uint32_t& pixel_w, uint32_t& pixel_h);
 uint64_t SizeSerial();  // bumped when the compositor sends a new size
 bool Focused();         // the compositor's window has the keyboard focus
 bool Captured();        // the compositor captured the mouse for this player
+int PadStyle();         // its controller's prompt style (N5D, linux/pad_style.h; the compositor's attach says it), -1 none
 
 // the renderer's output images
 struct ImageInfo {

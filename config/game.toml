@@ -674,6 +674,154 @@ call = "PcConsoleOverMenus"
 at = 0x1A5B20
 call = "PcPlayerCollisionMove"
 
+# game modes (src/game/pc_modes.cpp, N6C-E): the rules' Think every server frame (the rules object in esi); the win
+# check's early exit and the round's time out skipped but in Classic
+[[hook]]
+at = 0x147639
+call = "PcModesThink"
+
+[[hook]]
+at = 0x144E44
+call = "PcModesNoRoundWin"
+on_true = 0x145E43
+
+[[hook]]
+at = 0x147DC3
+call = "PcModesNoRoundTime"
+on_true = 0x1482A8
+
+# Flashbang Effect (src/game/pc_gameplay.cpp, N7): V_ScreenFade (0xB6500) with the fade's colour just copied
+[[hook]]
+at = 0xB6557
+call = "PcFlashFade"
+
+# mods' files in place of the archive's (src/game/pc_mods.cpp, N8): the archive's "is it here" and "open it" answer
+# no for a name an active mod replaces, and the game reads the loose file
+[[hook]]
+at = 0x1FC4F0
+call = "PcModsExistsEntry"
+
+[[hook]]
+at = 0x1FC5A8
+call = "PcModsExistsResult"
+
+[[hook]]
+at = 0x1FC6B0
+call = "PcModsOpenEntry"
+
+[[hook]]
+at = 0x1FC79F
+call = "PcModsOpenFound"
+on_true = 0x1FC7B0
+
+# map rotation (src/game/pc_modes.cpp, N9): the rules' ChangeLevel about to CHANGE_LEVEL to the next map
+[[hook]]
+at = 0x14A8BA
+call = "PcRotationNext"
+
+# Death Camera (src/game/pc_gameplay.cpp, N7): the engine's ClientDLL_CalcRefdef just after the client's V_CalcRefdef
+[[hook]]
+at = 0xB5F39
+call = "PcDeathCamera"
+
+# HUD layout (src/game/pc_hud_layout.cpp, N10): the engine's HUD drawing functions for the client (cl_enginefuncs)
+[[hook]]
+at = 0x22F70
+call = "PcHudSprDraw"
+
+[[hook]]
+at = 0x22FF0
+call = "PcHudSprHoles"
+
+[[hook]]
+at = 0x23070
+call = "PcHudSprAdditive"
+
+[[hook]]
+at = 0x476C0
+call = "PcHudFill"
+
+[[hook]]
+at = 0xB0F40
+call = "PcHudChar"
+
+[[hook]]
+at = 0x47060
+call = "PcHudString"
+
+[[hook]]
+at = 0x47508
+call = "PcHudQuad"
+
+# the HUD elements' Draw entries (src/game/pc_hud_elements.inc, in its order)
+[[hook]]
+at = 0x1D3E30
+call = "PcHudEnter0"  # health
+
+[[hook]]
+at = 0x1D6470
+call = "PcHudEnter1"  # armor
+
+[[hook]]
+at = 0x1D4B70
+call = "PcHudEnter2"  # timer
+
+[[hook]]
+at = 0x1ADDC0
+call = "PcHudEnter3"  # money
+
+[[hook]]
+at = 0x1ACC70
+call = "PcHudEnter4"  # ammo
+
+[[hook]]
+at = 0x1D7640
+call = "PcHudEnter5"  # status icons
+
+[[hook]]
+at = 0x1D6830
+call = "PcHudEnter6"  # kill feed
+
+# the HUD editor's frame (src/game/pc_hud_layout.cpp, N10): SCR_DrawNetGraph's entry, in 2D after the HUD
+[[hook]]
+at = 0x6E4B0
+call = "PcHudFrame2D"
+
+# net_graph's place (src/game/pc_hud.cpp, N5E): SCR_DrawNetGraph just after it placed the graph (0x6E2D0's return)
+[[hook]]
+at = 0x6E613
+call = "PcNetGraphPlace"
+
+# Weapon Field of View (src/game/pc_viewmodel.cpp, N5E): R_SetupGL's perspective (its doubles), and R_RenderView
+# just before and after it draws the first-person weapon (R_DrawViewModel 0x4D300)
+[[hook]]
+at = 0x4E264
+call = "PcViewmodelWorld"
+
+[[hook]]
+at = 0x4EFC2
+call = "PcViewmodelBefore"
+
+[[hook]]
+at = 0x4EFC7
+call = "PcViewmodelAfter"
+
+# Button prompts (src/game/pc_prompts.cpp, N5D): after the launcher's textures went into the menus' registry
+# (0xC4E80's return), the prompts' artwork goes in beside them
+[[hook]]
+at = 0xAF69F
+call = "PcPromptsLoad"
+
+# Rebuy (src/game/pc_buy.cpp PcBuyRoundStart, N5C): the client's RoundTime message handler's entry, a round's start
+[[hook]]
+at = 0x1D4A90
+call = "PcBuyRoundStart"
+
+# Rebuy (pc_buy.cpp PcBuyMenuItem, N5C): the buy menu's purchase's entry (0xD8060, the item's name in ecx)
+[[hook]]
+at = 0xD8060
+call = "PcBuyMenuItem"
+
 # Smooth menu scrolling (N5A, src/game/pc_scroll.cpp): the table draw (0xCD030) before its rows' loop (the rows'
 # offset, one more row, the scissor) and after it (the scissor off)
 [[hook]]

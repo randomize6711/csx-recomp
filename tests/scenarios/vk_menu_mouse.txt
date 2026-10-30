@@ -62,12 +62,12 @@ sleep 0.5
 click 1
 sleep 2
 expect log pc mouse: screen InGame_PCGraphics
-point 545 121
+point 566 121
 sleep 0.5
 click 1
 sleep 1
 windowshot pcoptions
-point 200 121
+point 300 121
 sleep 0.5
 click 11
 sleep 2

@@ -34,6 +34,7 @@ struct Ease {
 };
 std::map<uint32_t, Ease> g_tables;  // by table address (the menus' tables live as long as their screen)
 bool g_clipped = false;             // the scissor is set for the rows being drawn
+std::map<uint32_t, int> g_shown;    // by table address: how many rows its last draw showed (pc_mapsearch.cpp)
 
 bool Enabled() {
     static unsigned seen = ~0u;
@@ -56,6 +57,7 @@ float AsFloat(uint32_t bits) {
 // ebx the row step (pixels), [esp+0x10] the header's height (pixels, the rows' offset), [esp+0x28] the last row to draw
 void PcScrollRows(X86Context& ctx, uint8_t*) {
     g_clipped = false;
+    g_shown[ctx.esi] = int(R32(ctx.esp + 0x28)) - int(ctx.edi) + 1;
     if (!Enabled()) return;
     const uint32_t table = ctx.esi;
     const int first = int(R32(table + 0x120));
@@ -97,4 +99,10 @@ void PcScrollRowsDone(X86Context& ctx, uint8_t*) {
     if (!g_clipped) return;
     g_clipped = false;
     kernel::CallGuest(ctx, kSetScissors, {0, 0, 0});
+}
+
+// how many rows a table's last draw showed (0 before its first), for moving its highlight into view
+int PcTableShownRows(uint32_t table) {
+    auto it = g_shown.find(table);
+    return it == g_shown.end() ? 0 : it->second;
 }

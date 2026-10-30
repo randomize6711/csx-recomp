@@ -1,0 +1,77 @@
+# Weapon Field of View and net_graph (N5E, src/game/pc_viewmodel.cpp; FINDINGS.md): in a match on de_dust2 (no bots),
+# window shots of the first-person weapon with its own field of view unset, at 60 and at 110 (the world's view the
+# same in all three: Field of View 90); then the engine's net_graph at each net_graphpos and cl_showfps, to see what
+# the title draws (looked at by hand); then the PC settings for them (N5E, src/game/pc_hud.cpp, window_input.cpp).
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), with
+#   --launch tests/launch/de_dust2_nobots
+# timeout: 300
+wait log open D:\\de_dust2.sxwad
+sleep 25
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 10
+closebuymenu
+sleep 2
+closebuymenu
+pckey cmd slot2
+sleep 2
+windowshot vm_same
+pckey set viewmodel_fov 60
+wait log pc view: the weapon drawn at 60 degrees
+sleep 1
+windowshot vm_60
+pckey set viewmodel_fov 110
+wait log pc view: the weapon drawn at 110 degrees
+sleep 1
+windowshot vm_110
+pckey set viewmodel_fov 0
+sleep 1
+pckey cmd net_graph 1
+sleep 2
+windowshot ng1_pos_default
+pckey cmd net_graphpos 1
+sleep 2
+windowshot ng1_pos1
+pckey cmd net_graphpos 2
+sleep 2
+windowshot ng1_pos2
+pckey cmd net_graphpos 3
+sleep 2
+windowshot ng1_pos3
+pckey cmd net_graph 3
+sleep 2
+windowshot ng3
+pckey cmd net_graph 0
+pckey cmd cl_showfps 1
+sleep 2
+windowshot showfps
+# the settings: Net Graph Always On in the bottom right corner; With Scoreboard follows the scoreboard; Scoreboard
+# Toggle keeps it up after a short press of Tab until the next
+closebuymenu
+pckey cmd cl_showfps 0
+pckey set net_graph_mode always
+wait log pc hud: net_graph 1 \(always\)
+sleep 2
+windowshot ng_corner
+mark
+pckey set net_graph_mode scoreboard
+wait newlog pc hud: net_graph 0 \(scoreboard\)
+sleep 1
+key Tab 2
+wait newlog pc hud: net_graph 1 \(scoreboard\)
+sleep 3
+wait newlog pc hud: net_graph 0 \(scoreboard\)
+mark
+pckey set scoreboard_mode toggle
+sleep 1
+key Tab
+wait newlog pc keys: Scoreboard passes the controls through
+sleep 3
+expect nonewlog pc hud: net_graph 0
+windowshot toggled
+key Tab
+wait newlog pc hud: net_graph 0 \(scoreboard\)
+expect nolog guest trap

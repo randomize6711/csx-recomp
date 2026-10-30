@@ -181,9 +181,15 @@ bool Throttled(const std::string& ip) {
     return false;
 }
 
+thread_local bool g_console_reply = false;  // the command is the server console's (N9): replies to the log
+
 // text printed in the admin's console (host_client is the admin while its command is parsed)
 void Reply(X86Context& ctx, const std::string& text) {
     std::istringstream lines(text);
+    if (g_console_reply) {
+        for (std::string l; std::getline(lines, l);) LOGI("admin console: %s", l.substr(0, 200).c_str());
+        return;
+    }
     for (std::string l; std::getline(lines, l);) {
         l = l.substr(0, 200) + "\n";
         uint32_t esp = ctx.esp;
@@ -314,9 +320,17 @@ bool Banned(const std::string& identity, const std::string& ip, std::string& why
 
 // the "admin" client command (net_security.cpp ClientCommandAllowed): true when it was one (handled here)
 bool AdminCommand(X86Context& ctx, uint32_t cl, const std::string& text) {
-    std::string ip = ClientAddress(cl), name = Name(cl);
+    // cl 0: the dedicated server's own console (its stdin: the server GUI, tools/csx_server_gui.py), the server's
+    // owner, every permission (it can stop the server anyway)
+    const bool owner = cl == 0;
+    struct ReplyMode {
+        bool was = g_console_reply;
+        explicit ReplyMode(bool on) { g_console_reply = on; }
+        ~ReplyMode() { g_console_reply = was; }
+    } reply_mode(owner);
+    std::string ip = owner ? std::string("console") : ClientAddress(cl), name = owner ? std::string("server console") : Name(cl);
     std::string ip_only = ip.substr(0, ip.find(':'));
-    if (!Network(cl)) return false;
+    if (!owner && !Network(cl)) return false;
     std::istringstream w(text);
     std::string word, cmd;
     w >> word >> cmd;
@@ -334,11 +348,12 @@ bool AdminCommand(X86Context& ctx, uint32_t cl, const std::string& text) {
         Reply(ctx, "admin: " + why);
         return true;
     };
-    if (!g_admins.present) return refuse("remote administration is not configured on this server");
-    if (!key) return refuse("no player identity (net_identity 1 is needed to administer)");
-    auto it = g_admins.keys.find(*key);
-    if (it == g_admins.keys.end()) return refuse("this player key is not an admin");
-    const std::set<std::string>& perms = it->second;
+    static const std::set<std::string> kAll(kPermissions.begin(), kPermissions.end());
+    if (!owner && !g_admins.present) return refuse("remote administration is not configured on this server");
+    if (!owner && !key) return refuse("no player identity (net_identity 1 is needed to administer)");
+    auto it = owner ? g_admins.keys.end() : g_admins.keys.find(*key);
+    if (!owner && it == g_admins.keys.end()) return refuse("this player key is not an admin");
+    const std::set<std::string>& perms = owner ? kAll : it->second;
     const Command* c = nullptr;
     for (const Command& k : kCommands)
         if (cmd == k.name) c = &k;

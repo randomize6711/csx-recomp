@@ -1,0 +1,27 @@
+# Gun Game (N6D, src/game/pc_modes.cpp, docs/n6_modes.md), headless: de_aztec, 7 bots, rounds of 1 minute and
+# "+pc_gamemode gungame". Kills move players up the ladder (reaches level lines, the weapons given), the dead spawn
+# again, no round ends past the round's minute. Then the ladder set on the server's console (pc_gungame_order deagle
+# awp: the knife added last) is taken, and an unknown name refuses it.
+#   --env FPS=30 --launch tests/launch/de_aztec_gungame
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+expect log pc mode: Gun Game
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 1
+count pc.mode:.*.reaches.level.[0-9]+ 4
+count pc.mode:.*.respawned.\(gungame\) 3
+sleep 60
+expect nolog game:.World.triggered."Round_End"
+expect nolog pc.mode:.weapon_.*not.at
+pckey cmd pc_gungame_order deagle awp
+count pc.mode:.Gun.Game.ladder:.deagle.awp.knife.\(3.levels\) 1
+pckey cmd pc_gungame_order deagle laser
+count pc.mode:.Gun.Game.ladder.refused:.no.weapon."laser" 1
+expect nolog guest trap

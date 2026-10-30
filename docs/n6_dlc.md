@@ -80,3 +80,33 @@ Which functions changed and what they fix: see "Function-level comparison" below
 | ./default.tbn | 233312 | PNG image data, 300 x 300, 8-bit/color R | f42adc3bea228a70 |
 | ./default.xbe | 1388544 | Microsoft Xbox executable: "Counter-Stri | 33f13eb60be6a552 |
 | ./Readme.txt | 1728 | ASCII text, with very long lines (543),  | 66283c600c95f412 |
+
+## Function-level comparison (2026-10-30)
+
+Method (scripts in the session's scratch, reproducible from the two executables): both `.text` sections disassembled
+(objdump, linear), addresses of four or more hex digits masked, the code cut into functions at the int3 padding.
+8134 functions in the disc's, 8129 in the update's; 7869 are identical (by their masked text, wherever they moved).
+Of the rest, most differ only in data the linear disassembly reads as code (switch jump tables after a function:
+their entries are addresses, which moved) or in a function moved or split by the linker. Comparing the code before
+any table leaves these real changes:
+
+- **Xbox Live / system link version and session code**: constants 0x54 -> 0x55 and 0x43C -> 0x43D (the session and
+  content versions the Live and system link screens send and check: SuperLauncher_LiveBrowseSessions, OptiMatch,
+  0xEBDF0, 0xEDD80, 0xF5EC0, 0xF4CD0, 0xF6550, 0xF6690) and a session state check 2 -> 0x14 (0xF4CD0). The PC port
+  replaced Xbox Live and system link (N1..N3: its own transport, sessions and browser): nothing to carry over.
+- **The three "gameplay" candidates are relocations only** (checked 2026-10-30): 0x13A280 (the dropped weapons'
+  models by weapon id, TU 0x139E40), 0x1BEEE0 (TU 0x1BEEB0) and 0xDF940 (TU 0xDF670) were disassembled from both
+  images (flat images built from the XBE sections, read only) with every address operand replaced by the string it
+  names or a placeholder. All three are instruction-for-instruction the same (144, 252 and 184 instructions): their
+  differences were the moved data and string addresses only. **Nothing in the update's game code needs
+  reimplementing**; its only behaviour changes are the Live / system link versions above.
+- **No new strings, resources or features**: the update is a rebuild with fixes; the only other readable change is
+  its build stamp.
+
+## Integration (N6A)
+
+- **Inferno and Office in the title's lists** (src/game/pc_dlc.cpp ExtendDlcMaps): Custom Game's map list and the
+  pause menu's Change Map list get Inferno and Office (made from a row of the same kind; their previews are
+  launcher.xpr's de_inferno / cs_office), in alphabetical order, when their archives are in the game folder. The
+  party's map list reads the title's list, so it shows their previews too. The packages' contents (tokens and
+  filler) and the installer are not used.

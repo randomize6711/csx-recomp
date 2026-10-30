@@ -64,13 +64,18 @@
   and rulesets, ready-up lobby, pause menus by player, return to lobby (docs/multiplayer_frontend.md) ✅ 2026-10-28,
   automated regression complete 2026-10-30, manual checks pending; waiting for approval before N5
 - N5 — menu usability, input, controller prompts, settings, quality of life (docs/n5_plan.md, docs/n5_usability.md):
-  approved 2026-10-30; N4.8.1 ✅ (e624919), N5A ✅ (71cc8c0, 81038b0), N5B..N5F in progress
+  approved 2026-10-30; N4.8.1 ✅ (e624919), N5A ✅ (71cc8c0, 81038b0), N5B..N5F ✅ 2026-10-30 (Wii Remote motion
+  and pointer not done)
 - Autonomous implementation pass N5..N11 (user mandate 2026-10-30; status and continuation: docs/autonomous_pass.md):
   N6 official DLC (from the user's local DLC folder, read only), map import pipeline, Deathmatch, Gun Game, game mode
   registry; N7 death camera, gravity, sprays, flashlight, flashbang colour, optional ragdolls; N8 mod loader, skin
   packs, Half-Life compatibility research; N9 Steam / Discord invitations (optional), server GUI; N10 HD UI, HUD
   editor; N11 larger matches (65 stable, 96 / 128 experimental). Then a playable build and one report; optimization and
-  the complete regression only when approved after the user's manual testing
+  the complete regression only when approved after the user's manual testing. Status 2026-10-30 (docs/autonomous_pass.md):
+  N6 ✅ (free-for-all not done); N7 ✅ but ragdolls (investigated, not built); N8 mod loader ✅, skin packs ✅
+  (models, sprites; not sounds), Half-Life compatibility investigated only; N9 invite codes, server GUI, rotation ✅,
+  Steam / Discord blocked (the user's developer registrations); N10 HUD layout and editor ✅, HD artwork export only;
+  N11 see docs/n11_slots.md
 - M8 — PC feature set complete
 
 ## Future (not scheduled)

@@ -37,10 +37,12 @@ bool IdValid(const std::string& id) {
 }
 
 bool Scoped(const std::string& key) {
-    static const char* const kKeys[] = {"mouse_sensitivity", "mouse_invert", "mouse_raw", "fov"};
+    static const char* const kKeys[] = {"mouse_sensitivity", "mouse_zoom_sensitivity", "mouse_invert", "mouse_raw", "fov", "prompt_style"};
     for (const char* k : kKeys)
         if (key == k) return true;
-    return key.rfind("bind.", 0) == 0 || key.rfind("pad.", 0) == 0;
+    return key.rfind("bind.", 0) == 0 || key.rfind("pad.", 0) == 0 || key.rfind("mod.", 0) == 0 ||
+           key.rfind("mod_order.", 0) == 0 || key == "mods_original" ||
+           key.rfind("hud.", 0) == 0 || key.rfind("hud_split.", 0) == 0 || key == "hud_scale" || key == "hud_scale_split";
 }
 
 Store::Store(std::string folder, std::string sub, bool (*keys)(const std::string&))

@@ -56,6 +56,7 @@
 #include "common/pc_settings.h"
 #include "common/profiles.h"
 #include "core/log.h"
+#include "linux/pad_style.h"
 #include "linux/split_ipc.h"
 #include "linux/window.h"
 
@@ -412,7 +413,32 @@ void SendFocus(Player& p) {
     if (p.fd >= 0) split::Send(p.fd, m);
 }
 
+// player 1 told when it is the only player left after others played with it (N5F): its next relaunch then leaves
+// split screen (split_player.cpp LeaveSplitScreen); a party of one from the start stays in the compositor
+bool g_had_company = false, g_alone_told = false, g_solo = false;
+void SendAlone(bool alone) {
+    Player& one = g_players[0];
+    if (!one.alive || one.fd < 0 || alone == g_alone_told) return;
+    g_alone_told = alone;
+    split::Message m;
+    m.type = split::Msg::Alone;
+    m.Put(uint8_t(alone));
+    split::Send(one.fd, m);
+    LOGI("split: player 1 %s", alone ? "is alone now (its next relaunch leaves split screen)" : "has company again");
+}
+void UpdateAlone() {
+    int seated = 0, running = 0;  // the other members (a member between matches has no process: still a member)
+    for (const Player& p : g_players) {
+        if (p.n == 1) continue;
+        seated += Seated(p);
+        running += p.alive || (p.crashed && p.restart_at > 0);
+    }
+    if (seated) g_had_company = true;
+    SendAlone(g_had_company && seated == 0 && running == 0);
+}
+
 void Relayout() {
+    UpdateAlone();
     int ww = 0, wh = 0, pw = 0, ph = 0;
     SDL_GetWindowSize(g_win, &ww, &wh);
     SDL_GetWindowSizeInPixels(g_win, &pw, &ph);
@@ -496,9 +522,18 @@ void PrepareFolder(Player& p, const std::string& line) {
             if (auto eq = l.find(" = "); eq != std::string::npos && l[0] != '#') mine[l.substr(0, eq)] = l.substr(eq + 3);
     }
     for (const char* k : {"fov", "frame_rate", "vsync", "xbox_effects", "auto_exposure", "bloom", "resolution",
-                          "master_volume", "mouse_sensitivity", "mouse_invert", "net_rate", "net_update_rate", "net_cmd_rate"}) {
+                          "master_volume", "mouse_sensitivity", "mouse_zoom_sensitivity", "mouse_invert", "prompt_style",
+                          "net_rate", "net_update_rate", "net_cmd_rate", "flashbang_colour", "death_camera"}) {
         std::string v = pc::Get(k, "");
         if (!v.empty()) mine[k] = v;
+    }
+    // the split-screen HUD layout and scale (N10, pc_hud_layout.cpp): player 1's, from its file (a player's own
+    // profile's layout, profile-scoped, still wins in that player's process)
+    if (std::ifstream in{fs::path(g_root) / "pc_settings.ini"}) {
+        for (std::string l; std::getline(in, l);)
+            if (auto eq = l.find(" = "); eq != std::string::npos &&
+                (l.rfind("hud_split.", 0) == 0 || l.rfind("hud_scale_split = ", 0) == 0))
+                mine[l.substr(0, eq)] = l.substr(eq + 3);
     }
     std::ofstream out(dir / "pc_settings.ini", std::ios::trunc);
     out << "# a split-screen player's PC settings (player 1's display settings copied at each start)\n";
@@ -702,11 +737,14 @@ std::string PadGuid(SDL_JoystickID id) {
     return g;
 }
 
+// an attach's index: its controller's prompt style + 1 (N5D, linux/pad_style.h), 0 without a controller
+uint8_t AttachStyle(const Player& p) { return p.pad ? uint8_t(padstyle::Of(p.pad) + 1) : 0; }
+
 void GivePad(Player& p, SDL_JoystickID id) {
     p.pad = id;
     p.pad_guid = PadGuid(id);
     LOGI("split: controller %s (%u) is player %d's", SDL_GetGamepadNameForID(id), unsigned(id), p.n);
-    if (p.alive) SendPad(p, 2, 0, 0);
+    if (p.alive) SendPad(p, 2, AttachStyle(p), 0);
 }
 
 // a controller connected: the player it was taken from (unplugged: its GUID, N4.8), else the next player without one
@@ -1264,7 +1302,11 @@ void HandleMessage(Player& p, const split::Message& m) {
         p.view_px = {};
         Relayout();
         SendFocus(p);
-        if (p.pad || p.n == 1) SendPad(p, 2, 0, 0);
+        if (p.pad || p.n == 1) SendPad(p, 2, AttachStyle(p), 0);
+        if (p.n == 1) {  // a new player 1 process (a relaunch within split screen): told again where it stands
+            g_alone_told = false;
+            UpdateAlone();
+        }
         if (p.n == 1) SendState();
         LOGI("split: player %d (re)started", p.n);
         break;
@@ -1309,6 +1351,14 @@ void HandleMessage(Player& p, const split::Message& m) {
         break;
     case split::Msg::Setup:
         if (p.n == 1) OnSetup(m.Text());
+        break;
+    case split::Msg::Solo:  // player 1 alone relaunches as the game on its own (N5F): this window closes; its end is
+                            // still waited for (its socket's end below, then its process's)
+        if (p.n == 1) {
+            LOGI("split: player 1 continues in its own window: the split screen's window closes");
+            SDL_HideWindow(g_win);
+            g_solo = true;
+        }
         break;
     default:
         break;
@@ -1916,6 +1966,11 @@ int CompositorMain(const std::string& game) {
     g_vertical = pc::Get("split_layout", "horizontal") == "vertical";
     g_kbm = std::clamp(std::atoi(pc::Get("split_kbm", "1").c_str()), 1, 4);
     g_test_only = std::getenv("CSX_TEST_INPUT_ONLY") && *std::getenv("CSX_TEST_INPUT_ONLY") == '1';
+    // controllers SDL reads only when asked (N5D): a Steam Controller over Bluetooth without Steam (Steam's virtual
+    // controller is preferred where both are there, window_input.cpp), Wii Remotes (with a Nunchuk); the environment's
+    // SDL_JOYSTICK_HIDAPI_* still decide
+    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_STEAM, "1");
+    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_WII, "1");
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD | SDL_INIT_EVENTS)) {
         LOGE("split: SDL_Init failed: %s", SDL_GetError());
         return 1;
@@ -1970,6 +2025,14 @@ int CompositorMain(const std::string& game) {
                 if (!again) pf.revents |= POLLHUP;
             }
             if (pf.revents & (POLLHUP | POLLERR)) {
+                // player 1 went on in its own window (N5F): its socket's end is not its end; the loop goes on (the
+                // log flushed, the local server's output it still sends here read) until its process ends (below)
+                if (p->n == 1 && g_solo) {
+                    ::close(p->fd);
+                    p->fd = -1;
+                    DropImages(*p);
+                    continue;
+                }
                 int status = 0;
                 if (p->pid > 0) waitpid(p->pid, &status, 0);
                 LOGI("split: player %d's process ended (%s %d)", p->n, WIFSIGNALED(status) ? "signal" : "exit",
@@ -1988,6 +2051,18 @@ int CompositorMain(const std::string& game) {
                                                     : "exit " + std::to_string(WEXITSTATUS(status)));
                 Relayout();
             }
+        }
+        // player 1 on its own (N5F): its process's end is the compositor's
+        if (g_solo && g_players[0].pid > 0) {
+            int status = 0;
+            if (waitpid(g_players[0].pid, &status, WNOHANG) == g_players[0].pid) {
+                LOGI("split: player 1 (in its own window) ended (%s %d)", WIFSIGNALED(status) ? "signal" : "exit",
+                     WIFSIGNALED(status) ? WTERMSIG(status) : WEXITSTATUS(status));
+                g_players[0].pid = 0;
+                g_players[0].alive = false;
+                quit = true;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));  // no window to pace the loop
         }
         // crashed players whose restart is due (only while player 1 plays the match they were in)
         for (auto& p : g_players)

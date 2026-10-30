@@ -1,6 +1,16 @@
 # TODO (priority order)
 
 ## Now
+0. Autonomous pass N5..N11 leftovers (docs/autonomous_pass.md, each milestone's doc):
+   - Ragdolls (N7): find the Xbox studio renderer's bone setup, vendor Jolt, a world mesh per map.
+   - Free-for-all Deathmatch (N6C): the game's team checks for damage, frags and the team-killer kick.
+   - Sound mods (N8): rebuild the XACT wave banks.
+   - HD artwork import (N10): a DXT encoder and the XPR's disk path; then HD packs as mods.
+   - Wii Remote motion and pointer (N5D).
+   - Steam and Discord invitations (N9): need the user's App ID / application ID.
+   - Half-Life as a separate game module (N8): only on the user's decision.
+   - 128 slots (N11): the voice masks' layout for 4 dwords.
+   - The radio menu's text drawn several times in one window shot (vk_buy_radio's radio_menu): look at it in play.
 0. Graphics fidelity (FINDINGS.md "Graphics fidelity audit", "Dynamic gamma", "Flashbang", "Water"): de_aztec's
    water against a console capture (cube filtering across face edges: seamless in Vulkan, per face in the reference
    renderer, unknown on the console). Other screen-space
