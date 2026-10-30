@@ -1,0 +1,83 @@
+# Issue 9 of the bug-fix pass (src/linux/window_main.cpp CSX_WINDOW_STATE): with Display Mode Fullscreen, a match's
+# start and its Quit each exec the game again; the new image's window opens full screen at once as the last one was
+# (logged), and the Display Mode is not asked again (gamescope keeps no full screen flag of SDL's: the window's own
+# decisions are checked; a Hyprland desktop needs the play-test). A windowed run keeps the window's size likewise
+# (vk_relaunch_windowed).
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1600 -H 900), with
+#   --pc display_mode=fullscreen
+# timeout: 600
+wait log renderer: vulkan
+wait log open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+key Down
+sleep 2
+key Space
+sleep 5
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Space
+sleep 5
+expect log pc mouse: screen SuperLauncher_SinglePlayerMatchOptions
+key Space
+sleep 3
+expect log pc mouse: screen SuperLauncher_SinglePlayerMatchMapList
+point 175 197
+sleep 0.5
+click 1
+sleep 1
+key Space
+wait log local server: ready in
+expect log local server: starting .*csx-server for de_aztec \(offline: this machine's, 127\.0\.0\.1:[0-9]+\)
+wait log net: server 127\.0\.0\.1:[0-9]+ is this game's local server
+wait log net: server 127\.0\.0\.1:[0-9]+ connected
+wait log open D:\\de_aztec.sxwad
+sleep 20
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 20
+key Left_Ctrl
+sleep 10
+expect log window: relaunched, the last window fullscreen [0-9]+x[0-9]+ kept
+windowshot match
+mark
+key Escape
+wait newlog pc mouse: screen InGame_RootSinglePlayer
+sleep 1.5
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Space
+sleep 1.5
+expect log pc mouse: screen InGame_ConfirmQuit
+key Down
+sleep 0.5
+key Space
+wait newlog pc mouse: screen SuperLauncher_SinglePlayerMatchOptions
+sleep 3
+expect count window:.relaunched,.the.last.window.fullscreen 2
+windowshot menus
+expect nolog guest trap

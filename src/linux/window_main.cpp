@@ -125,13 +125,24 @@ void FinishHandover() {}
 #endif
 
 // Options > PC Options: Display Mode, windowed or fullscreen (SDL's borderless desktop fullscreen). Applied once the
-// window shows its first frame: asked earlier (at creation or before the window is mapped) a tiling Wayland
-// compositor (Hyprland) leaves the window tiled. Only a change of the setting applies it later.
+// window shows its first frame: asked earlier (before the window is mapped) a tiling Wayland compositor (Hyprland)
+// left the window tiled. Only a change of the setting applies it later. A relaunch's window opens full screen at once
+// (CSX_WINDOW_STATE); when the compositor did not make it so, the first frame asks again.
 bool WantFullscreen() { return pc::Get("display_mode", "windowed") == "fullscreen"; }
 void ApplyDisplaySettings(SDL_Window* win) {
     bool full = WantFullscreen();
     LOGI("window: Display Mode %s applied", full ? "fullscreen" : "windowed");
-    if (full == ((SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN) != 0)) return;
+    if (full == ((SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN) != 0)) {
+        // full screen asked at the window's creation (a relaunch): the display's whole size when the compositor
+        // agreed; a tiled window instead is asked again
+        SDL_Rect bounds{};
+        int w = 0, h = 0;
+        SDL_GetWindowSize(win, &w, &h);
+        if (!full || !SDL_GetDisplayBounds(SDL_GetDisplayForWindow(win), &bounds) || (w >= bounds.w && h >= bounds.h))
+            return;
+        LOGI("window: full screen from the start not taken (%dx%d of %dx%d): asked again", w, h, bounds.w, bounds.h);
+        SDL_SetWindowFullscreen(win, false);
+    }
     SDL_SetWindowFullscreen(win, full);
     SDL_SyncWindow(win);  // the window manager's answer, for the log
     int w = 0, h = 0;
@@ -279,10 +290,23 @@ int main(int argc, char** argv) {
     // not the 2400x1350 of its logical size, which the compositor scaled up); window sizes and pointer positions stay
     // logical, the swapchain and the software renderer's output take the pixels. CSX_HIDPI=0 asks for the logical size
     const bool hidpi = !(std::getenv("CSX_HIDPI") && *std::getenv("CSX_HIDPI") == '0');
+    // a title relaunch (a match's start or end: the image is exec'd again) opens its window as the last one was
+    // (CSX_WINDOW_STATE, kept up to date below): full screen from the start, or a window of the same size, so the
+    // screen does not drop to a window and back between the two images
+    SDL_WindowFlags start_full = 0;
+    if (const char* ws = std::getenv("CSX_WINDOW_STATE"); ws && !split_player) {
+        char mode[16] = {};
+        int w = 0, h = 0;
+        if (std::sscanf(ws, "%15s %d %d", mode, &w, &h) == 3) {
+            if (!std::strcmp(mode, "fullscreen") && WantFullscreen()) start_full = SDL_WINDOW_FULLSCREEN;
+            else if (!std::strcmp(mode, "windowed") && w >= 320 && h >= 240) win_w = w, win_h = h;
+            LOGI("window: relaunched, the last window %s %dx%d kept", mode, w, h);
+        }
+    }
     SDL_Window* win = SDL_CreateWindow("Counter-Strike", win_w, win_h,
                                        split_player ? SDL_WINDOW_HIDDEN
                                        : SDL_WINDOW_RESIZABLE | (hidpi ? SDL_WINDOW_HIGH_PIXEL_DENSITY : SDL_WindowFlags(0)) |
-                                           (g_vulkan ? SDL_WINDOW_VULKAN : SDL_WindowFlags(0)));
+                                           (g_vulkan ? SDL_WINDOW_VULKAN : SDL_WindowFlags(0)) | start_full);
     g_window = win;
     if (split_player) splitp::Start(win);
     else csx::SetSplitStarter(splitp::StartFromWindow);  // the Split Screen screen restarts the window as the compositor
@@ -665,6 +689,20 @@ int main(int argc, char** argv) {
         window::EndFrameInput();
         window::UpdateConsole();
         FinishHandover();
+        // the window's state for a relaunch's (CSX_WINDOW_STATE: "fullscreen|windowed W H"), once it has shown
+        if (!split_player && win && harness::g_frames > 0) {
+            static std::string state_kept;
+            int w = 0, h = 0;
+            SDL_GetWindowSize(win, &w, &h);
+            // full screen as the Display Mode asks it too (a compositor that does not report it: gamescope)
+            bool full = (SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN) || WantFullscreen();
+            std::string state = std::string(full ? "fullscreen" : "windowed") +
+                                " " + std::to_string(w) + " " + std::to_string(h);
+            if (state != state_kept) {
+                state_kept = state;
+                SetEnv("CSX_WINDOW_STATE", state.c_str());
+            }
+        }
         // the display mode once the first frame is up (full screen only: a window is what there is), then when the
         // Display Mode setting itself changes (PC Options, F11). Not on other saves: a window the compositor made full
         // screen (Hyprland's fullscreen key) went back to its tile whenever PC Options were accepted
