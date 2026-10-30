@@ -1047,11 +1047,15 @@ bool PcBrowserClick(const std::string& screen, float x, float y) {
     return false;
 }
 
+bool PcSettingsScreen(const std::string& name);  // pc_menu.cpp
+
 bool PcBrowserScreen(const std::string& screen) {
     if (screen.rfind("SuperLauncher_PC", 0) != 0) return false;
-    // PC Options (its screens, N5A, N5B) and PC Controls are settings screens, not the browser's or the party's
-    for (const char* s : {"Options", "Controls", "Video", "Graphics", "Mouse", "Audio", "Hud", "Multiplayer", "Controller", "Details"})
-        if (screen == std::string("SuperLauncher_PC") + s) return false;
+    // PC Options' screens (every PcScreen of pc_menu.cpp: its hub, the settings screens, PC Controls, the Rules, a
+    // profile's settings, the Filters) and the Details are settings screens, not the browser's or the party's lists:
+    // their arrows step a setting. (A fixed list of them left out the later Gameplay and Mods screens: a click on
+    // their arrows only selected the row, 2026-10-30)
+    if (PcSettingsScreen(screen) || screen == "SuperLauncher_PCDetails") return false;
     return true;
 }
 

@@ -110,7 +110,7 @@ sleep 0.5
 click 1
 sleep 2
 expect log pc mouse: screen InGame_PCGraphics, 5 rows
-point 566 173
+point 600 173
 sleep 0.5
 click 1
 sleep 1

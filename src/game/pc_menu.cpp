@@ -93,10 +93,10 @@ struct PcScreen {
 // the controller's extra actions' buttons (N7, src/linux/window_input.cpp Poll)
 std::vector<Choice> PadExtraChoices() {
     return {{"None", "none"},
-            {"Back + D-pad Up", "back_up"},
-            {"Back + D-pad Down", "back_down"},
-            {"Back + D-pad Left", "back_left"},
-            {"Back + D-pad Right", "back_right"},
+            {"Back + Up", "back_up"},
+            {"Back + Down", "back_down"},
+            {"Back + Left", "back_left"},
+            {"Back + Right", "back_right"},
             {"Share / Capture", "share"},
             {"Paddle 1", "paddle1"},
             {"Paddle 2", "paddle2"},
@@ -288,7 +288,7 @@ std::string NumberValue(const std::string& key, const std::string& typed) {
     return s;
 }
 
-constexpr char kCustomLabel[] = "Your own value.";
+constexpr char kCustomLabel[] = "Your own value.";  // never shown: the arrows pass it until a number is typed
 
 // a row's list length in the game: its choices and, for a number, the typed value's
 size_t Listed(const Setting& r) { return r.choices.size() + (Numeric(r.key) ? 1 : 0); }
@@ -308,7 +308,7 @@ Setting Binding(const pc::Action& a) {
 // is not among them, and the title's own 480 lines. Headless there are no modes: Native draws at 480 lines there.
 std::vector<Choice> Resolutions() {
     std::string desktop = std::getenv("CSX_DESKTOP_MODE") ? std::getenv("CSX_DESKTOP_MODE") : "";
-    std::vector<Choice> c = {{desktop.empty() ? "Native" : "Native (" + desktop + ")", "native"}};
+    std::vector<Choice> c = {{"Native", "native"}};  // (the display's size is in its Details: a long label overran its box)
     std::string modes = std::getenv("CSX_DISPLAY_MODES") ? std::getenv("CSX_DISPLAY_MODES") : "";
     for (size_t at = 0; at < modes.size();) {
         size_t end = modes.find(',', at);
@@ -320,8 +320,8 @@ std::vector<Choice> Resolutions() {
     unsigned w = 0, h = 0;
     bool listed = false;
     for (const Choice& x : c) listed = listed || x.value == saved;
-    if (!listed && std::sscanf(saved.c_str(), "%ux%u", &w, &h) == 2) c.push_back({saved + " (custom)", saved});
-    c.push_back({"Original (480 lines)", "original"});
+    if (!listed && std::sscanf(saved.c_str(), "%ux%u", &w, &h) == 2) c.push_back({saved + "*", saved});  // * not listed
+    c.push_back({"Original (480)", "original"});
     return c;
 }
 
@@ -398,7 +398,7 @@ const std::vector<PcScreen>& Screens() {
                            {"115", "115"}, {"120", "120"}},
                           0},
                          {"xbox_effects",
-                          "Xbox Graphical Effects",
+                          "Xbox Visual Effects",
                           {"Turn the original's Auto Exposure and Bloom",
                            "on or off together; Off keeps their own settings."},
                           {{"On", "1"}, {"Off", "0"}},
@@ -420,7 +420,7 @@ const std::vector<PcScreen>& Screens() {
                           "Weapon Field of View",
                           {"Set how wide the weapon in your hands is drawn.",
                            "Same draws it as the world, as the original does."},
-                          {{"Same as Field of View", "0"}, {"60", "60"}, {"65", "65"}, {"70", "70"}, {"75", "75"},
+                          {{"Same as FOV", "0"}, {"60", "60"}, {"65", "65"}, {"70", "70"}, {"75", "75"},
                            {"80", "80"}, {"85", "85"}, {"90", "90"}, {"95", "95"}, {"100", "100"}, {"110", "110"}},
                           0},
                      },
@@ -468,7 +468,7 @@ const std::vector<PcScreen>& Screens() {
                          {"prompt_style",
                           "Button Prompts",
                           {"Show the buttons of the controller in use, or of", "one you choose."},
-                          {{"Automatic", "auto"}, {"Keyboard and Mouse", "pc"}, {"Xbox (Original)", "xbox"},
+                          {{"Automatic", "auto"}, {"Keyboard/Mouse", "pc"}, {"Xbox (Original)", "xbox"},
                            {"Xbox 360", "x360"}, {"Xbox Series X|S", "series"}, {"PlayStation 4", "ps"},
                            {"DualSense", "dualsense"}, {"Nintendo Switch", "switch"}, {"Steam Controller", "steam"},
                            {"Wii Remote", "wii"}},
@@ -722,7 +722,7 @@ const std::vector<PcScreen>& Screens() {
                            {"split_p1_pad",
                             "Player 1",
                             {"Player 1 plays with the keyboard and mouse, and can take", "the first controller too (all players on controllers)."},
-                            {{"Keyboard and Mouse", "0"}, {"Also a Controller", "1"}},
+                            {{"Keyboard/Mouse", "0"}, {"Also a Controller", "1"}},
                             0},
                        },
                        true,
@@ -898,33 +898,45 @@ std::string StatusLines(const PcScreen& s) {
     return t;
 }
 
-// a panel's lines (N5B): BackgroundText at the list's left, after the title and the hint (filled by HintFrame)
+// a panel's lines (N5B): BackgroundText at the list's left, after the title and the hint (filled by HintFrame), its
+// text wrapped to the lines' width (kPanelUnits, Units: the font's widths, measured on the screens)
 constexpr int kPanelLines = 13;
+constexpr float kPanelUnits = 17.5f;  // 160 wide at 0.6: about 14.3 x 0.6 a unit
 std::string PanelLines(const char* colour) {
     std::string t;
     for (int i = 0; i < kPanelLines; i++)
-        t += std::string("\tBackgroundText \"") + colour + " 70 " + std::to_string(102 + 17 * i) + " 172 17 0.62\"\t\" \"\r\n";
+        t += std::string("\tBackgroundText \"") + colour + " 62 " + std::to_string(102 + 17 * i) + " 160 17 0.6\"\t\" \"\r\n";
     return t;
 }
 
-// the list's table: the whole width, or beside a panel (narrower, its arrows moved with its value column)
+// the list's columns: the label, then the value with its arrows (2026-10-30: wider value columns; a 60/40 split cut
+// values such as "Native (1920x1080)" and the panel's labels)
+std::string Columns(const PcScreen& s) {
+    const char* label = s.panel ? "55" : "52";
+    const char* value = s.panel ? "45" : "48";
+    return std::string("\t\t\tColumnWidthPercentage \"") + label + "\"\r\n\t\t\tColumnJustify \"truncated\"\r\n"
+           "\t\t\tColumnWidthPercentage \"" + value + "\"\r\n\t\t\tColumnJustify \"center\"\r\n";
+}
+
+// the list's table: the whole width, or beside a panel (narrower, a smaller text, its arrows moved with its value
+// column); the arrows' image spans the value column (Columns)
 std::string TableLayout(const PcScreen& s, bool front_end) {
     if (!s.panel)
         return front_end ? std::string("\t\t\tTableVerticalWrap\r\n\t\t\tTableTextScale \"0.875\"\r\n\t\t\tTableLocation \"75 100\"\r\n"
                                        "\t\t\tTableRowSpacing \"5\"\r\n\t\t\tTableSize \"500 ") + (s.status_lines ? "140" : "250") + "\"\r\n"
                                        "\t\t\tNonSelectFG \"0.24 0.29 0.33 1\"\r\n"
-                                       "\t\t\tHighlightImage \"Arrows_Selected 1.0 1.0 1.0 1.0 299.0 2.0 176.0 22.0\"\r\n"
-                                       "\t\t\tNonHighlightImage \"Arrows_Unselected 1.0 1.0 1.0 1.0 299.0 2.0 176.0 22.0\"\r\n"
+                                       "\t\t\tHighlightImage \"Arrows_Selected 1.0 1.0 1.0 1.0 262.0 2.0 236.0 22.0\"\r\n"
+                                       "\t\t\tNonHighlightImage \"Arrows_Unselected 1.0 1.0 1.0 1.0 262.0 2.0 236.0 22.0\"\r\n"
                          : "\t\t\tTableVerticalWrap\r\n\t\t\tTableTextScale \"0.875\"\r\n\t\t\tTableLocation \"75 100\"\r\n"
                            "\t\t\tTableRowSpacing \"5\"\r\n\t\t\tTableSize \"475 300\"\r\n"
-                           "\t\t\tHighlightImage \"Arrows_Selected 1.0 1.0 1.0 1.0 257.0 2.0 218.0 22.0\"\r\n";
-    std::string t = "\t\t\tTableVerticalWrap\r\n\t\t\tTableTextScale \"0.875\"\r\n\t\t\tTableLocation \"252 100\"\r\n"
-                    "\t\t\tTableRowSpacing \"5\"\r\n\t\t\tTableSize \"328 250\"\r\n";
+                           "\t\t\tHighlightImage \"Arrows_Selected 1.0 1.0 1.0 1.0 249.0 2.0 224.0 22.0\"\r\n";
+    std::string t = "\t\t\tTableVerticalWrap\r\n\t\t\tTableTextScale \"0.8\"\r\n\t\t\tTableLocation \"232 100\"\r\n"
+                    "\t\t\tTableRowSpacing \"5\"\r\n\t\t\tTableSize \"384 250\"\r\n";
     if (front_end)
         return t + "\t\t\tNonSelectFG \"0.24 0.29 0.33 1\"\r\n"
-                   "\t\t\tHighlightImage \"Arrows_Selected 1.0 1.0 1.0 1.0 196.0 2.0 132.0 22.0\"\r\n"
-                   "\t\t\tNonHighlightImage \"Arrows_Unselected 1.0 1.0 1.0 1.0 196.0 2.0 132.0 22.0\"\r\n";
-    return t + "\t\t\tHighlightImage \"Arrows_Selected 1.0 1.0 1.0 1.0 178.0 2.0 150.0 22.0\"\r\n";
+                   "\t\t\tHighlightImage \"Arrows_Selected 1.0 1.0 1.0 1.0 213.0 2.0 169.0 22.0\"\r\n"
+                   "\t\t\tNonHighlightImage \"Arrows_Unselected 1.0 1.0 1.0 1.0 213.0 2.0 169.0 22.0\"\r\n";
+    return t + "\t\t\tHighlightImage \"Arrows_Selected 1.0 1.0 1.0 1.0 213.0 2.0 169.0 22.0\"\r\n";
 }
 
 // the front end's screen: its Control Options screen (backgrounds, sounds, arrows, layout, help lines); the list
@@ -942,8 +954,7 @@ std::string FrontEndScreen(const PcScreen& s) {
            "\tBackgroundText \"54 83 107 255 72 423 250 20 0.7\"\t\" \"\r\n" +  // the hint (N5B: HintFrame)
            (s.panel ? PanelLines("54 83 107 255") : std::string()) + Pie() +
            "\tTable\r\n\t{\r\n\t\tLayout\r\n\t\t{\r\n"
-           "\t\t\tColumnWidthPercentage \"60\"\r\n\t\t\tColumnJustify \"truncated\"\r\n"
-           "\t\t\tColumnWidthPercentage \"40\"\r\n\t\t\tColumnJustify \"center\"\r\n" + TableLayout(s, true) +
+           + Columns(s) + TableLayout(s, true) +
            "\t\t}\r\n" + ListRows(s, true) + "\t}\r\n}\r\n";
 }
 
@@ -960,8 +971,7 @@ std::string InGameScreen(const PcScreen& s) {
            (s.panel ? PanelLines("255 255 255 255") : std::string()) +
            Commands(name, s) + Pie() +
            "\tTable\r\n\t{\r\n\t\tLayout\r\n\t\t{\r\n"
-           "\t\t\tColumnWidthPercentage \"60\"\r\n\t\t\tColumnJustify \"truncated\"\r\n"
-           "\t\t\tColumnWidthPercentage \"40\"\r\n\t\t\tColumnJustify \"center\"\r\n" + TableLayout(s, false) +
+           + Columns(s) + TableLayout(s, false) +
            "\t\t}\r\n" + ListRows(s, false) + "\t}\r\n}\r\n";
 }
 
@@ -990,7 +1000,7 @@ std::string HubFrontEnd(const PcScreen& s) {
            "\tGeneric_4_3\r\n\t{\r\n\t\tCommandHighlight\t\"tableMoveDown\"\r\n\t}\r\n\tGeneric_4_4\r\n\t{\r\n\t}\r\n"
            "\tTable\r\n\t{\r\n\t\tLayout\r\n\t\t{\r\n"
            "\t\t\tColumnWidthPercentage \"100\"\r\n\t\t\tTableVerticalWrap\r\n\t\t\tTableLocation \"80 98\"\r\n"
-           "\t\t\tTableSize \"236 300\"\r\n\t\t\tTableRowSpacing \"12\"\r\n\t\t\tNonSelectBG \"0 0 0 0\"\r\n"
+           "\t\t\tTableSize \"236 252\"\r\n\t\t\tTableRowSpacing \"12\"\r\n\t\t\tNonSelectBG \"0 0 0 0\"\r\n"
            "\t\t\tNonSelectFG \"0.24 0.29 0.33 1\"\r\n"
            "\t\t\tHighlightImage \"MainMenu_Highlight 1.0 1.0 1.0 1.0 -40.0 -1.0 240.0 38.0\"\r\n"
            "\t\t}\r\n" + rows + "\t}\r\n}\r\n";
@@ -1157,6 +1167,10 @@ std::string ExtendBotCount(const std::string& text) {
 }
 
 }  // namespace
+
+// one of PC Options' screens (any PcScreen: the hub, the settings, PC Controls, Rules, a profile's, Filters), front end
+// or in game (pc_browser.cpp: not a list of servers or party actions)
+bool PcSettingsScreen(const std::string& name) { return FindScreen(name) != nullptr; }
 
 // [[hook]] at 0xE1D2B (config/game.toml) in the single player Match Options' simulate (0xE1D10), where it has the
 // table (ecx) and the Bot Team row's choice (edi: 0 both teams, 1 or 2 one team): the original then caps Number of
@@ -1529,15 +1543,31 @@ void CaptureKey(int key) {
 
 // ---- Details and typed numbers (N5B) --------------------------------------------------------------------------------
 
-// text in lines of at most width characters, broken at spaces
-std::vector<std::string> Wrap(const std::string& text, size_t width) {
+// a text's width in the menu font's units (an average letter 1; measured on the screens: about 14.3 x the text scale
+// a unit, as wide as the game draws before it cuts a cell's text)
+float Units(const std::string& s) {
+    float u = 0;
+    for (char c : s) {
+        if (c == ' ') u += 0.5f;
+        else if (std::strchr("il.,:;!'|", c)) u += 0.45f;
+        else if (std::strchr("fjrtI1()[]-", c)) u += 0.6f;
+        else if (std::strchr("mwMW%", c)) u += 1.45f;
+        else if (c >= 'A' && c <= 'Z') u += 1.15f;
+        else if (c >= '0' && c <= '9') u += 0.9f;
+        else u += 1.0f;
+    }
+    return u;
+}
+
+// text in lines of at most width units (the font's, Units), broken between words
+std::vector<std::string> Wrap(const std::string& text, float width) {
     std::vector<std::string> out;
     std::string line;
     for (size_t at = 0; at < text.size();) {
         size_t end = text.find(' ', at);
         std::string word = text.substr(at, end == std::string::npos ? std::string::npos : end - at);
         at = end == std::string::npos ? text.size() : end + 1;
-        if (!line.empty() && line.size() + 1 + word.size() > width) {
+        if (!line.empty() && Units(line + " " + word) > width) {
             out.push_back(line);
             line.clear();
         }
@@ -1550,7 +1580,7 @@ std::vector<std::string> Wrap(const std::string& text, size_t width) {
 bool InGameScreenName(const std::string& name) { return name.rfind("InGame_", 0) == 0; }
 
 // what a row's Details shows: its help, its longer description, how to type a number
-std::vector<std::string> DetailLines(const Setting& r, size_t width = 54) {
+std::vector<std::string> DetailLines(const Setting& r, float width = 44) {
     std::vector<std::string> out;
     auto add = [&out, width](const std::string& p) {
         for (const std::string& l : Wrap(p, width)) out.push_back(l);
@@ -1635,8 +1665,14 @@ Hint g_hint;
 void HintFrame(X86Context& ctx, const std::string& name, const PcScreen* s, uint32_t row) {
     if (!s || s->settings.empty() || !s->opens.empty()) return;
     std::string text = PcPromptName(DetailsOnBack(name, *s) ? "back" : "y") + " Details";
-    if (row < s->settings.size() && Numeric(s->settings[row].key))
-        text += "    Type " + RangeText(*ExtraOf(s->settings[row].key));
+    if (row < s->settings.size() && Numeric(s->settings[row].key)) {
+        // within the hint's box (250 wide at 0.7: about 24 units), left of the help bar's buttons
+        const Extra* e = ExtraOf(s->settings[row].key);
+        char range[48];
+        std::snprintf(range, sizeof range, "%g-%g", e->lo, e->hi);
+        // (left of the help bar's buttons: when it would not fit, the panel and the Details say how to type it)
+        if (!s->panel && Units(text) + Units(range) + 4.5f <= 20) text += std::string("    Type ") + range;
+    }
     if (g_hint.screen == name && g_hint.row == row && g_hint.text == text) return;
     g_hint = {name, text, row};
     bool in_game = InGameScreenName(name);
@@ -1647,7 +1683,11 @@ void HintFrame(X86Context& ctx, const std::string& name, const PcScreen* s, uint
     // the panel: the row's name, then its description (as its Details, in the narrower lines)
     const Setting& r = s->settings[row];
     std::vector<std::string> lines = {r.label, ""};
-    for (const std::string& l : DetailLines(r, 30)) lines.push_back(l);
+    for (const std::string& l : DetailLines(r, kPanelUnits)) lines.push_back(l);
+    if (lines.size() > size_t(kPanelLines)) {  // more than the panel holds: the rest is in its Details
+        lines.resize(size_t(kPanelLines) - 1);
+        lines.push_back("(more in Details)");
+    }
     float c = in_game ? 255 : 54, g = in_game ? 255 : 83, b = in_game ? 255 : 107;
     for (int i = 0; i < kPanelLines; i++)
         PcSetScreenLineColour(ctx, name.c_str(), hint + 1 + i, size_t(i) < lines.size() ? lines[size_t(i)] : "",

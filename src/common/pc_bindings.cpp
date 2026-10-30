@@ -155,16 +155,16 @@ const std::vector<Action>& Actions() {
         {"negative", "Radio: Negative", "negative", ""},
         {"enemydown", "Radio: Enemy Down", "enemydown", ""},
         // Condition Zero's extra lines (pc_radio.cpp): only on servers that serve them (this game's)
-        {"cz_circleback", "CZ Radio: Circle Around Back", "csx_radio circleback", ""},
-        {"cz_flankthem", "CZ Radio: Flank Them", "csx_radio flankthem", ""},
-        {"cz_meetme", "CZ Radio: Meet at My Location", "csx_radio meetme", ""},
-        {"cz_matedown", "CZ Radio: Teammate Down", "csx_radio matedown", ""},
-        {"cz_imhit", "CZ Radio: I'm Hit", "csx_radio imhit", ""},
-        {"cz_fireassis", "CZ Radio: Need Fire Assistance", "csx_radio fireassis", ""},
-        {"cz_hitassist", "CZ Radio: Hit, Need Assistance", "csx_radio hitassist", ""},
-        {"cz_bombpl", "CZ Radio: Bomb Planted", "csx_radio bombpl", ""},
-        {"cz_bombdef", "CZ Radio: Bomb Defused", "csx_radio bombdef", ""},
-        {"cz_hosdown", "CZ Radio: Hostage Down", "csx_radio hosdown", ""},
+        {"cz_circleback", "CZ: Circle Around Back", "csx_radio circleback", ""},
+        {"cz_flankthem", "CZ: Flank Them", "csx_radio flankthem", ""},
+        {"cz_meetme", "CZ: Meet at My Location", "csx_radio meetme", ""},
+        {"cz_matedown", "CZ: Teammate Down", "csx_radio matedown", ""},
+        {"cz_imhit", "CZ: I'm Hit", "csx_radio imhit", ""},
+        {"cz_fireassis", "CZ: Need Fire Assistance", "csx_radio fireassis", ""},
+        {"cz_hitassist", "CZ: Hit, Need Assistance", "csx_radio hitassist", ""},
+        {"cz_bombpl", "CZ: Bomb Planted", "csx_radio bombpl", ""},
+        {"cz_bombdef", "CZ: Bomb Defused", "csx_radio bombdef", ""},
+        {"cz_hosdown", "CZ: Hostage Down", "csx_radio hosdown", ""},
     };
     return a;
 }
