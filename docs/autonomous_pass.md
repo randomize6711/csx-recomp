@@ -56,7 +56,7 @@ Test results are in "Targeted test runs" below.
 | N10 HUD layout, editor, HUD scale, split layouts | done (element map from a diagnostic run) | docs/n10_hud.md |
 | N10 HD artwork | export tool only; import, HD preset artwork not done | docs/n10_hud.md |
 | N11 65 stable; 96 experimental (built and tested: 95 bots on a server, 96 players in the game, protocol 48 refusing 47); 128 not built (voice masks, short immediates) | done for 96 | docs/n11_slots.md |
-| Final: playable build, report, manual checklist | after N11 | |
+| Final: playable build, report, manual checklist | done 2026-10-30: build verified to reach gameplay (vk_custom_gamemode), docs/report_n5_n11.md, docs/manual_checklist_n5_n11.md. **The pass is complete; waiting for the user.** | |
 
 ## Targeted test runs (2026-10-30)
 

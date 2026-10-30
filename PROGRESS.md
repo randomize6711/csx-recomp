@@ -826,3 +826,31 @@ Approved by the user 2026-10-28 after N4.7. Done (docs/multiplayer_frontend.md):
   both players in game 4.3 s.
 - Manual checks pending (physical controllers, audio, the look next to the title's screens, a second PC on the LAN).
 Branch g8.2b, not merged. N5 waits for approval.
+
+## 2026-10-30 — Autonomous pass N5B..N11
+
+Under the user's mandate of 2026-10-30, the pass was implemented without per-milestone stops. Full report:
+docs/report_n5_n11.md. Status table and continuation notes: docs/autonomous_pass.md. Manual checklist:
+docs/manual_checklist_n5_n11.md.
+
+**Done**
+- N5B..F: menus, input, prompts, audio, HUD options, single window.
+- N6: DLC maps listed, the title update analysed, map import with Sienna CZ playable, Deathmatch, Gun Game, the mode
+  registry.
+- N7: death camera, gravity, flashlight, spray, flashbang colour, controller chords.
+- N8: mod loader and skin-pack converter.
+- N9: invite codes, server console admin, map rotation, server GUI.
+- N10: HUD layout, editor and scale.
+- N11: an experimental 96-slot build, tested with 95 bots and 96 players; protocol 48 refuses the stable client.
+
+**Not done**
+- Ragdolls; free-for-all Deathmatch; sound mods; HD artwork import; Wii motion and pointer; 128 slots.
+- Blocked on the user's registrations: Steam and Discord.
+
+**Tests**
+- Targeted only: headless, window, network and unit, all passing on the final build (docs/autonomous_pass.md).
+- No complete regression and no physical controllers.
+- The final build boots from the intro to gameplay (vk_custom_gamemode).
+
+Commits e97c3e2 (N5B..N10 combined), be4d28b (N11), and the docs. Branch g8.2b, not merged. Waiting for the user's
+manual testing and approval; no optimization or complete regression until then.
