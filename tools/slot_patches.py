@@ -92,8 +92,10 @@ def generate(slots, layout_cfg, insns):
     if not n:
         raise Error('[slots] max_players is not set')
     hdr = open(os.path.join(ROOT, 'src', 'game', 'player_slots.h')).read()
-    if 'kMaxPlayers = %d;' % n not in hdr:
-        raise Error('src/game/player_slots.h kMaxPlayers is not [slots] max_players = %d' % n)
+    # the stable build's count is the header's default; an experimental one (tools/slots_variant.sh) defines
+    # CSX_MAX_PLAYERS to its own when it compiles
+    if n == 65 and '#define CSX_MAX_PLAYERS %d' % n not in hdr:
+        raise Error('src/game/player_slots.h CSX_MAX_PLAYERS is not [slots] max_players = %d' % n)
     for t in layout_cfg.get('table', []):
         if 'text' in t and '-maxplayers' in t['text'] and '-maxplayers %d +maxplayers %d' % (n, n) not in t['text']:
             raise Error('guest table %s: its command line does not say -maxplayers %d +maxplayers %d' % (t['name'], n, n))

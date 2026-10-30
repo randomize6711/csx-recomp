@@ -1,0 +1,13 @@
+# EXPERIMENTAL 96 player slots (N11, docs/n11_slots.md): the 96-slot csx-server (tools/slots_variant.py 96) on
+# de_aztec with 95 bots: they all join and play a minute (kills, round ends), no Sys_Error ("Too many entities"), no
+# guest trap. Run with
+#   python3 -I tools/drive.py tests/scenarios/exp_server_96.txt --exe build/server96/csx-server
+#       --server "--map de_aztec --max_players 96 --bots 95 --round_time 1"
+wait log server: ready
+count game:.*<BOT>.*entered.the.game 95
+sleep 60
+count game:.*killed 5
+expect nolog Too.many.entities
+expect nolog Sys_Error
+expect nolog guest trap
+expect nolog guest table overrun

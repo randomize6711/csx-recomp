@@ -55,7 +55,7 @@ Test results are in "Targeted test runs" below.
 | N9 Steam / Discord | blocked: they need the user's developer registrations | docs/n9_online.md |
 | N10 HUD layout, editor, HUD scale, split layouts | done (element map from a diagnostic run) | docs/n10_hud.md |
 | N10 HD artwork | export tool only; import, HD preset artwork not done | docs/n10_hud.md |
-| N11 96 / 128 slots | see docs/n11_slots.md | docs/n11_slots.md |
+| N11 65 stable; 96 experimental (built and tested: 95 bots on a server, 96 players in the game, protocol 48 refusing 47); 128 not built (voice masks, short immediates) | done for 96 | docs/n11_slots.md |
 | Final: playable build, report, manual checklist | after N11 | |
 
 ## Targeted test runs (2026-10-30)

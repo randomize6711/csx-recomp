@@ -1,0 +1,14 @@
+# EXPERIMENTAL (N11, docs/n11_slots.md): a 96-slot server (tools/slots_variant.py 96: protocol 48) refuses the stable
+# 65-slot client (protocol 47) at connect: the transport connects, the engine's own protocol check refuses the game
+# connection, no map loads on the client. Run with CSX_NET_SERVER_EXE=build/server96/csx-server.
+# timeout: 200
+[server] --server "--map de_aztec --max_players 96 --bots 1" --env CSX_LOG_NET=1 --env CSX_LOG_CONSOLE=1
+wait log net:.server.identity
+wait log net:.client.127\.0\.0\.2:[0-9]+.connected
+sleep 25
+expect nolog entered.the.game.*127
+[client] --after server:net:.server.identity --delay 5 --launch tests/launch/connect_local --env FPS=30 --env CSX_LOG_NET=1 --env CSX_LOG_CONSOLE=1
+wait log net:.server.127\.0\.0\.1:27015.connected
+sleep 15
+expect nolog open.D:\\de_aztec.sxwad
+expect log console:.This.server.is.using.a.newer.protocol.\(.48.\).than.your.client.\(.47.\)

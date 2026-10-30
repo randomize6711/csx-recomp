@@ -36,7 +36,8 @@ import functools, glob, os, re, shlex, shutil, signal, subprocess, sys, time
 print = functools.partial(print, flush=True)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SERVER = os.path.join(ROOT, 'build', 'server', 'csx-server')
+# the dedicated server; CSX_NET_SERVER_EXE names another (an experimental build: tools/slots_variant.py)
+SERVER = os.path.abspath(os.environ.get('CSX_NET_SERVER_EXE') or os.path.join(ROOT, 'build', 'server', 'csx-server'))
 WINDOW = os.path.join(ROOT, 'build', 'window', 'CounterStrike')
 
 
