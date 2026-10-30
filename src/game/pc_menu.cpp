@@ -340,8 +340,9 @@ const std::vector<PcScreen>& Screens() {
         PcScreen profile{"Profile", "Profile Settings", {"", ""}, {}, true, false, true};
         profile.external = "pc_party edit";
         for (const char* key : {"mouse_sensitivity", "mouse_invert", "mouse_raw", "fov"})
-            for (const Setting& r : v[0].settings)
-                if (r.key == key) profile.settings.push_back(r);
+            for (const PcScreen& from : v)  // PC Options' screens (N5A: Mouse, Graphics)
+                for (const Setting& r : from.settings)
+                    if (r.key == key && !from.external) profile.settings.push_back(r);
         const std::vector<Choice> off_on = {{"Off", "0"}, {"On", "1"}};
         profile.settings.push_back({"pad.invert", "Inverted Look", {"The controller's vertical look reversed.", ""}, off_on, 0});
         profile.settings.push_back({"pad.sensitivity", "Look Sensitivity", {"How fast the aiming thumbstick turns.", ""},

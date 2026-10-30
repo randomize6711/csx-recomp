@@ -1,0 +1,54 @@
+# A profile's own settings (N4.8, src/game/pc_party.cpp, pc_menu.cpp's PcScreen "Profile"): Multiplayer's party,
+# Profiles (R), "Ace" created, then Profiles again and Y (Q) on it: Profile Settings shows its 10 rows (the PC Options
+# rows Mouse Sensitivity, Invert Mouse, Raw Mouse Input and Field of View, then the 6 controller rows). N5A split PC
+# Options into screens; the profile took its four PC rows from the first screen and lost them (fixed: by key from any).
+# Escape goes back to Profiles.
+# timeout: 300
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --env CSX_SPLIT_COMPOSITOR=1 --env CSX_SPLIT_PLAYERS=1 --env CSX_SPLIT_ZCACHE=$PWD/build/zcache
+wait log split: player 1 started
+wait log p1: open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+expect log p1: pc mouse: screen SuperLauncher_MainScreen, 7 rows
+key Down
+sleep 0.7
+key Down
+sleep 0.7
+key Down
+sleep 0.7
+key Space
+wait log p1: pc mouse: screen SuperLauncher_PCParty
+wait log split: party screens shown
+sleep 2
+# player 1: Profiles, Create New Profile (the only row), "Ace"
+key R
+wait log p1: party: player 1 opens Profiles
+key Space
+wait log p1: pc mouse: name typing on
+type Ace
+sleep 1
+key Return
+wait log p1: party: profile [0-9a-f]+ created \(3 characters\)
+wait log p1: pc: playing as profile [0-9a-f]+ \(Ace\)
+sleep 2
+key Escape
+wait log p1: pc mouse: screen SuperLauncher_PCParty
+sleep 1
+mark
+key R
+wait newlog p1: pc mouse: screen SuperLauncher_PCProfiles
+sleep 1
+key Q
+wait newlog p1: pc mouse: screen SuperLauncher_PCProfile, 10 rows
+sleep 1
+windowshot profile_settings
+mark
+key Escape
+wait newlog p1: pc mouse: screen SuperLauncher_PCProfiles
+expect nolog guest trap

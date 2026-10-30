@@ -85,3 +85,8 @@ vk_pause_escape, vk_menu_scroll, vk_menu_mouse, vk_menu_mouse_fe, vk_bind_captur
 vk_menu_pointer_pause, vk_bot_count_43) pass. The other 32 window scenarios ran on the build before smooth scrolling
 only: N5G's complete regression runs them all on the last build. desk_hidpi (a desktop session's, not the headless
 runner's) had its row count changed and was not run.
+
+Fix after N5A (found reading the code for N5B): a profile's Profile Settings (Profiles > Y) took its PC rows (Mouse
+Sensitivity, Invert Mouse, Raw Mouse Input, Field of View) from the first PC screen, which N5A made Video: the four rows
+were gone (6 rows, the controller's). They are now found by key in any PC screen (10 rows again). New test
+vk_profile_settings (passes).
