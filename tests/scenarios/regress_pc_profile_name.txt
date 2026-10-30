@@ -2,9 +2,9 @@
 # src/game/pc_mouse.cpp): on a fresh front end's Create a Profile screen the pointer selects the key under it (b: row
 # 1, column 5, with the screen's HighlightSound as its d-pad plays it) and a click presses it (the game types b); a
 # click on the name field starts typing: text goes through the keyboard's own insert (Å and ö accepted, the game's 15
-# characters kept: the rest refused), Backspace and the cursor keys through its keys' functions, Escape ends typing
-# and a click on the field starts it again; Enter is Done: the profile is made with the typed name and the main menu
-# opens.
+# characters kept: the rest refused), Backspace, Delete, Home, End and the cursor keys through its keys' functions;
+# Enter is Done: the profile is made with the typed name and the main menu opens. (A character key starting the typing
+# with no click is a window test's: vk_profile_persist.)
 wait draws==1
 expect nolog fatal error screen
 sleep 6
@@ -36,14 +36,17 @@ pckey name ö
 sleep 0.5
 pckey namekey right
 sleep 0.5
-pckey namekey escape
-sleep 1
-expect log pc mouse: name typing off \(Escape\), the name "bÅös"
-pckey name x
-sleep 1
-expect count pc.mouse:.typed.U\+ 4
-pckey mclick 1
-sleep 1
+pckey namekey home
+sleep 0.5
+pckey name Z
+sleep 0.5
+pckey namekey home
+sleep 0.5
+pckey namekey delete
+sleep 0.5
+pckey namekey end
+sleep 0.5
+expect count pc.mouse:.typed.U\+ 5
 pckey name Lindström
 sleep 0.5
 pckey name Johansson

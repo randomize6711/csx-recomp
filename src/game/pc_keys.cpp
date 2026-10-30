@@ -214,7 +214,8 @@ void PollRequests() {
             using T = csx::TextKey;
             static const std::map<std::string, T> names = {{"backspace", T::Backspace}, {"left", T::Left},
                                                             {"right", T::Right},         {"enter", T::Enter},
-                                                            {"escape", T::Escape}};
+                                                            {"escape", T::Escape},       {"delete", T::Delete},
+                                                            {"home", T::Home},           {"end", T::End}};
             if (auto it = names.find(l.substr(8)); it != names.end()) csx::QueueTextEntryKey(it->second);
         } else if (l.rfind("con ", 0) == 0) {
             csx::QueueConsoleText(l.substr(4));

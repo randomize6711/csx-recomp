@@ -50,8 +50,12 @@ void MenuPad(int port, input::Pad& pad);
 // the profile name's text entry (src/game/pc_mouse.cpp): on after a click on the name field of a virtual keyboard
 // screen, until Enter, Escape, a click elsewhere or the screen closes; the window's typed text and editing keys go to
 // the game's own edit box through its virtual keyboard's functions
-enum class TextKey { Backspace, Left, Right, Enter, Escape };
+enum class TextKey { Backspace, Left, Right, Enter, Escape, Delete, Home, End };
 bool TextEntryOpen();
+// a profile name screen (Create / Rename Profile): its first character key starts typing (Space, Enter, Escape keep
+// their menu actions until then: the on-screen keyboard's A, Done, back)
+bool TextEntryArmed();
+void StartTextEntry();
 void QueueTextEntry(const std::string& text);
 void QueueTextEntryKey(TextKey key);
 // press-a-key rebinding in PC Controls (src/game/pc_menu.cpp): whether such a screen is open with a binding row

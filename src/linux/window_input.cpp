@@ -357,12 +357,22 @@ void HandleEvent(const void* p) {
                 else LOGI("input: %s cannot be bound", SDL_GetKeyName(e.key.key));  // F1, Print Screen...
                 break;
             }
+            // a profile name screen: a character key (not Space) starts typing it, and is typed, not pressed
+            if (csx::TextEntryArmed() && !g_console && e.key.key != SDLK_GRAVE &&
+                ((e.key.key > 0x20 && e.key.key < 0x7F) || (e.key.key >= 0xA0 && !(e.key.key & SDLK_SCANCODE_MASK))) &&
+                !(e.key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI))) {
+                csx::StartTextEntry();
+                break;
+            }
             if (csx::TextEntryOpen() && !g_console) {  // the name field: its editing keys; characters come as text
                 using T = csx::TextKey;
                 switch (e.key.key) {
                     case SDLK_BACKSPACE: csx::QueueTextEntryKey(T::Backspace); break;
                     case SDLK_LEFT: csx::QueueTextEntryKey(T::Left); break;
                     case SDLK_RIGHT: csx::QueueTextEntryKey(T::Right); break;
+                    case SDLK_DELETE: csx::QueueTextEntryKey(T::Delete); break;
+                    case SDLK_HOME: csx::QueueTextEntryKey(T::Home); break;
+                    case SDLK_END: csx::QueueTextEntryKey(T::End); break;
                     case SDLK_RETURN: case SDLK_KP_ENTER: if (!e.key.repeat) csx::QueueTextEntryKey(T::Enter); break;
                     case SDLK_ESCAPE: if (!e.key.repeat) csx::QueueTextEntryKey(T::Escape); break;
                     case SDLK_V:  // Ctrl+V pastes (N9: an invite code)
@@ -447,7 +457,9 @@ void HandleEvent(const void* p) {
             break;
         case SDL_EVENT_TEXT_INPUT:
             if (g_console && !std::exchange(g_swallow_text, false)) csx::QueueConsoleText(e.text.text);
-            else if (!g_console && csx::TextEntryOpen()) csx::QueueTextEntry(e.text.text);
+            else if (!g_console && (csx::TextEntryOpen() ||
+                                    (csx::TextEntryArmed() && std::string(e.text.text).find_first_not_of(' ') != std::string::npos)))
+                csx::QueueTextEntry(e.text.text);
             break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
             if (g_console) break;
@@ -623,7 +635,7 @@ void UpdateConsole() {
     }
     // text input (the layout's characters) while the console or the name field takes the keyboard
     static bool text = false;
-    if (bool want_text = g_console || csx::TextEntryOpen(); want_text != text) {
+    if (bool want_text = g_console || csx::TextEntryOpen() || csx::TextEntryArmed(); want_text != text) {
         text = want_text;
         if (text) SDL_StartTextInput(win);
         else SDL_StopTextInput(win);

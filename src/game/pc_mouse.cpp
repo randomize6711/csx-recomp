@@ -16,8 +16,9 @@
 //   (the selection fields and the screen's HighlightSound, as its d-pad plays it), a click is A (the game presses
 //   the key: typing, Shift, Symbols, Done...); a click on the name field (the screen's EditBox) starts typing with
 //   the PC keyboard: the layout's characters go into the edit box through the keyboard's own insert (0xD04A0), with
-//   its limits and sounds, Backspace and the arrows through its keys' functions, Enter is START (Done), Escape or a
-//   click elsewhere ends it;
+//   its limits and sounds, Backspace, Delete, Home, End and the arrows through its keys' functions, Enter is START
+//   (Done), Escape cancels the screen (B), a click elsewhere ends it. The PC screens' text fields type at once, with no
+//   click; the profile name screens at their first character key (Space, Enter, Escape keep the menu's actions);
 // - PC Controls (pc_menu.cpp's binding screens): a click on a row's key name, between its arrows, waits for a key
 //   (press-a-key rebinding); the arrows still step through the list, the label selects (a double click is A).
 // The presses go through the pad as the game reads it (GameInfo::pad), so sounds, transitions and commands are the
@@ -98,6 +99,8 @@ std::atomic<int32_t> g_stick{0};                            // lx << 16 | ly, th
 std::atomic<bool> g_stick_on{false};
 // the name field's typing (csx::TextEntryOpen): on while the game thread says so; text and keys queued for it
 std::atomic<bool> g_typing{false};
+std::atomic<bool> g_type_armed{false};  // a profile name screen: its first character key types (csx::StartTextEntry)
+std::atomic<bool> g_type_start{false};
 std::atomic<bool> g_type_again{false};  // a PC keyboard screen refused what was typed: typing goes on there
 std::deque<std::string> g_typed;
 std::deque<csx::TextKey> g_typed_keys;
@@ -248,20 +251,37 @@ void TypeInto(X86Context& ctx, uint32_t screen, uint32_t vk, const std::deque<st
             LOGI("pc mouse: typed U+%04X%s", cp, ok ? "" : " (refused)");
         }
     }
-    for (csx::TextKey k : keys) {
-        if (k == csx::TextKey::Backspace) {
-            ctx.esi = edit;
-            kernel::CallGuest(ctx, kVkBackspace, {});
-            ctx.esi = esi;
-        } else if (k == csx::TextKey::Left || k == csx::TextKey::Right) {
-            ctx.ecx = vk;
-            kernel::CallGuest(ctx, k == csx::TextKey::Left ? kVkCursorLeft : kVkCursorRight, {});
-            ctx.ecx = ecx;
-        } else if (k == csx::TextKey::Enter) {
+    auto backspace = [&] {
+        ctx.esi = edit;
+        kernel::CallGuest(ctx, kVkBackspace, {});
+        ctx.esi = esi;
+    };
+    auto cursor = [&](bool left, uint32_t times) {
+        ctx.ecx = vk;
+        for (uint32_t i = 0; i < times; i++) kernel::CallGuest(ctx, left ? kVkCursorLeft : kVkCursorRight, {});
+        ctx.ecx = ecx;
+    };
+    using K = csx::TextKey;
+    for (K k : keys) {
+        // the cursor's position and the text's length (EditText's fields)
+        uint32_t at = std::min(R32(edit + 0x70), 64u), length = std::min(R32(edit + 0x48), 64u);
+        if (k == K::Backspace) {
+            backspace();
+        } else if (k == K::Delete) {  // the character after the cursor: one right, then the one before it
+            if (at < length) {
+                cursor(false, 1);
+                backspace();
+            }
+        } else if (k == K::Left || k == K::Right) {
+            cursor(k == K::Left, 1);
+        } else if (k == K::Home || k == K::End) {
+            cursor(k == K::Home, k == K::Home ? at : length > at ? length - at : 0);
+        } else if (k == K::Enter) {
             SetTyping(false, "Enter", vk);
             Queue({16, -1});  // START: the screen's Done (menuCreatePlayerProfile)
         } else {
-            SetTyping(false, "Escape", vk);
+            SetTyping(false, "Escape: the screen cancelled", vk);
+            Queue({0, kB});  // B: the screen's own cancel (back)
         }
     }
 }
@@ -494,6 +514,8 @@ void MenuPad(int port, input::Pad& p) {
 }
 
 bool TextEntryOpen() { return g_typing; }
+bool TextEntryArmed() { return g_type_armed && !g_typing; }
+void StartTextEntry() { g_type_start = true; }
 
 void QueueTextEntry(const std::string& text) {
     std::lock_guard<std::mutex> lock(g_lock);
@@ -553,7 +575,10 @@ void PcMouseFrame(X86Context& ctx) {
     }
     uint32_t screen = R32(kCurrentScreen);
     static std::string shown;  // the screen last logged, cleared in play
-    if (!screen || !R32(screen + 0x38C)) SetTyping(false, "the screen closed");
+    if (!screen || !R32(screen + 0x38C)) {
+        SetTyping(false, "the screen closed");
+        g_type_armed = false;
+    }
     if (!screen) {
         shown.clear();
         g_stick_on = false;
@@ -568,6 +593,10 @@ void PcMouseFrame(X86Context& ctx) {
             name == "SuperLauncher_PCProfileName" || name == "SuperLauncher_PCMatchRulesetName" ||
             name == "SuperLauncher_PCMatchPassword" || name == "SuperLauncher_PCMapSearch")
             SetTyping(true, "a server's address or password, a player's name", R32(screen + 0x38C));
+        // the title's profile name (Create Profile, Rename Profile): a character key types at once (no click); the
+        // controller still works the on-screen keyboard
+        g_type_armed = R32(screen + 0x38C) && (name.find("CreateProfile") != std::string::npos ||
+                                               name.find("RenameProfile") != std::string::npos);
         char rows[96] = "";
         if (uint32_t t = R32(screen + 0x380)) {
             uint32_t r0 = R32(t + 0x60), r1 = R32(t + 0x64);
@@ -584,6 +613,7 @@ void PcMouseFrame(X86Context& ctx) {
     const ScreenUi* ui = it == g_screens.end() ? nullptr : &it->second;
     uint32_t table = R32(screen + 0x380), vk = R32(screen + 0x38C);
     if (vk && g_type_again.exchange(false)) SetTyping(true, "the text was refused: typing again", vk);
+    if (g_type_start.exchange(false) && vk && g_type_armed) SetTyping(true, "a profile's name typed", vk);
     if (vk && g_typing) TypeInto(ctx, screen, vk, typed, typed_keys);
     // a binding waiting for its key: the pointer and clicks leave the menu as it is
     if (csx::BindCapturing()) return;
