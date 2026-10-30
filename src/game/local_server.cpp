@@ -393,7 +393,7 @@ bool LocalServerRoute(const std::string& line) {
     }
     // the server's own settings and commands, typed in the game's console (or a test's): run there
     static const char* const kPrefixes[] = {"sv_", "mp_", "bot_"};
-    static const char* const kNames[] = {"allow_spectators", "pausable", "pc_player_collision", "pc_gamemode", "pc_fraglimit", "pc_gungame_order", "pc_gravity", "pc_rotation", "kick", "banid", "removeid",
+    static const char* const kNames[] = {"allow_spectators", "pausable", "pc_player_collision", "pc_gamemode", "pc_fraglimit", "pc_weapon_stay", "pc_gungame_order", "pc_gravity", "pc_rotation", "kick", "banid", "removeid",
                                          "addip", "removeip", "writeid", "writeip", "changelevel", "restart"};
     bool server = false;
     for (const char* p : kPrefixes) server = server || word.rfind(p, 0) == 0;
@@ -413,6 +413,11 @@ void LocalServerPause(bool on) {
     if (!LocalServerRunning() || g_paused == on) return;
     g_paused = on;
     g_menu_seen = false;
+    // the client's clock (the HUD's time, gHUD.m_flTime): the server's svc_setpause stops it while paused, so play
+    // goes on from the same moment (logged for the tests: the clock moves little across a pause)
+    float hud_time;
+    std::memcpy(&hud_time, kernel::HostPtr(0x562438), 4);
+    LOGI("local server: %s, the client's clock at %.2f", on ? "pause asked" : "unpause asked", hud_time);
     QueueEngineCommand(std::string("cmd pc_owner pause ") + (on ? "on" : "off") + "\n");
 }
 

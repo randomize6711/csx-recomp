@@ -477,8 +477,20 @@ void ConPrintfLog(X86Context& ctx, uint8_t*) {
 // pause menu, the spectator screen after the host's player dies), as the console's single player and listen server
 // did: Cbuf_AddText("pause\n") (0x33DB98). With players on the network that froze the match for all of them (their
 // connection timed out): the request is skipped while the server has network clients (true jumps past the call)
+bool PcRadioMenuOpening();  // pc_radio.cpp
+
 bool UiPause(X86Context&, uint8_t*) {
     if (csx::LocalServerRunning()) return true;  // a local server's pause: OwnerPauseOpen / OwnerPauseClose
+    if (PcRadioMenuOpening()) {  // a radio menu: the match goes on behind it
+        LOG_FIRST(4, "net: the menu's pause skipped: a radio menu");
+        return true;
+    }
+    // a game joined to another's server (a split-screen player, a LAN or internet client): the server is not its to
+    // pause (its "pause" was refused there, again every frame while the menu was open)
+    if (csx::NetClientOnly() || csx::SplitPlayer() > 1) {
+        LOG_FIRST(2, "net: the menu's pause skipped: the server is another game's");
+        return true;
+    }
     if (!csx::NetServerHasClients()) return false;
     LOG_FIRST(4, "net: the menu's pause skipped: players are connected over the network");
     return true;
@@ -490,6 +502,7 @@ bool UiPause(X86Context&, uint8_t*) {
 // (pc_owner pause, while no other human plays there); true skips the title's check and call (0xCA021, 0xCA085)
 bool OwnerPauseOpen(X86Context&, uint8_t*) {
     if (!csx::LocalServerRunning()) return false;
+    if (PcRadioMenuOpening()) return true;  // a radio menu: no pause
     csx::LocalServerPause(true);
     return true;
 }

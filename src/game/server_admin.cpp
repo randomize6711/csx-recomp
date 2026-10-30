@@ -44,6 +44,9 @@ constexpr uint32_t kHostClient = 0x6CDFEC;
 constexpr uint32_t kClients = 0x636CE4, kMaxClients = 0x636CE8, kClientSize = 0x5010;
 constexpr uint32_t kClientPrintf = 0x5C3E0;  // SV_ClientPrintf (cdecl: format, ...): to host_client
 constexpr uint32_t kDropClient = 0x5C600;    // SV_DropClient (cdecl: client, crash, format, ...)
+constexpr uint32_t kReliableDatagram = 0x62C3E4;  // sv.reliable_datagram (the sizebuf every client is sent)
+constexpr uint32_t kSzGetSpace = 0x3ECE0;         // SZ_GetSpace (cdecl: buf, length): room for length bytes in it
+constexpr uint8_t kSvcSetPause = 0x18;
 constexpr uint32_t kNaIp = 3;
 
 const std::vector<std::string> kPermissions = {"status", "say", "kick", "ban", "map", "restart", "bots", "settings"};
@@ -512,15 +515,24 @@ int OwnerSlot() {
 // owner's game, a network client, timed out on its own server
 std::atomic<bool> g_owner_paused{false};
 
-void SetPause(bool on) {
+// the owner's pause: the simulation stopped (OwnerPausedFrame), and the clients told as the engine's pause tells them
+// (Host_Pause_f 0x63B80: svc_setpause and the state in the reliable datagram), so their clocks stop too: the view, the
+// animations and the HUD's round timer hold, and play goes on from the same moment
+void SetPause(X86Context& ctx, bool on) {
+    if (g_owner_paused == on) return;
     g_owner_paused = on;
+    uint32_t at = kernel::CallGuest(ctx, kSzGetSpace, {kReliableDatagram, 2});
+    if (!at) return;
+    uint8_t* p = static_cast<uint8_t*>(kernel::HostPtr(at));
+    p[0] = kSvcSetPause;
+    p[1] = on ? 1 : 0;
 }
 
 // the server is paused (the owner's pause menu) and a human other than the owner is connected (a split-screen
 // player added by START, a LAN player): the match goes on for them (net_engine.cpp, at a connection)
-void OwnerPauseCheck(X86Context&) {
+void OwnerPauseCheck(X86Context& ctx) {
     if (!OwnedServer() || !g_owner_paused) return;
-    SetPause(false);
+    SetPause(ctx, false);
     LOGI("owner: the match unpaused: another player connected");
 }
 
@@ -587,10 +599,10 @@ bool OwnerCommand(X86Context& ctx, uint32_t cl, const std::string& text) {
                 }
             }
             LOGI("owner: paused (the pause menu)");
-            SetPause(true);
+            SetPause(ctx, true);
         } else if (arg == "off") {
             LOGI("owner: unpaused (the pause menu)");
-            SetPause(false);
+            SetPause(ctx, false);
         }
         return true;
     }
