@@ -877,3 +877,23 @@ destinations, maps, modes, rules, lobby, pause menus by player). What changed he
 - **Players 2-4 start as their profile** (CSX_PC_PROFILE, its name; CSX_PARTY_TEAM, their lobby team).
 - A controller's START on the old flow (a Single Player match with the compositor) still adds a player; the party's
   joined members follow player 1 into any match it starts, as before.
+
+## 19. N4.8.1: Leave Match (2026-10-30)
+
+Found by the N5 survey (docs/n5_plan.md): a player 2-4's Leave Match did not leave. The title's Yes
+(SystemLinkClientEndSession) relaunches the game into its front end, so the player's process restarted into the menus
+inside its viewport; and the compositor kept its slot configured, so player 1's next "join" (every map change
+relaunch sends one) would have started it into the match again.
+
+Now (src/game/net_session.cpp, src/game/pc_menu.cpp, src/game/pc_browser.cpp, src/linux/compositor.cpp):
+- The player's choice is seen where the title runs it (the command hook sees SystemLinkClientEndSession; split
+  players 2-4 only). Its relaunch to the front end (launch data type 1) ends the process instead: the connection
+  closed (the server frees its slot at once), the compositor told "left" ("ended" if the session ended otherwise).
+- The compositor marks the player **left**: its seat is empty for the rest of the match (the layout, the next boot's
+  frame aspect and the audio gain count the seated players only), and a map change does not start it again. Its
+  controller stays its own: START on it joins player 1's match again. Crashes and refusals are as before.
+- Back in the menus, a player who left leaves the party (as its panel's B there): the others move up. Player 1 now
+  tells the compositor it is in the menus on its first front end screen of any kind (the title's last menu, the
+  party's lobby), not only on the main menu.
+- Test: vk_split_leave (three players; player 2 leaves; a map change brings players 1 and 3 back and not player 2,
+  the server's count 2; START rejoins it, 3; it leaves again; in the menus player 3 moves up).

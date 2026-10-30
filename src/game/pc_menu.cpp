@@ -31,6 +31,7 @@
 #include "core/log.h"
 #include "cpu/x86_context.h"
 #include "game/local_server.h"
+#include "game/net_engine.h"
 #include "game/player_slots.h"
 #include "kernel/kernel.h"
 
@@ -1033,6 +1034,12 @@ bool PcConsoleCommand(X86Context& ctx, uint8_t*) {
         for (uint32_t i = 0; i < R32(0x4253E8) && i < 8; i++) args.push_back(GuestString(R32(0x4251A8 + 4 * i)));
         PcBrowserCommand(ctx, args);
         return true;
+    }
+    // the title's own end of a system link session (the pause menu's Quit / Leave Match): a split player's choice
+    // (N4.8.1); the title's command runs as before
+    if (cmd == "SystemLinkClientEndSession") {
+        csx::SplitLeaveChosen();
+        return false;
     }
     if (cmd == "pc_player_collision") {
         PcPlayerCollisionCommand(R32(0x4253E8) > 1 ? GuestString(R32(0x4251AC)) : std::string());

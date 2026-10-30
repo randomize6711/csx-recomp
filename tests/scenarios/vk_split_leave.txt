@@ -1,0 +1,150 @@
+# Leave Match (N4.8.1, src/linux/compositor.cpp Left, src/game/net_session.cpp SplitLeaveChosen): three local players
+# (player 1 the keyboard, players 2 and 3 test controllers 1 and 2) in a Single Player match with no bots. Player 2
+# leaves (its pause menu's Leave Match, Yes): its process ends ("left", not a crash, not refused), players 1 and 3 play
+# on in a two-player layout, the match's server keeps running. A map change (the pause menu's Change Map as the owner sends it: pc_owner changemap de_dust) brings
+# players 1 and 3 back and not player 2 (the server has 2 players). START on player 2's controller joins it again (3
+# players). Player 2 leaves again; back in the menus it leaves the party: player 3 is player 2 there.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --env CSX_SPLIT_COMPOSITOR=1 --env CSX_SPLIT_PLAYERS=3 --env CSX_SPLIT_ZCACHE=$PWD/build/zcache
+# timeout: 900
+wait log split: player 1 started
+pad 1 attach
+pad 2 attach
+wait log p1: open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+expect log p1: pc mouse: screen SuperLauncher_MainScreen, 6 rows
+point 150 160
+sleep 0.5
+click 1
+sleep 5
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Space
+sleep 5
+expect log p1: pc mouse: screen SuperLauncher_SinglePlayerMatchOptions
+key Left
+sleep 0.7
+key Left
+sleep 0.7
+key Left
+sleep 0.7
+key Left
+sleep 0.7
+key Left
+sleep 0.7
+key Left
+sleep 0.7
+key Left
+sleep 0.7
+key Space
+sleep 3
+key Space
+wait log p1: net: split-screen: the match hosts 3 local players
+wait log p2: net: server 127.0.0.1:27015 connected
+wait log p3: net: server 127.0.0.1:27015 connected
+wait log p3: pc keys: menu TeamSelect
+sleep 4
+key Space
+pad 1 button a
+pad 2 button a
+sleep 6
+click 3
+pad 1 button b
+pad 2 button b
+pckey cmd mp_timelimit 0
+sleep 5
+players three
+expect playercount three 3 3
+# player 2 leaves: its pause menu (5 rows: Leave Match the last), then Yes (the confirmation's second row)
+pad 1 button start
+wait log p2: pc mouse: screen InGame_RootSinglePlayer
+sleep 1
+pad 1 button dpdown
+sleep 0.7
+pad 1 button dpdown
+sleep 0.7
+pad 1 button dpdown
+sleep 0.7
+pad 1 button dpdown
+sleep 0.7
+pad 1 button a
+wait log p2: pc mouse: screen InGame_ConfirmQuit
+sleep 1
+pad 1 button dpdown
+sleep 0.7
+pad 1 button a
+wait log split: player 2's match ended: left
+wait log split: player 2's process ended \(exit 0\)
+wait log split: player 2 left the match: 2 local players play on
+wait log split: player 3's viewport
+expect nolog split: player 2's game ended unexpectedly
+sleep 5
+players two
+expect playercount two 2 2
+windowshot left
+# a map change: players 1 and 3 back, not player 2
+mark
+pckey cmd cmd pc_owner changemap de_dust
+wait newlog p1: net: relaunching
+wait newlog p3: net: server 127.0.0.1:27015 connected
+wait newlog p1: pc keys: menu TeamSelect
+wait newlog p3: pc keys: menu TeamSelect
+sleep 3
+key Space
+pad 2 button a
+sleep 10
+expect nonewlog split: player 2 started
+expect nonewlog split: player 2 \(re\)started
+players newmap
+expect playercount newmap 2 2
+# START on player 2's controller: it joins again
+pad 1 button start
+wait log split: player 2's START: joining player 1's match again
+wait newlog p2: net: server 127.0.0.1:27015 connected
+wait newlog p2: pc keys: menu TeamSelect
+sleep 3
+pad 1 button a
+sleep 6
+pad 1 button b
+sleep 2
+players rejoined
+expect playercount rejoined 3 3
+# player 2 leaves again, then player 1 goes back to the menus: player 2 leaves the party, player 3 moves up
+mark
+pad 1 button start
+wait newlog p2: pc mouse: screen InGame_RootSinglePlayer
+sleep 1
+pad 1 button dpdown
+sleep 0.7
+pad 1 button dpdown
+sleep 0.7
+pad 1 button dpdown
+sleep 0.7
+pad 1 button dpdown
+sleep 0.7
+pad 1 button a
+wait newlog p2: pc mouse: screen InGame_ConfirmQuit
+sleep 1
+pad 1 button dpdown
+sleep 0.7
+pad 1 button a
+wait newlog split: player 2 left the match
+sleep 3
+pckey cmd disconnect
+wait newlog split: party: player 2 left
+wait newlog split: player 3's process ended
+wait newlog p1: pc mouse: screen SuperLauncher_
+sleep 5
+expect nolog guest trap

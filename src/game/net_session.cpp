@@ -32,6 +32,7 @@ std::string g_match_line;    // the party's lobby started a match (N4.8): the ti
 bool g_front_end = false;    // the party's leader returns to its lobby (N4.8): the title relaunches into the front end
 std::string g_close_text;    // why the transport connection to the server ended (its peer's text or the reason)
 std::string g_refusal;       // a refusal the server printed (bad password, banned, kicked)
+bool g_left_by_choice = false;  // split players 2..4: this player chose Leave Match (N4.8.1)
 constexpr uint32_t kRelaunch = 0xBF0E0;  // the title's relaunch (cdecl: the launch data), as 0x5F750 calls it
 
 // the client relaunches into `+connect server` (the title's own way into a match, as the system link join did with
@@ -162,6 +163,10 @@ void RequestFrontEnd() {
     g_front_end = true;
 }
 
+void SplitLeaveChosen() {
+    if (csx::SplitPlayer() > 1) g_left_by_choice = true;
+}
+
 // the party's lobby starts its match (N4.8, pc_lobby.cpp): the title relaunches into the lobby's "+map ..." line from
 // a front end screen, as Single Player's Start does (launch data 3: a Single Player match's mode), so RelaunchNotify
 // starts its local server and the game joins it (docs/splitscreen.md 17)
@@ -264,6 +269,20 @@ void MapChangeNotify(X86Context& ctx, uint8_t*) {
 // a match), written to Z:\releasemap.txt just before: the clients are told MapChange and rejoin; anything else (a
 // quit, a new match from the menus) is a shutdown
 void RelaunchNotify(X86Context& ctx, uint8_t*) {
+    // split-screen players 2..4 play only where player 1 does: the title's own end of their session (Leave Match's
+    // Yes relaunches to the front end, launch data type 1) ends the process instead, the compositor told why: their
+    // own choice is "left" (not respawned at the next map, N4.8.1)
+    if (csx::SplitPlayer() > 1) {
+        uint32_t launch = kernel::R32(ctx.esp + 4);
+        if (launch && kernel::R32(launch) == 1) {
+            LOGI("net: split-screen player %d leaves its match%s", csx::SplitPlayer(), g_left_by_choice ? " (its choice)" : "");
+            csx::NetClientClose();
+            csx::SplitSend(csx::kSplitMatch, std::string(g_left_by_choice ? "left " : "ended ") + "the player's session ended");
+            LOGI("net: split-screen player %d's process ends", csx::SplitPlayer());
+            logx::Flush();
+            std::_Exit(0);
+        }
+    }
     // a match started from the front end's menus: System Link's (Multiplayer's) Host a Match hosts it for the network
     // (a PC listen server: its port open, LAN discovery answered); any other menu match does not (CSX_MENU_HOST)
     bool menu_match = false, hosted = false;
@@ -353,8 +372,10 @@ bool ClDisconnectLostHost(X86Context& ctx, uint8_t*) {
     // starts them again for the next one)
     if (csx::SplitPlayer() > 1) {
         LOGI("net: split-screen player %d's match ended: %s", csx::SplitPlayer(), ReturnMessage().c_str());
-        // the compositor told why: a refusal (full, password, banned) gives a player added by START its slot back
-        csx::SplitSend(csx::kSplitMatch, std::string(g_refusal.empty() ? "ended " : "refused ") + ReturnMessage());
+        // the compositor told why: a refusal (full, password, banned) gives a player added by START its slot back;
+        // the player's own Leave Match takes it out of the local players (no respawn at the next map, N4.8.1)
+        const char* why = !g_refusal.empty() ? "refused " : g_left_by_choice ? "left " : "ended ";
+        csx::SplitSend(csx::kSplitMatch, why + ReturnMessage());
         // at once, without the static destructors: run while the game's threads go on, they crashed the process
         // (SIGSEGV or SIGABRT up to a minute later, N4.6)
         LOGI("net: split-screen player %d's process ends", csx::SplitPlayer());

@@ -95,6 +95,8 @@ struct Player {
     bool refused = false;     // its server refused it (full, a password, a ban): it ends
     float frame_aspect = 4.0f / 3.0f;  // its game frame's (set at its boot), from its Images
     bool told_end = false;    // it said why its match ended before ending (Match "ended" / "refused"): not a crash
+    bool left = false;        // players 2..4 (N4.8.1): it chose Leave Match: its seat empty, not respawned at the next
+                              // map; START on its controller takes it again, the menus give its place up
     bool crashed = false;     // players 2..4: its process ended without saying why (a crash, a kill) during a match:
                               // its viewport kept, a message in it, restarted (RestartDue) or by START
     std::deque<double> crashes;  // when it crashed lately (the restart limit)
@@ -369,6 +371,22 @@ int Active() {  // players whose processes run, or that crashed during the match
     return std::max(1, n);
 }
 
+// the configured players that have not left (N4.8.1): a match's layout and audio are theirs
+bool Seated(const Player& p) { return p.n <= g_configured && !p.left; }
+int SeatedCount() {
+    int n = 0;
+    for (auto& p : g_players) n += Seated(p);
+    return std::max(1, n);
+}
+int SeatOf(const Player& p) {  // its place among them (1-based)
+    int k = 0;
+    for (auto& q : g_players) {
+        if (Seated(q)) k++;
+        if (&q == &p) break;
+    }
+    return std::max(1, k);
+}
+
 void SendSize(Player& p) {
     split::Message m;
     m.type = split::Msg::Size;
@@ -379,8 +397,8 @@ void SendSize(Player& p) {
     // the aspect this player's next match will have (its viewport in the layout of every configured player)
     int ww = 0, wh = 0;
     SDL_GetWindowSize(g_win, &ww, &wh);
-    auto match = Layout(g_configured, ww, wh, g_vertical, 2);
-    const Rect& r = match[size_t(std::min(p.n, int(match.size())) - 1)];
+    auto match = Layout(SeatedCount(), ww, wh, g_vertical, 2);
+    const Rect& r = match[size_t(std::min(SeatOf(p), int(match.size())) - 1)];
     m.Put(float(r.h > 0 ? double(r.w) / r.h : 4.0 / 3.0));
     m.Put(float(wh > 0 ? double(ww) / wh : 4.0 / 3.0));  // and in the menus (alone: the whole window)
     if (p.fd >= 0) split::Send(p.fd, m);
@@ -505,12 +523,12 @@ void Spawn(Player& p, const std::string& line, const std::string& key, const std
     if (p.n > 1) PrepareFolder(p, line);
     int ww = 0, wh = 0;
     SDL_GetWindowSize(g_win, &ww, &wh);
-    auto match = Layout(p.n == 1 ? 1 : g_configured, ww, wh, g_vertical, 2);
-    const Rect& r = match[size_t(std::min(p.n, int(match.size())) - 1)];
+    auto match = Layout(p.n == 1 ? 1 : SeatedCount(), ww, wh, g_vertical, 2);
+    const Rect& r = match[size_t(std::min(SeatOf(p), int(match.size())) - 1)];
     char aspect[32];
     std::snprintf(aspect, sizeof aspect, "%.5f", r.h > 0 ? double(r.w) / r.h : 4.0 / 3.0);
     char gain[32];
-    std::snprintf(gain, sizeof gain, "%.3f", 1.0 / std::sqrt(double(std::max(1, g_configured))));
+    std::snprintf(gain, sizeof gain, "%.3f", 1.0 / std::sqrt(double(SeatedCount())));
     pid_t parent = getpid();
     pid_t pid = fork();
     if (pid == 0) {
@@ -618,6 +636,7 @@ std::string g_match_line, g_match_key, g_match_password;  // where player 1 play
 
 void SendPad(Player& p, uint8_t kind, uint8_t index, int16_t value);
 void SendState();
+void PartyLeave(int n);
 
 // player 1 plays somewhere: players 2..N follow it there; back in the menus, they end
 void OnMatch(const std::string& text) {
@@ -634,6 +653,12 @@ void OnMatch(const std::string& text) {
             End(g_players[size_t(i)], "player 1 is back in the menus");
             g_players[size_t(i)].crashed = false;  // no match to restart into
         }
+        // those who left the match leave the party too (N4.8.1): the last first, so the others' places hold
+        for (int i = kMaxPlayers - 1; i >= 1; i--)
+            if (g_players[size_t(i)].left) {
+                g_players[size_t(i)].left = false;
+                PartyLeave(i + 1);
+            }
         Relayout();
         return;
     }
@@ -645,6 +670,7 @@ void OnMatch(const std::string& text) {
     g_match_party = got >= 5 && !std::strcmp(party, "party");
     for (int i = 1; i < g_configured; i++) {
         Player& p = g_players[size_t(i)];
+        if (p.left) continue;  // it left (N4.8.1): not brought back by a map change; START on its controller rejoins
         if (p.alive && p.target == g_match_line) continue;  // already there (a map change brings it back by itself)
         End(p, "a new match");
         Spawn(p, g_match_line, g_match_key, g_match_password);
@@ -1082,7 +1108,8 @@ void OnSetup(const std::string& text) {
     Relayout();
     if (!g_match_line.empty())
         for (int i = 1; i < g_configured; i++)
-            if (!g_players[size_t(i)].alive) Spawn(g_players[size_t(i)], g_match_line, g_match_key, g_match_password);
+            if (!g_players[size_t(i)].alive && !g_players[size_t(i)].left)
+                Spawn(g_players[size_t(i)], g_match_line, g_match_key, g_match_password);
     SendState();
 }
 
@@ -1092,6 +1119,7 @@ void StartToJoin(SDL_JoystickID id) {
         if (!own->alive && own->n > 1 && own->n <= g_configured && !g_match_line.empty()) {
             LOGI("split: player %d's START: joining player 1's match again", own->n);
             own->refused = false;
+            own->left = false;
             own->crashes.clear();
             Spawn(*own, g_match_line, g_match_key, g_match_password);
         }
@@ -1121,6 +1149,15 @@ void Refused(Player& p) {
     p.late = false;
     p.pad = 0;
     g_configured--;
+    for (auto& q : g_players) q.view = {}, q.view_px = {};
+    SendState();
+}
+
+// a player 2..4 chose Leave Match (N4.8.1): its seat is empty for the rest of the match (the others' viewports take its
+// room, a map change does not bring it back); its controller stays its own, so START joins player 1's match again; back
+// in the menus it leaves the party
+void Left(Player& p) {
+    LOGI("split: player %d left the match: %d local players play on", p.n, SeatedCount());
     for (auto& q : g_players) q.view = {}, q.view_px = {};
     SendState();
 }
@@ -1260,8 +1297,9 @@ void HandleMessage(Player& p, const split::Message& m) {
     }
     case split::Msg::Match:
         if (p.n == 1) OnMatch(m.Text());
-        else {  // players 2..4 say why their match ended just before they end ("ended TEXT", "refused TEXT")
+        else {  // players 2..4 say why their match ended just before they end ("ended TEXT", "refused TEXT", "left TEXT")
             p.refused = m.Text().rfind("refused ", 0) == 0;
+            p.left = m.Text().rfind("left ", 0) == 0;
             p.told_end = true;
             LOGI("split: player %d's match ended: %s", p.n, m.Text().c_str());
         }
@@ -1944,6 +1982,7 @@ int CompositorMain(const std::string& game) {
                 p->target.clear();
                 if (p->n == 1) quit = true;  // player 1 is the game: its end is the compositor's
                 else if (p->refused) Refused(*p);
+                else if (p->left) Left(*p);
                 else if (!p->told_end && !g_match_line.empty())
                     Crashed(*p, WIFSIGNALED(status) ? std::string("signal ") + std::to_string(WTERMSIG(status))
                                                     : "exit " + std::to_string(WEXITSTATUS(status)));

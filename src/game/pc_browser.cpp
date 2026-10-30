@@ -1263,10 +1263,16 @@ void PcBrowserMenuFrame(X86Context& ctx) {
     static bool returned = false;
     if (returned) return;
     std::string screen = CurrentScreen();
+    // split-screen player 1 is in the menus, whichever front end screen it is back on (the title's last menu, the
+    // party's lobby): the other local players' match is over (the compositor ends them; those who left it leave the
+    // party, N4.8.1)
+    static bool told = false;
+    if (!told && screen.rfind("SuperLauncher_", 0) == 0 && csx::SplitPlayer() == 1) {
+        told = true;
+        csx::SplitSend(csx::kSplitMatch, "menu");
+    }
     if (screen != "SuperLauncher_MainScreen") return;
     returned = true;
-    // split-screen player 1 is in the menus: the other local players' match is over (the compositor ends them)
-    if (csx::SplitPlayer() == 1) csx::SplitSend(csx::kSplitMatch, "menu");
     const char* join = std::getenv("CSX_BROWSER_JOIN");
     if (!join) return;
     std::string message = std::getenv("CSX_BROWSER_MESSAGE") ? std::getenv("CSX_BROWSER_MESSAGE") : "";

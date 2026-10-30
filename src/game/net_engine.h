@@ -64,6 +64,9 @@ void RequestMatch(const std::string& line);
 // back to the front end between frames (the party leader's Return to Lobby: the local server stopped as the title's
 // own end of a match stops it)
 void RequestFrontEnd();
+// split-screen players 2..4 (N4.8.1): the title's own end of a session (Leave Match's Yes, SystemLinkClientEndSession)
+// was this player's choice; its end tells the compositor "left" (its slot is not respawned at the next map)
+void SplitLeaveChosen();
 // the title relaunched into another map, its players told to rejoin (net_session.cpp; the dedicated server)
 [[noreturn]] void RelaunchToMap(X86Context& ctx, const std::string& map);
 // the party's lobby starts its match (N4.8): the title relaunches into the lobby's "+map ..." line, a Single Player
