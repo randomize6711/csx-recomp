@@ -64,7 +64,12 @@ sleep 0.5
 click 1
 sleep 3
 expect log pc mouse: screen SuperLauncher_PCOptions,
-point 545 199
+point 150 160
+sleep 0.5
+click 1
+sleep 3
+expect log pc mouse: screen SuperLauncher_PCGraphics,
+point 545 121
 sleep 0.5
 click 1
 sleep 1
@@ -72,8 +77,8 @@ point 335 428
 sleep 0.5
 click 1
 sleep 1.5
-expect log pc menu: SuperLauncher_PCOptions shows its defaults
-point 545 199
+expect log pc menu: SuperLauncher_PCGraphics shows its defaults
+point 545 121
 sleep 0.5
 click 1
 sleep 1
@@ -83,6 +88,8 @@ click 1
 sleep 2
 expect log pc: fov = 95
 expect log pc: settings saved
+click 3
+sleep 3
 expect count pc.mouse:.screen.SuperLauncher_Options, 2
 point 150 268
 sleep 0.5

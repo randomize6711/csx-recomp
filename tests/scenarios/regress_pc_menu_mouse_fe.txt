@@ -29,9 +29,14 @@ sleep 1
 pckey mclick 1
 sleep 3
 expect log pc mouse: screen SuperLauncher_PCOptions,
-pckey pointer 450 199
+pckey pointer 150 160
+sleep 1
+pckey mclick 1
+sleep 3
+expect log pc mouse: screen SuperLauncher_PCGraphics,
+pckey pointer 450 121
 sleep 0.5
-pckey pointer 545 199
+pckey pointer 545 121
 sleep 0.5
 pckey mclick 1
 sleep 1
@@ -42,8 +47,8 @@ pckey pointer 335 428
 sleep 0.5
 pckey mclick 1
 sleep 1.5
-expect log pc menu: SuperLauncher_PCOptions shows its defaults
-pckey pointer 545 199
+expect log pc menu: SuperLauncher_PCGraphics shows its defaults
+pckey pointer 545 121
 sleep 0.5
 pckey mclick 1
 sleep 1
@@ -53,6 +58,8 @@ pckey mclick 1
 sleep 2
 expect log pc: fov = 95
 expect log pc: settings saved
+pckey mclick 2
+sleep 3
 expect log pc mouse: screen SuperLauncher_Options,
 pckey pointer 150 268
 sleep 1

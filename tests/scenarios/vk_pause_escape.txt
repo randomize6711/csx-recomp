@@ -1,0 +1,74 @@
+# Escape in a match (N5A, src/linux/window_input.cpp): playing, Escape opens the pause menu (the pad's START); held,
+# it does not close it again; pressed again it is Back (B) there: the pause menu closes, play resumes. Escape in the
+# pause menu's Options goes back to the pause menu; PC Options (its hub) opens Graphics, Escape goes back each screen.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), with
+#   --launch tests/launch/de_airstrip_beginner
+# timeout: 300
+wait log open D:\\de_airstrip.sxwad
+sleep 25
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 20
+key Left_Ctrl
+sleep 15
+expect log input: mouse mode play \(captured\)
+# held for a second: opens, stays open
+mark
+key Escape 1
+sleep 1
+expect log pc keys: menu InGame_RootSinglePlayer
+expect nonewlog pc keys: playing
+windowshot pause
+mark
+key Escape
+wait newlog pc keys: playing
+sleep 2
+# again, then Options (the pause menu's sixth row), PC Options, Graphics; Escape back each time
+mark
+key Escape
+wait newlog pc keys: menu InGame_RootSinglePlayer
+sleep 1
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Space
+wait newlog pc mouse: screen Options,
+sleep 1
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Space
+wait newlog pc mouse: screen InGame_PCOptions
+sleep 1
+windowshot pc_options
+key Down
+sleep 0.5
+key Space
+wait newlog pc mouse: screen InGame_PCGraphics, 4 rows
+sleep 1
+windowshot graphics
+mark
+key Escape
+wait newlog pc mouse: screen InGame_PCOptions
+sleep 1
+key Escape
+wait newlog pc mouse: screen Options,
+sleep 1
+key Escape
+wait newlog pc mouse: screen InGame_RootSinglePlayer
+sleep 1
+key Escape
+wait newlog pc keys: playing
+expect nonewlog pc: settings saved
+expect nolog guest trap

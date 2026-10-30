@@ -68,6 +68,7 @@ struct PcScreen {
     const char* on_y = nullptr;       // Y opens another screen
     const char* external = nullptr;   // its values are not pc_settings.ini's: "!<external>_load" fills it, its Accept runs
                                       // "!<external>_save" (a profile's settings, the match rules)
+    std::vector<const char*> opens = {};  // a hub (N5A): no settings, a row opening each of these screens (by id)
 };
 
 std::vector<Choice> Numbers(std::initializer_list<const char*> v) {
@@ -111,33 +112,21 @@ std::vector<Choice> Resolutions() {
 const std::vector<PcScreen>& Screens() {
     static const std::vector<PcScreen> s = [] {
         std::vector<PcScreen> v;
-        v.push_back({"Options",
-                     "PC Options",
-                     {"Set mouse and other options for playing", "on a PC."},
+        // PC Options (N5A): a hub of the title's style with a screen a group; the settings' keys as before
+        v.push_back({"Video",
+                     "Video",
+                     {"Set the display mode, resolution, shape and", "frame rate."},
                      {
-                         {"mouse_sensitivity",
-                          "Mouse Sensitivity",
-                          {"Set how far the view turns when you move the mouse.",
-                           "3 matches the game's original setting."},
-                          Numbers({"0.5", "1", "1.5", "2", "2.5", "3", "3.5", "4", "5", "6", "7", "8", "10"}),
-                          5},
-                         {"mouse_invert",
-                          "Invert Mouse",
-                          {"Turn on this option to reverse the vertical look", "of the mouse."},
-                          {{"Off", "0"}, {"On", "1"}},
+                         {"display_mode",
+                          "Display Mode",
+                          {"Play in a window or on the full screen.", "F11 also switches between them."},
+                          {{"Windowed", "windowed"}, {"Fullscreen", "fullscreen"}},
                           0},
-                         {"mouse_raw",
-                          "Raw Mouse Input",
-                          {"Use the mouse's own movement, without the desktop's",
-                           "pointer acceleration. Off uses the desktop's."},
-                          {{"On", "1"}, {"Off", "0"}},
-                          0},
-                         {"fov",
-                          "Field of View",
-                          {"Set how wide the view is. 90 is the game's original;",
-                           "zoomed weapons keep their own."},
-                          {{"90 (Original)", "90"}, {"95", "95"}, {"100", "100"}, {"105", "105"}, {"110", "110"},
-                           {"115", "115"}, {"120", "120"}},
+                         {"resolution",
+                          "Resolution",
+                          {"Set the size the game is drawn at; Native matches",
+                           "the screen. The menus keep their layout."},
+                          Resolutions(),
                           0},
                          {"aspect",
                           "Aspect Ratio",
@@ -145,12 +134,6 @@ const std::vector<PcScreen>& Screens() {
                            "Takes effect the next time the game starts."},
                           {{"Automatic", "auto"}, {"4:3 (Original)", "4:3"}, {"16:10", "16:10"}, {"16:9", "16:9"},
                            {"21:9", "21:9"}},
-                          0},
-                         {"resolution",
-                          "Resolution",
-                          {"Set the size the game is drawn at; Native matches",
-                           "the screen. The menus keep their layout."},
-                          Resolutions(),
                           0},
                          {"frame_rate",
                           "Frame Rate Limit",
@@ -163,6 +146,21 @@ const std::vector<PcScreen>& Screens() {
                           {"Wait for the display's refresh before each frame.",
                            "Off lets the frame rate pass the refresh rate."},
                           {{"On", "1"}, {"Off", "0"}},
+                          0},
+                     },
+                     true,
+                     false,
+                     true});
+        v.push_back({"Graphics",
+                     "Graphics",
+                     {"Set the field of view and the original's", "graphical effects."},
+                     {
+                         {"fov",
+                          "Field of View",
+                          {"Set how wide the view is. 90 is the game's original;",
+                           "zoomed weapons keep their own."},
+                          {{"90 (Original)", "90"}, {"95", "95"}, {"100", "100"}, {"105", "105"}, {"110", "110"},
+                           {"115", "115"}, {"120", "120"}},
                           0},
                          {"xbox_effects",
                           "Xbox Graphical Effects",
@@ -182,16 +180,52 @@ const std::vector<PcScreen>& Screens() {
                            "Off draws without the glow."},
                           {{"On", "1"}, {"Off", "0"}},
                           0},
-                         {"display_mode",
-                          "Display Mode",
-                          {"Play in a window or on the full screen.", "F11 also switches between them."},
-                          {{"Windowed", "windowed"}, {"Fullscreen", "fullscreen"}},
+                     },
+                     true,
+                     false,
+                     true});
+        v.push_back({"Mouse",
+                     "Mouse",
+                     {"Set the mouse's sensitivity and how it", "moves the view."},
+                     {
+                         {"mouse_sensitivity",
+                          "Mouse Sensitivity",
+                          {"Set how far the view turns when you move the mouse.",
+                           "3 matches the game's original setting."},
+                          Numbers({"0.5", "1", "1.5", "2", "2.5", "3", "3.5", "4", "5", "6", "7", "8", "10"}),
+                          5},
+                         {"mouse_invert",
+                          "Invert Mouse",
+                          {"Turn on this option to reverse the vertical look", "of the mouse."},
+                          {{"Off", "0"}, {"On", "1"}},
                           0},
+                         {"mouse_raw",
+                          "Raw Mouse Input",
+                          {"Use the mouse's own movement, without the desktop's",
+                           "pointer acceleration. Off uses the desktop's."},
+                          {{"On", "1"}, {"Off", "0"}},
+                          0},
+                     },
+                     true,
+                     false,
+                     true});
+        v.push_back({"Audio",
+                     "Audio",
+                     {"Set the volume of the game's sound.", ""},
+                     {
                          {"master_volume",
                           "Master Volume",
                           {"Set the volume of everything the game plays.", "Sound Options set its parts."},
                           Numbers({"0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100"}),
                           10},
+                     },
+                     true,
+                     false,
+                     true});
+        v.push_back({"Game",
+                     "Game",
+                     {"Set how matches are run and how the menus", "behave on this PC."},
+                     {
                          // N4.7 (src/game/local_server.cpp): a match from the menus in csx-server, or in the game
                          {"server_process",
                           "Match Server",
@@ -199,9 +233,30 @@ const std::vector<PcScreen>& Screens() {
                            "own process: smoother play. In Game is the original."},
                           {{"Separate", "1"}, {"In Game", "0"}},
                           0},
+                         // N5A (src/game/pc_scroll.cpp)
+                         {"menu_smooth_scroll",
+                          "Smooth Menu Scrolling",
+                          {"Let long lists glide to the next rows. Off moves",
+                           "them a whole row at once, as the original does."},
+                          {{"On", "1"}, {"Off", "0"}},
+                          0},
                      },
                      true,
-                     false});
+                     false,
+                     true});
+        v.push_back({"Options",
+                     "PC Options",
+                     {"Set mouse and other options for playing", "on a PC."},
+                     {},
+                     false,
+                     false,
+                     false,
+                     nullptr,
+                     nullptr,
+                     0,
+                     nullptr,
+                     nullptr,
+                     {"Video", "Graphics", "Mouse", "Audio", "Game"}});
         PcScreen controls{"Controls",
                           "PC Controls",
                           {"Choose the keys and mouse buttons for moving,", "shooting and the other actions."},
@@ -353,6 +408,12 @@ std::string FrontEndName(const PcScreen& s) { return std::string("SuperLauncher_
 std::string InGameName(const PcScreen& s) { return std::string("InGame_PC") + s.id; }
 
 // the screen of either menu by its name
+const PcScreen* FindScreenById(const std::string& id) {
+    for (const PcScreen& s : Screens())
+        if (id == s.id) return &s;
+    return nullptr;
+}
+
 const PcScreen* FindScreen(const std::string& name) {
     for (const PcScreen& s : Screens())
         if (name == FrontEndName(s) || name == InGameName(s)) return &s;
@@ -462,6 +523,69 @@ std::string InGameScreen(const PcScreen& s) {
            "\t\t}\r\n" + ListRows(s, false) + "\t}\r\n}\r\n";
 }
 
+// a hub (N5A: PC Options): the title's own Options screens, front end and pause menu, with a row opening each of its
+// screens (the front end's rows carry their help lines)
+std::string HubFrontEnd(const PcScreen& s) {
+    std::string rows;
+    for (const char* id : s.opens)
+        if (const PcScreen* c = FindScreenById(id)) {
+            std::string help[2] = {c->row_help[0], c->row_help[1]};
+            rows += "\t\tRow\r\n\t\t{\r\n" + HelpTable(help, 2, "\t\t\t") + "\t\t\tCommandSelect \"open " +
+                    FrontEndName(*c) + "\"\r\n\t\t\tCellFixed " + Quote(c->title) + "\r\n\t\t}\r\n";
+        }
+    return "\r\n" + FrontEndName(s) + "\r\n{\r\n"
+           "\tMenuType \"superlauncher\"\r\n\tEnterSound \"menu/buy_submenu.wav\"\r\n"
+           "\tHighlightSound \"menu/buy_hover.wav\"\r\n\tPieceOffsetDegrees \"90\"\r\n"
+           "\tCachedImage \"whitebox\t\t\t\t255 255 255 255\"\r\n\tCommandSelect \"RowSelect\"\r\n"
+           "\tBackgroundImage \"Back_MainScreen\t\t200 200 200 255\t\t0   0 640 480\"\r\n"
+           "\tBackgroundImage \"Back_Select 200 200 200 255 0 411 640 69\"\r\n"
+           "\tOnButtonDownB \"back\"\r\n"
+           "\tBackgroundText \"54 83 107 255 65 45 400 30\"\t" + Quote(s.title) + "\r\n"
+           "\tGeneric_4_1\r\n\t{\r\n\t\tCommandHighlight\t\"tableMoveUp\"\r\n\t}\r\n\tGeneric_4_2\r\n\t{\r\n\t}\r\n"
+           "\tGeneric_4_3\r\n\t{\r\n\t\tCommandHighlight\t\"tableMoveDown\"\r\n\t}\r\n\tGeneric_4_4\r\n\t{\r\n\t}\r\n"
+           "\tTable\r\n\t{\r\n\t\tLayout\r\n\t\t{\r\n"
+           "\t\t\tColumnWidthPercentage \"100\"\r\n\t\t\tTableVerticalWrap\r\n\t\t\tTableLocation \"80 98\"\r\n"
+           "\t\t\tTableSize \"236 300\"\r\n\t\t\tTableRowSpacing \"12\"\r\n\t\t\tNonSelectBG \"0 0 0 0\"\r\n"
+           "\t\t\tNonSelectFG \"0.24 0.29 0.33 1\"\r\n"
+           "\t\t\tHighlightImage \"MainMenu_Highlight 1.0 1.0 1.0 1.0 -40.0 -1.0 240.0 38.0\"\r\n"
+           "\t\t}\r\n" + rows + "\t}\r\n}\r\n";
+}
+
+std::string HubInGame(const PcScreen& s) {
+    std::string rows;
+    for (const char* id : s.opens)
+        if (const PcScreen* c = FindScreenById(id))
+            rows += "\t\tRow\r\n\t\t{\r\n\t\t\tCommandSelect   \"open " + InGameName(*c) +
+                    "\"\r\n\t\t\tCellFixed \" \"\r\n\t\t\tCellFixed " + Quote(c->title) + "\r\n\t\t\tCellFixed \" \"\r\n\t\t}\r\n";
+    return "\r\n" + InGameName(s) + "\r\n{\r\n"
+           "\tMenuType \"superlauncher\"\r\n\tEnterSound \"menu/buy_enter.wav\"\r\n"
+           "\tSelectSound \"menu/buy_submenu.wav\"\r\n\tHighlightSound \"menu/buy_hover.wav\"\r\n"
+           "\tPieceOffsetDegrees \"90\"\r\n\tCachedImage \"angleSelect\t\t\t\t255 255 255 255\"\r\n"
+           "\tCommandSelect \"RowSelect\"\r\n"
+           "\tBackgroundImage \"csxbackground\t\t100 100 80 235\t\t0 0 640 480\"\r\n\tModal \"50\"\r\n"
+           "\tOnButtonDownA \" \"\r\n\tOnButtonDownStart \"back\"\r\n\tOnButtonDownB \"back\"\r\n"
+           "\tBackgroundText \"177 169 54 255 65 45 400 30\"\t" + Quote(s.title) + "\r\n"
+           "\tGeneric_4_1\r\n\t{\r\n\t\tCommandHighlight\t\"tableMoveUp\"\r\n\t}\r\n\tGeneric_4_2\r\n\t{\r\n\t}\r\n"
+           "\tGeneric_4_3\r\n\t{\r\n\t\tCommandHighlight\t\"tableMoveDown\"\r\n\t}\r\n\tGeneric_4_4\r\n\t{\r\n\t}\r\n"
+           "\tTable\r\n\t{\r\n\t\tLayout\r\n\t\t{\r\n"
+           "\t\t\tColumnWidthPercentage \"10\"\r\n\t\t\tColumnJustify \"center\"\r\n"
+           "\t\t\tColumnWidthPercentage \"80\"\r\n\t\t\tColumnJustify \"center\"\r\n"
+           "\t\t\tColumnWidthPercentage \"10\"\r\n\t\t\tColumnJustify \"center\"\r\n"
+           "\t\t\tTableVerticalWrap\r\n\t\t\tTableLocation \"0 150\"\r\n\t\t\tTableSize \"640 300\"\r\n"
+           "\t\t\tNonSelectBG \"0 0 0 0\"\r\n\t\t\tSelectBG \"0 0 100 40\"\r\n"
+           "\t\t\tHighlightImage \"Secondary_Highlight 1.0 1.0 1.0 1.0 205.0 -1.0 230.0 34.0\"\r\n"
+           "\t\t}\r\n\t\tHeader\r\n\t\t{\r\n\t\t\tCellFixed \" \"\r\n\t\t\tCellFixed \" \"\r\n\t\t\tCellFixed \" \"\r\n\t\t}\r\n" +
+           rows + "\t}\r\n}\r\n";
+}
+
+// a screen a hub opens (shown only from there)
+bool HubChild(const PcScreen& s) {
+    for (const PcScreen& h : Screens())
+        for (const char* id : h.opens)
+            if (std::string(id) == s.id) return true;
+    return false;
+}
+
 // Custom Game > Player Collision (src/game/pc_collision.cpp): a last row in the single player match's Custom Options,
 // written as its rows are. The screen's choices are the match's command line (0xE2270 joins the table's values when
 // Match Options is Custom), so the row's "+pc_player_collision" reaches the match before anyone spawns. It goes last:
@@ -567,9 +691,37 @@ std::string ExtendFrontEnd(const std::string& text) {
         }
         rows += "\t\tRow\r\n\t\t{\r\n" + HelpTable(help, 2, "\t\t\t") + "\t\t\tCommandSelect \"open " +
                 FrontEndName(s) + "\"\r\n\t\t\tCellFixed " + Quote(s.title) + "\r\n\t\t}\r\n";
-        screens += FrontEndScreen(s);
+        screens += s.opens.empty() ? FrontEndScreen(s) : HubFrontEnd(s);
     }
     return text.substr(0, row) + rows + text.substr(row) + screens;
+}
+
+// the main menu's Exit Game (N5A): a last row (the title's art has room for a seventh, empty there), after Change
+// Profile, written as the title's rows are, and its confirmation (A quits: csx::AppQuit, as N4.8's Quit Game; B
+// back); the text unchanged when the main menu is not as expected
+std::string ExtendExit(const std::string& text) {
+    size_t screen = text.find("\nSuperLauncher_MainScreen\r\n");
+    size_t end = screen == std::string::npos ? screen : text.find("\n}", screen + 1);
+    size_t label = screen == std::string::npos ? screen : text.find("CellFixed \"Change Profile\"", screen);
+    size_t row_end = label == std::string::npos || label > end ? std::string::npos : text.find("\r\n\t\t}\r\n", label);
+    if (row_end == std::string::npos || row_end > end) {
+        LOGW("pc menu: the main menu not as expected, no Exit Game row");
+        return text;
+    }
+    row_end += 6;  // after the row's closing line
+    const std::string help[2] = {"Close Counter-Strike.", ""};
+    std::string row = "\t\tRow\r\n\t\t{\r\n" + HelpTable(help, 1, "\t\t\t") +
+                      "\t\t\tCommandSelect \"open SuperLauncher_PCConfirmExit\"\r\n\t\t\tCellFixed \"Exit Game\"\r\n\t\t}\r\n";
+    std::string confirm =
+        "\r\nSuperLauncher_PCConfirmExit\r\n{\r\n"
+        "\tmenutype \"generic\"\r\n\tEnterSound \"menu/buy_submenu.wav\"\r\n\tModal \"200\"\r\n"
+        "\tBackgroundImage \"Back_2ndary.1Pane.NoHelp\t\t200 200 200 255\t\t0   0 640 480\"\r\n"
+        "\tBackgroundImage \"Cancel_Accept 200 200 200 255 0 411 640 69\"\r\n"
+        "\tOnButtonDownA \"!pc_exit\"\r\n\tOnButtonDownB \"back\"\r\n"
+        "\tBackgroundText \"54 83 107 255 65 45 400 30\"\t\"Exit Game\"\r\n"
+        "\tBackgroundText \"54 83 107 255 80 190 520 30 0.8\"\t\"Close Counter-Strike?\"\r\n"
+        "\tBackgroundText \"54 83 107 255 80 216 520 30 0.8\"\t\"A closes the game, B goes back.\"\r\n}\r\n";
+    return text.substr(0, row_end) + row + text.substr(row_end) + confirm;
 }
 
 // the pause menu's text: after Online Options in its Options screen a row per screen (centred between blank cells as
@@ -609,11 +761,14 @@ std::string ExtendInGame(const std::string& text) {
     end += std::strlen("\n\t\t}\r\n");
     std::string rows, screens;
     for (const PcScreen& s : Screens()) {
-        if (s.hidden) continue;
+        if (s.hidden) {
+            if (HubChild(s)) screens += InGameScreen(s);  // PC Options' screens (N5A)
+            continue;
+        }
         rows += "\t\tRow\r\n\t\t{\r\n\t\t\tCommandSelect   \"open " + InGameName(s) +
                 "\"\r\n\t\t\tCellFixed \" \"\r\n\t\t\tCellFixed " + Quote(s.title) +
                 "\r\n\t\t\tCellFixed \" \"\r\n\t\t}\r\n";
-        screens += InGameScreen(s);
+        screens += s.opens.empty() ? InGameScreen(s) : HubInGame(s);
     }
     return PcPartyExtendInGame(ExtendPauseTeams(text.substr(0, end) + rows + text.substr(end) + screens));
 }
@@ -970,7 +1125,7 @@ void PcUiLoadText(X86Context& ctx, uint8_t*) {
         std::filesystem::create_directories(app::ExeDir() / "uidump");
         std::ofstream(app::ExeDir() / "uidump" / name, std::ios::binary) << text;
     }
-    std::string out = name.rfind("FrontEndUI", 0) == 0 ? ExtendFrontEnd(ExtendLobby(ExtendParty(ExtendSplitMenu(ExtendMultiplayer(ExtendBotCount(ExtendCustomOptions(text)))))))
+    std::string out = name.rfind("FrontEndUI", 0) == 0 ? ExtendExit(ExtendFrontEnd(ExtendLobby(ExtendParty(ExtendSplitMenu(ExtendMultiplayer(ExtendBotCount(ExtendCustomOptions(text))))))))
                                                        : ExtendInGame(text);
     if (name.rfind("InGameUI", 0) == 0 && !out.empty()) out = ExtendScoreboard(out);
     PcMouseLearnUi(out.empty() ? text : out);
@@ -1040,6 +1195,11 @@ bool PcConsoleCommand(X86Context& ctx, uint8_t*) {
     if (cmd == "SystemLinkClientEndSession") {
         csx::SplitLeaveChosen();
         return false;
+    }
+    if (cmd == "pc_exit") {  // the main menu's Exit Game, confirmed (N5A)
+        LOGI("pc menu: Exit Game");
+        csx::AppQuit();
+        return true;
     }
     if (cmd == "pc_player_collision") {
         PcPlayerCollisionCommand(R32(0x4253E8) > 1 ? GuestString(R32(0x4251AC)) : std::string());

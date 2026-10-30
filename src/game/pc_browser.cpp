@@ -1048,8 +1048,11 @@ bool PcBrowserClick(const std::string& screen, float x, float y) {
 }
 
 bool PcBrowserScreen(const std::string& screen) {
-    return screen.rfind("SuperLauncher_PC", 0) == 0 && screen != "SuperLauncher_PCOptions" &&
-           screen != "SuperLauncher_PCControls";
+    if (screen.rfind("SuperLauncher_PC", 0) != 0) return false;
+    // PC Options (its screens, N5A) and PC Controls are settings screens, not the browser's or the party's
+    for (const char* s : {"Options", "Controls", "Video", "Graphics", "Mouse", "Audio", "Game"})
+        if (screen == std::string("SuperLauncher_PC") + s) return false;
+    return true;
 }
 
 // [[hook]] at 0xD04CD in the keyboard's insert (0xD04A0: cmpl $0xf, 0x48(%esi) - the profile name's 15 characters):

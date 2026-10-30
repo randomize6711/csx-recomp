@@ -20,7 +20,7 @@ key Space
 sleep 6
 key Space
 sleep 8
-expect log p1: pc mouse: screen SuperLauncher_MainScreen, 6 rows
+expect log p1: pc mouse: screen SuperLauncher_MainScreen, 7 rows
 point 150 160
 sleep 0.5
 click 1
@@ -108,6 +108,8 @@ expect log p1: game: "Player 2<2><[^>]*><TERRORIST>" committed suicide
 expect nolog p1: pc keys: Spectator passes the controls through
 expect nolog p1: game: "[^"]*<1><[^>]*><[^>]*>" joined team "TERRORIST"
 windowshot switched
+# a round's start may have opened player 1's buy menu: Escape (Back, N5A) closes it first
+closebuymenu p1:
 mark
 key Escape
 sleep 2
@@ -133,6 +135,8 @@ expect log p1: pc keys: playing
 pckey cmd allow_spectators 1
 pckey cmd kill
 sleep 3
+# a respawn's buy menu: Escape (Back, N5A) closes it first
+closebuymenu p1:
 mark
 key Escape
 sleep 2

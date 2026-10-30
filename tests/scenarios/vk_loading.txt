@@ -79,6 +79,12 @@ sleep 0.5
 windowburst restart 60
 expect steady restart 60
 sleep 20
+# the spawn's buy menu is open: Escape (Back, N5A) closes it first
+expect log pc keys: menu T_BuyMenuRoot
+mark
+key Escape
+wait newlog pc keys: playing
+sleep 1
 key Escape
 sleep 2
 expect count pc.mouse:.screen.InGame_RootSinglePlayer 3

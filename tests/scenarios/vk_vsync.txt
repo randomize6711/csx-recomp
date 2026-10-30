@@ -31,8 +31,13 @@ point 150 232
 sleep 0.5
 click 1
 sleep 3
-expect log pc mouse: screen SuperLauncher_PCOptions, 14 rows
-point 545 303
+expect log pc mouse: screen SuperLauncher_PCOptions, 5 rows
+point 150 124
+sleep 0.5
+click 1
+sleep 3
+expect log pc mouse: screen SuperLauncher_PCVideo, 5 rows
+point 545 225
 sleep 0.5
 click 1
 sleep 1
@@ -47,11 +52,11 @@ expect log vulkan: VSync on, the swapchain is made again
 expect log vulkan: swapchain 1600x900, .* present mode fifo \(VSync on\)
 sleep 2
 expect fps 55 63
-point 150 232
+point 150 124
 sleep 0.5
 click 1
 sleep 3
-point 545 303
+point 545 225
 sleep 0.5
 click 1
 sleep 1

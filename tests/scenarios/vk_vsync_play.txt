@@ -38,18 +38,25 @@ point 300 249
 sleep 0.5
 click 1
 sleep 2
-expect log pc mouse: screen InGame_PCOptions, 14 rows
-point 545 303
+expect log pc mouse: screen InGame_PCOptions, 5 rows
+point 320 197
+sleep 0.5
+click 1
+sleep 2
+expect log pc mouse: screen InGame_PCVideo, 5 rows
+point 545 225
 sleep 0.5
 click 1
 sleep 1
-point 200 303
+point 200 225
 sleep 0.5
 click 11
 sleep 2
 expect log pc: vsync = 0
 expect log vulkan: VSync off, the swapchain is made again
 expect log vulkan: swapchain 1152x864, .* present mode (immediate|mailbox) \(VSync off\)
+click 3
+sleep 2
 click 3
 sleep 2
 point 300 141

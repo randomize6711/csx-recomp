@@ -4,9 +4,8 @@
 # left again with the right button (the Display Mode was applied on every save: the window went back to its tile,
 # looking minimized); changing Display Mode itself still applies it (Fullscreen, then Windowed). gamescope does not
 # keep SDL's full screen flag, so the check is the window's decision ("Display Mode ... applied"), not the
-# compositor's answer; that needs a play-test on the desktop. Display Mode is the twelfth row, under the ten shown:
-# the pointer on the tenth (Auto Exposure) and two wheel notches down bring it there, and the screen keeps that scroll when
-# entered again.
+# compositor's answer; that needs a play-test on the desktop. The settings are PC Options' screens (N5A): Field of
+# View is Graphics' first row, Display Mode Video's first.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1600 -H 900)
 wait log renderer: vulkan
 wait log open d:\\Media\\Videos\\ESRB.xmv
@@ -30,8 +29,13 @@ point 150 232
 sleep 0.5
 click 1
 sleep 3
-expect log pc mouse: screen SuperLauncher_PCOptions, 14 rows
-point 545 199
+expect log pc mouse: screen SuperLauncher_PCOptions, 5 rows
+point 150 160
+sleep 0.5
+click 1
+sleep 3
+expect log pc mouse: screen SuperLauncher_PCGraphics, 4 rows
+point 545 121
 sleep 0.5
 click 1
 sleep 1
@@ -41,23 +45,20 @@ click 1
 sleep 3
 expect log pc: fov = 95
 expect nolog window: Display Mode .* applied
-point 150 232
+point 150 160
 sleep 0.5
 click 1
 sleep 3
 click 3
 sleep 3
-expect count pc.mouse:.screen.SuperLauncher_PCOptions, 2
+expect count pc.mouse:.screen.SuperLauncher_PCGraphics, 2
 expect nolog window: Display Mode .* applied
-point 150 232
+point 150 124
 sleep 0.5
 click 1
 sleep 3
-point 150 355
-sleep 0.5
-wheel -2
-sleep 1
-point 545 355
+expect log pc mouse: screen SuperLauncher_PCVideo, 5 rows
+point 545 121
 sleep 0.5
 click 1
 sleep 1
@@ -67,11 +68,11 @@ click 1
 sleep 3
 expect log pc: display_mode = fullscreen
 expect log window: Display Mode fullscreen applied
-point 150 232
+point 150 124
 sleep 0.5
 click 1
 sleep 3
-point 545 355
+point 545 121
 sleep 0.5
 click 1
 sleep 1

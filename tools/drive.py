@@ -42,6 +42,8 @@ per line, executed in order:
     type TEXT               window build: TEXT as SDL text input (what a keyboard layout types: the console's input)
     windowshot NAME         window build: save the window's output as RUN/shots/NAME.bmp
     windowburst NAME N      Vulkan window: the next N presented frames as RUN/shots/NAME_0.bmp .. NAME_<N-1>.bmp
+    windowburst NAME N KEY  the same, KEY (a key step's name) pressed as the burst starts
+    closebuymenu [PREFIX]   if the player (PREFIX: p2: ...) is in a buy menu, Escape closes it; play waited for
     pressuntil BUTTONS COND press, wait for two fresh draw measurements, repeat until COND holds (at most 15)
     dump NAME               guest memory dump to build/run/dumps/NAME.bin (src/common/memory_dump.cpp)
     state NAME              log the local player's state (src/game/state_probe.cpp) and keep it as NAME
@@ -449,6 +451,18 @@ def main():
                 frames = st[2] if len(st) > 2 else '3'
                 send(f'{st[1]} {frames}\n')
                 good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'cmd')))
+            elif kind == 'closebuymenu':
+                # closebuymenu [PREFIX]: if the player's last menu state ("PREFIXpc keys: menu ..." / "... playing") is a
+                # buy menu (a spawn's, which opens at a round's start), Escape (Back, N5A) closes it and play is waited for
+                pre = re.escape(st[1] + ' ') if len(st) > 1 else ''
+                rx = re.compile(pre + r'pc keys: (menu \S+|playing)')
+                states = [m.group(1) for m in (rx.search(l) for l in log.lines) if m]
+                if states and re.match(r'menu \w*BuyMenu', states[-1]):
+                    seen = len(log.lines)
+                    send_file('keys', 'Escape 0.12')
+                    good = wait_until(lambda: any(re.search(pre + 'pc keys: playing', l) for l in log.lines[seen:]))
+                    print('     closed ' + states[-1][5:])
+                    time.sleep(1)
             elif kind == 'key':
                 send_file('keys', st[1] + ' ' + (st[2] if len(st) > 2 else '0.12'))
                 good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'keys')))
@@ -505,6 +519,8 @@ def main():
             elif kind == 'windowburst':
                 # windowburst NAME N: Vulkan window, the next N presented frames as RUN/shots/NAME_0.bmp...
                 send_file('shot', 'burst:' + st[1] + ':' + st[2])
+                if len(st) > 3:  # windowburst NAME N KEY: the key pressed as the burst starts (the frames see it)
+                    send_file('keys', st[3] + ' 0.12')
                 last = st[1] + '_' + str(int(st[2]) - 1)
                 good = wait_until(lambda: log.match('window: shot .*' + re.escape(last) + r'\.bmp'))
             elif kind == 'pressuntil':

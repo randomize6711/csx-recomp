@@ -25,7 +25,7 @@ key Space
 sleep 6
 key Space
 sleep 8
-expect log p1: pc mouse: screen SuperLauncher_MainScreen, 6 rows
+expect log p1: pc mouse: screen SuperLauncher_MainScreen, 7 rows
 point 150 160
 sleep 0.5
 click 1

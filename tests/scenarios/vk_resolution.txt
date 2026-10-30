@@ -1,7 +1,8 @@
 # Native resolution in the Vulkan window (FINDINGS.md "Native resolution"): started at 16:9 and 2560x1440, every render
 # target is drawn at that scale (the 854x960 back buffer at 2560x1440, the glow chain's 427x240 at 1280x360), the
-# frame comes out 2560x1440 (the window shot is the presented target); the pause menu's PC Options then steps the
-# Resolution one to the right (the display's next smaller mode: which one depends on the display, the log names it)
+# frame comes out 2560x1440 (the window shot is the presented target); the pause menu's PC Options > Video then steps the
+# Resolution one to the left (2560x1440 is a custom one, listed after the display's modes: the left one is the
+# display's smallest mode, which depends on the display, the log names it; before N5A the four DOWNs reached Aspect Ratio)
 # and the next frame is drawn at the new size without a restart. Run with
 #   --exe build/window/CounterStrike --run build/wrun --env CSX_RENDERER=vulkan --env FPS=30 \
 #   --launch tests/launch/de_airstrip_beginner --pc aspect=16:9 --pc resolution=2560x1440
@@ -41,15 +42,11 @@ press DOWN
 sleep 0.7
 press A
 sleep 2
+press A
+sleep 2
 press DOWN
 sleep 0.7
-press DOWN
-sleep 0.7
-press DOWN
-sleep 0.7
-press DOWN
-sleep 0.7
-press RIGHT
+press LEFT
 sleep 0.7
 press A
 sleep 2

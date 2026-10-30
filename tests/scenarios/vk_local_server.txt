@@ -87,7 +87,13 @@ wait newlog owner: console "mp_roundtime 2"
 pckey cmd sv_restartround 1
 wait newlog owner: console "sv_restartround 1"
 wait newlog "Round_Start"
+wait newlog pc keys: menu T_BuyMenuRoot
 sleep 3
+# the spawn's buy menu is open: Escape (Back, N5A) closes it first
+mark
+key Escape
+wait newlog pc keys: playing
+sleep 1
 # Restart Match (the pause menu's fourth row: the Single Player menu as the listen server had it, no Change Teams), Yes
 mark
 key Escape
@@ -107,7 +113,13 @@ key Space
 wait newlog local server: Restart Match sent to the server
 wait newlog owner: Restart Match
 wait newlog "Round_Start"
+wait newlog pc keys: menu T_BuyMenuRoot
 sleep 5
+# the spawn's buy menu is open: Escape (Back, N5A) closes it first
+mark
+key Escape
+wait newlog pc keys: playing
+sleep 1
 # Change Map (the third row) to the list's first map, Yes: the server relaunches, the game rejoins
 mark
 key Escape

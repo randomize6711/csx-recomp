@@ -1,7 +1,7 @@
 # PC Options inside the game's own Options menu (FINDINGS.md "Original menus", src/game/pc_menu.cpp): seeded with
-# mouse_sensitivity 4, the screen shows it (two steps right make it 6), Invert Mouse is switched on, A saves every
-# row (Raw Mouse Input, Xbox Graphical Effects, Auto Exposure and Bloom at their default, On) through the screen's
-# own command, and the original entries stay reachable (Control Options opens).
+# mouse_sensitivity 4, PC Options > Mouse (N5A) shows it (two steps right make it 6), Invert Mouse is switched on, A
+# saves every row (Raw Mouse Input at its default, On) through the screen's own command, B back to Options, and the
+# original entries stay reachable (Control Options opens).
 #   --pc mouse_sensitivity=4
 wait draws==1
 expect log multisample type 2012, back buffer 640x960
@@ -39,6 +39,12 @@ press DOWN
 sleep 1
 press A
 sleep 3
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 3
 snap pc_options
 expect image pc_options 10
 press RIGHT
@@ -54,11 +60,9 @@ sleep 3
 expect log pc: mouse_sensitivity = 6
 expect log pc: mouse_invert = 1
 expect log pc: mouse_raw = 1
-expect log pc: xbox_effects = 1
-expect log pc: auto_exposure = 1
-expect log pc: bloom = 1
-expect log pc: master_volume = 100
 expect log pc: settings saved
+press B
+sleep 3
 press UP
 sleep 1
 press UP

@@ -55,12 +55,17 @@ point 300 249
 sleep 0.5
 click 1
 sleep 2
-expect log pc mouse: screen InGame_PCOptions, 14 rows
-point 545 329
+expect log pc mouse: screen InGame_PCOptions, 5 rows
+point 320 223
+sleep 0.5
+click 1
+sleep 2
+expect log pc mouse: screen InGame_PCGraphics, 4 rows
+point 545 147
 sleep 0.5
 click 1
 sleep 1
-point 200 329
+point 200 147
 sleep 0.5
 click 11
 sleep 2
@@ -68,6 +73,8 @@ expect log pc: xbox_effects = 1
 expect setting xbox_effects 1
 expect setting bloom 1
 expect setting auto_exposure 1
+click 3
+sleep 2
 click 3
 sleep 2
 point 300 141

@@ -674,6 +674,16 @@ call = "PcConsoleOverMenus"
 at = 0x1A5B20
 call = "PcPlayerCollisionMove"
 
+# Smooth menu scrolling (N5A, src/game/pc_scroll.cpp): the table draw (0xCD030) before its rows' loop (the rows'
+# offset, one more row, the scissor) and after it (the scissor off)
+[[hook]]
+at = 0xCD15E
+call = "PcScrollRows"
+
+[[hook]]
+at = 0xCD1E2
+call = "PcScrollRowsDone"
+
 # Custom Game > Number of Bots (src/game/pc_menu.cpp PcBotCountLimit): the single player Match Options' simulate,
 # once it has the table (ecx) and the Bot Team choice (edi), enables the longer bot list (0 to 64, no one-team cap)
 # and leaves (0xE1D63)

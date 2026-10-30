@@ -144,6 +144,11 @@ wait log p2: pc mouse: screen InGame_RootSinglePlayer, 5 rows
 sleep 1
 pad 1 button b
 sleep 2
+# player 1's spawn buy menu is open: Escape (Back, N5A) closes it first
+mark
+key Escape
+wait newlog p1: pc keys: playing
+sleep 1
 # player 1's: Return to Lobby (the seventh row)
 key Escape
 wait log p1: pc mouse: screen InGame_RootSinglePlayer, 9 rows

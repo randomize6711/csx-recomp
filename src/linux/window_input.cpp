@@ -1,10 +1,10 @@
 // input::Poll for the Linux window: the first SDL gamepad, and the keyboard and mouse. While a menu screen of the game
 // is open the keyboard and mouse act as the console controller on port 0 (the title's menus read only the pad):
 //   WASD left stick, arrows d-pad, Space A, Left Ctrl B, R X, Q Y, 1 white, 2 black, left mouse right trigger,
-//   right mouse left trigger, Enter / Escape START, Tab BACK, Left Shift left stick click, middle mouse right stick
-//   click; on the server browser's screens Escape is B, F5 X, Page Up / Page Down the triggers. While playing they
+//   right mouse left trigger, Enter START, Escape B (back, N5A), Tab BACK, Left Shift left stick click, middle mouse
+//   right stick click; on the server browser's screens F5 X, Page Up / Page Down the triggers. While playing they
 //   are the engine's own keys and run their bindings (Options > PC Controls), Escape
-//   staying START (the game menu). F1 releases or captures the mouse.
+//   being START (the game menu). F1 releases or captures the mouse.
 // The developer console (src/game/pc_console.cpp): the key bound to Toggle Developer Console (PC Controls; by default
 // the key left of 1, whatever the layout prints on it) opens and closes it, playing or in a menu. While it is open the
 // keyboard is its alone: typed text (SDL text input, so the layout's characters), Backspace, Enter, Up / Down
@@ -602,6 +602,10 @@ Pad Poll(int port) {
         g_keys.clear();
         g_mouse_buttons = 0;
     }
+    // Escape is Back in the menus (N5A); the press that opened one (the pause menu, from play) is not, until let go
+    static bool escape_held_over = false;
+    if (menu && !g_was_menu && Down(SDLK_ESCAPE)) escape_held_over = true;
+    if (!Down(SDLK_ESCAPE)) escape_held_over = false;
     g_was_menu = menu;
     // keyboard and mouse; on PC Controls WASD are not the stick: its pieces step the selected row's key (D would make
     // Move Right's key E unseen), and those are keys a player presses there to try them
@@ -615,10 +619,11 @@ Pad Poll(int port) {
     if (Down(SDLK_DOWN)) p.buttons |= 2;
     if (Down(SDLK_LEFT)) p.buttons |= 4;
     if (Down(SDLK_RIGHT)) p.buttons |= 8;
-    // the server browser's screens (pc_browser.cpp): Escape goes back (B), F5 refreshes (X), Page Up / Down the tabs
+    // Escape: the pad's START while playing (the game menu), B in every menu (back, cancel, No; N5A); Enter START.
+    // The server browser's screens (pc_browser.cpp): F5 refreshes (X), Page Up / Down the tabs
     const bool browser = menu && csx::BrowserKeys();
-    if (Down(SDLK_RETURN) || (Down(SDLK_ESCAPE) && !browser)) p.buttons |= 16;
-    if (browser && Down(SDLK_ESCAPE)) p.analog[1] = 255;
+    if (Down(SDLK_RETURN) || (Down(SDLK_ESCAPE) && !menu)) p.buttons |= 16;
+    if (menu && Down(SDLK_ESCAPE) && !escape_held_over) p.analog[1] = 255;
     if (browser && Down(SDLK_F5)) p.analog[2] = 255;
     if (browser && Down(SDLK_PAGEUP)) p.analog[6] = 255;
     if (browser && Down(SDLK_PAGEDOWN)) p.analog[7] = 255;
