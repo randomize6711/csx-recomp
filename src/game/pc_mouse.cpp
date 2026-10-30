@@ -39,6 +39,7 @@
 #include "core/input.h"
 #include "core/log.h"
 #include "cpu/x86_context.h"
+#include "game/pc_prompts.h"
 #include "kernel/kernel.h"
 
 bool PcBindingScreen(const std::string& name);  // pc_menu.cpp
@@ -72,6 +73,7 @@ enum { kA = 0, kB = 1, kX = 2, kY = 3, kLT = 6, kRT = 7 };
 struct ScreenUi {
     std::string type;                 // MenuType
     std::vector<std::string> legend;  // the help bar's buttons, rightmost first
+    std::vector<PcLegendSlot> drawn;  // the same as pc_prompts.cpp draws them, where it does (the strip transparent)
     float edit[4] = {0, 0, 0, 0};     // the EditBox (the name field): x, y, width, height
     bool piece_moves = false;         // stick pieces move its table (CommandHighlight tableMoveUp / Down)
     bool pass_through = false;        // ControlPassThrough: the controls stay the game's (Spectator, Scoreboard)
@@ -300,17 +302,23 @@ void Click(X86Context& ctx, uint32_t screen, const std::string& name, const Scre
     }
     // the help bar
     if (ui && !ui->legend.empty() && y >= 412 && y < 446) {
+        for (const PcLegendSlot& sl : ui->drawn)
+            if (x >= sl.x0 && x < sl.x1) {
+                Queue({0, sl.button});
+                return;
+            }
+        // the original strips' art, where pc_prompts.cpp left it (no artwork, or no room on the screen)
         static const float slot[3][2] = {{488, 585}, {385, 482}, {292, 380}};
         // four buttons (Cancel_Join_RefreshResults_HostAMatch, measured on its art): narrower slots
         static const float slot4[4][2] = {{490, 586}, {414, 486}, {230, 410}, {70, 226}};
         bool four = ui->legend.size() == 4;
-        for (size_t k = 0; k < ui->legend.size() && k < (four ? 4u : 3u); k++) {
+        for (size_t k = 0; ui->drawn.empty() && k < ui->legend.size() && k < (four ? 4u : 3u); k++) {
             const float* sl = four ? slot4[k] : slot[k];
             if (x < sl[0] || x >= sl[1]) continue;
             const std::string& b = ui->legend[k];
-            int button = b == "Accept" || b == "Select" || b == "Join" ? kA
+            int button = b == "Accept" || b == "Select" || b == "Join" || b == "REMOVE" ? kA
                        : b == "Cancel" || b == "Back"                  ? kB
-                       : b == "Reset" || b == "REMOVE" || b == "RefreshResults" ? kX
+                       : b == "Reset" || b == "RefreshResults"         ? kX
                        : b == "HostAMatch"                             ? kY
                                                                        : -1;
             if (button >= 0) Queue({0, button});
@@ -349,6 +357,20 @@ void Click(X86Context& ctx, uint32_t screen, const std::string& name, const Scre
 }  // namespace
 
 // the screens' menu types and help bars, from the menu text as it loads (pc_menu.cpp's PcUiLoadText)
+namespace {
+// a legend strip's name's words (Cancel_Accept_Reset), rightmost first
+std::vector<std::string> Split(const std::string& name) {
+    std::vector<std::string> parts;
+    for (size_t at = 0; at <= name.size();) {
+        size_t e = name.find('_', at);
+        if (e == std::string::npos) e = name.size();
+        parts.push_back(name.substr(at, e - at));
+        at = e + 1;
+    }
+    return parts;
+}
+}  // namespace
+
 void PcMouseLearnUi(const std::string& text) {
     std::istringstream in(text);
     std::string line, screen, block;  // block: the screen's block being read (Table, PassiveTable, Row...)
@@ -356,6 +378,13 @@ void PcMouseLearnUi(const std::string& text) {
     while (std::getline(in, line)) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
         size_t c = line.find("//");
+        // a legend pc_prompts.cpp drew without the strip's image (a screen at the title's 8 images)
+        if (depth == 1 && !screen.empty() && c != std::string::npos && line.compare(c, 14, "// csx legend ") == 0) {
+            std::string name = line.substr(c + 14);
+            name = name.substr(0, name.find_first_of(" \t"));
+            g_screens[screen].legend = Split(name);
+            g_screens[screen].drawn = PcLegendSlots(name);
+        }
         std::string code = c == std::string::npos ? line : line.substr(0, c);
         if (depth == 0) {
             size_t a = code.find_first_not_of(" \t");
@@ -392,14 +421,9 @@ void PcMouseLearnUi(const std::string& text) {
                 v >> name;
                 for (float f; v >> f;) n.push_back(f);
                 if (n.size() >= 8 && n[n.size() - 4] == 0 && n[n.size() - 3] == 411 && n[n.size() - 2] == 640) {
-                    std::vector<std::string> parts;
-                    for (size_t at = 0; at <= name.size();) {
-                        size_t e = name.find('_', at);
-                        if (e == std::string::npos) e = name.size();
-                        parts.push_back(name.substr(at, e - at));
-                        at = e + 1;
-                    }
-                    g_screens[screen].legend = parts;
+                    g_screens[screen].legend = Split(name);
+                    g_screens[screen].drawn.clear();
+                    if (n[3] == 0) g_screens[screen].drawn = PcLegendSlots(name);
                 }
             }
         }

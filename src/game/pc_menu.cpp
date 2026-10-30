@@ -1776,6 +1776,9 @@ void TypingFrame(X86Context& ctx, const std::string& name, const PcScreen* s, ui
 
 }  // namespace
 
+// a text's width in the menu font's units (pc_prompts.cpp's legends)
+float PcTextUnits(const std::string& s) { return Units(s); }
+
 namespace csx {
 bool BindRowSelected() { return g_row_selected; }
 bool BindCapturing() { return g_capturing; }

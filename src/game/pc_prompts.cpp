@@ -9,15 +9,16 @@
 //   - A style is applied by copying its glyphs' pixels into the CSXP_<slot> textures (their data, gpu::Describe) and
 //     marking them changed (gpu::MarkDirty: the renderer uploads them again): no menu text changes.
 //   - The legends: the title's legend strips (launcher.xpr's Cancel_Accept_Reset ...: the Xbox buttons drawn into one
-//     1024x128 picture) are drawn transparent, where a screen uses one, and a glyph and the title's own text each
-//     button ("RESET", "ACCEPT", "CANCEL") go in the places the strip had them (ExtendPrompts; the mouse's clicks on
-//     the bar keep their slots). A strip whose buttons are not known here stays as it was; with no artwork on the
-//     disk every strip stays as it was.
+//     1024x128 picture) are drawn transparent, where a screen uses one, and each button is a glyph and the title's
+//     own text ("RESET", "ACCEPT", "CANCEL", "CONFIGURE BOTS"), laid out right to left by the words' widths
+//     (ExtendPrompts; PcLegendSlots gives pc_mouse.cpp the same places for clicks on the bar). Up to five buttons; a
+//     strip with a word not known here stays as it was; with no artwork on the disk every strip stays as it was.
 //   - Text: hints that name a button (the PC screens' "Y Details") take the style's name for it (PcPromptName): the
 //     text fallback where no picture is drawn.
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <string>
@@ -30,6 +31,9 @@
 #include "cpu/x86_context.h"
 #include "gpu/texture.h"
 #include "kernel/kernel.h"
+#include "game/pc_prompts.h"
+
+float PcTextUnits(const std::string& s);  // pc_menu.cpp
 
 namespace {
 
@@ -93,8 +97,8 @@ const char* NameFor(int style, const std::string& slot) {
         {"y", {"Q", "Y", "Y", "Y", "Triangle", "Triangle", "X", "Y", "2"}},
         {"back", {"Tab", "Back", "Back", "View", "Share", "Create", "-", "Back", "-"}},
         {"start", {"Enter", "Start", "Start", "Menu", "Options", "Options", "+", "Start", "+"}},
-        {"lb", {"Page Up", "White", "LB", "LB", "L1", "L1", "L", "LB", "C"}},
-        {"rb", {"Page Down", "Black", "RB", "RB", "R1", "R1", "R", "RB", "Z"}},
+        {"lb", {"1", "White", "LB", "LB", "L1", "L1", "L", "LB", "C"}},
+        {"rb", {"2", "Black", "RB", "RB", "R1", "R1", "R", "RB", "Z"}},
         {"lt", {"Page Up", "L", "LT", "LT", "L2", "L2", "ZL", "LT", "LT"}},
         {"rt", {"Page Down", "R", "RT", "RT", "R2", "R2", "ZR", "RT", "RT"}},
     };
@@ -103,13 +107,25 @@ const char* NameFor(int style, const std::string& slot) {
     return slot.c_str();
 }
 
-// the legends: a strip's name's words as buttons (the strip shows them right to left in this order)
+// the legends: a strip's name's words as buttons (the strip shows them right to left in this order), each with the
+// button the screens' OnButtonDown handlers give it (button: the pad's analog button index, A B X Y Black White)
 struct Word {
     const char *word, *slot, *label;
+    int button;
 };
-const Word kWords[] = {{"Accept", "a", "ACCEPT"},     {"Back", "b", "BACK"},     {"Cancel", "b", "CANCEL"},
-                       {"Continue", "a", "CONTINUE"}, {"Select", "a", "SELECT"}, {"Reset", "x", "RESET"},
-                       {"Overwrite", "a", "OVERWRITE"}};
+const Word kWords[] = {
+    {"Accept", "a", "ACCEPT", 0},          {"Back", "b", "BACK", 1},
+    {"Cancel", "b", "CANCEL", 1},          {"Continue", "a", "CONTINUE", 0},
+    {"Select", "a", "SELECT", 0},          {"Reset", "x", "RESET", 2},
+    {"Overwrite", "a", "OVERWRITE", 0},    {"Configure", "y", "CONFIGURE BOTS", 3},  // Custom Game's Match Options
+    {"ControllerLayout", "y", "CONTROLLER LAYOUT", 3},                               // Controller Options
+    {"Join", "a", "JOIN", 0},              {"RefreshResults", "x", "REFRESH", 2},    // the server lists
+    {"HostAMatch", "y", "HOST A MATCH", 3},
+    {"Remove", "x", "REMOVE", 2},          {"New", "y", "NEW", 3},                   // Change Profile
+    {"Rename", "lb", "RENAME", 5},
+    {"REMOVE", "a", "REMOVE", 0},  // the profile delete confirmations (Back_REMOVE: A removes)
+    {"Host", "a", "HOST", 0},
+};
 
 bool LegendItems(const std::string& name, std::vector<const Word*>& out) {
     out.clear();
@@ -125,7 +141,29 @@ bool LegendItems(const std::string& name, std::vector<const Word*>& out) {
         if (end == std::string::npos) break;
         at = end + 1;
     }
-    return !out.empty() && out.size() <= 3;
+    return !out.empty() && out.size() <= 5;
+}
+
+// the legend's layout: right to left from the bar's right edge, a 24 x 24 glyph, the word beside it at the text
+// scale, a gap; narrower text when the words would reach past the bar's left (PcLegendSlots: the mouse's slots)
+constexpr float kRight = 586, kLeftLimit = 48, kGlyph = 24, kGlyphGap = 4, kItemGap = 16;
+struct Placed {
+    float glyph, text, end, scale;
+};
+std::vector<Placed> Layout(const std::vector<const Word*>& items) {
+    std::vector<Placed> out;
+    for (float scale : {0.7f, 0.6f, 0.5f}) {
+        out.clear();
+        float right = kRight;
+        for (const Word* w : items) {
+            float width = PcTextUnits(w->label) * 14.3f * scale;
+            float glyph = right - width - kGlyphGap - kGlyph;
+            out.push_back({glyph, glyph + kGlyph + kGlyphGap, right, scale});
+            right = glyph - kItemGap;
+        }
+        if (out.back().glyph >= kLeftLimit) break;
+    }
+    return out;
 }
 
 size_t Count(const std::string& text, size_t from, size_t to, const char* what) {
@@ -145,6 +183,17 @@ int PromptDevice() { return g_device; }
 
 // a button's name in the style shown (the hints' words; "a" ... "rt")
 std::string PcPromptName(const std::string& slot) { return NameFor(g_applied >= 0 ? g_applied : Wanted(), slot); }
+
+// a legend strip's buttons as ExtendPrompts draws them (left, right, the pad's button), rightmost first; none for a
+// strip whose words are not all known
+std::vector<PcLegendSlot> PcLegendSlots(const std::string& strip) {
+    std::vector<const Word*> items;
+    std::vector<PcLegendSlot> out;
+    if (!LegendItems(strip, items)) return out;
+    std::vector<Placed> placed = Layout(items);
+    for (size_t k = 0; k < items.size(); k++) out.push_back({placed[k].glyph - 4, placed[k].end + 6, items[k]->button});
+    return out;
+}
 
 // [[hook]] at 0xAF69F (config/game.toml): the launcher's own textures just loaded into the menus' registry; the
 // prompts' artwork goes in beside them
@@ -204,23 +253,30 @@ std::string ExtendPrompts(const std::string& text) {
         size_t line = out.rfind('\n', at) + 1, line_end = out.find('\n', q2);
         size_t screen = out.rfind("\n{", at), close = out.find("\n}", at);
         if (screen == std::string::npos || close == std::string::npos) continue;
-        if (Count(out, screen, close, "BackgroundImage") + items.size() > 8 ||
-            Count(out, screen, close, "BackgroundText") + items.size() > 60) {
+        // the title's limits: 8 images and 60 texts a screen. One button too many (Change Profile's five): the strip's
+        // own image goes, and a comment names the legend for pc_mouse.cpp instead (the strip is the screen's only one)
+        size_t images_now = Count(out, screen, close, "BackgroundImage");
+        bool drop = images_now + items.size() > 8 && images_now + items.size() == 9 &&
+                    Count(out, screen, close, " 0 411 640 69\"") == 1;
+        if ((images_now + items.size() > 8 && !drop) || Count(out, screen, close, "BackgroundText") + items.size() > 60) {
             kept++;
             continue;
         }
         // the strip itself stays, drawn transparent (its name still tells pc_mouse.cpp which button each click on the
-        // bar is), and each button goes in the slot the strip had it in, right to left (pc_mouse.cpp's slots, measured
-        // on the strips' art): a glyph 24 x 24, the word in the title's text beside it
-        static const int kSlotLeft[3] = {488, 385, 292};
-        std::string images = out.substr(line, q1 - line) + name + " 0 0 0 0 0 411 640 69\"\r\n", texts;
+        // bar is: PcLegendSlots, the same layout), and each button goes right to left: a glyph 24 x 24, the word in the
+        // title's text beside it
+        std::vector<Placed> placed = Layout(items);
+        std::string images = drop ? "\t// csx legend " + name + "\r\n"
+                                  : out.substr(line, q1 - line) + name + " 0 0 0 0 0 411 640 69\"\r\n",
+                    texts;
+        char num[64];
         for (size_t k = 0; k < items.size(); k++) {
             const Word* w = items[k];
-            int x = kSlotLeft[k] + 2;
-            images += "\tBackgroundImage \"CSXP_" + std::string(w->slot) + " 255 255 255 255 " + std::to_string(x) +
-                      " 416 24 24\"\r\n";
-            texts += "\tBackgroundText \"54 83 107 255 " + std::to_string(x + 28) + " 418 120 24 0.7\"\t\"" + w->label +
-                     "\"\r\n";
+            const Placed& p = placed[k];
+            images += "\tBackgroundImage \"CSXP_" + std::string(w->slot) + " 255 255 255 255 " +
+                      std::to_string(int(p.glyph + 0.5f)) + " 416 24 24\"\r\n";
+            std::snprintf(num, sizeof num, " %d 418 %d 24 %.2f", int(p.text + 0.5f), int(p.end - p.text + 10), p.scale);
+            texts += "\tBackgroundText \"54 83 107 255" + std::string(num) + "\"\t\"" + w->label + "\"\r\n";
         }
         // the texts after the screen's own (their places in it unchanged: commands set lines by their order)
         out.insert(close + 1, texts);

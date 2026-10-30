@@ -148,7 +148,7 @@ def style(name):
     common_d = {k: dpad(k) for k in ('dup', 'ddown', 'dleft', 'dright')}
     if name == 'pc':  # the keys the menus take for the pad's buttons (src/linux/window_input.cpp)
         g.update(a=keycap('SPACE'), b=keycap('ESC'), x=keycap('R'), y=keycap('Q'), back=keycap('TAB'),
-                 start=keycap('ENTER'), lb=keycap('PGUP', 12), rb=keycap('PGDN', 12), lt=keycap('PGUP', 12),
+                 start=keycap('ENTER'), lb=keycap('1'), rb=keycap('2'), lt=keycap('PGUP', 12),
                  rt=keycap('PGDN', 12), ls=keycap('SHIFT', 12), rs=mouse('m3'), key=keycap())
         for k in ('dup', 'ddown', 'dleft', 'dright'):  # the arrow keys: a cap with its arrow drawn
             im = keycap()
