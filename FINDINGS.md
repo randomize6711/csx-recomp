@@ -1970,6 +1970,11 @@ What building the party, profiles and lobby (docs/multiplayer_frontend.md) found
   so in a Single Player split match (no lobby) they joined Auto-Select before their own controllers chose; five split
   tests failed in the full regression (vk_split_teams, pads_2/3/4, kbm_3). Fixed: the team only for a lobby's match
   (player 1's "join ... party").
+- **A late join is a spectator until the next round** (the title's rule): net_split_browse's player 2 joined about 30 s
+  into a round the server's bots were playing (N4.8's party steps came first) and had no buy menu yet; the test now
+  waits for its spawn (7f1b9ad).
+- **vk_soak_direct is a hand-run scenario** (its launch `tests/launch/<map>_beginner`): the window runner cannot start
+  it; with de_airstrip it passed (30.8 min, 9 rounds) in N4.8's complete suite.
 
 ## PC multiplayer N4.7: the local server (2026-10-28)
 

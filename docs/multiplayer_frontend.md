@@ -263,6 +263,8 @@ Automated tests used virtual controllers only. Not performed, for the user (`./r
 5. Pause menus: player 2's has no Change Map, Restart Match or Quit (Leave Match leaves only it); player 1's Return to
    Lobby brings everyone back to the lobby; End Match; Quit Game closes the game.
 6. Look: the screens next to the title's own (fonts, highlights, sounds, the map previews in the lobby).
+7. Audio by ear: the menus' sounds on the new screens, and each split-screen player's sound in a party match (the
+   tests use null or captured audio, never the speakers).
 
 ## 8. Known limitations
 
@@ -275,34 +277,60 @@ Automated tests used virtual controllers only. Not performed, for the user (`./r
   changes) applies, no return to a local lobby.
 - Linux only (the compositor, the local server); the profile, ruleset and lobby code is portable.
 
-## 9. Regression (the final N4.8 build)
+## 9. Regression
 
-The complete suite, one run on 38691c6 (2026-10-28 22:59 to 2026-10-29 05:49, one batch at a time, the machine
-otherwise idle):
+**Status: automated regression complete** (2026-10-30). Physical controllers, audio by ear, the look next to the
+title's screens and a real LAN between two PCs remain manual checks (section 7), not done.
 
-| Suite | Result |
-|---|---|
-| Unit | 9 / 9 programs |
-| Headless (run_regression.sh) | 46 / 46 (regress_bots_aztec_11's spawn check passed) |
-| Network (all of tests/net, incl. dedicated, browser, net_party_private, net_party_lan) | 39 / 39 |
-| Window, default | 27 / 27 |
-| Window, extra (incl. the local server tests) | 17 / 17 |
-| Split and party | 15 / 20 |
+### 9.1 The complete suite on the final build
 
-The five split failures (vk_split_teams, vk_split_pads_2, vk_split_pads_3, vk_split_pads_4, vk_split_kbm_3) had one
-cause, an N4.8 bug: players 2-4 joined their lobby team (Auto-Select) in a split match that was not a lobby's (5.5).
-Fixed; the five and the two lobby team tests (vk_party_match, vk_party_pads) rerun on the fixed build: 7 / 7 pass.
-That is a rerun of those seven, not a second complete suite.
+Binaries built from 90ba692 (the same build since: sha256 checked at each start, unchanged; 7f1b9ad changed one network
+test only). Every test of every suite, none left out: the window suite is all 101 scenarios in tests/scenarios
+(vk_*), 37 more than earlier runs (the vk_perf benchmarks, bloom, viewmodel/HUD, scoreboard 4:3 and 21:9, Xbox effects,
+menus, match, title, intro, resolution, buy tap, the audit, compare and soak).
 
-Open intermittents: vk_split_2_219's outside SIGKILL (N4.6-N4.7) did not happen in this run (the SIGKILLs in the logs
-are the tests' own: frozen clients ended by the runner, the crash test); its cause is still unknown (tracing it needs
-root: not done). regress_bots_aztec_11 passed in the complete suite after the stale-log fix (84d336a), the first time
-since N4.7; one pass does not close it.
+| Suite | Build | Result |
+|---|---|---|
+| Unit (tests/*_test.py) | 90ba692 | 9 / 9 |
+| Headless (run_regression.sh, every regress_*) | 90ba692 | 46 / 46 |
+| Network, first run (every tests/net) | 90ba692 | 38 / 39: net_split_browse (below) |
+| Window (every vk_*) | 7f1b9ad | 100 / 101: vk_soak_direct not runnable by the runner (below); passed as documented |
+| Network, second complete run | 7f1b9ad | 39 / 39 |
+
+- **net_split_browse** (the first network run): the test's timing, not the game. N4.8's party steps put player 2's
+  join about 30 s into a round the server's two bots were already playing; a late joiner is a spectator until the next
+  round (the title's rule), and the test looked for its buy menu 10 s later. The test now waits for that buy menu (this
+  round or the next) and its server stays up past the next round start (7f1b9ad). Alone: pass (an early join); in the
+  second complete network run: pass.
+- **vk_soak_direct**: its header names its launch as `tests/launch/<map>_beginner` (a scenario for a chosen map, run by
+  hand: FINDINGS "Stability"), so the runner started nothing (0 steps). Run as documented, its steps unchanged
+  (de_airstrip, real time, 3600 s limit): pass, 30.8 min, 9 rounds, no guest trap or Vulkan failure.
+  audio3d_direct.txt and rounds_direct.txt are the other two hand-run scenarios (a chosen map); they are in no suite and
+  were not run.
+- **Conditions**: one test at a time. Another project's game runs (kuf_cod) were active almost throughout: the network
+  suites and 104 of the window starts ran beside them after a capped wait (logged). The benchmarks' figures from this
+  run are shared-load numbers, not performance results (section 6 has those). The window suite was stopped once by the
+  session's low-memory guard (after 26 scenarios, none mid-run) and resumed with the 75 not yet run, each test waiting
+  for 10 GB available; none had to.
+
+### 9.2 Earlier: the first complete run (38691c6)
+
+Unit 9/9, headless 46/46, network 39/39, window 27/27 + 17/17, split and party 15/20. The five split failures
+(vk_split_teams, vk_split_pads_2/3/4, vk_split_kbm_3) were one N4.8 bug: players 2-4 joined their lobby team in a split
+match that was not a lobby's (5.5). Fixed in e586adc; all five pass in 9.1.
+
+### 9.3 Open intermittents
+
+- vk_split_2_219's outside SIGKILL (N4.6-N4.7): not seen in either complete run (the SIGKILLs in the logs are the
+  tests' own: frozen clients ended by the runner, the crash tests). Cause unknown; tracing it needs root (not done).
+  Not closed.
+- regress_bots_aztec_11's spawn check: passed in both complete runs since the stale-log fix (84d336a). Not declared
+  closed on two passes.
 
 ## 10. Commits
 
 3237f93 (design), 738cc98 (profiles), 2be7610 (loopback privacy), 20bc66e (the party's password), 5a7e546 (the
 frontend), eb8ce34 (OwnerSlot), 5342de3 (keyboards, LAN and rules tests), 5c72156 (65-slot party test), 84d336a (test
-logs), 015dd13 (browser password), 38691c6 (the party alone in its window), e586adc (the lobby team fix), then these
-docs.
+logs), 015dd13 (browser password), 38691c6 (the party alone in its window), e586adc (the lobby team fix), 90ba692 (docs),
+7f1b9ad (net_split_browse's timing), then these docs.
 Branch g8.2b, not merged.

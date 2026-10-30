@@ -68,7 +68,7 @@
    broadcast addresses on Windows (only 255.255.255.255 and loopback there); the players' names in the menus (the
    query has them); password masking on the keyboard screen; bots only set at a match's start; a protocol-only load
    generator for 64 remote clients; a client ended by a signal still not telling its server; admin.log rotation.
-1e6. Multiplayer frontend (docs/multiplayer_frontend.md; N4.8 done 2026-10-28, waiting for approval before N5): a
+1e6. Multiplayer frontend (docs/multiplayer_frontend.md; N4.8 done 2026-10-28, automated regression complete 2026-10-30, manual checks pending, waiting for approval before N5): a
    pre-match lobby shared with LAN players (needs a lobby session protocol before the server starts); map objectives
    learned when a map loads (custom maps' modes by their entities, not their prefix); previews for the maps the title's
    list leaves out (de_inferno, cs_office); per-member key bindings for a keyboard player other than player 1 (the

@@ -817,8 +817,12 @@ Approved by the user 2026-10-28 after N4.7. Done (docs/multiplayer_frontend.md):
   T:\releasemap.txt, a browser join losing its password, the tests following an earlier run's server log, and (by the
   full regression) the lobby's team in plain split matches.
 - Full regression on 38691c6: unit 9/9, headless 46/46, network 39/39, window 27/27 + 17/17, split 15/20; the five
-  failures were the lobby team bug, fixed, and pass rerun with the two lobby team tests (7/7).
+  failures were the lobby team bug (fixed, e586adc).
+- Complete suite on the final build (2026-10-29/30, every test, the window suite all 101 scenarios): unit 9/9, headless
+  46/46, network 38/39 then (net_split_browse's timing fixed in the test, 7f1b9ad) a second complete run 39/39, window
+  100/101 (vk_soak_direct is a hand-run scenario the runner cannot start; run as documented: pass, 30.8 min). Automated
+  regression complete; most of it ran beside another project's game runs (logged).
 - Measured: the party screen with four members, 2 processes (compositor 46 MB, player 1 154 MB), 7% CPU; lobby start to
   both players in game 4.3 s.
-- Manual checks not performed (physical controllers, a second PC on the LAN, the look next to the title's screens).
+- Manual checks pending (physical controllers, audio, the look next to the title's screens, a second PC on the LAN).
 Branch g8.2b, not merged. N5 waits for approval.

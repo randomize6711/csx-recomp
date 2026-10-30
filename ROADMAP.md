@@ -62,5 +62,5 @@
   Server > In Game), the N4.6 intermittents, the benchmarks (docs/splitscreen.md section 17) ✅ 2026-10-28; N4.8 —
   the multiplayer frontend: party screen, saved profiles, Local Only / Host LAN Match / Server Browser, map, mode, rules
   and rulesets, ready-up lobby, pause menus by player, return to lobby (docs/multiplayer_frontend.md) ✅ 2026-10-28,
-  waiting for approval before N5
+  automated regression complete 2026-10-30, manual checks pending; waiting for approval before N5
 - M8 — PC feature set complete
