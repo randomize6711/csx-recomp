@@ -14,10 +14,15 @@
 //     the default items as at a round's start), bots alike;
 //   - spawn protection: kProtect seconds without damage (entvars takedamage +0x16C 0) and a glow in the team's colour
 //     (renderfx +0x15C glow shell), both put back after;
-//   - Deathmatch: each spawn gives $16000 (AddAccount 0x11B710) and restarts the buy time (the rules' round start,
-//     +0x30, set to now; the game's own check measures the buy time from it), so a player buys in the spawn's buy zone
-//     after every death. The match ends when a player reaches the frag limit (pc_fraglimit; 0 none): the game's own
-//     "end in a moment" (rules +0x2BC set to now: Think calls GoToIntermission, vtable +0x110, after its delay);
+//   - Deathmatch: each spawn sets the money to $16000 (AddAccount 0x11B710), humans and bots alike, and the buy time
+//     has no end (mp_buytime 99999 while the mode is on, the value before it put back after), so a player buys in a
+//     buy zone at any time. Weapons on the ground (the game's "weaponbox" entities, a dead player's or a dropped one)
+//     go after kWeaponStay seconds (pc_weapon_stay N): their own Kill think made due (nextthink now), which removes
+//     the weapons in them too; one picked up is gone before (the game removes it), a held weapon is never one, and the
+//     bomb's backpack (models/w_backpack.mdl) stays. The match ends when a player reaches the frag limit
+//     (pc_fraglimit; 0 none): the game's own "end in a moment" (rules +0x2BC set to now: Think calls
+//     GoToIntermission, vtable +0x110, after its delay). The HUD's round timer shows the match's time left
+//     (MatchTimer: the round's length, rules +0x38, set to end with mp_timelimit);
 //   - Gun Game: a ladder of weapons (kWeapons in order, or pc_gungame_order's). Each spawn and each level strips the player (RemoveAllItems 0x118DB0,
 //     the suit kept) and gives the knife and the level's weapon (GiveNamedItem 0x120720) with full ammunition (the
 //     player's GiveAmmo, vtable +0x70); money is taken (nothing can be bought). A kill (the player's frags, entvars
@@ -53,7 +58,16 @@ constexpr uint32_t kRenderAmt = 0x14C, kRenderColor = 0x150, kRenderFx = 0x15C, 
                    kDeadFlag = 0x170;
 // the player
 constexpr uint32_t kTeam = 0x1E0, kJoining = 0x1FC;
+constexpr uint32_t kWeaponBits = 0x168, kSuit = 1u << 31, kKnifeBit = 1u << 29;  // entvars weapons: the suit, the knife
 constexpr float kRespawnDelay = 2.5f, kProtect = 2.f, kEndDelay = 0.f;
+// the server's entities (state_probe.cpp): sv.num_edicts, sv.edicts, 0x318 bytes each (+0 free, +4 the serial
+// number, entvars at +0x80: classname +0 and model +0xB8 string_t from kStringBase, nextthink +0x104)
+constexpr uint32_t kNumEdicts = 0x62B418, kEdicts = 0x62B420, kEdictSize = 0x318, kStringBase = 0x329F2B;
+constexpr uint32_t kModel = 0xB8, kNextThink = 0x104;
+constexpr uint32_t kCvarFindVar = 0x41F20, kCvarDirectSet = 0x41F90;  // Cvar_FindVar (name), Cvar_DirectSet (cvar, text)
+constexpr float kWeaponStayDefault = 20.f;
+constexpr uint32_t kSendRoundTime = 0x11B780;  // the round timer to one player (stdcall: player, 2), from the rules'
+                                               // round length (+0x38, seconds) and its start (+0x30)
 
 struct Mode {
     const char* id;
@@ -96,6 +110,14 @@ const Weapon& Level(int i) { return *g_ladder[size_t(std::clamp(i, 0, Levels() -
 
 std::string g_mode = "classic";
 int g_fraglimit = 0;
+float g_weapon_stay = kWeaponStayDefault;  // Deathmatch: seconds a weapon lies on the ground
+struct Dropped {
+    uint32_t serial = 0;
+    float since = 0;
+};
+std::vector<Dropped> g_dropped;  // by edict index: the weapon box there and when it was first seen
+std::string g_buytime_before;    // mp_buytime before Deathmatch's (empty: not changed)
+float g_map_start = -1;          // the rules' first frame (the map's start): Deathmatch's timer counts the time limit
 uint32_t g_rules = 0;  // the rules object Think last ran for
 bool g_ended = false;  // the match's end asked for (until the next map)
 
@@ -205,7 +227,7 @@ void Spawned(X86Context& ctx, uint32_t client, uint32_t player, uint32_t pev, Pl
     F(pev + kRenderColor + 8) = ct ? 255.f : 40.f;
     if (g_mode == "deathmatch") {
         SetMoney(ctx, player, 16000);
-        F(g_rules + 0x30) = Now();  // the buy time from now
+        LOG_FIRST(16, "pc mode: %s spawned with $%d", Name(client).c_str(), int32_t(R32(player + 0x1E4)));
     } else if (g_mode == "gungame") {
         SetMoney(ctx, player, 0);
         Arm(ctx, player, p.level);
@@ -217,9 +239,126 @@ void Spawned(X86Context& ctx, uint32_t client, uint32_t player, uint32_t pev, Pl
     }
 }
 
+// a cvar's text (below the guest stack: the names and values are short)
+uint32_t StackText(X86Context& ctx, const std::string& text, uint32_t below) {
+    uint32_t at = (below - 0x200 - uint32_t(text.size())) & ~15u;
+    std::memcpy(kernel::HostPtr(at), text.c_str(), text.size() + 1);
+    return at;
+}
+uint32_t FindCvar(X86Context& ctx, const char* name) {
+    Saved s(ctx);
+    uint32_t str = StackText(ctx, name, ctx.esp);
+    ctx.esp = str - 16;
+    return kernel::CallGuest(ctx, kCvarFindVar, {str});
+}
+void SetCvar(X86Context& ctx, uint32_t cvar, const std::string& value) {
+    Saved s(ctx);
+    uint32_t str = StackText(ctx, value, ctx.esp);
+    ctx.esp = str - 16;
+    kernel::CallGuest(ctx, kCvarDirectSet, {cvar, str});
+}
+
+// Deathmatch's buy time without end: mp_buytime raised while the mode is on, put back when it is not
+void BuyTime(X86Context& ctx) {
+    static uint32_t cvar = 0;
+    if (!cvar) cvar = FindCvar(ctx, "mp_buytime");
+    if (!cvar) return;
+    float value = F(cvar + 0xC);
+    if (g_mode == "deathmatch") {
+        if (value >= 99999.f) return;
+        g_buytime_before = kernel::ReadCString(R32(cvar + 4), 32);
+        SetCvar(ctx, cvar, "99999");
+        LOGI("pc mode: Deathmatch: the buy time has no end (mp_buytime %s before)", g_buytime_before.c_str());
+    } else if (!g_buytime_before.empty()) {
+        SetCvar(ctx, cvar, g_buytime_before);
+        LOGI("pc mode: mp_buytime %s again", g_buytime_before.c_str());
+        g_buytime_before.clear();
+    }
+}
+
+// Deathmatch: weapon boxes on the ground removed after g_weapon_stay seconds (twice a second)
+void WeaponCleanup(float now) {
+    static float next = 0;
+    if (now < next && now > next - 1.f) return;
+    next = now + 0.5f;
+    uint32_t n = R32(kNumEdicts), base = R32(kEdicts);
+    if (!base) return;
+    if (g_dropped.size() < n) g_dropped.resize(n);
+    for (uint32_t i = 1; i < n; i++) {
+        uint32_t e = base + i * kEdictSize, pev = e + 0x80;
+        Dropped& d = g_dropped[i];
+        uint32_t cls = R32(pev);
+        if (R32(e) || !cls || kernel::ReadCString(kStringBase + cls, 16) != "weaponbox") {
+            d = Dropped();
+            continue;
+        }
+        uint32_t serial = R32(e + 4);
+        if (d.serial != serial || d.since <= 0 || d.since > now) {  // a new box (or a new map's clock)
+            d.serial = serial;
+            d.since = now;
+            uint32_t model = R32(pev + kModel);
+            LOG_FIRST(8, "pc mode: a weapon box on the ground (edict %u, %s, its own removal in %.0f s)", i,
+                      model ? kernel::ReadCString(kStringBase + model, 64).c_str() : "no model",
+                      F(pev + kNextThink) - now);
+            continue;
+        }
+        if (now - d.since < g_weapon_stay) continue;
+        uint32_t model = R32(pev + kModel);
+        if (model && kernel::ReadCString(kStringBase + model, 64) == "models/w_backpack.mdl") continue;  // the bomb
+        if (F(pev + kNextThink) <= now) continue;  // already due
+        F(pev + kNextThink) = now;  // its Kill: the box and the weapons in it
+        d.since = now + 1e6f;       // once
+        LOG_FIRST(64, "pc mode: a weapon box removed after %.0f s on the ground (edict %u)", g_weapon_stay, i);
+    }
+}
+
+// Deathmatch's HUD timer: no round ends, so the round's timer (it ran down to 0:00 and stayed there) shows what is left
+// of the match's time limit (mp_timelimit, from the map's start): the round's length set to end with it and the
+// players sent the game's own timer message once it changes
+void MatchTimer(X86Context& ctx, float now) {
+    static uint32_t cvar = 0;
+    if (!cvar) cvar = FindCvar(ctx, "mp_timelimit");
+    if (!cvar || !g_rules) return;
+    float limit = F(cvar + 0xC) * 60.f;
+    if (g_map_start < 0) g_map_start = now;
+    if (limit <= 0) return;
+    // not in the freeze time at the round's start: the round's length is the freeze time's then (mp_freezetime), and
+    // the game starts the round proper when it has run out
+    static uint32_t freeze_cvar = 0;
+    if (!freeze_cvar) freeze_cvar = FindCvar(ctx, "mp_freezetime");
+    int32_t freeze = freeze_cvar ? int32_t(F(freeze_cvar + 0xC)) : 0, secs = int32_t(R32(g_rules + 0x38));
+    if (freeze > 0 && secs == freeze) return;                      // the freeze time: its own length
+    if (now - F(g_rules + 0x30) < float(std::max(freeze, 0)) + 1.f) return;  // the round proper not yet a second old
+    bool human = false;  // the map's start before anyone joined: the game starts its first round itself
+    for (uint32_t i = 0; i < R32(kMaxClients) && !human; i++) {
+        uint32_t client = R32(kClients) + i * kClientSize;
+        uint32_t edict = R32(client) ? R32(client + kClientEdict) : 0;
+        human = edict && R32(edict + 0x7C) && !R32(client + kClientFake) && R32(R32(edict + 0x7C) + kTeam) != 0;
+    }
+    if (!human) return;
+    int32_t want = std::max(0, int32_t(limit - (F(g_rules + 0x30) - g_map_start) + 0.5f));
+    if (int32_t(R32(g_rules + 0x38)) == want) return;
+    kernel::W32(g_rules + 0x38, uint32_t(want));
+    uint32_t n = R32(kMaxClients), sent = 0;
+    for (uint32_t i = 0; i < n; i++) {
+        uint32_t client = R32(kClients) + i * kClientSize;
+        uint32_t edict = R32(client) ? R32(client + kClientEdict) : 0;
+        uint32_t player = edict ? R32(edict + 0x7C) : 0;
+        if (!player || R32(client + kClientFake)) continue;
+        Saved sv(ctx);
+        kernel::CallGuest(ctx, kSendRoundTime, {player, 2});
+        sent++;
+    }
+    LOGI("pc mode: Deathmatch's timer shows the match's time left (%d s of the round, %u players told)", want, sent);
+}
+
 void Frame(X86Context& ctx) {
     uint32_t n = R32(kMaxClients);
     float now = Now();
+    if (g_mode == "deathmatch") {
+        WeaponCleanup(now);
+        MatchTimer(ctx, now);
+    }
     for (uint32_t i = 0; i < n && i < g_players.size(); i++) {
         uint32_t client = R32(kClients) + i * kClientSize;
         Player& p = g_players[i];
@@ -352,6 +491,12 @@ void PcFragLimitCommand(const std::string& arg) {
     LOGI("pc mode: frag limit %d", g_fraglimit);
 }
 
+// "pc_weapon_stay N": Deathmatch, the seconds a weapon lies on the ground before it goes (5 to 600; 20 by default)
+void PcWeaponStayCommand(const std::string& arg) {
+    g_weapon_stay = std::clamp(float(std::atof(arg.c_str())), 5.f, 600.f);
+    LOGI("pc mode: Deathmatch weapons stay %.0f s on the ground", g_weapon_stay);
+}
+
 namespace csx {
 std::string GameMode() { return g_mode; }
 }  // namespace csx
@@ -364,8 +509,11 @@ void PcModesThink(X86Context& ctx, uint8_t*) {
         g_rules = ctx.esi;
         g_ended = false;
         g_players.fill(Player());
+        g_dropped.clear();
+        g_map_start = -1;
     }
     PcGameplayThink();
+    BuyTime(ctx);
     if (g_mode == "classic") return;
     Frame(ctx);
 }

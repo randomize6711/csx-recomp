@@ -1,0 +1,27 @@
+# Issue 8 of the bug-fix pass (src/game/pc_modes.cpp), headless: Deathmatch on de_aztec with 7 bots. The buy time has
+# no end (mp_buytime set lower on the console is raised again, the value before logged), each spawn sets the money to
+# $16000 (humans and bots: logged), weapons on the ground (the dead's weapon boxes) go after 20 s (logged; the bomb's
+# backpack never), pc_weapon_stay changes the time; no round ends.
+#   --env FPS=30 --launch tests/launch/de_aztec_dm
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+expect log pc mode: Deathmatch
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 1
+pckey cmd mp_buytime 1.5
+wait log pc mode: Deathmatch: the buy time has no end \(mp_buytime 1.5 before\)
+count pc.mode:.*.spawned.with.\$16000 3
+wait log pc mode: a weapon box on the ground
+wait log pc mode: a weapon box removed after 20 s on the ground
+pckey cmd pc_weapon_stay 8
+wait log pc mode: Deathmatch weapons stay 8 s on the ground
+wait log pc mode: a weapon box removed after 8 s on the ground
+expect nolog game:.World.triggered."Round_End"
+expect nolog guest trap

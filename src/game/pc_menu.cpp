@@ -2001,6 +2001,7 @@ void PcPartyCommand(X86Context& ctx, const std::vector<std::string>& args);    /
 void PcPlayerCollisionCommand(const std::string& arg);  // pc_collision.cpp
 void PcGameModeCommand(const std::string& arg);         // pc_modes.cpp
 void PcFragLimitCommand(const std::string& arg);
+void PcWeaponStayCommand(const std::string& arg);
 void PcGunGameOrderCommand(const std::string& arg);
 void PcGravityCommand(const std::string& arg);  // pc_gameplay.cpp
 void PcRotationCommand(const std::string& arg);  // pc_modes.cpp
@@ -2137,12 +2138,14 @@ bool PcConsoleCommand(X86Context& ctx, uint8_t*) {
         else OpenDetails(arg);
         return true;
     }
-    if (cmd == "pc_gamemode" || cmd == "pc_fraglimit" || cmd == "pc_gungame_order") {  // pc_modes.cpp (N6C-E)
+    if (cmd == "pc_gamemode" || cmd == "pc_fraglimit" || cmd == "pc_gungame_order" ||
+        cmd == "pc_weapon_stay") {  // pc_modes.cpp (N6C-E)
         std::string arg = R32(0x4253E8) > 1 ? GuestString(R32(0x4251AC)) : std::string();
         for (uint32_t i = 2; cmd == "pc_gungame_order" && i < R32(0x4253E8) && i < 40; i++)
             arg += " " + GuestString(R32(0x4251A8 + 4 * i));
         if (cmd == "pc_gamemode") PcGameModeCommand(arg);
         else if (cmd == "pc_fraglimit") PcFragLimitCommand(arg);
+        else if (cmd == "pc_weapon_stay") PcWeaponStayCommand(arg);
         else PcGunGameOrderCommand(arg);
         return true;
     }
