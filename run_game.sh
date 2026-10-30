@@ -26,8 +26,8 @@
 # Environment passed through: FPS (default 30, the console's rate; FPS=0 runs at the game's own 72 cap),
 # CSX_MOUSE_SENS (default 3), CSX_MOUSE_INVERT=1, CSX_AUDIO=null (silent), CSX_RENDERER=software (reference renderer,
 # about 3 frames/s in a match).
-# Runs in build/play (its pc_settings.ini kept): logs in build/play/logs, the emulated hard disk in build/play/hdd
-# (fresh each launch).
+# Runs in build/play (its pc_settings.ini and profiles kept): logs in build/play/logs, the emulated hard disk in
+# build/play/hdd (its E: partition, the title's profiles and saves, kept; the rest fresh each launch).
 set -e
 root=$(cd "$(dirname "$0")" && pwd)
 cd "$root"
@@ -76,8 +76,14 @@ fi
 
 run=build/play
 [ -n "$connect" ] && run=build/play-client
-rm -rf "$run/logs" "$run/hdd"
-mkdir -p "$run/hdd"
+# the emulated hard disk: its E: partition (the title's profiles and saves, E:\UDATA and E:\TDATA) is kept from one
+# launch to the next, as a console's hard disk keeps them; the cache partitions (X:, Y:, Z:) and the C: system
+# partition start fresh, as a console's quick reboot leaves them
+rm -rf "$run/logs"
+if [ -d "$run/hdd" ]; then
+    find "$run/hdd" -mindepth 1 -maxdepth 1 ! -name E -exec rm -rf {} +
+fi
+mkdir -p "$run/hdd/E"
 # the network: none (a private network namespace with only its loopback, which a match's local server listens on:
 # docs/splitscreen.md 17) unless the run hosts or joins
 offline=1

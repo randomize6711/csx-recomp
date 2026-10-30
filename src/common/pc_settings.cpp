@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <map>
 #include <mutex>
@@ -108,10 +109,26 @@ void Erase(const std::string& name) {
 void Save() {
     std::lock_guard<std::mutex> lock(g_lock);
     LoadLocked();
-    std::ofstream f(Path(), std::ios::trunc);
-    f << "# PC settings (Counter-Strike Xbox recompilation), edited in Options > PC Options\n";
-    for (auto& [k, v] : g_values) f << k << " = " << v << "\n";
-    LOGI("pc: settings saved to %s", Path().c_str());
+    // whole or not at all: written beside the file, then renamed over it (a crash or a full disk mid-write leaves the
+    // last saved settings as they were)
+    const std::string path = Path(), tmp = path + ".tmp";
+    bool written = false;
+    {
+        std::ofstream f(tmp, std::ios::trunc);
+        f << "# PC settings (Counter-Strike Xbox recompilation), edited in Options > PC Options\n";
+        for (auto& [k, v] : g_values) f << k << " = " << v << "\n";
+        f.flush();
+        written = bool(f);
+    }
+    std::error_code ec;
+    if (written) std::filesystem::rename(tmp, path, ec);
+    if (!written || ec) {
+        std::filesystem::remove(tmp, ec);
+        LOGW("pc: settings NOT saved to %s (%s): the file keeps its last saved settings", path.c_str(),
+             written ? "the rename failed" : "the write failed");
+    } else {
+        LOGI("pc: settings saved to %s", path.c_str());
+    }
     if (!g_profile_id.empty()) {
         std::string error;
         if (profiles::Store(ProfileFolder()).Save(g_profile_id, g_profile, error))

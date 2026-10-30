@@ -1,0 +1,60 @@
+# Issues 12 and 13 of the bug-fix pass, first launch (vk_profile_persist_b relaunches the same run folder): on the
+# first start's Create Profile a character key starts typing with no click (src/game/pc_mouse.cpp's armed profile
+# screens; the key itself presses nothing), the name is typed and Enter makes the profile "Ace". Change Profile: Q (Y,
+# New) opens Create Profile, Escape cancels it; New again, the same name typed: the title's "already exists" screen.
+# A PC setting changed. The title writes its profiles to E: (kept by --keep, as by run_game.sh).
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), with
+#   --pc fov=90  run: vk_profile_persist
+# timeout: 300
+wait log renderer: vulkan
+wait log open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+wait log pc mouse: screen SuperLauncher_CreateProfile
+sleep 2
+key Q
+sleep 0.5
+expect log pc mouse: name typing on \(a profile's name typed\)
+type Ace
+sleep 0.5
+key Return
+sleep 1
+expect log pc mouse: name typing off \(Enter\), the name "Ace"
+wait log pc mouse: screen SuperLauncher_MainScreen
+sleep 2
+point 150 304
+sleep 0.5
+click 1
+sleep 1
+point 150 305
+sleep 0.3
+click 1
+wait log pc mouse: screen SuperLauncher_ChangeProfile
+sleep 2
+windowshot profiles_first
+key Q
+wait newlog pc mouse: screen SuperLauncher_CreateProfile
+sleep 1.5
+key Escape
+sleep 0.5
+wait newlog pc mouse: screen SuperLauncher_ChangeProfile
+sleep 1.5
+key Q
+wait newlog pc mouse: screen SuperLauncher_CreateProfile
+sleep 1.5
+key Q
+sleep 0.5
+type Ace
+sleep 0.5
+key Return
+wait log pc mouse: screen ProfileCreateExists
+sleep 1
+windowshot exists
+key Escape
+sleep 2
+pckey set fov 105
+sleep 1
+expect setting fov 105
+expect nolog guest trap

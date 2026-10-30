@@ -45,6 +45,8 @@ def options(path):
         for i, w in enumerate(words[:-1]):
             if w in ('--env', '--pc', '--launch'):
                 opts += [w, words[i + 1].replace('$PWD', ROOT).replace('\\n', '\n')]
+        if '--keep' in words:  # a relaunch of the same run folder (drive.py --keep)
+            opts.append('--keep')
     # "timeout: N" in the header: the scenario's seconds (900 otherwise)
     t = re.search(r'(?:^| )timeout: (\d+)', text)
     opts += ['--timeout', t.group(1)] if t else []
@@ -88,10 +90,15 @@ def main():
     for name in names:
         path = name if os.path.exists(name) else os.path.join(ROOT, 'tests', 'scenarios', name)
         base = os.path.splitext(os.path.basename(path))[0] + tag
-        run = os.path.join(ROOT, 'build', 'wruns', base)
-        subprocess.run(['rm', '-rf', run])
-        os.makedirs(run)
         (w, h, hz), opts = options(path)
+        # "run: NAME" in the header: that run folder, shared with an earlier scenario (a relaunch with --keep: kept)
+        m = re.search(r'(?:^| )run: ([A-Za-z0-9_]+)', open(path).read())
+        if m:
+            base = m.group(1) + tag
+        run = os.path.join(ROOT, 'build', 'wruns', base)
+        if '--keep' not in opts:
+            subprocess.run(['rm', '-rf', run])
+        os.makedirs(run, exist_ok=True)
         limit = int(opts[opts.index('--timeout') + 1]) if '--timeout' in opts else 900
         opts = [o.replace('$RUN', run) for o in opts]
         status = os.path.join(run, 'drive_status')

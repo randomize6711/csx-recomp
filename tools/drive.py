@@ -302,6 +302,7 @@ def main():
     netns = None
     server = None
     pc = []
+    keep = False
     i = 1
     while i < len(args):
         if args[i] == '--timeout':
@@ -326,6 +327,8 @@ def main():
             server = shlex.split(args[i + 1]); i += 2
             if EXE.endswith(os.path.join('harness', 'CounterStrike')):
                 EXE = os.path.join(ROOT, 'build', 'server', 'csx-server')
+        elif args[i] == '--keep':  # a relaunch: the hard disk's E: (the title's profiles), the PC settings and profiles kept
+            keep = True; i += 1
         elif args[i] == '--wine':
             wine = True; i += 1
             if EXE.endswith(os.path.join('harness', 'CounterStrike')):
@@ -342,14 +345,22 @@ def main():
     instance = int(env.get('INSTANCE', '0') or 0)
     hdd = 'hdd' + (str(instance) if instance > 1 else '')
     for d in ('logs', 'cap', 'snaps', 'dumps', 'shots') + tuple('hdd' + n for n in ('', '2', '3', '4', '5', '6', '7', '8', '9')):
-        shutil.rmtree(os.path.join(RUN, d), ignore_errors=True)
+        p = os.path.join(RUN, d)
+        if keep and d.startswith('hdd') and os.path.isdir(p):
+            # --keep (as run_game.sh): only the E: partition (the title's profiles and saves) survives
+            for c in os.listdir(p):
+                if c != 'E':
+                    shutil.rmtree(os.path.join(p, c), ignore_errors=True) if os.path.isdir(os.path.join(p, c)) \
+                        else os.remove(os.path.join(p, c))
+            continue
+        shutil.rmtree(p, ignore_errors=True)
     os.makedirs(os.path.join(RUN, 'snaps'))
-    # PC settings: none unless the run seeds them (src/common/pc_settings.cpp format, "name = value")
+    # PC settings: none unless the run seeds them (src/common/pc_settings.cpp format, "name = value"); --keep keeps them
     settings = os.path.join(RUN, 'pc_settings.ini')
-    if os.path.exists(settings):
+    if os.path.exists(settings) and not keep:
         os.remove(settings)
     if pc:
-        with open(settings, 'w') as f:
+        with open(settings, 'a' if keep else 'w') as f:
             f.write(''.join(kv.replace('=', ' = ', 1) + '\n' for kv in pc))
     if launch:
         # what the front end leaves for its relaunch into a match: the launch data page (launch.bin, kept by the host as

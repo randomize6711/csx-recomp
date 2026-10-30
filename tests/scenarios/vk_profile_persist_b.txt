@@ -1,0 +1,28 @@
+# Issue 12 of the bug-fix pass, the relaunch of vk_profile_persist_a's run folder (--keep: E:, the PC settings and
+# profiles kept, as run_game.sh keeps them): the title finds the profile "Ace" made in the first launch (no Create
+# Profile at the start: the main menu, "Profile: Ace" in the start shot), Change Profile lists it (window shot), and
+# the PC setting changed there is still set.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), with
+#   --keep  run: vk_profile_persist
+# timeout: 300
+wait log renderer: vulkan
+expect setting fov 105
+wait log open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 6
+windowshot start
+expect log pc mouse: screen SuperLauncher_MainScreen
+point 150 304
+sleep 0.5
+click 1
+sleep 1
+point 150 305
+sleep 0.3
+click 1
+wait log pc mouse: screen SuperLauncher_ChangeProfile
+sleep 2
+windowshot profiles
+expect nolog pc mouse: screen SuperLauncher_CreateProfile
+expect nolog pc mouse: screen Initial_CreateProfile
+expect nolog guest trap
