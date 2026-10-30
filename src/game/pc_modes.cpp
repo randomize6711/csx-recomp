@@ -131,6 +131,7 @@ struct Player {
     int level = 0;
     float frags = 0;
     bool armed = false;  // Gun Game: given its level's weapon since its spawn
+    float watch_until = 0;  // a mode's respawn: the items it is stripped of just after put back until then
 };
 std::array<Player, 65> g_players;
 
@@ -212,6 +213,7 @@ void EndMatch(const std::string& why) {
 
 void Spawned(X86Context& ctx, uint32_t client, uint32_t player, uint32_t pev, Player& p) {
     p.protect_until = Now() + kProtect;
+    p.watch_until = Now() + 1.5f;
     if (!p.protecting) {
         p.fx = F(pev + kRenderFx);
         p.amt = F(pev + kRenderAmt);
@@ -403,6 +405,19 @@ void Frame(X86Context& ctx) {
             for (int k = 0; k < 3; k++) F(pev + kRenderColor + 4 * k) = p.color[k];
         }
         if (!joined) continue;
+        if (dead == 0 && now < p.watch_until && !(R32(pev + kWeaponBits) & kSuit)) {
+            // just after a respawn here, the game strips the player once more (every item, the suit too, then only
+            // the default pistol given back): without the suit the HUD hid the health, the armour, the ammunition and
+            // the crosshair, and the knife was gone. Put back as a spawn has them
+            p.watch_until = 0;
+            kernel::W32(pev + kWeaponBits, R32(pev + kWeaponBits) | kSuit);
+            if (g_mode == "gungame") {
+                Arm(ctx, player, p.level);
+            } else if (!(R32(pev + kWeaponBits) & kKnifeBit)) {
+                Give(ctx, player, kKnife);
+            }
+            LOG_FIRST(64, "pc mode: %s's suit and knife put back after the respawn (HUD, crosshair)", Name(client).c_str());
+        }
         if (dead == 0) {
             if (p.dead) {  // spawned again (by the game: a round's restart, or here)
                 p.dead = false;

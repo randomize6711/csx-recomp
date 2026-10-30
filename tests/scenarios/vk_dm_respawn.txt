@@ -1,0 +1,102 @@
+# Issue 7 of the bug-fix pass: the Deathmatch respawn lifecycle (src/game/pc_modes.cpp) through the front end and the
+# local server: Custom Game, Deathmatch, de_aztec with 7 bots. The player dies (kill) three times and spawns again
+# each time: window shots alive, dead and respawned (the HUD, health, crosshair and the weapon in hand looked at by
+# hand), the weapon in hand and the screens the front end shows logged.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), with
+#   --env CSX_LOG_CONSOLE=1
+# timeout: 420
+wait log renderer: vulkan
+wait log open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+sleep 5
+key Space
+sleep 6
+key Space
+sleep 8
+key Down
+sleep 2
+key Space
+sleep 5
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Down
+sleep 1
+key Space
+sleep 5
+expect log pc mouse: screen SuperLauncher_SinglePlayerMatchOptions, 6 rows
+key Down
+sleep 0.7
+key Down
+sleep 0.7
+key Down
+sleep 0.7
+key Down
+sleep 0.7
+key Right
+sleep 1
+windowshot options_mode
+key Space
+sleep 3
+expect log pc mouse: screen SuperLauncher_SinglePlayerMatchMapList
+point 175 197
+sleep 0.5
+click 1
+sleep 1
+key Space
+wait log relaunching into
+wait log pc mode: Deathmatch
+wait log open D:\\de_aztec.sxwad
+sleep 20
+key Down
+sleep 3
+key Down
+sleep 3
+key Space
+sleep 10
+closebuymenu
+sleep 2
+windowshot alive_0
+state alive_0
+mark
+pckey cmd kill
+sleep 1.5
+windowshot dead_1
+wait newlog pc mode: .* respawned \(deathmatch\)
+sleep 2
+closebuymenu
+sleep 2
+windowshot respawn_1
+state respawn_1
+key Left_Ctrl
+sleep 1
+mark
+pckey cmd kill
+sleep 1.5
+windowshot dead_2
+wait newlog pc mode: .* respawned \(deathmatch\)
+sleep 2
+closebuymenu
+sleep 2
+windowshot respawn_2
+state respawn_2
+key Left_Ctrl
+sleep 1
+mark
+pckey cmd kill
+sleep 1.5
+windowshot dead_3
+wait newlog pc mode: .* respawned \(deathmatch\)
+sleep 2
+closebuymenu
+sleep 2
+windowshot respawn_3
+state respawn_3
+key Left_Ctrl
+sleep 1
+expect nolog Host_Error
+expect nolog guest trap
