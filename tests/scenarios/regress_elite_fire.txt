@@ -1,0 +1,48 @@
+# The Dual Elites' shots (play-test 2026-10-30): the client's event handler for the left gun (events/elite_left.sc,
+# 0x1EF650) was never recompiled, so the first left-gun shot stopped the game ("indirect call to 001EF650 has no
+# recompiled function"). Now in config/game.toml [functions]. Headless on de_aztec (no bots): Dual Elites bought, six
+# shots (both guns, they alternate), the game plays on.
+#   --env FPS=30 --env CSX_LOG_SOUNDS=1 --launch tests/launch/de_aztec_nobots
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+sleep 3
+pckey cmd buyitem weapon_elite
+wait log pc buy: weapon_elite bought
+sleep 1
+pckey cmd weapon_elite
+sleep 2
+pckey cmd +attack
+sleep 0.1
+pckey cmd -attack
+sleep 0.4
+pckey cmd +attack
+sleep 0.1
+pckey cmd -attack
+sleep 0.4
+pckey cmd +attack
+sleep 0.1
+pckey cmd -attack
+sleep 0.4
+pckey cmd +attack
+sleep 0.1
+pckey cmd -attack
+sleep 0.4
+pckey cmd +attack
+sleep 0.1
+pckey cmd -attack
+sleep 0.4
+pckey cmd +attack
+sleep 0.1
+pckey cmd -attack
+sleep 3
+count sound.weapons/elite_fire 6
+expect nolog guest trap
+expect nolog has no recompiled function

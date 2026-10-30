@@ -19,6 +19,8 @@ code_sections = [".text", "D3DX", "DSOUND", "XNET", "XONLINE", "XMV", "WMADEC", 
 # extra entry points
 [functions]
 0x10DCC0 = "sub_0010DCC0"  # virtual method (thiscall prologue), called through [vtable+0x224] at 0x10DB91; missed by pointer seeding
+0x1EF650 = "sub_001EF650"  # the client's events/elite_left.sc handler (Dual Elites, left gun), registered at 0x1DE5D9 with
+                            # HookEvent; missed by pointer seeding: the first left-gun shot trapped (play-test 2026-10-30)
 
 # functions the host replaces or calls by name, 0 where the image has none
 [symbols]
