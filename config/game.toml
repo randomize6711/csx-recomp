@@ -862,6 +862,19 @@ call = "PcHudFrame2D"
 at = 0x6E613
 call = "PcNetGraphPlace"
 
+# and its drawn box measured: its fills (0x6D770), its text (DrawConsoleString's return 0x4714E), to its epilogue
+[[hook]]
+at = 0x6D770
+call = "PcNetGraphRect"
+
+[[hook]]
+at = 0x4714E
+call = "PcNetGraphText"
+
+[[hook]]
+at = 0x6EB50
+call = "PcNetGraphDone"
+
 # Weapon Field of View (src/game/pc_viewmodel.cpp, N5E): R_SetupGL's perspective (its doubles), and R_RenderView
 # just before and after it draws the first-person weapon (R_DrawViewModel 0x4D300)
 [[hook]]

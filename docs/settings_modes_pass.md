@@ -36,11 +36,30 @@ Every category is a row of the title's own Options, front end and pause menu (do
     net_graphwidth and net_scale alone.
   - There was no saved size preference before, so the new default reaches everyone. Original is the engine's size.
   - The numbers keep the console's font (8 units a character), so the text is not halved.
-- **Place.** Bottom right corner of the player's own view: 10 units from its right edge and above the HUD's bottom row
-  (money, health, ammunition). The graph's text starts at its left edge: its longest line is about 24 characters at
-  Detail 1 and 46 at 2 and 3 (the server's sv line). The wider of graph and text is kept inside the view.
-- **Aspect ratios and split screen.** The view rectangle is the player's own (each split-screen player's process
-  draws its own viewport) and widescreen's, so 4:3, 16:9, 16:10 and ultrawide, and every split, follow it.
+- **Place: the whole of it in the screen's bottom right corner (corrected after the play-tests).**
+  - **What it is.** One engine path draws it: SCR_DrawNetGraph (0x6E4B0). 0x6E2D0 gives it an origin (x, y), which
+    the hook at 0x6E613 replaces. Everything it draws comes from that origin: its backdrop and columns through one
+    fill (0x6D770, a rectangle in the 2D layout) and its text through DrawConsoleString (0x47060). 0x6DEE0, called
+    before, draws nothing. The HUD layout's hooks (pc_hud_layout.cpp) leave it alone: its callers are not HUD
+    elements. There are no saved coordinates for it, so no profile can override its place.
+  - **Root causes of the misplacements.**
+    - First fix: the origin was set 150 units above the view's bottom, as if the graph grew upwards from it. The
+      backdrop actually runs from 69 units above the origin to 29 below.
+    - Second fix: the right edge came from the view (640 wide, or its widened 854). At 16:9 the 2D layout keeps 640
+      columns in the middle (pc_wide.cpp), so the screen's right edge is 640 + 107.
+    - Third fix: the text width was a guess, 46 characters × 8 units at Detail 2 (368 of the 854 units). The real
+      text is far narrower, so the origin sat left of the middle: the user's 1649x927 screenshot showed it in the
+      lower middle.
+  - **Now: measured, not guessed.** While it draws (from 0x6E613 to its epilogue 0x6EB50), every fill and every
+    string is added to one box relative to the origin. A string's right end comes from the text renderer's own
+    answer (the x after the text, or its width). The largest box since the look last changed (detail, size) places
+    the next frames, kMargin (7 units of the 480-line layout: 14 px at 927 lines, 16 at 1080, 31 at 2160) inside the
+    screen's right and bottom edges. The first frame uses the engine's known backdrop and an estimate of the text.
+  - **Split screen.** Each player's process has its own frame, so the graph goes in that player's corner.
+  - Code: src/game/pc_netgraph_layout.h (the layout, tested by tests/pc_netgraph_layout_test.py at 1649x927, 1080p,
+    1440p, 4K, ultrawide, 4:3 and split screen), src/game/pc_hud.cpp (the measuring hooks).
+  - The tests check the placement from a box. The box's real size is what the play-test's log reports
+    ("net_graph drawn ... from its origin"); the visual result is not verified yet.
 - **HUD editor.** It does not move the net graph (it never did), so there is no customisation to keep.
 - Code: src/game/pc_hud.cpp, the setting in src/game/pc_menu.cpp.
 
