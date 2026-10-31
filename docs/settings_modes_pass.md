@@ -30,12 +30,11 @@ Every category is a row of the title's own Options, front end and pause menu (do
 ## 2. Net graph
 
 - **Size.** New setting Interface > Net Graph Size: Small (the default), Medium, Original.
-  - The engine draws a column per unit, net_graphwidth (300) wide, each net_scale (5) high.
-  - Small is 150 columns at half the height; Medium is three quarters.
-  - It is set with net_graph while the PC setting shows the graph. Net Graph Off leaves the console's own net_graph,
-    net_graphwidth and net_scale alone.
+  - The whole graph is scaled as one (see Place): columns, text, spacing and backdrop. Small is half the engine's
+    own size, Medium three quarters.
+  - While the PC setting shows the graph, the engine draws its own layout (net_graphwidth 300, net_scale 5). Net
+    Graph Off leaves the console's own net_graph, net_graphwidth and net_scale alone.
   - There was no saved size preference before, so the new default reaches everyone. Original is the engine's size.
-  - The numbers keep the console's font (8 units a character), so the text is not halved.
 - **Place: the whole of it in the screen's bottom right corner (corrected after the play-tests).**
   - **What it is.** One engine path draws it: SCR_DrawNetGraph (0x6E4B0). 0x6E2D0 gives it an origin (x, y), which
     the hook at 0x6E613 replaces. Everything it draws comes from that origin: its backdrop and columns through one
@@ -50,14 +49,26 @@ Every category is a row of the title's own Options, front end and pause menu (do
     - Third fix: the text width was a guess, 46 characters × 8 units at Detail 2 (368 of the 854 units). The real
       text is far narrower, so the origin sat left of the middle: the user's 1649x927 screenshot showed it in the
       lower middle.
-  - **Now: measured, not guessed.** While it draws (from 0x6E613 to its epilogue 0x6EB50), every fill and every
-    string is added to one box relative to the origin. A string's right end comes from the text renderer's own
-    answer (the x after the text, or its width). The largest box since the look last changed (detail, size) places
-    the next frames, kMargin (7 units of the 480-line layout: 14 px at 927 lines, 16 at 1080, 31 at 2160) inside the
-    screen's right and bottom edges. The first frame uses the engine's known backdrop and an estimate of the text.
+  - Fourth fix (the user's next screenshot: the graph in the corner, its text cut: "104.", "in: 3", "30/s..."): the
+    netgraph's text call (DrawConsoleString 0x47060) gives the text renderer (0xBCBC0, 0xB9B20) a width of 640 - x,
+    and the renderer cuts a string past it with "..." (its flag 8, cleared only when the string fits). The 2D layout
+    reaches 747 at 16:9, so every string placed past x 640 was cut. The graph had also been shrunk through the
+    engine's cvars while its text kept its size.
+  - **Now: one parent.** The engine draws its own layout (net_graphwidth 300, net_scale 5, its text lines) from the
+    origin, and every piece goes through one transform about that origin, scaled by Net Graph Size:
+    - the fills at 0x6D7D1 (their float rectangle: backdrop, columns, lines);
+    - the text positions at 0x470D0 (the renderer's setup, floats), with a width that cuts nothing;
+    - the glyphs through the font's scale (+0x10 across, +0x14 down; the renderer multiplies each glyph and each
+      measured width by it), scaled from the netgraph's place to its epilogue and put back there. The netgraph's
+      own 0.75 text (its flag at 0x551E70) stays the engine's.
+    The box of all of it, measured after the transform (a string's end from the renderer's answer), is placed by the
+    next frames kMargin (7 units of the 480-line layout: 14 px at 927 lines, 16 at 1080, 31 at 2160) inside the
+    screen's right and bottom edges. The largest box since the look last changed is kept. The first frame uses an
+    estimate of the engine's layout.
   - **Split screen.** Each player's process has its own frame, so the graph goes in that player's corner.
-  - Code: src/game/pc_netgraph_layout.h (the layout, tested by tests/pc_netgraph_layout_test.py at 1649x927, 1080p,
-    1440p, 4K, ultrawide, 4:3 and split screen), src/game/pc_hud.cpp (the measuring hooks).
+  - Code: src/game/pc_netgraph_layout.h (the layout, tested by tests/pc_netgraph_layout_test.py: every piece inside
+    the parent and the screen, the margins at 1649x927, 1080p, 16:10, 1440p, 4K, 21:9, 4:3, the three sizes and split
+    screen), src/game/pc_hud.cpp (the transform and measuring hooks), src/game/pc_wide.cpp (the font seen).
   - The tests check the placement from a box. The box's real size is what the play-test's log reports
     ("net_graph drawn ... from its origin"); the visual result is not verified yet.
 - **HUD editor.** It does not move the net graph (it never did), so there is no customisation to keep.

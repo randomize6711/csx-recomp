@@ -862,10 +862,15 @@ call = "PcHudFrame2D"
 at = 0x6E613
 call = "PcNetGraphPlace"
 
-# and its drawn box measured: its fills (0x6D770), its text (DrawConsoleString's return 0x4714E), to its epilogue
+# and drawn as one parent: its fills (0x6D7D1), its text (0x470D0, DrawConsoleString's return 0x4714E), to its
+# epilogue (src/game/pc_hud.cpp)
 [[hook]]
-at = 0x6D770
+at = 0x6D7D1
 call = "PcNetGraphRect"
+
+[[hook]]
+at = 0x470D0
+call = "PcNetGraphTextAt"
 
 [[hook]]
 at = 0x4714E

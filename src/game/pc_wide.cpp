@@ -217,7 +217,10 @@ void PcWideRect2D(X86Context& ctx, uint8_t*) {
 
 // [[hook]] at 0xB9B20: the game's text renderer (thiscall: x, y floats in display pixels, colour, string, flags, width;
 // glyphs drawn with its own vertex program in screen pixels): menus, HUD text, chat, centre messages
+void PcNetGraphFont(uint32_t font);  // pc_hud.cpp: the net graph's text scaled with it
+
 void PcWideText(X86Context& ctx, uint8_t*) {
+    PcNetGraphFont(ctx.ecx);
     if (!DrawingToFrame()) return;
     float x;
     std::memcpy(&x, kernel::HostPtr(ctx.esp + 4), 4);

@@ -1,6 +1,8 @@
-// The net graph's place (src/game/pc_hud.cpp; tested on its own by tests/pc_netgraph_layout_test.py): the box of
-// everything SCR_DrawNetGraph drew (its backdrop, columns and text, measured as it draws), relative to the origin it
-// was given, set kMargin inside the screen's bottom right corner. No game memory: 2D units (480 lines a frame).
+// The net graph's layout (src/game/pc_hud.cpp; tested on its own by tests/pc_netgraph_layout_test.py). One parent:
+// the engine draws its own layout from an origin (its backdrop, columns and text), and every piece of it goes
+// through one transform about that origin, scaled by Net Graph Size (Transform: rectangles, text positions; the
+// glyphs by the font's scale). The box of everything drawn, measured after the transform and relative to the
+// origin, is set kMargin inside the screen's bottom right corner. No game memory: 2D units (480 lines a frame).
 #pragma once
 #include <algorithm>
 #include <cmath>
@@ -42,13 +44,24 @@ inline Origin Place(const Box& rel, const Screen& s, float margin = kMargin) {
     return {int(std::floor(x)), int(std::floor(y))};
 }
 
-// before the first measurement: the engine's own layout (its backdrop from x - 5, y - graphheight - 5 to
-// x + graph + 5, y + 29; the text from x, about 6 units a character)
-inline Box Estimate(int graph_width, float graph_height, int text_chars) {
+// the parent transform: a point of the engine's layout about the origin, scaled
+struct Transform {
+    float ox = 0, oy = 0, scale = 1;
+    float X(float x) const { return ox + (x - ox) * scale; }
+    float Y(float y) const { return oy + (y - oy) * scale; }
+};
+
+// before the first measurement: the engine's own layout, scaled (its backdrop from x - 5, y - graphheight - 5 to
+// x + graph + 5, y + 29; the text from x, about 6 units a character at its 0.75 font)
+inline Box Estimate(int graph_width, float graph_height, int text_chars, float scale = 1) {
     Box b;
-    b.Add(-5.0f, -graph_height - 5.0f, std::max(float(graph_width) + 5.0f, 6.0f * float(text_chars)), 29.0f);
+    b.Add(-5.0f * scale, (-graph_height - 5.0f) * scale,
+          std::max(float(graph_width) + 5.0f, 6.0f * float(text_chars)) * scale, 29.0f * scale);
     return b;
 }
+
+// the text renderer's width for the net graph's strings: wide enough that none is cut short ("..." past it)
+inline constexpr int kTextWidth = 0x4000;
 
 // a string's right end from what the text renderer answered: the x after it (the engine API's own answer), or its
 // width (an answer smaller than the x it started at)
