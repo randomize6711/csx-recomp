@@ -46,7 +46,8 @@
 bool PcBindingScreen(const std::string& name);  // pc_menu.cpp
 bool PcBrowserClick(const std::string& screen, float x, float y);  // pc_browser.cpp
 bool PcSettingsScreen(const std::string& name);  // pc_menu.cpp
-int PcScrollbarRow(uint32_t table, float x, float y, bool dragging);  // pc_scroll.cpp
+int PcScrollbarFirst(uint32_t table, float x, float y, bool dragging);  // pc_scroll.cpp
+bool PcScrollView(uint32_t table, int first, bool relative);
 bool PcBrowserScreen(const std::string& screen);
 
 namespace {
@@ -356,10 +357,11 @@ void Click(X86Context& ctx, uint32_t screen, const std::string& name, const Scre
     }
     uint32_t table = R32(screen + 0x380);
     if (!table) return;
-    // a PC settings list's scrollbar: the row at that height along the track, held for a drag
-    if (int row = PcScrollbarRow(table, x, y, false); row >= 0) {
+    // a PC settings list's scrollbar, before any row: the rows at that height come into view (the selection stays),
+    // held for a drag
+    if (int first = PcScrollbarFirst(table, x, y, false); first >= 0) {
         g_bar_drag = table;
-        Select(ctx, screen, ui, table, row);
+        PcScrollView(table, first, false);
         return;
     }
     RowHit h = HitRow(table, x, y, ui && ui->header);
@@ -645,9 +647,9 @@ void PcMouseFrame(X86Context& ctx) {
             } else {
                 g_stick_on = false;
             }
-        } else if (table && g_bar_drag == table) {  // the scrollbar dragged: the row at the pointer's height
-            if (int row = PcScrollbarRow(table, x, y, true); row >= 0) Select(ctx, screen, ui, table, row);
-        } else if (table) {
+        } else if (table && g_bar_drag == table) {  // the scrollbar dragged: the rows in view follow, nothing selected
+            if (int first = PcScrollbarFirst(table, x, y, true); first >= 0) PcScrollView(table, first, false);
+        } else if (table && PcScrollbarFirst(table, x, y, false) < 0) {  // over the scrollbar: no row's hover
             RowHit h = HitRow(table, x, y, ui && ui->header);
             if (h.row >= 0) Select(ctx, screen, ui, table, h.row);
         }
@@ -657,6 +659,9 @@ void PcMouseFrame(X86Context& ctx) {
         if (c == -1) g_bar_drag = 0;
         if ((c == 1 || c == 11) && x >= 0) Click(ctx, screen, name, ui, x, y, c == 11);
         else if (c == 2) Queue({0, kB});
+        // the wheel: over a list with a scrollbar it scrolls the rows in view (3 a notch, the selection stays);
+        // elsewhere it is the d-pad, as before
+        else if ((c == 101 || c == 99) && table && PcScrollView(table, c == 101 ? -3 : 3, true)) continue;
         else if (c == 101 || c == 99) Queue({c == 101 ? kUp : kDown, -1});
     }
     static uint32_t logged = 0;

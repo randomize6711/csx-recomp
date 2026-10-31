@@ -12,9 +12,10 @@
 // The scrollbar (2026-10-31): a PC settings list (pc_menu.cpp's screens, the Controller rows in the title's Control
 // Options too) with more rows than it shows gets a bar at its right edge, drawn after its rows (the engine's FillRGBA,
 // 0x476C0: a track and a thumb in the menu's colour, the front end's blue, the pause menu's gold). The thumb's length
-// is the shown rows' share of all rows, its place the first shown row's. pc_mouse.cpp clicks and drags it
-// (PcScrollbarRow: the row under the pointer's height along the track, which the list then shows); the wheel, the
-// keys and the pad move the selection, which the list keeps in view.
+// is the shown rows' share of all rows, its place the first shown row's. pc_mouse.cpp clicks and drags it and turns
+// the wheel over such a list into it (PcScrollbarFirst, PcScrollView): they move only the rows in view (the list's
+// first shown row, +0x120, held at the draw until the selection moves), never the selection; the keys and the pad
+// move the selection, which the list keeps in view as before.
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -52,6 +53,11 @@ struct Bar {
     int rows = 0, shown = 0, first = 0;
 };
 std::map<uint32_t, Bar> g_bars;  // by table address, from its last draw (none: no bar)
+struct View {
+    int first = 0;      // the first row shown, as the scrollbar or the wheel put it
+    uint32_t sel = 0;   // the selection then: a move of it (the keys, the pad, a click on a row) hands the view back
+};
+std::map<uint32_t, View> g_views;  // by table address
 uint32_t g_drawing = 0;          // the table whose rows are being drawn
 int g_step = 0;                  // its row step (pixels)
 constexpr uint32_t kCurrentScreen = 0x5523D4, kFillRGBA = 0x476C0, kGlEnable = 0x6A89E8, kGlBlend = 0x0BE2;
@@ -81,6 +87,17 @@ void PcScrollRows(X86Context& ctx, uint8_t*) {
     g_shown[ctx.esi] = int(R32(ctx.esp + 0x28)) - int(ctx.edi) + 1;
     g_drawing = ctx.esi;
     g_step = int(ctx.ebx);
+    // the rows in view the scrollbar or the wheel chose, while the selection stays where it was
+    if (auto v = g_views.find(ctx.esi); v != g_views.end()) {
+        if (R32(ctx.esi + 0x9C) != v->second.sel) {
+            g_views.erase(v);
+        } else {
+            const int shown = int(R32(ctx.esp + 0x28)) - int(ctx.edi);
+            W32(ctx.esi + 0x120, uint32_t(v->second.first));
+            ctx.edi = uint32_t(v->second.first);
+            W32(ctx.esp + 0x28, uint32_t(v->second.first + shown));
+        }
+    }
     if (!Enabled()) return;
     const uint32_t table = ctx.esi;
     const int first = int(R32(table + 0x120));
@@ -180,15 +197,28 @@ void PcScrollRowsDone(X86Context& ctx, uint8_t*) {
     DrawBar(ctx);
 }
 
-// a click or a drag on a list's scrollbar (pc_mouse.cpp): the row its height along the track stands for, -1 off the
-// bar (dragging: the height alone counts, wherever the pointer went sideways)
-int PcScrollbarRow(uint32_t table, float x, float y, bool dragging) {
+// a click or a drag on a list's scrollbar (pc_mouse.cpp): the first row to show for the pointer's height (the thumb's
+// middle there), -1 off the bar (dragging: the height alone counts, wherever the pointer went)
+int PcScrollbarFirst(uint32_t table, float x, float y, bool dragging) {
     auto it = g_bars.find(table);
     if (it == g_bars.end()) return -1;
     const Bar& b = it->second;
     if (!dragging && !(x >= b.x0 - 3 && x < b.x1 + 4 && y >= b.y0 && y < b.y1)) return -1;
     float f = std::clamp((y - b.y0) / std::max(1.0f, b.y1 - b.y0), 0.0f, 1.0f);
-    return std::clamp(int(f * float(b.rows)), 0, b.rows - 1);
+    return std::clamp(int(std::lround(f * float(b.rows) - float(b.shown) / 2.0f)), 0, b.rows - b.shown);
+}
+
+// the rows in view set (the scrollbar, the wheel over a list that has one), the selection unchanged; by wheel notches
+// from the rows in view when relative; false for a list with no scrollbar
+bool PcScrollView(uint32_t table, int first, bool relative) {
+    auto it = g_bars.find(table);
+    if (it == g_bars.end()) return false;
+    const Bar& b = it->second;
+    int from = int(R32(table + 0x120));
+    int to = std::clamp(relative ? from + first : first, 0, std::max(0, b.rows - b.shown));
+    g_views[table] = {to, R32(table + 0x9C)};
+    W32(table + 0x120, uint32_t(to));
+    return true;
 }
 
 // how many rows a table's last draw showed (0 before its first), for moving its highlight into view
