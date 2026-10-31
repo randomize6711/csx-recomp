@@ -13,7 +13,7 @@ Code: `src/game/pc_gameplay.cpp`, plus the settings rows in `pc_menu.cpp`, the c
 | Classic spray logo | Server side works: `impulse 201` sprays (the game's own code, `decalfrequency`, `player/sprayer.wav`). What the client draws is listed under Limitations. |
 | Spray binding T | Implemented: PC Controls > Spray Logo, default T. |
 | Controller spray binding | Implemented: PC Options > Controller > Spray Logo. Default Back + D-pad Down; choices are the Back + D-pad chords, Share, Paddles 1–4 and Touchpad. |
-| Classic flashlight | Implemented: `impulse 100`, the game's own flashlight. The server must allow it (`mp_flashlight`, 0 in the title): every PC match turns it on, and a Rules row, Flashlights, can turn it off. |
+| Classic flashlight | `impulse 100`, the game's own flashlight. The server must allow it (`mp_flashlight`, 0 in the title): every PC match turns it on, and a Rules row, Flashlights, can turn it off. Its light on the world: the engine's dynamic light, made visible by src/game/pc_dlights.cpp (2026-10-31; the GL layer's glTexSubImage2D was empty, FINDINGS.md "Dynamic lights reach no lightmap"). A dead player's flashlight goes off on the server. |
 | Flashlight binding | F on the keyboard. Controller: PC Options > Controller > Flashlight, default Back + D-pad Up. |
 | White/black flashbang | Implemented. PC Options > Gameplay > Flashbang Effect: White / Black. |
 | Optional ragdolls / lifetime | **Not implemented.** Investigated; see Ragdolls below. |

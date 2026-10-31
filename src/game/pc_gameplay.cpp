@@ -24,6 +24,7 @@ constexpr uint32_t kFadeColour = 0x74A254;  // screenfade r, g, b, alpha (bytes)
 constexpr uint32_t kClients = 0x636CE4, kMaxClients = 0x636CE8, kClientSize = 0x5010, kClientEdict = 0x4B9C,
                    kClientName = 0x4D10;
 constexpr uint32_t kEffects = 0x80 + 0x118;  // the edict's entvars effects (EF_DIMLIGHT 8: the flashlight)
+constexpr uint32_t kDeadFlag = 0x80 + 0x170;  // the edict's entvars deadflag
 constexpr uint32_t kNextDecal = 0x854;       // the player's next spray time (the spray impulse sets it, 0x120CE0)
 }  // namespace
 
@@ -42,6 +43,12 @@ void PcGameplayThink() {
             continue;
         }
         uint32_t fx = R32(edict + kEffects);
+        // a dead player's flashlight goes off (it is not kept through the death, and a spawn starts with it off)
+        if ((fx & 8) && R32(edict + kDeadFlag) != 0) {
+            fx &= ~8u;
+            kernel::W32(edict + kEffects, fx);
+            LOG_FIRST(16, "pc gameplay: %s's flashlight off (dead)", kernel::ReadCString(client + kClientName, 32).c_str());
+        }
         float next = kernel::G<float>(player + kNextDecal);
         if (edicts[i] == edict) {
             if ((fx ^ effects[i]) & 8)

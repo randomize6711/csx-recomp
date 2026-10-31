@@ -652,6 +652,12 @@ on_true = 0x58FEB
 at = 0x6F080
 call = "PcWideRect2D"
 
+# dynamic lights on the world (the flashlight): the GL layer's empty glTexSubImage2D uploads the engine's rebuilt
+# lightmaps (src/game/pc_dlights.cpp)
+[[hook]]
+at = 0x72480
+call = "PcGlTexSubImage"
+
 # the loading screen's progress bar held inside its frame (src/game/pc_loading.cpp)
 [[hook]]
 at = 0xC2F69

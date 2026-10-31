@@ -1383,6 +1383,9 @@ apart from a V8U8 map) and add no world pass. The world is the push buffer recor
 which is never recorded again. Whether the console lights the world with r_dynamic's lights at all is unknown
 without a capture; both renderers agree.
 
+(2026-10-31: the cause found statically, see "Dynamic lights reach no lightmap" below: the engine computes them;
+the Xbox GL layer's glTexSubImage2D is empty.)
+
 Other observations:
 - The spectator screen (after dying, Free Look) draws the menu's backdrop art over the view and one status line in
   garbled characters (where "Enemy: name" was); not a graphics effect (the UI's text), noted in TODO.md.
@@ -3031,3 +3034,27 @@ Up, Backspace, Escape closing without the pause menu, mouse capture restored, th
   set MultiSampleMode on the back buffer in the runs so far).
 - Overlay (movies) still not composited; the console resolves the 640x960 back buffer into a 640x480 front buffer,
   the runtime presents the 640x960 surface directly (presentation scales it).
+
+## Dynamic lights reach no lightmap (2026-10-31, from the code; the in-game result awaits a play-test)
+
+- **The engine's GoldSrc path is intact.** The client's flashlight (0x24B10): for the local player with EF_DIMLIGHT
+  (or EF_BRIGHTLIGHT) it reuses or allocates dlight key 1 (CL_AllocDlight 0x2A510 through [0x371548], kept at
+  0x7791EC), traces 2048 units along the view (vpn at 0x6E8890) and puts the light at the hit point, its radius the
+  distance x tan of a beam angle, its brightness falling with the distance, alive 0.2 s and renewed each frame.
+- **Each frame** R_DrawWorld (0x521B0) runs R_RecursiveWorldNode (0x51F40) also when the Xbox BSP renderer
+  (jcab_render_bsp) replays the recorded world; the texture chains (0x51630) rebuild the lightmaps a light touches
+  (R_RenderDynamicLightmaps 0x513C0, R_BuildLightMap 0x4FD80) into 128x128 RGBA blocks at [0x55199C],
+  lightmap_modified at 0x6E7800.
+- **The upload is lost.** R_BlendLightmaps (0x51000) uploads each changed block with glTexSubImage2D
+  (GL_RGBA, GL_UNSIGNED_BYTE, 128x128). The GL layer's glTexSubImage2D (0x72480, through 0x6A8A50 / 0x6A8924) is
+  `ret 0x24`: lightmaps are DXT1 textures (glTexImage2D 0x728A0 compresses with XGCompressRect 0x2D198E, format 0x0C,
+  source 0x3F, alpha ref 0.01, flags 2 in eax), and the console never re-compressed them.
+- **Consequence.** No dynamic light ever lit the world: the flashlight, muzzle flashes, explosions. The title's
+  mp_flashlight is 0.
+- **Not involved.** r_dynamic is registered "1" (0x4DD98 only normalises a non-zero value), and gl_flashblend is 0
+  (no glow-sprite substitute).
+- **Fix (src/game/pc_dlights.cpp).** The hook at 0x72480 compresses the bound texture's level 0 again with the game's
+  XGCompressRect, into the texture's memory (GL texture objects at 0x452DFC, 0x2C bytes, D3D texture at +0x28; the
+  bound one at 0x45280C[unit 0x45281C]), and marks it changed.
+- **Why a mark is needed.** The renderer's texture signature samples 64 x 64 bytes of a texture of 4 KB or more, which
+  misses a lightmap's small changes.
