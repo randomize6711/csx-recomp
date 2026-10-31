@@ -4,7 +4,7 @@
 #   a click on Jump's key name waits, the side button (Mouse 4) is its; a click on Crouch's key name then a double
 #   click's second press (not a key) and the wheel up (its key); Enter then Escape (cancelled, still on the screen);
 #   Enter, F1 (the window's: not bindable, still waiting), Escape; Walk takes the key right of P on a Swedish keyboard
-#   (Å, shown as Å); the wheel scrolls to Toggle Developer Console, Enter, F2; Accept on the help bar saves (Wheel Up
+#   (Å, shown as Å); Down 21 times to Toggle Developer Console (the wheel scrolls only the view), Enter, F2; Accept on the help bar saves (Wheel Up
 #   Crouch's, Previous Weapon unbound when Crouch took it); F2 opens the console, Escape closes it;
 # - a Single Player match (relaunched: the saved keys): I walks forward, Mouse 4 jumps, F2 opens the console; the pause
 #   menu's Keybinds: a click on Jump's key name, J; Space accepts; Return to Game clicked: J jumps at once.
@@ -80,12 +80,49 @@ key Å#[
 sleep 1
 expect log pc menu: Walk set to Å
 windowshot swedish
-wheel -8
-sleep 3
-wheel -8
-sleep 3
-wheel -5
-sleep 3
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+key Down
+sleep 0.4
+sleep 2
 key Return
 sleep 1
 expect log pc menu: Toggle Developer Console waits for a key

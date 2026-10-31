@@ -32,11 +32,11 @@ sleep 0.5
 key Space
 wait log pc mouse: screen SuperLauncher_PCOptions
 sleep 1.5
-point 200 268
+point 200 196
 sleep 0.5
 click 1
 sleep 1
-point 200 269
+point 200 197
 sleep 0.3
 click 1
 sleep 2

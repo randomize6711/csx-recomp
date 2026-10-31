@@ -81,10 +81,39 @@ expect log pc menu: Next Weapon waits for a key
 pckey bindkey 240
 sleep 1
 expect log pc menu: Next Weapon set to Wheel Up
-pckey mwheel -8
-sleep 3
-pckey mwheel -8
-sleep 3
+press DOWN
+sleep 0.4
+press DOWN
+sleep 0.4
+press DOWN
+sleep 0.4
+press DOWN
+sleep 0.4
+press DOWN
+sleep 0.4
+press DOWN
+sleep 0.4
+press DOWN
+sleep 0.4
+press DOWN
+sleep 0.4
+press DOWN
+sleep 0.4
+press DOWN
+sleep 0.4
+press DOWN
+sleep 0.4
+press DOWN
+sleep 0.4
+press DOWN
+sleep 0.4
+press DOWN
+sleep 0.4
+press DOWN
+sleep 0.4
+press DOWN
+sleep 0.4
+sleep 2
 expect count pc.mouse:.screen.SuperLauncher_Options, 1
 pckey bindstart
 sleep 1

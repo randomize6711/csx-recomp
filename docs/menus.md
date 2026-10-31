@@ -10,14 +10,16 @@ src/game/pc_scroll.cpp (scrollbar), src/game/pc_mouse.cpp (mouse) and src/game/p
 | Video | **Video**: its rows and Advanced Graphics' |
 | Advanced Graphics | (in Video) |
 | Mouse | Mouse |
-| Keyboard (PC Controls) | **Keybinds** |
+| Keyboard (PC Controls) | **Keybinds**: a row of the title's Options only (front end and pause menu), no longer in PC Options |
 | Controller | its rows in the title's **Control Options** (Options > Controller) |
-| Audio | Audio |
+| Audio | its rows in the title's **Sound Options** (Options > Sound), front end |
 | Gameplay | (in Interface) |
 | HUD and Menus | (in Interface) |
 | — | **Interface** |
 | Multiplayer | Multiplayer |
 | Mods | Mods |
+
+PC Options is a hub of five: Video, Mouse, Interface, Multiplayer, Mods.
 
 **Video**, in order:
 1. Display Mode
@@ -42,7 +44,8 @@ explanation panel stays beside the list.
 
 The match rules (Custom Match, the party's Rules) are not here.
 
-**Keybinds** is PC Controls renamed. The screen ids, the `bind.*` keys and press-a-key rebinding are unchanged.
+**Keybinds** is PC Controls renamed. The screen ids, the `bind.*` keys and press-a-key rebinding are unchanged. It is
+opened from the title's Options (its own row there), not from PC Options: one entry.
 
 **Controller.** The title's Control Options (front end and pause menu) keeps its own six rows:
 1. Inverted Look
@@ -60,6 +63,12 @@ Then come the PC's rows, Flashlight and Spray Logo (the pad's buttons for them).
 
 There is no separate PC Controller page.
 
+**Sound.** The title's Sound Options (front end, `SuperLauncher_Sound`) keeps its own seven rows, then come the PC's
+audio rows: the same `embed` mechanism as Control Options (the PcScreen "Audio", `embed = "Sound"`, `embed_first = 7`,
+hidden from the hub). Accept saves the PC rows (`pc_options_save`) and then runs the title's own Accept
+(`stuffUItoPlayerData`). The pc_settings.ini keys are unchanged, so saved audio values carry over. The pause menu has
+no Sound Options screen in this title, so the audio settings are reached from the front end only.
+
 **Saved settings.** Every setting keeps its pc_settings.ini key (and its profile scope), so existing settings and
 profiles carry over unchanged. Only where a row is shown changed.
 
@@ -76,10 +85,18 @@ than it shows gets a 5-unit track and a thumb, 4 units right of the list:
 
 The title already limits the rows drawn to the table's area. Smooth scrolling clips them while they ease.
 
-**Mouse.**
-- A click on the track selects the row at that height, and the list scrolls to show it.
-- Pressing on the bar and moving drags: the row follows the pointer's height until the left button is let go.
-- The wheel, the keys and the pad move the selection as before, and the list keeps it in view.
+**Mouse.** The scrollbar moves only the rows shown, never the selection:
+- A click on the track shows the rows at that height (the thumb centred on the pointer); nothing is selected or
+  highlighted.
+- Pressing on the bar captures the mouse: moving drags the view until the left button is let go, even off the bar.
+  The release ends the drag and activates nothing.
+- Hovering over the bar highlights nothing; hovering a row selects it as before.
+- The wheel scrolls the view three rows a notch (the selection stays where it was, perhaps out of sight). A list with
+  no bar keeps the wheel's earlier behaviour (Up/Down).
+- The keys and the pad move the selection as before, and the list brings it back into view.
+- How: the view is kept per table with the selection it was set at (`PcScrollView`, pc_scroll.cpp). The title's own
+  scroll step (hook 0xCD15E) would bring the selection back into view each frame; while the selection is unchanged
+  it is given the view's rows instead. A change of selection (keys, pad, a row clicked) drops the view.
 - Row hit-tests use the table's own first shown row, so they stay right after scrolling.
 - Arrow clicks on a row are not affected: the bar is outside the rows.
 

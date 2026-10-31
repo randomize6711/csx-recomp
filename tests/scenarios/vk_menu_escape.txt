@@ -1,6 +1,6 @@
 # Escape is Back in the menus, Exit Game, PC Options' screens (N5A, src/linux/window_input.cpp, src/game/pc_menu.cpp
-# ExtendExit / HubFrontEnd): from the main menu (7 rows: Exit Game last) Options, PC Options (a hub of 7: Video,
-# Mouse, Keybinds, Audio, Interface, Multiplayer, Mods), Video (its 10 settings); Escape goes back one screen at a time to the main menu
+# ExtendExit / HubFrontEnd): from the main menu (7 rows: Exit Game last) Options, PC Options (a hub of 5: Video,
+# Mouse, Interface, Multiplayer, Mods), Video (its 10 settings); Escape goes back one screen at a time to the main menu
 # without starting anything. Exit Game asks: Escape is No (the main menu again); A closes the game.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960)
 # timeout: 300
@@ -34,7 +34,7 @@ sleep 0.7
 key Down
 sleep 0.7
 key Space
-wait log pc mouse: screen SuperLauncher_PCOptions, 7 rows
+wait log pc mouse: screen SuperLauncher_PCOptions, 5 rows
 sleep 2
 windowshot pc_options
 key Space
