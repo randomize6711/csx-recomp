@@ -45,6 +45,7 @@
 
 bool PcBindingScreen(const std::string& name);  // pc_menu.cpp
 bool PcBrowserClick(const std::string& screen, float x, float y);  // pc_browser.cpp
+bool PcMapSearchClick(X86Context& ctx, const std::string& screen, float x, float y);  // pc_mapsearch.cpp
 bool PcSettingsScreen(const std::string& name);  // pc_menu.cpp
 int PcScrollbarFirst(uint32_t table, float x, float y, bool dragging);  // pc_scroll.cpp
 bool PcScrollView(uint32_t table, int first, bool relative);
@@ -311,6 +312,8 @@ void Click(X86Context& ctx, uint32_t screen, const std::string& name, const Scre
            bool twice) {
     // the server browser's tabs, column headers and action lines (pc_browser.cpp)
     if (PcBrowserClick(name, x, y)) return;
+    // a map list's search field and its [x] (pc_mapsearch.cpp)
+    if (PcMapSearchClick(ctx, name, x, y)) return;
     if (uint32_t vk = R32(screen + 0x38C)) {
         if (InEdit(ui, x, y)) {
             SetTyping(true, "the name field clicked", vk);

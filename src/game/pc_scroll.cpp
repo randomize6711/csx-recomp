@@ -30,6 +30,7 @@
 #include "kernel/kernel.h"
 
 bool PcSettingsScreen(const std::string& name);  // pc_menu.cpp
+bool PcMapSearchList(const std::string& name);   // pc_mapsearch.cpp
 
 namespace {
 using kernel::R32;
@@ -160,7 +161,7 @@ void DrawBar(X86Context& ctx) {
     g_drawing = 0;
     if (!table || !screen || R32(screen + 0x380) != table) return;
     std::string name = ScreenName(screen);
-    if (!PcSettingsScreen(name)) return;
+    if (!PcSettingsScreen(name) && !PcMapSearchList(name)) return;  // the PC's settings lists, the map lists
     Bar b;
     b.rows = R32(table + 0x60) ? int((R32(table + 0x64) - R32(table + 0x60)) >> 5) : 0;
     b.shown = g_shown[table];
@@ -220,6 +221,10 @@ bool PcScrollView(uint32_t table, int first, bool relative) {
     W32(table + 0x120, uint32_t(to));
     return true;
 }
+
+// a table whose rows were rewritten (pc_mapsearch.cpp's filter): the rows in view the scrollbar set are forgotten,
+// the title's own scrolling follows the selection again
+void PcScrollForget(uint32_t table) { g_views.erase(table); }
 
 // how many rows a table's last draw showed (0 before its first), for moving its highlight into view
 int PcTableShownRows(uint32_t table) {

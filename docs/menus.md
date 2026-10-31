@@ -139,3 +139,42 @@ longer reached from these menus. The browser's Host a Match (Y) now opens Peer-t
 
 **Still in place.** The main menu's Multiplayer row (the party, N4.8) is still there, so Peer-to-Peer and it lead to
 the same party.
+
+## Map search (2026-10-31)
+
+Both map lists have a search field above their list. These are Custom Game's Map Selection
+(`SuperLauncher_SinglePlayerMatchMapList`), where single player matches, Custom Match, Deathmatch and Gun Game pick
+their map, and the party's (`SuperLauncher_PCMatchMaps`), used by Peer-to-Peer and Host LAN Match. The code is in
+src/game/pc_mapsearch.cpp; the search itself is in src/game/pc_mapsearch_filter.h, tested by
+tests/pc_mapsearch_filter_test.py.
+
+- **The field.** It shows "Search maps..." until something is typed.
+  - A letter, digit, - or _ typed on the list starts typing in it, and so does a click on it.
+  - Backspace, Delete, Left, Right, Home and End edit it. Ctrl+A selects all, and Ctrl+C, Ctrl+X and Ctrl+V copy,
+    cut and paste.
+  - Enter and Escape leave the field. Enter keeps the highlighted map. Neither starts a match nor closes the menu: a
+    second Escape goes back, and A or Enter then starts the match as before.
+  - [x] beside the field clears it.
+  - While typing, every key is the field's: no menu shortcut or game binding fires. Up and Down still move the
+    list's highlight.
+- **Filtering.**
+  - As it is typed, the list shows only the maps whose name or file name contains the search, case-insensitively:
+    "dust" shows Dust and Dust II.
+  - DLC maps and the game folder's maps are rows like the title's, so they are searched alike.
+  - Each list only ever has the maps its screen offers.
+  - The help line says "N of M maps", or "No maps found".
+  - The names are indexed once when the menu is loaded, so a key never scans the disk; 5000 names filter in well
+    under a millisecond.
+- **The rows.**
+  - The title's own table rows (their names, previews and values) are kept once a visit, and the matching ones are
+    written in their place.
+  - The selection stays on its map while that map is shown, else it moves to the first shown; it is scrolled into
+    view, and the preview and description follow it.
+  - The scrollbar (pc_scroll.cpp) now covers these lists too: dragging it or the wheel moves only the rows in view.
+- **Choosing a map.** A, Enter or a double click run the screen's own command through `pc_mapsearch accept`.
+  - With no map shown, nothing happens.
+  - Otherwise the whole list is put back with the selection on that map's own row, and then the screen's command
+    runs. The title's session start and the party's map step (which reads the row's index) see the list as they made
+    it, so a map that was filtered out can never be started.
+- **Controller.** Y opens the title's virtual keyboard for the same search. The search is optional: the D-pad and A
+  choose maps as before.

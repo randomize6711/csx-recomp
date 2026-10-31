@@ -428,15 +428,60 @@ void HandleEvent(const void* p) {
                 else if (!e.key.repeat && e.key.key == SDLK_ESCAPE) csx::NumberInput(csx::kNumberCancel);
                 break;
             }
-            if (!g_console && csx::MapSearchKeys()) {  // a map list (N5B): letters and digits search it
-                int c = e.key.key >= SDLK_A && e.key.key <= SDLK_Z ? 'a' + int(e.key.key - SDLK_A) : NumberChar(e.key.key, e.key.scancode);
-                if (c && c != '.') {
-                    if (!e.key.repeat) csx::MapSearchInput(c);
+            if (!g_console && csx::MapSearchKeys()) {  // a map list (N5B): its search field (pc_mapsearch.cpp)
+                const bool editing = csx::MapSearchEditing(), ctrl = (e.key.mod & SDL_KMOD_CTRL) != 0;
+                const bool shift = (e.key.mod & SDL_KMOD_SHIFT) != 0;
+                if (ctrl && !(e.key.mod & (SDL_KMOD_ALT | SDL_KMOD_GUI))) {
+                    if (e.key.key == SDLK_V && !e.key.repeat) {  // paste: into the field (it starts typing)
+                        if (char* t = SDL_GetClipboardText()) {
+                            std::string text = t;
+                            SDL_free(t);
+                            for (char ch : text.substr(0, 64))
+                                if (ch >= 0x20 && ch <= 0x7E) csx::MapSearchInput(ch);
+                        }
+                        break;
+                    }
+                    if (editing && !e.key.repeat && (e.key.key == SDLK_A || e.key.key == SDLK_C || e.key.key == SDLK_X)) {
+                        if (e.key.key == SDLK_A) csx::MapSearchInput(-10);
+                        else if (std::string sel = csx::MapSearchSelection(); !sel.empty()) {
+                            SDL_SetClipboardText(sel.c_str());
+                            if (e.key.key == SDLK_X) csx::MapSearchInput(-11);
+                        }
+                        break;
+                    }
+                }
+                int c = 0;
+                if (!ctrl && !(e.key.mod & (SDL_KMOD_ALT | SDL_KMOD_GUI))) {
+                    if (e.key.key >= SDLK_A && e.key.key <= SDLK_Z) c = (shift ? 'A' : 'a') + int(e.key.key - SDLK_A);
+                    else if (e.key.key == SDLK_MINUS) c = shift ? '_' : '-';
+                    else if (e.key.key == SDLK_SPACE && editing) c = ' ';
+                    else if (int d = NumberChar(e.key.key, e.key.scancode); d && d != '.') c = d;
+                }
+                if (c) {  // typed into the field (a repeat too while typing), never the menu's or the game's
+                    if (!e.key.repeat || editing) csx::MapSearchInput(c);
                     break;
                 }
                 if (e.key.key == SDLK_BACKSPACE) {
                     csx::MapSearchInput(-2);
                     break;
+                }
+                if (editing) {  // the field's editing keys; Up and Down still move the list's highlight
+                    int k = 0;
+                    switch (e.key.key) {
+                        case SDLK_DELETE: k = -3; break;
+                        case SDLK_LEFT: k = -4; break;
+                        case SDLK_RIGHT: k = -5; break;
+                        case SDLK_HOME: k = -6; break;
+                        case SDLK_END: k = -7; break;
+                        case SDLK_RETURN: case SDLK_KP_ENTER: k = e.key.repeat ? 0 : -8; break;
+                        case SDLK_ESCAPE: k = e.key.repeat ? 0 : -9; break;
+                        default: break;
+                    }
+                    if (k) csx::MapSearchInput(k);
+                    if (k || e.key.key == SDLK_DELETE || e.key.key == SDLK_LEFT || e.key.key == SDLK_RIGHT ||
+                        e.key.key == SDLK_HOME || e.key.key == SDLK_END || e.key.key == SDLK_RETURN ||
+                        e.key.key == SDLK_KP_ENTER || e.key.key == SDLK_ESCAPE)
+                        break;
                 }
             }
             if (!g_console && !e.key.repeat && NumberChar(e.key.key, e.key.scancode) && csx::NumberRowSelected()) {

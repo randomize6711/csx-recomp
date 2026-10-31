@@ -1,6 +1,7 @@
-# Map search (N5B, src/game/pc_mapsearch.cpp): Custom Game's map list. Typed letters find a map ("vos": Vostok, the
-# list scrolled to it; "zz" finds none and says so; Backspace back to "vos"); A starts the highlighted map. The
-# controller's Y opens the search keyboard: "dust2" typed, Done (Enter: START) finds Dust2.
+# Map search (N5B, a filter since 2026-10-31, src/game/pc_mapsearch.cpp): Custom Game's map list. Typed letters go to
+# the search field and filter the list ("vos": Vostok alone; "voszz": No maps found, and Enter there chooses nothing;
+# Backspace back to "vos"); Enter leaves the field without starting; the controller's Y opens the search keyboard:
+# "dust2" typed, Done (Enter: START) shows Dust II alone; A (Space) then starts it.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960)
 # timeout: 300
 wait log renderer: vulkan
@@ -30,26 +31,30 @@ key Space
 sleep 3
 expect log pc mouse: screen SuperLauncher_SinglePlayerMatchMapList
 expect log pc maps: SuperLauncher_SinglePlayerMatchMapList, 21 maps searchable
-wait log pc maps: letters search the list
+wait log pc maps: keys search the list
 mark
 key V
 sleep 0.3
 key O
 sleep 0.3
 key S
-wait newlog pc maps: "vos" found de_vostok \(row 19\)
+wait newlog pc maps: "vos" shows 1 of 21 maps
 sleep 1
 windowshot vostok
 key Z
 sleep 0.3
 key Z
-wait newlog pc maps: "voszz" found no map
+wait newlog pc maps: "voszz" shows 0 of 21 maps
 sleep 1
 windowshot none
+key Return
+sleep 0.5
+key Space
+wait newlog pc maps: no map shown: nothing chosen
 key BackSpace
 sleep 0.3
 key BackSpace
-wait newlog pc maps: "vos" found de_vostok
+wait newlog pc maps: "vos" shows 1 of 21 maps
 sleep 1
 # the controller's Y: the search keyboard (on this screen the keyboard's Q types)
 press Y
@@ -59,9 +64,10 @@ sleep 1
 type dust2
 sleep 1
 key Return
-wait newlog pc maps: "dust2" found de_dust2 \(row 6\)
+wait newlog pc maps: "dust2" shows 1 of 21 maps
 sleep 1
 windowshot dust2
 key Space
+wait newlog pc maps: de_dust2 chosen
 wait log local server: starting .*csx-server for de_dust2
 expect nolog guest trap

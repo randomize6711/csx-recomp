@@ -86,9 +86,13 @@ void SetPromptDevice(int style);
 // the window's keyboard focus (src/linux/sdl_audio.cpp: Audio in the Background, N5E)
 void SetWindowFocused(bool focused);
 int PromptDevice();
-// a map list is open (N5B, src/game/pc_mapsearch.cpp): letters and digits search it (-2 Backspace)
+// a map list is open (N5B, src/game/pc_mapsearch.cpp): its search field takes letters, digits, - and _ (characters
+// as themselves; -2 Backspace, -3 Delete, -4 Left, -5 Right, -6 Home, -7 End, -8 Enter, -9 Escape, -10 Ctrl+A,
+// -11 Ctrl+X's cut), and while it is being typed in (MapSearchEditing) every editing key; the selected text for Ctrl+C
 bool MapSearchKeys();
+bool MapSearchEditing();
 void MapSearchInput(int c);
+std::string MapSearchSelection();
 // a menu screen of the game is open (keyboard and mouse act as the pad there; otherwise as engine keys)
 bool MenuOpen();
 // one of the buy menu's screens is open (window_input.cpp: the ammunition keys still buy there)
