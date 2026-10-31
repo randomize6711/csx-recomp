@@ -123,46 +123,83 @@ The title already limits the rows drawn to the table's area. Smooth scrolling cl
 Backup of the menu before the redesign: tag `menu-backup-2026-10-31`, branch `menu-backup/g8.2b-before-redesign`, and
 `~/Work/csx-recomp-menu-backup/` (its README says how to restore it).
 
+Checkpoint of the redesign before solo and split screen were unified: tag `menu-checkpoint-redesign-b56134b`,
+branch `menu-backup/redesign-b56134b`, `~/Work/csx-recomp-menu-backup/checkpoint-redesign-b56134b/`.
+
 | Main menu | Opens |
 |---|---|
-| Instant Action | its hub (src/game/pc_instant.cpp) |
-| Multiplayer | the online menu: Server Browser, Split-Screen, Host Game, Direct-IP / Code |
-| Options | the title's Options (Video, Sound Options, Interface, Mouse, Controller, Keybinds, Multiplayer, Mods, Credits) |
-| Extras | its hub: Training and Change Profile, the title's own rows |
+| Instant Action | every local match, solo or split screen (src/game/pc_instant.cpp) |
+| Multiplayer | Server Browser, Host Game, Direct-IP / Code |
+| Options | the title's Options (Video, Sound Options, Interface, Mouse, Controller, Keybinds, Multiplayer, Credits) |
+| Extras | Training, Change Profile (the title's own rows) and Mods |
 | Exit Game | its confirmation |
 
-Every hub is in the title's front end style: its main menu's background, header and logo, highlight, sounds, the
-row's help lines at the bottom and the help bar's buttons. Back returns to the main menu.
+Every hub is in the title's front end style (its main menu's background, header and logo, highlight, sounds, the
+row's help lines at the bottom, the help bar's buttons). Back returns to the main menu. A single click activates a
+hub's button (pc_browser.cpp no longer takes the hubs for server lists, which needed a double click).
 
-**Instant Action** works over the title's own match setup screens, which keep every setting:
-- **Start Match:** the title's SinglePlayerStartSession, with Single Player's choice on Custom, so Match Options (bots,
-  game mode, rules) count. The map is the map list's selection.
-- **Select Map:** the title's map list, with its search. Choosing a map returns to the hub; it starts nothing.
-- **Game Mode:** the title's Match Options, on its Game Mode row (Classic, Deathmatch, Gun Game).
-- **Bot Settings:** the same screen, on Number of Bots, with Bot Skill Level and Bot Team below. Its Y opens the
-  bots' weapons.
-- **Advanced Settings:** the title's Custom Options (time and round limits, money, friendly fire, collision). Its
-  Accept sets Match Options' rules to Custom.
-- Match Options' and Custom Options' Accept return to the hub; they used to go on to the map list.
-- **The preview panel** on the right shows the map, mode, bots and rules as set, read from those screens' tables.
+### Instant Action
 
-**Multiplayer** (the title's System Link screen, pc_browser.cpp):
-- **Server Browser** and **Direct-IP / Code** are as before.
-- **Split-Screen** opens the party (N4.8): players join with their controllers, two to four. Its destination has
-  Local Only highlighted.
-- **Host Game** opens the same party with Host LAN Match highlighted: the match runs in this PC's csx-server and
-  players on the network join it.
+**Left: the match setup**, in this order. The rows work over the title's own match screens, which keep every
+setting:
+1. **Start Match:** the title's SinglePlayerStartSession, with Single Player's choice on Custom so Match Options
+   count; the map is the map list's selection. The only row that starts a match.
+2. **Select Map:** the title's map list, with its search. Choosing a map (one click, A or Enter) only selects it and
+   returns here.
+3. **Game Mode:** Match Options, on its Game Mode row.
+4. **Bot Settings:** Match Options, on Number of Bots (Bot Skill Level and Bot Team below; Y the bots' weapons).
+5. **Settings:** Custom Options (time and round limits, money, friendly fire, collision). Its Accept sets the rules
+   to Custom.
 
-**What left the main menu:** Single Player (its screens are Instant Action's), the party's own row (now Split-Screen
-and Host Game), Training and Change Profile (now in Extras), and Online Play (now Multiplayer). No screen, mode, map,
-setting or profile was removed.
+Match Options' and Custom Options' Accept return here. Back from a match returns here too, on Start Match (the
+title went back to Single Player's difficulty screen).
+
+**Right: one near-opaque panel** (blue-grey border, light grey inside, dark text).
+- LOCAL PLAYERS: `P1  -  Ready (profile)`, then for P2 to P4 either `Ready (profile or Guest N)`, `Controller
+  disconnected`, or `Press Start to Join`.
+- Below a thin rule, the match as set, read from the title's own tables: Map, Mode, Bots (and their skill).
+- A hint line, "START on a controller joins, BACK leaves", which notes "All four player slots are taken." for five
+  seconds when a fifth controller asks.
+- It is redrawn as soon as any of it changes.
+
+**Joining (no popup, no other screen).** A free controller's START on Instant Action takes the next slot at once:
+- **Under split screen** (the compositor): its PartyJoin.
+  - A controller that was a member before gets its own slot back, keeping its profile.
+  - A new one plays as the profile its slot had last, when that profile exists and no other player has it,
+    otherwise as a guest. No saved profile is changed.
+  - Its START reaches no menu. A member's own START does nothing; its BACK leaves (PartyLeave, before a match only).
+  - Every slot taken: player 1 is told and the panel says so.
+- **The game alone in its window:** a controller that is not player 1's own (the one driving the game) asks with
+  START. The window restarts as the compositor, back on Instant Action, with its choices kept (map, Match Options,
+  Bot Options, Custom Options: CSX_INSTANT_STATE). That controller joins at once (CSX_SPLIT_JOIN_GUID).
+  - Player 1's own START stays the menus' A.
+  - The window restarts here (the existing split screen start), so the screen goes to the desktop for a moment.
+- A press of A on Instant Action is the menus', so A never joins there.
+
+**Start Match with joined players:**
+- The compositor starts players 2-4 into player 1's match (the existing split screen: its layouts for 2, 3 and 4
+  players).
+- One player is a normal full-screen match.
+- Number of Bots is held so players and bots fit the 65 slots (`join::ClampBots`).
+
+**Multiplayer:**
+- Server Browser and Direct-IP / Code are as before.
+- Host Game opens the party with Host LAN Match highlighted: the match in this PC's csx-server, others on the
+  network join.
+- The separate Split-Screen row is gone; Instant Action covers it.
+
+**What left the main menu:** Single Player (its screens are Instant Action's), the party's own row, and Training and
+Change Profile (now in Extras). Mods left Options for Extras. No screen, mode, map, setting, profile or networking
+was removed.
 
 **Code.**
-- `pcmenu::MainMenuLayout` and `pcmenu::HubScreen` / `HubRow` (src/game/pc_options_text.h, tested by
-  tests/pc_options_text_test.py), applied by pc_menu.cpp's ExtendMainMenu.
-- ExtendExit appends Exit Game after the last row.
-- The hub and its commands are in src/game/pc_instant.cpp (`pc_instant`).
-- Select Map's choose-only mode is in pc_mapsearch.cpp; the party's intent is in pc_lobby.cpp (`pc_party intent`).
+- `pcmenu::MainMenuLayout`, `HubScreen` and `HubRow` (src/game/pc_options_text.h), tested by
+  tests/pc_options_text_test.py.
+- The joining rules are in src/game/pc_join_rules.h (tests/pc_join_rules_test.py).
+- src/game/pc_instant.cpp has the hub, its panel and its commands.
+- src/game/pc_party.cpp has `InstantInput` (the joins and leaves) and the alone game's restart.
+- src/linux/compositor.cpp has "party join on|off" and its START join; src/linux/window_input.cpp has the alone
+  game's request.
 
 ## Multiplayer (the main menu's Multiplayer; Online Play before the redesign)
 
@@ -171,7 +208,7 @@ setting or profile was removed.
 | LAN Matches, Internet Matches, Favorites, Recent Servers | **Server Browser**: the one browser, its tabs LAN, Internet, Favorites, Recent |
 | Join by Address | **Direct-IP or Code**: an address (and port) or an invite code; Ctrl+V and F6 as before |
 | Host a Match (the title's System Link host screen) | **Host Game**: the party, Host LAN Match highlighted (map, mode, bots, rules, a LAN password) |
-| (the party, the main menu's Multiplayer) | **Split-Screen**: the party, Local Only highlighted (2 to 4 players on this PC) |
+| (the party, the main menu's Multiplayer) | (split screen is Instant Action's: START on a controller joins there) |
 
 **Host Game's architecture** (Peer-to-Peer before the redesign).
 - The match runs in this PC's local csx-server process, started for it, as every menu match does (N4.7).
@@ -184,8 +221,7 @@ longer reached from these menus. The browser's Host a Match (Y) opens the party.
 
 **Unchanged.** csx-server, its GUI (tools/csx_server_gui.py), its configuration and the authenticated transport.
 
-**The party.** Multiplayer > Split-Screen and Multiplayer > Host Game both open it (Local Only, split screen, Host
-LAN Match).
+**The party.** Multiplayer > Host Game opens it (Host LAN Match highlighted; its Local Only is still there).
 
 ## Map search (2026-10-31)
 
