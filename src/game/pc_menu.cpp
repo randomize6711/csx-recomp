@@ -510,9 +510,11 @@ const std::vector<PcScreen>& Screens() {
                           {{"On", "1"}, {"Off", "0"}},
                           0},
                      },
-                     true,
+                     false,
                      false,
                      true});
+        v.back().embed = "Sound";  // after the title's own seven rows of its Sound Options (since 2026-10-31)
+        v.back().embed_first = 7;
         // the game's look on this PC: gameplay effects, the HUD, the menus and their button prompts (one category since
         // 2026-10-31: Gameplay, HUD and Menus were three)
         v.push_back({"Interface",
@@ -651,7 +653,7 @@ const std::vector<PcScreen>& Screens() {
                      0,
                      nullptr,
                      nullptr,
-                     {"Video", "Mouse", "Controls", "Audio", "Interface", "Multiplayer", "Mods"}});
+                     {"Video", "Mouse", "Interface", "Multiplayer", "Mods"}});
         PcScreen controls{"Controls",
                           "Keybinds",
                           {"Choose the keys and mouse buttons for moving,", "shooting and the other actions."},
@@ -1223,6 +1225,10 @@ std::string ExtendEmbedded(const std::string& text, bool front_end) {
         size_t end = at == std::string::npos ? at : out.find("\n}", at + 1);
         size_t table_end = end == std::string::npos ? end : out.rfind("\n\t}", end - 1);
         size_t accept = at == std::string::npos ? at : out.find("OnButtonDownA \"!", at);
+        if (at == std::string::npos) {  // the title has no such screen in this menu (the pause menu's Sound Options)
+            LOGI("pc menu: no %s: the PC's %s rows are not in this menu", name.c_str(), s.title);
+            continue;
+        }
         if (table_end == std::string::npos || table_end < at || accept == std::string::npos || accept > end) {
             LOGW("pc menu: %s not as expected: its PC rows are not added", name.c_str());
             continue;
