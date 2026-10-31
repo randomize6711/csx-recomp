@@ -118,52 +118,74 @@ The title already limits the rows drawn to the table's area. Smooth scrolling cl
 - Row hit-tests use the table's own first shown row, so they stay right after scrolling.
 - Arrow clicks on a row are not affected: the bar is outside the rows.
 
-## Main menu (2026-10-31)
+## Main menu (redesigned 2026-10-31, branch g8.2b-menu-redesign)
 
-| Before | After |
+Backup of the menu before the redesign: tag `menu-backup-2026-10-31`, branch `menu-backup/g8.2b-before-redesign`, and
+`~/Work/csx-recomp-menu-backup/` (its README says how to restore it).
+
+| Main menu | Opens |
 |---|---|
-| Training | Training |
-| Single Player | (removed) |
-| Online Play | Online Play |
-| Multiplayer (the party) | **Instant Action**: the local match setup (Single Player's own screen) |
-| Options | Options |
-| Change Profile | Change Profile |
-| Exit Game | Exit Game |
+| Instant Action | its hub (src/game/pc_instant.cpp) |
+| Multiplayer | the online menu: Server Browser, Split-Screen, Host Game, Direct-IP / Code |
+| Options | the title's Options (Video, Sound Options, Interface, Mouse, Controller, Keybinds, Multiplayer, Mods, Credits) |
+| Extras | its hub: Training and Change Profile, the title's own rows |
+| Exit Game | its confirmation |
 
-- **Instant Action.** It is Single Player's row, with its command (`open SuperLauncher_SinglePlayerMatch`: Quick
-  Match, and Custom Game with its map, bots, game mode and rules), renamed, in Multiplayer's place. Its help's
-  second line reads "opponents: maps, bots, modes and rules.".
-- **Single Player** is gone from the menu; the rows below it move up (the title lays its table out from the top), so
-  there is no gap. Its screen and everything in it stay: Instant Action opens it.
-- **Online play** keeps its place: Online Play has the Server Browser, Peer-to-Peer (the party) and Direct-IP or
-  Code.
-- Nothing addresses the main menu by its rows' positions: the party's and the browser's returns open their screens
-  by name.
-- Code: `pcmenu::MainMenuInstantAction` (src/game/pc_options_text.h), applied by pc_menu.cpp's ExtendMainMenu after
-  the party's and the browser's own changes to the menu, before Exit Game is added. Tested by
-  tests/pc_options_text_test.py.
+Every hub is in the title's front end style: its main menu's background, header and logo, highlight, sounds, the
+row's help lines at the bottom and the help bar's buttons. Back returns to the main menu.
 
-## Multiplayer (the main menu's Online Play)
+**Instant Action** works over the title's own match setup screens, which keep every setting:
+- **Start Match:** the title's SinglePlayerStartSession, with Single Player's choice on Custom, so Match Options (bots,
+  game mode, rules) count. The map is the map list's selection.
+- **Select Map:** the title's map list, with its search. Choosing a map returns to the hub; it starts nothing.
+- **Game Mode:** the title's Match Options, on its Game Mode row (Classic, Deathmatch, Gun Game).
+- **Bot Settings:** the same screen, on Number of Bots, with Bot Skill Level and Bot Team below. Its Y opens the
+  bots' weapons.
+- **Advanced Settings:** the title's Custom Options (time and round limits, money, friendly fire, collision). Its
+  Accept sets Match Options' rules to Custom.
+- Match Options' and Custom Options' Accept return to the hub; they used to go on to the map list.
+- **The preview panel** on the right shows the map, mode, bots and rules as set, read from those screens' tables.
+
+**Multiplayer** (the title's System Link screen, pc_browser.cpp):
+- **Server Browser** and **Direct-IP / Code** are as before.
+- **Split-Screen** opens the party (N4.8): players join with their controllers, two to four. Its destination has
+  Local Only highlighted.
+- **Host Game** opens the same party with Host LAN Match highlighted: the match runs in this PC's csx-server and
+  players on the network join it.
+
+**What left the main menu:** Single Player (its screens are Instant Action's), the party's own row (now Split-Screen
+and Host Game), Training and Change Profile (now in Extras), and Online Play (now Multiplayer). No screen, mode, map,
+setting or profile was removed.
+
+**Code.**
+- `pcmenu::MainMenuLayout` and `pcmenu::HubScreen` / `HubRow` (src/game/pc_options_text.h, tested by
+  tests/pc_options_text_test.py), applied by pc_menu.cpp's ExtendMainMenu.
+- ExtendExit appends Exit Game after the last row.
+- The hub and its commands are in src/game/pc_instant.cpp (`pc_instant`).
+- Select Map's choose-only mode is in pc_mapsearch.cpp; the party's intent is in pc_lobby.cpp (`pc_party intent`).
+
+## Multiplayer (the main menu's Multiplayer; Online Play before the redesign)
 
 | Before | After |
 |---|---|
 | LAN Matches, Internet Matches, Favorites, Recent Servers | **Server Browser**: the one browser, its tabs LAN, Internet, Favorites, Recent |
 | Join by Address | **Direct-IP or Code**: an address (and port) or an invite code; Ctrl+V and F6 as before |
-| Host a Match (the title's System Link host screen) | **Peer-to-Peer**: the party (map, mode, bots, rules, a LAN password, split-screen players) |
+| Host a Match (the title's System Link host screen) | **Host Game**: the party, Host LAN Match highlighted (map, mode, bots, rules, a LAN password) |
+| (the party, the main menu's Multiplayer) | **Split-Screen**: the party, Local Only highlighted (2 to 4 players on this PC) |
 
-**Peer-to-Peer's architecture.**
+**Host Game's architecture** (Peer-to-Peer before the redesign).
 - The match runs in this PC's local csx-server process, started for it, as every menu match does (N4.7).
 - It is seen on the LAN. Friends join through the browser's LAN tab, Direct-IP or Code, or an invite code.
 - There is no direct peer-to-peer networking, NAT traversal or relay.
 - The label is the user's choice for "host a match for friends".
 
 **What players no longer see.** The title's System Link host screen offered a Dedicated Server row, and it is no
-longer reached from these menus. The browser's Host a Match (Y) now opens Peer-to-Peer.
+longer reached from these menus. The browser's Host a Match (Y) opens the party.
 
 **Unchanged.** csx-server, its GUI (tools/csx_server_gui.py), its configuration and the authenticated transport.
 
-**The party.** It is reached through Online Play > Peer-to-Peer (Local Only, split screen, Host LAN Match). The
-main menu's own Multiplayer row became Instant Action (below).
+**The party.** Multiplayer > Split-Screen and Multiplayer > Host Game both open it (Local Only, split screen, Host
+LAN Match).
 
 ## Map search (2026-10-31)
 

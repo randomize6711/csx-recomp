@@ -706,6 +706,7 @@ std::string ExtendParty(const std::string& text) {
 }
 
 std::string PcLobbyPauseMenu(const std::string& text);  // pc_lobby.cpp
+void PcLobbyIntent(const std::string& intent);           // pc_lobby.cpp
 
 std::string PcPartyExtendInGame(const std::string& text) {
     return PcLobbyPauseMenu(CaptureOnAccept(text, kPadGame, "\"!stuffUItoPlayerData;SetCurrentControllerOptions;xbui back\""));
@@ -713,6 +714,7 @@ std::string PcPartyExtendInGame(const std::string& text) {
 
 void PcPartyCommand(X86Context& ctx, const std::vector<std::string>& a) {
     std::string w1 = a.size() > 1 ? a[1] : "", w2 = a.size() > 2 ? a[2] : "";
+    if (w1 == "intent") return PcLobbyIntent(w2);  // the Multiplayer menu's Split-Screen / Host Game (pc_lobby.cpp)
     if (w1 == "enter") {
         // (the game alone in its window stays alone until another controller asks to join: PcPartyMenuFrame)
         Migrate();

@@ -82,6 +82,7 @@ bool g_pending_set = false;
 mapsearch::Field g_field;
 bool g_dirty = true;                 // the field's lines to draw again
 int g_accepting = 0;                 // frames left of a choice made (the list kept whole until the screen goes)
+bool g_choose_only = false;          // opened by Instant Action's Select Map: choosing returns there, starts nothing
 
 constexpr int kKeyBackspace = -2, kKeyDelete = -3, kKeyLeft = -4, kKeyRight = -5, kKeyHome = -6, kKeyEnd = -7,
               kKeyEnter = -8, kKeyEscape = -9, kKeySelectAll = -10, kKeyCut = -11;
@@ -308,6 +309,13 @@ void PcMapSearchCommand(X86Context& ctx, const std::string& what) {
         const int entry = SelectedEntry(*l);
         Restore(*l);
         g_accepting = 30;
+        if (g_choose_only) {  // Instant Action's Select Map: the map is the list's selection; back to the hub
+            g_choose_only = false;
+            LOGI("pc maps: %s chosen for Instant Action",
+                 entry >= 0 && entry < int(l->entries.size()) ? l->entries[size_t(entry)].value.c_str() : "?");
+            csx::QueueEngineCommand("xbui back\n");
+            return;
+        }
         LOGI("pc maps: %s chosen (%s)", entry >= 0 && entry < int(l->entries.size()) ? l->entries[size_t(entry)].value.c_str() : "?",
              l->accept.c_str());
         csx::QueueEngineCommand(l->accept + "\n");
@@ -335,6 +343,19 @@ bool PcMapSearchClick(X86Context& ctx, const std::string& screen, float x, float
     return false;
 }
 
+// Instant Action's Select Map (pc_instant.cpp): the map list opened to choose a map, not to start it
+void PcMapSearchChooseOnly() { g_choose_only = true; }
+
+// Custom Game's map list's selected map (its name), for Instant Action's preview; empty when not known
+std::string PcMapListSelected() {
+    List& l = g_lists[0];
+    uint32_t table = TableOf(l.screen);
+    if (!table) return {};
+    const int sel = int(R32(table + 0x9C));
+    const int entry = l.filtered ? (sel >= 0 && sel < int(l.shown.size()) ? int(l.shown[size_t(sel)]) : -1) : sel;
+    return entry >= 0 && entry < int(l.rows.size()) ? l.rows[size_t(entry)].first : std::string();
+}
+
 // whether a screen is a map list (pc_scroll.cpp: its scrollbar)
 bool PcMapSearchList(const std::string& screen) { return ListOf(screen) != nullptr; }
 
@@ -352,6 +373,7 @@ void PcMapSearchFrame(X86Context& ctx) {
     if (screen == kKeyboard) return;
     if (!l) {
         if (!screen.empty()) {  // another screen: the lists whole again, the next starts afresh
+            g_choose_only = false;
             for (List& each : g_lists) Restore(each);
             g_field.Clear();
             Mirror();

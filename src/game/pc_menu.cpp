@@ -46,6 +46,10 @@ std::string PcPartyExtendInGame(const std::string& text);  // pc_party.cpp
 std::string PcRadioScreens();                                // pc_radio.cpp
 bool PcRadioMenuCommand(const std::string& cmd);
 std::string ExtendMapSearch(const std::string& text);  // pc_mapsearch.cpp
+std::string PcInstantScreens();  // pc_instant.cpp
+void PcInstantCommand(X86Context& ctx, const std::string& what);  // pc_instant.cpp
+std::string PcInstantRewire(const std::string& text);  // pc_instant.cpp
+int PcTableShownRows(uint32_t table);  // pc_scroll.cpp
 std::string ExtendDlcMaps(const std::string& text);  // pc_dlc.cpp
 std::string ExtendPrompts(const std::string& text);  // pc_prompts.cpp
 std::string PcPromptName(const std::string& slot);
@@ -1207,22 +1211,17 @@ std::string ExtendFrontEnd(const std::string& text) {
     return out + screens + DetailsScreen(true);
 }
 
-// the main menu simplified (2026-10-31): Multiplayer (System Link's row, the party's since N4.8) is Instant Action,
-// which opens the local match setup (Single Player's own screen: Quick Match, Custom Game with its map, bots, game
-// mode and rules), in Multiplayer's place; the Single Player row itself is gone, the rows below it move up (the
-// title lays a table's rows out from its top). The party (Local Only, split screen, Host LAN Match), the server
-// browser and Direct-IP or Code stay under Online Play (pc_browser.cpp: Peer-to-Peer is the party). Nothing else
-// changes: the screens, modes, maps and settings are all as they were. The text unchanged when the main menu is not
-// as expected
+// the main menu (2026-10-31, pcmenu::MainMenuLayout): Instant Action, Multiplayer, Options, Extras; the Instant
+// Action hub (pc_instant.cpp) is added with it. The text unchanged when the main menu is not as expected
 std::string ExtendMainMenu(const std::string& text) {
     if (text.empty()) return text;  // the front end's text already left as it was
-    std::string out = pcmenu::MainMenuInstantAction(text);
+    std::string out = pcmenu::MainMenuLayout(text);
     if (out.empty()) {
-        LOGW("pc menu: the main menu not as expected: Single Player and Multiplayer left as they are");
+        LOGW("pc menu: the main menu not as expected: left as it is");
         return text;
     }
-    LOGI("pc menu: the main menu: Multiplayer is Instant Action (the local match setup), Single Player removed");
-    return out;
+    LOGI("pc menu: the main menu: Instant Action, Multiplayer, Options, Extras");
+    return PcInstantRewire(out) + PcInstantScreens();
 }
 
 // the main menu's Exit Game (N5A): a last row (the title's art has room for a seventh, empty there), after Change
@@ -1233,6 +1232,10 @@ std::string ExtendExit(const std::string& text) {
     size_t end = screen == std::string::npos ? screen : text.find("\n}", screen + 1);
     size_t label = screen == std::string::npos ? screen : text.find("CellFixed \"Change Profile\"", screen);
     size_t row_end = label == std::string::npos || label > end ? std::string::npos : text.find("\r\n\t\t}\r\n", label);
+    if (row_end == std::string::npos && end != std::string::npos) {  // Change Profile in Extras: after the last row
+        size_t table_end = text.rfind("\n\t}", end);
+        row_end = table_end == std::string::npos || table_end < screen ? std::string::npos : text.rfind("\r\n\t\t}\r\n", table_end);
+    }
     if (row_end == std::string::npos || row_end > end) {
         LOGW("pc menu: the main menu not as expected, no Exit Game row");
         return text;
@@ -1910,9 +1913,30 @@ int PcSelectedRow(const std::string& screen) {
     return table ? int(R32(table + 0x9C)) : -1;
 }
 
+// a screen's row selected (the title's own screens too: the Instant Action hub opens Match Options on a row), shown
 void PcSetSelectedRow(const std::string& screen, int row) {
-    if (uint32_t table = FindTable(screen)) kernel::W32(table + 0x9C, uint32_t(row));
+    uint32_t table = FindTable(screen);
+    if (!table || row < 0) return;
+    const int rows = int((R32(table + 0x64) - R32(table + 0x60)) / 0x20);
+    if (row >= rows) return;
+    kernel::W32(table + 0x9C, uint32_t(row));
+    const int first = int(R32(table + 0x120)), shown = std::max(1, PcTableShownRows(table));
+    if (row < first) kernel::W32(table + 0x120, uint32_t(row));
+    else if (row >= first + shown) kernel::W32(table + 0x120, uint32_t(row - shown + 1));
 }
+
+// a list row's cell on a screen (its current choice at +0), 0 when it has none
+uint32_t PcListCell(const std::string& screen, size_t row) {
+    uint32_t table = FindTable(screen);
+    return table ? ListCell(table, row) : 0;
+}
+
+// the single player Match Options' Number of Bots, by its choice (ExtendBotCount's list), -1 out of it
+int PcBotCountAt(int index) {
+    const std::vector<int> n = BotCounts();
+    return index >= 0 && index < int(n.size()) ? n[size_t(index)] : -1;
+}
+
 
 // a PC screen's defaults (key -> value) and every value a row may have (the match rules' checks, pc_lobby.cpp)
 std::map<std::string, std::string> PcScreenDefaults(const std::string& name) {
@@ -2105,6 +2129,10 @@ bool PcConsoleCommand(X86Context& ctx, uint8_t*) {
         std::vector<std::string> args;
         for (uint32_t i = 0; i < R32(0x4253E8) && i < 8; i++) args.push_back(GuestString(R32(0x4251A8 + 4 * i)));
         PcLobbyCommand(ctx, args);
+        return true;
+    }
+    if (cmd == "pc_instant") {  // the Instant Action hub (pc_instant.cpp)
+        PcInstantCommand(ctx, R32(0x4253E8) > 1 ? GuestString(R32(0x4251AC)) : std::string());
         return true;
     }
     if (cmd == "pc_party") {

@@ -42,6 +42,7 @@ std::map<std::string, std::string> PcScreenDefaults(const std::string& name);
 std::map<std::string, std::vector<std::string>> PcScreenChoices(const std::string& name);
 std::string PcNumberValue(const std::string& key, const std::string& value);  // pc_menu.cpp
 int PcSelectedRow(const std::string& screen);
+void PcSetSelectedRow(const std::string& screen, int row);  // pc_menu.cpp
 std::string PcProbeTable();                                       // pc_party.cpp
 std::vector<std::string> PcProbeTake(const std::string& screen);
 
@@ -70,6 +71,7 @@ std::string g_mode = "bomb";
 int g_mode_cursor = 0;
 std::string g_message;        // the lobby's passing line
 std::string g_lan_password;   // Host LAN Match's (in memory only: never saved or logged)
+std::string g_intent;         // the Multiplayer menu's way in (Split-Screen "local", Host Game "host"): the destination it highlights
 int g_set_cursor = 0, g_set_top = 0;
 std::vector<profiles::Info> g_sets;
 bool g_set_renaming = false;
@@ -599,7 +601,16 @@ void PcLobbyCommand(X86Context& ctx, const std::vector<std::string>& a) {
         LOGI("lobby: %s", g_dest == "lan" ? "Host LAN Match" : "Local Only");
         return csx::QueueEngineCommand(std::string("xbui open ") + kMaps + "\n");
     }
-    if (w1 == "dest_show") return PcSetScreenLine(ctx, kDest, 1, std::to_string(PcPartyCount()) + " local player" + (PcPartyCount() > 1 ? "s" : ""));
+    if (w1 == "dest_show") {
+        // the Multiplayer menu's Split-Screen or Host Game: its destination highlighted (Local Only, Host LAN Match)
+        if (!g_intent.empty()) {
+            PcSetSelectedRow(kDest, g_intent == "host" ? 1 : 0);
+            LOGI("lobby: %s highlighted (the Multiplayer menu's %s)", g_intent == "host" ? "Host LAN Match" : "Local Only",
+                 g_intent == "host" ? "Host Game" : "Split-Screen");
+            g_intent.clear();
+        }
+        return PcSetScreenLine(ctx, kDest, 1, std::to_string(PcPartyCount()) + " local player" + (PcPartyCount() > 1 ? "s" : ""));
+    }
     if (w1 == "map") {
         int row = PcSelectedRow(kMaps);
         if (row < 0 || row >= int(g_maps.size())) return;
@@ -787,3 +798,7 @@ void PcLobbyMenuFrame(X86Context& ctx) {
     LOGI("lobby: joining %s (the party's team)", t == 1 ? "the Terrorists" : t == 2 ? "the Counter-Terrorists" : "a team (Auto-Select)");
     csx::QueueEngineCommand(std::string(slot) + "\nxbui exit\n");
 }
+
+// the Multiplayer menu's Split-Screen ("local") or Host Game ("host"): the party's destination screen highlights
+// Local Only or Host LAN Match when it opens (pc_party.cpp's "pc_party intent")
+void PcLobbyIntent(const std::string& intent) { g_intent = intent; }
