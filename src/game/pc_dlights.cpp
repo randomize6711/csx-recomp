@@ -107,14 +107,26 @@ void RebuildWorld(X86Context& ctx, uint32_t base) {
     std::memcpy(&jcab, kernel::HostPtr(kJcabRenderBsp), 4);
     std::memcpy(&dynamic, kernel::HostPtr(kRDynamic), 4);
     uint32_t world = R32(kWorldModel);
-    if (jcab == 0.0f || dynamic == 0.0f || !world) return;  // the engine's own paths; r_dynamic 0: no dynamic light
+    if (jcab == 0.0f || dynamic == 0.0f || !world) {  // the engine's own paths; r_dynamic 0: no dynamic light
+        LOG_FIRST(2, "pc dlights: world not rebuilt here (jcab_render_bsp %g, r_dynamic %g, world %08X)", jcab, dynamic, world);
+        return;
+    }
     const uint32_t count = R32(world + 0xB0), surfaces = R32(world + 0xB4), frame = R32(kFrameCount);
-    if (!surfaces || count > 0x40000) return;
-    uint32_t built = 0;
+    if (!surfaces || count > 0x40000) {
+        LOG_FIRST(2, "pc dlights: the world's %u surfaces at %08X not rebuilt", count, surfaces);
+        return;
+    }
+    uint32_t built = 0, marked_now = 0, marked_next = 0, marked_last = 0;
     for (uint32_t i = 0; i < count; i++) {
         uint32_t surf = surfaces + i * kSurfaceSize;
         if (R32(surf + 0x08) & 0x10) continue;  // no lightmap (SURF_DRAWTILED: water, sky)
-        if (R32(surf + 0x30) != frame && !R32(surf + 0x50)) continue;
+        // marked this frame, or for the next one: R_PushDlights runs twice a frame here (0xB6045 before the view's
+        // r_framecount step, 0xB6113 after it), the second marking with r_framecount + 1
+        const uint32_t mark = R32(surf + 0x30);
+        marked_now += mark == frame;
+        marked_next += mark == frame + 1;
+        marked_last += mark + 1 == frame;
+        if (mark != frame && mark != frame + 1 && !R32(surf + 0x50)) continue;
         uint32_t lm = R32(surf + 0x38);
         if (lm >= kMaxLightmaps) continue;
         uint32_t dest = base + ((lm * kBlock + R32(surf + 0x20)) * kBlock + R32(surf + 0x1C)) * 4;
@@ -127,6 +139,16 @@ void RebuildWorld(X86Context& ctx, uint32_t base) {
         built++;
     }
     if (built) LOG_FIRST(8, "pc dlights: %u world surfaces lit again by dynamic lights", built);
+    // while the flashlight is on: what the surfaces' marks were (for the play-test's log)
+    static auto last = std::chrono::steady_clock::now() - std::chrono::seconds(10);
+    uint32_t fl = R32(kFlashlightLight);
+    float radius = 0;
+    if (fl) std::memcpy(&radius, kernel::HostPtr(fl + 0xC), 4);
+    if (radius > 0 && std::chrono::steady_clock::now() - last > std::chrono::seconds(2)) {
+        last = std::chrono::steady_clock::now();
+        LOG_FIRST(16, "pc dlights: frame %u, %u surfaces: marked this frame %u, the next %u, the last %u; %u rebuilt",
+                  frame, count, marked_now, marked_next, marked_last, built);
+    }
 }
 
 // [[hook]] at 0x5236D, the end of R_DrawWorld (after R_BlendLightmaps, or where it was skipped): a lightmap still
@@ -139,9 +161,15 @@ void PcDlightsSweep(X86Context& ctx, uint8_t*) {
         std::memcpy(v, kernel::HostPtr(fl), sizeof v);
         if (v[3] > 0) LOG_FIRST(4, "pc dlights: the flashlight's light at %.0f %.0f %.0f, radius %.0f", v[0], v[1], v[2], v[3]);
     }
-    if (R32(kLightmapBytes) != 4) return;
+    if (R32(kLightmapBytes) != 4) {
+        LOG_FIRST(2, "pc dlights: lightmaps of %u bytes a texel, not rebuilt", R32(kLightmapBytes));
+        return;
+    }
     const uint32_t base = R32(kLightmapBuffer), first = R32(kLightmapTextures);
-    if (!base || !first) return;
+    if (!base || !first) {
+        LOG_FIRST(2, "pc dlights: no lightmap blocks (%08X, first texture %u)", base, first);
+        return;
+    }
     RebuildWorld(ctx, base);
     for (uint32_t i = 0; i < kMaxLightmaps; i++) {
         if (!R32(kLightmapModified + 4 * i)) continue;
