@@ -90,6 +90,11 @@ struct PcScreen {
                                       // "!<external>_save" (a profile's settings, the match rules)
     std::vector<const char*> opens = {};  // a hub (N5A): no settings, a row opening each of these screens (by id)
     bool panel = false;  // the highlighted row's description beside the list (N5B: the graphics options)
+    // its rows added to a screen of the title's own (SuperLauncher_<embed> and InGame_<embed>) after that screen's
+    // embed_first rows: Accept saves them, entering loads them; no screen of its own (the Controller rows in the title's
+    // Control Options)
+    const char* embed = nullptr;
+    int embed_first = 0;
 };
 
 // the controller's extra actions' buttons (N7, src/linux/window_input.cpp Poll)
@@ -356,7 +361,7 @@ const std::vector<PcScreen>& Screens() {
         // PC Options (N5A): a hub of the title's style with a screen a group; the settings' keys as before
         v.push_back({"Video",
                      "Video",
-                     {"Set the display mode, resolution, shape and", "frame rate."},
+                     {"Set the display, the frame rate, the field of", "view and the original's graphical effects."},
                      {
                          {"display_mode",
                           "Display Mode",
@@ -376,27 +381,19 @@ const std::vector<PcScreen>& Screens() {
                           {{"Automatic", "auto"}, {"4:3 (Original)", "4:3"}, {"16:10", "16:10"}, {"16:9", "16:9"},
                            {"21:9", "21:9"}},
                           0},
-                         {"frame_rate",
-                          "Frame Rate Limit",
-                          {"Set how many frames are drawn each second.", "30 is the game's original rate."},
-                          {{"30 (Original)", "30"}, {"60", "60"}, {"72", "72"}, {"100", "100"}, {"120", "120"},
-                           {"144", "144"}, {"165", "165"}, {"240", "240"}},
-                          0},
                          {"vsync",
                           "VSync",
                           {"Wait for the display's refresh before each frame.",
                            "Off lets the frame rate pass the refresh rate."},
                           {{"On", "1"}, {"Off", "0"}},
                           0},
-                     },
-                     true,
-                     false,
-                     true});
-        v.back().panel = true;  // Video
-        v.push_back({"Graphics",
-                     "Advanced Graphics",
-                     {"Set the field of view and the original's", "graphical effects."},
-                     {
+                         {"frame_rate",
+                          "Frame Rate Limit",
+                          {"Set how many frames are drawn each second.", "30 is the game's original rate."},
+                          {{"30 (Original)", "30"}, {"60", "60"}, {"72", "72"}, {"100", "100"}, {"120", "120"},
+                           {"144", "144"}, {"165", "165"}, {"240", "240"}},
+                          0},
+                         // N5E (src/game/pc_viewmodel.cpp)
                          {"fov",
                           "Field of View",
                           {"Set how wide the view is. 90 is the game's original;",
@@ -404,6 +401,14 @@ const std::vector<PcScreen>& Screens() {
                           {{"90 (Original)", "90"}, {"95", "95"}, {"100", "100"}, {"105", "105"}, {"110", "110"},
                            {"115", "115"}, {"120", "120"}},
                           0},
+                         {"viewmodel_fov",
+                          "Weapon Field of View",
+                          {"Set how wide the weapon in your hands is drawn.",
+                           "Same draws it as the world, as the original does."},
+                          {{"Same as FOV", "0"}, {"60", "60"}, {"65", "65"}, {"70", "70"}, {"75", "75"},
+                           {"80", "80"}, {"85", "85"}, {"90", "90"}, {"95", "95"}, {"100", "100"}, {"110", "110"}},
+                          0},
+                         // the original's effects (FINDINGS.md: cl_dynamicgamma, cl_hdrbloom)
                          {"xbox_effects",
                           "Xbox Visual Effects",
                           {"Turn the original's Auto Exposure and Bloom",
@@ -422,19 +427,11 @@ const std::vector<PcScreen>& Screens() {
                            "Off draws without the glow."},
                           {{"On", "1"}, {"Off", "0"}},
                           0},
-                         // N5E (src/game/pc_viewmodel.cpp)
-                         {"viewmodel_fov",
-                          "Weapon Field of View",
-                          {"Set how wide the weapon in your hands is drawn.",
-                           "Same draws it as the world, as the original does."},
-                          {{"Same as FOV", "0"}, {"60", "60"}, {"65", "65"}, {"70", "70"}, {"75", "75"},
-                           {"80", "80"}, {"85", "85"}, {"90", "90"}, {"95", "95"}, {"100", "100"}, {"110", "110"}},
-                          0},
                      },
                      true,
                      false,
                      true});
-        v.back().panel = true;  // Graphics
+        v.back().panel = true;  // Video
         v.push_back({"Mouse",
                      "Mouse",
                      {"Set the mouse's sensitivity and how it", "moves the view."},
@@ -470,16 +467,8 @@ const std::vector<PcScreen>& Screens() {
         // N5D (src/game/pc_prompts.cpp, linux/pad_style.h)
         v.push_back({"Controller",
                      "Controller",
-                     {"Set which buttons the menus show, and the", "controller's flashlight and spray."},
+                     {"", ""},
                      {
-                         {"prompt_style",
-                          "Button Prompts",
-                          {"Show the buttons of the controller in use, or of", "one you choose."},
-                          {{"Automatic", "auto"}, {"Keyboard/Mouse", "pc"}, {"Xbox (Original)", "xbox"},
-                           {"Xbox 360", "x360"}, {"Xbox Series X|S", "series"}, {"PlayStation 4", "ps"},
-                           {"DualSense", "dualsense"}, {"Nintendo Switch", "switch"}, {"Steam Controller", "steam"},
-                           {"Wii Remote", "wii"}},
-                          0},
                          // N7 (src/linux/window_input.cpp Poll): actions the original's controller has no
                          // button for, on a chord or a newer controller's extra button
                          {"pad_flashlight",
@@ -495,9 +484,11 @@ const std::vector<PcScreen>& Screens() {
                           PadExtraChoices(),
                           2},
                      },
-                     true,
+                     false,
                      false,
                      true});
+        v.back().embed = "ControllerOptions";
+        v.back().embed_first = 6;
         v.push_back({"Audio",
                      "Audio",
                      {"Set the volume of the game's sound.", ""},
@@ -522,11 +513,13 @@ const std::vector<PcScreen>& Screens() {
                      true,
                      false,
                      true});
-        v.push_back({"Gameplay",
-                     "Gameplay",
-                     {"Set how some of the game's effects look", "on this PC."},
+        // the game's look on this PC: gameplay effects, the HUD, the menus and their button prompts (one category since
+        // 2026-10-31: Gameplay, HUD and Menus were three)
+        v.push_back({"Interface",
+                     "Interface",
+                     {"Set the HUD, the menus, the button prompts and", "how some of the game's effects look."},
                      {
-                         // N7 (src/game/pc_gameplay.cpp)
+                         // the game's effects (N7, src/game/pc_gameplay.cpp)
                          {"flashbang_colour",
                           "Flashbang Effect",
                           {"White is the original's blinding flash. Black blinds",
@@ -539,35 +532,8 @@ const std::vector<PcScreen>& Screens() {
                            "keeps your own eyes as you fall, then the original's."},
                           {{"Original", "original"}, {"First Person", "first_person"}},
                           0},
-                     },
-                     true,
-                     false,
-                     true});
-        v.push_back({"Hud",
-                     "HUD and Menus",
-                     {"Set how the menus and the game's displays", "behave."},
-                     {
-                         // N5A (src/game/pc_scroll.cpp)
-                         {"menu_smooth_scroll",
-                          "Smooth Menu Scrolling",
-                          {"Let long lists glide to the next rows. Off moves",
-                           "them a whole row at once, as the original does."},
-                          {{"On", "1"}, {"Off", "0"}},
-                          0},
-                         // N5E (src/linux/window_input.cpp Poll)
-                         // N5E (src/game/pc_hud.cpp)
-                         {"net_graph_mode",
-                          "Net Graph",
-                          {"Show the network graph in the bottom right corner:",
-                           "always, with the scoreboard, or not."},
-                          {{"Off", "off"}, {"Always On", "always"}, {"With Scoreboard", "scoreboard"}},
-                          0},
-                         {"net_graph_level",
-                          "Net Graph Detail",
-                          {"How much the network graph shows.", ""},
-                          {{"Graph", "1"}, {"Graph and Details", "2"}, {"Numbers", "3"}},
-                          0},
-                         // N10 (src/game/pc_hud_layout.cpp): F7 in a match edits each element's place
+                         // the HUD (N10 src/game/pc_hud_layout.cpp: F7 in a match moves and sizes each element;
+                         // N5E src/game/pc_hud.cpp)
                          {"hud_scale",
                           "HUD Scale",
                           {"The size of the HUD's displays (F7 in a match moves",
@@ -584,6 +550,32 @@ const std::vector<PcScreen>& Screens() {
                           {"Hold shows the scoreboard while its button is held;",
                            "Toggle shows it from one press to the next."},
                           {{"Hold", "hold"}, {"Toggle", "toggle"}},
+                          0},
+                         {"net_graph_mode",
+                          "Net Graph",
+                          {"Show the network graph in the bottom right corner:",
+                           "always, with the scoreboard, or not."},
+                          {{"Off", "off"}, {"Always On", "always"}, {"With Scoreboard", "scoreboard"}},
+                          0},
+                         {"net_graph_level",
+                          "Net Graph Detail",
+                          {"How much the network graph shows.", ""},
+                          {{"Graph", "1"}, {"Graph and Details", "2"}, {"Numbers", "3"}},
+                          0},
+                         // the menus (N5A src/game/pc_scroll.cpp; N5D src/game/pc_prompts.cpp, linux/pad_style.h)
+                         {"menu_smooth_scroll",
+                          "Smooth Menu Scrolling",
+                          {"Let long lists glide to the next rows. Off moves",
+                           "them a whole row at once, as the original does."},
+                          {{"On", "1"}, {"Off", "0"}},
+                          0},
+                         {"prompt_style",
+                          "Button Prompts",
+                          {"Show the buttons of the controller in use, or of", "one you choose."},
+                          {{"Automatic", "auto"}, {"Keyboard/Mouse", "pc"}, {"Xbox (Original)", "xbox"},
+                           {"Xbox 360", "x360"}, {"Xbox Series X|S", "series"}, {"PlayStation 4", "ps"},
+                           {"DualSense", "dualsense"}, {"Nintendo Switch", "switch"}, {"Steam Controller", "steam"},
+                           {"Wii Remote", "wii"}},
                           0},
                      },
                      true,
@@ -659,10 +651,9 @@ const std::vector<PcScreen>& Screens() {
                      0,
                      nullptr,
                      nullptr,
-                     {"Video", "Graphics", "Mouse", "Controls", "Controller", "Audio", "Gameplay", "Hud", "Multiplayer",
-                      "Mods"}});
+                     {"Video", "Mouse", "Controls", "Audio", "Interface", "Multiplayer", "Mods"}});
         PcScreen controls{"Controls",
-                          "PC Controls",
+                          "Keybinds",
                           {"Choose the keys and mouse buttons for moving,", "shooting and the other actions."},
                           {},
                           true,
@@ -830,9 +821,20 @@ const PcScreen* FindScreenById(const std::string& id) {
 }
 
 const PcScreen* FindScreen(const std::string& name) {
-    for (const PcScreen& s : Screens())
+    for (const PcScreen& s : Screens()) {
+        if (s.embed) {
+            if (name == std::string("SuperLauncher_") + s.embed || name == std::string("InGame_") + s.embed) return &s;
+            continue;
+        }
         if (name == FrontEndName(s) || name == InGameName(s)) return &s;
+    }
     return nullptr;
+}
+
+// the table row of a screen's setting row, and back (a screen embedded in the title's has the title's rows first)
+size_t TableRow(const PcScreen& s, size_t row) { return row + size_t(s.embed_first); }
+uint32_t SettingRow(const PcScreen& s, uint32_t table_row) {
+    return table_row < uint32_t(s.embed_first) ? ~0u : table_row - uint32_t(s.embed_first);
 }
 
 // ---- the text, in the game's own format -----------------------------------------------------------------------------
@@ -994,8 +996,8 @@ std::string InGameScreen(const PcScreen& s) {
            "\t\t}\r\n" + ListRows(s, false) + "\t}\r\n}\r\n";
 }
 
-// a hub row's name: the screen's title (PC Controls is the Keyboard category there, N5B)
-std::string HubLabel(const PcScreen& c) { return std::string(c.id) == "Controls" ? "Keyboard" : c.title; }
+// a hub row's name: the screen's title
+std::string HubLabel(const PcScreen& c) { return c.title; }
 
 // a hub (N5A: PC Options): the title's own Options screens, front end and pause menu, with a row opening each of its
 // screens (the front end's rows carry their help lines)
@@ -1209,6 +1211,38 @@ namespace {
 
 // the front end text: before View Credits in SuperLauncher_Options a row per screen (as its rows are written, with
 // help), then the screens; empty when its layout is not the one expected
+// the embedded screens (PcScreen::embed): their rows after the title's own in its table, its entering loading them
+// and its Accept saving them first (its own commands then, as before: the profile's controller options, pc_party.cpp);
+// the text unchanged when the title's screen is not as expected
+std::string ExtendEmbedded(const std::string& text, bool front_end) {
+    std::string out = text;
+    for (const PcScreen& s : Screens()) {
+        if (!s.embed) continue;
+        std::string name = std::string(front_end ? "SuperLauncher_" : "InGame_") + s.embed;
+        size_t at = out.find("\n" + name + "\r\n{");
+        size_t end = at == std::string::npos ? at : out.find("\n}", at + 1);
+        size_t table_end = end == std::string::npos ? end : out.rfind("\n\t}", end - 1);
+        size_t accept = at == std::string::npos ? at : out.find("OnButtonDownA \"!", at);
+        if (table_end == std::string::npos || table_end < at || accept == std::string::npos || accept > end) {
+            LOGW("pc menu: %s not as expected: its PC rows are not added", name.c_str());
+            continue;
+        }
+        out.insert(table_end + 1, ListRows(s, front_end));
+        accept += std::strlen("OnButtonDownA \"!");
+        out.insert(accept, "pc_options_save " + name + "; ");
+        size_t entry = out.find("OnEntry \"!", at);
+        end = out.find("\n}", at + 1);
+        if (entry != std::string::npos && entry < end) {  // the title's own (the pause menu's: stuffPlayerDatatoUI)
+            out.insert(entry + std::strlen("OnEntry \"!"), "pc_options_load " + name + "; ");
+        } else {
+            size_t open = out.find("\r\n{\r\n", at) + std::strlen("\r\n{\r\n");
+            out.insert(open, "\tOnEntry \"!pc_options_load " + name + "\"\r\n");
+        }
+        LOGI("pc menu: %s takes the PC's %zu %s rows", name.c_str(), s.settings.size(), s.title);
+    }
+    return out;
+}
+
 std::string ExtendFrontEnd(const std::string& text) {
     size_t screen = text.find("\nSuperLauncher_Options");
     size_t credits = screen == std::string::npos ? screen : text.find("CommandSelect \"!PlayCredits\"", screen);
@@ -1219,6 +1253,7 @@ std::string ExtendFrontEnd(const std::string& text) {
     std::string rows, screens;
     for (const PcScreen& s : Screens()) {
         std::string help[2] = {s.row_help[0], s.row_help[1]};
+        if (s.embed) continue;  // its rows go into the title's own screen (ExtendEmbedded)
         if (s.hidden) {
             screens += FrontEndScreen(s);
             continue;
@@ -1322,6 +1357,7 @@ std::string ExtendInGame(const std::string& text) {
     end += std::strlen("\n\t\t}\r\n");
     std::string rows, screens;
     for (const PcScreen& s : Screens()) {
+        if (s.embed) continue;  // its rows go into the title's own screen (ExtendEmbedded)
         if (s.hidden) {
             if (HubChild(s)) screens += InGameScreen(s);  // PC Options' screens (N5A)
             continue;
@@ -1434,7 +1470,7 @@ std::vector<uint32_t> Cells(const std::string& name, const PcScreen& s) {
         return {};
     }
     for (size_t i = 0; i < s.settings.size(); i++) {
-        uint32_t cell = ListCell(table, i);
+        uint32_t cell = ListCell(table, TableRow(s, i));
         if (!cell || Choices(cell) != Listed(s.settings[i])) {
             LOGW("pc menu: %s row %zu is not the list expected", name.c_str(), i);
             return {};
@@ -1569,7 +1605,7 @@ void StartCapture(X86Context& ctx) {
     const PcScreen* s = FindScreen(name);
     uint32_t table = s && s->unique_values ? R32(R32(kCurrentScreen) + 0x380) : 0;
     if (!table || g_capture.active) return;
-    size_t row = R32(table + 0x9C);
+    size_t row = SettingRow(*s, R32(table + 0x9C));
     std::vector<uint32_t> cells = Cells(name, *s);
     if (row >= cells.size()) return;
     uint32_t cell = cells[row], pick = R32(cell);
@@ -1679,7 +1715,7 @@ void OpenDetails(const std::string& name) {
     const PcScreen* s = FindScreen(name);
     uint32_t table = s ? FindTable(name) : 0;
     std::vector<uint32_t> cells = table ? Cells(name, *s) : std::vector<uint32_t>();
-    uint32_t row = table ? R32(table + 0x9C) : 0;
+    uint32_t row = table ? SettingRow(*s, R32(table + 0x9C)) : ~0u;
     if (row >= cells.size()) return;
     const Setting& r = s->settings[row];
     g_details = {true, false, name, r.label, DetailLines(r), {}, row};
@@ -2010,9 +2046,9 @@ void PcMenuFrame(X86Context& ctx) {
     // N5B: Details, the hint line, a typed number
     const PcScreen* s = FindScreen(name);
     uint32_t table = s && !s->settings.empty() ? FindTable(name) : 0;
-    uint32_t row = table ? R32(table + 0x9C) : ~0u;
+    uint32_t row = table ? SettingRow(*s, R32(table + 0x9C)) : ~0u;
     DetailsFrame(name);
-    HintFrame(ctx, name, table ? s : nullptr, row);
+    if (!(s && s->embed)) HintFrame(ctx, name, table ? s : nullptr, row);  // the title's screen has its own help lines
     TypingFrame(ctx, name, table ? s : nullptr, row, typed);
 }
 
@@ -2062,8 +2098,11 @@ void PcUiLoadText(X86Context& ctx, uint8_t*) {
         std::filesystem::create_directories(app::ExeDir() / "uidump");
         std::ofstream(app::ExeDir() / "uidump" / name, std::ios::binary) << text;
     }
-    std::string out = name.rfind("FrontEndUI", 0) == 0 ? ExtendPrompts(ExtendExit(ExtendFrontEnd(ExtendMapSearch(ExtendLobby(ExtendParty(ExtendSplitMenu(ExtendMultiplayer(ExtendBotCount(ExtendCustomOptions(ExtendDlcMaps(text)))))))))))
-                                                       : ExtendPrompts(ExtendInGame(ExtendDlcMaps(text)));
+    const bool front_end = name.rfind("FrontEndUI", 0) == 0;
+    std::string out = front_end ? ExtendPrompts(ExtendExit(ExtendFrontEnd(ExtendMapSearch(ExtendLobby(ExtendParty(
+                                      ExtendSplitMenu(ExtendMultiplayer(ExtendBotCount(ExtendCustomOptions(ExtendDlcMaps(text)))))))))))
+                                : ExtendPrompts(ExtendInGame(ExtendDlcMaps(text)));
+    if (!out.empty()) out = ExtendEmbedded(out, front_end);  // last: after pc_party.cpp's Accept of the same screens
     if (name.rfind("InGameUI", 0) == 0 && !out.empty()) out = ExtendScoreboard(out);
     PcMouseLearnUi(out.empty() ? text : out);
     if (const char* d = std::getenv("CSX_UI_DUMP"); d && *d == '1' && !out.empty())  // and as extended
