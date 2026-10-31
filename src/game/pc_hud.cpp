@@ -7,7 +7,8 @@
 // Its place: the title puts it by net_graphpos (0x6E2D0: 1 the view's bottom right, 2 the middle, else the left)
 // over the HUD's bottom row; here (a hook after that, 0x6E613) it goes in the view's bottom right corner, over the
 // HUD's corner: the whole graph, its backdrop and its text kKeep inside the view's right and bottom edges (the view
-// is the player's own: a split-screen player's quarter or half; widescreen's columns are the view's).
+// is the player's own: a split-screen player's quarter or half; on a wider frame the right edge is the frame's, past
+// the 640 columns the 2D layout keeps in the middle).
 // Its size (Net Graph Size, net_graph_size 50 / 75 / 100, 50 by default since 2026-10-31): the engine's columns, one
 // unit wide each (net_graphwidth, 300 by default) and their height (value / net_scale, net_scale 5 by default), set
 // with net_graph while this setting shows it. The text keeps the console font (8 units a character).
@@ -23,6 +24,7 @@
 #include "kernel/kernel.h"
 
 std::string PcCurrentScreen();  // pc_browser.cpp
+float PcWideSide();             // pc_wide.cpp: the side column on a wider frame (0 at 4:3)
 
 namespace {
 using kernel::R32;
@@ -74,6 +76,12 @@ void PcNetGraphPlace(X86Context& ctx, uint8_t*) {
     int32_t text = (level >= 2.0f ? 46 : 24) * kChar;
     int32_t right = std::max(graph + 5, text);  // the block's right edge past x
     int32_t top = int32_t(height) + 5;          // its top above y
-    kernel::W32(ctx.esp + 0x5C, uint32_t(std::max(x + kKeep + 5, x + w - kKeep - right)));
+    // the screen's right edge in the 2D layout: on a wider frame the 640 columns sit in the middle with a side column
+    // either side (pc_wide.cpp), so the edge is 640 + that side, not the view's 640 (or its widened width)
+    const float side = PcWideSide();
+    const int32_t edge = side > 0 ? 640 + int32_t(side) : x + w;
+    LOG_FIRST(2, "pc hud: net_graph in the view %d %d %d %d, the screen's right edge at %d (side %.0f)", x, y, w, h, edge,
+              side);
+    kernel::W32(ctx.esp + 0x5C, uint32_t(std::max(edge - w + kKeep + 5, edge - kKeep - right)));
     kernel::W32(ctx.esp + 0x40, uint32_t(std::max(y + kKeep + top, y + h - kKeep - kBelow)));
 }
