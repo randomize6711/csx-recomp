@@ -1,4 +1,4 @@
-# The multiplayer party (N4.8, docs/multiplayer_frontend.md, src/game/pc_party.cpp): main menu > Multiplayer opens the
+# The multiplayer party (N4.8, docs/multiplayer_frontend.md, src/game/pc_party.cpp): main menu > Online Play > Peer-to-Peer opens the
 # party screen (four panels) under the compositor. Player 1 (keyboard) opens Profiles (R, the pad's X); "Bad;Name" is
 # refused (a ';' could end the console command a name goes into: the keyboard stays), then it creates "Ace" on the
 # profile keyboard (typed) and plays as it. Test controller 1 presses A: it joins as player 2 (the
@@ -19,11 +19,12 @@ key Space
 sleep 6
 key Space
 sleep 8
-expect log p1: pc mouse: screen SuperLauncher_MainScreen, 7 rows
+expect log p1: pc mouse: screen SuperLauncher_MainScreen, 6 rows
 key Down
 sleep 0.7
-key Down
-sleep 0.7
+key Space
+wait log p1: pc mouse: screen SuperLauncher_SystemLink
+sleep 2
 key Down
 sleep 0.7
 key Space

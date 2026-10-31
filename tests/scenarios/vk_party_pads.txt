@@ -24,11 +24,12 @@ pad 1 button a
 sleep 6
 pad 1 button a
 sleep 8
-expect log p1: pc mouse: screen SuperLauncher_MainScreen, 7 rows
+expect log p1: pc mouse: screen SuperLauncher_MainScreen, 6 rows
 pad 1 button dpdown
 sleep 0.7
-pad 1 button dpdown
-sleep 0.7
+pad 1 button a
+wait log p1: pc mouse: screen SuperLauncher_SystemLink
+sleep 2
 pad 1 button dpdown
 sleep 0.7
 pad 1 button a

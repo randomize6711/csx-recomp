@@ -17,6 +17,8 @@ key Space
 sleep 8
 key Down
 sleep 0.7
+key Down
+sleep 0.7
 key Space
 sleep 3
 key Down
@@ -51,10 +53,6 @@ key Escape
 sleep 1.5
 key Escape
 sleep 2
-key Down
-sleep 0.5
-key Down
-sleep 0.5
 key Down
 sleep 0.5
 key Down

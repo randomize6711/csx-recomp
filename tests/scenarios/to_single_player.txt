@@ -1,4 +1,4 @@
-# boot -> title -> notice -> profile keyboard -> Done -> main menu -> Single Player
+# boot -> title -> notice -> profile keyboard -> Done -> main menu -> Instant Action
 wait draws==1
 pressuntil START draws>=3
 pressuntil A draws>=50
@@ -6,6 +6,8 @@ sleep 3
 press A
 sleep 6
 snap main_menu
+press DOWN
+sleep 2
 press DOWN
 sleep 2
 snap main_menu_sp

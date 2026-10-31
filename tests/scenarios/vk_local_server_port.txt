@@ -19,6 +19,8 @@ key Space
 sleep 8
 key Down
 sleep 2
+key Down
+sleep 2
 key Space
 sleep 5
 key Down
@@ -83,22 +85,11 @@ sleep 2
 key Left_Ctrl
 sleep 2
 wait newlog pc mouse: screen SuperLauncher_MainScreen
-point 198 232
+point 198 160
 sleep 0.5
 click 1
-# N4.8: Multiplayer opens the party first, then Server Browser
-wait log pc mouse: screen SuperLauncher_PCParty
-sleep 2
-key Space
-sleep 2
-key Space
-wait log pc mouse: screen SuperLauncher_PCPartyDestination
-sleep 2
-key Down
-sleep 1
-key Down
-sleep 1
-key Space
+# Online Play opens the online menu (the System Link screen, "Multiplayer") itself
+wait log pc mouse: screen SuperLauncher_SystemLink
 sleep 3
 expect last pc.mouse:.screen SuperLauncher_SystemLink
 # TODO(menu 2026-10-31): Host a Match (row 5, SuperLauncher_LocalServerOptions) is gone: Multiplayer has 3 rows now

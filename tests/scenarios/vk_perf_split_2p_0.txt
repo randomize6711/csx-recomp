@@ -1,5 +1,5 @@
 # Split-screen benchmark (N4.5, docs/splitscreen.md "Performance"): 2 local players in the compositor, a Single Player match on de_airstrip
-# from Single Player > Custom with 0 bots asked; VSync Off, Frame Rate Limit 240,
+# from Instant Action > Custom with 0 bots asked; VSync Off, Frame Rate Limit 240,
 # 1920x1080. Player 1 is held at one view (setview) for 60 s; the other players stand at their spawn in their buy
 # menus. tools/split_perf.py reads the log: each player's frame rate, 1% and 0.1% lows, intervals, GPU and recording
 # time, server frame; the processes' CPU and memory (CSX_SPLIT_PERF); the network. No limits asserted.
@@ -16,6 +16,8 @@ key Space
 sleep 6
 key Space
 sleep 8
+key Down
+sleep 2
 key Down
 sleep 2
 key Space

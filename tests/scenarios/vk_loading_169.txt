@@ -13,6 +13,8 @@ key Space
 sleep 8
 key Down
 sleep 2
+key Down
+sleep 2
 key Space
 sleep 5
 key Space

@@ -24,8 +24,6 @@ key Down
 sleep 0.7
 key Down
 sleep 0.7
-key Down
-sleep 0.7
 key Space
 wait log pc mouse: screen SuperLauncher_Options, 9 rows
 sleep 2

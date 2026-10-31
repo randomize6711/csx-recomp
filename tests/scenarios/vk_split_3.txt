@@ -1,5 +1,5 @@
 # Three-player split-screen set up in the menus (docs/splitscreen.md, src/game/pc_party.cpp): the compositor starts
-# with one local player; on Multiplayer's party screen the two test controllers join with A (players 2 and 3, N4.8:
+# with one local player; on the party screen (Online Play > Peer-to-Peer) the two test controllers join with A (players 2 and 3, N4.8:
 # the party replaces the main menu's Split Screen screen), player 1 goes back to the main menu (the party kept). A Single Player match with 64 bots asked takes 61, leaving room for four local players (the title never
 # removes a bot for a joining player); players 2 and 3 join it (64 of 65 slots). Then a third controller's START joins
 # a fourth player into the running match: the 2x2 layout, all 65 slots occupied.
@@ -16,11 +16,12 @@ key Space
 sleep 6
 key Space
 sleep 8
-expect log p1: pc mouse: screen SuperLauncher_MainScreen, 7 rows
+expect log p1: pc mouse: screen SuperLauncher_MainScreen, 6 rows
 key Down
 sleep 0.7
-key Down
-sleep 0.7
+key Space
+wait log p1: pc mouse: screen SuperLauncher_SystemLink
+sleep 2
 key Down
 sleep 0.7
 key Space
@@ -35,8 +36,11 @@ wait log split: controller .* is player 3's
 sleep 1
 key Escape
 sleep 3
+# the party's Escape: Online Play's menu, then the main menu
+key Escape
+sleep 3
 expect log p1: pc mouse: screen SuperLauncher_MainScreen
-point 150 160
+point 150 196
 sleep 0.5
 click 1
 sleep 5

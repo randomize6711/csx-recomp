@@ -23,8 +23,9 @@ key Space
 sleep 8
 key Down
 sleep 0.7
-key Down
-sleep 0.7
+key Space
+wait log p1: pc mouse: screen SuperLauncher_SystemLink
+sleep 2
 key Down
 sleep 0.7
 key Space

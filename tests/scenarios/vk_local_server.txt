@@ -1,5 +1,5 @@
 # A Single Player match from the menus in the game's local server (N4.7, docs/splitscreen.md 17, src/game/local_server.cpp):
-# Single Player > Custom, de_aztec with the default 7 bots. The game starts csx-server in local_server/ (offline: on
+# Instant Action > Custom, de_aztec with the default 7 bots. The game starts csx-server in local_server/ (offline: on
 # 127.0.0.1, a free port), waits until it is ready and relaunches into "+connect" to it; it trusts the server's key
 # for that address (not remembered). The match has 8 players (the server's slots, read in its folder). The pause
 # menu (the Single Player one, as with the listen server) pauses the server's simulation (pc_owner pause: the owner alone; the network goes on) and its Return to Game unpauses it; the server's console commands
@@ -18,6 +18,8 @@ key Space
 sleep 6
 key Space
 sleep 8
+key Down
+sleep 2
 key Down
 sleep 2
 key Space

@@ -16,7 +16,7 @@ sleep 6
 key Space
 sleep 8
 windowshot main_menu
-point 150 196
+point 150 160
 sleep 0.5
 click 1
 wait log pc mouse: screen SuperLauncher_SystemLink
@@ -27,7 +27,7 @@ key Escape
 wait newlog pc mouse: screen SuperLauncher_MainScreen
 sleep 2
 mark
-point 150 196
+point 150 160
 sleep 0.5
 click 1
 wait newlog pc mouse: screen SuperLauncher_SystemLink

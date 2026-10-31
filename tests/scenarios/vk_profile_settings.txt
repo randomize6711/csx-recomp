@@ -1,4 +1,4 @@
-# A profile's own settings (N4.8, src/game/pc_party.cpp, pc_menu.cpp's PcScreen "Profile"): Multiplayer's party,
+# A profile's own settings (N4.8, src/game/pc_party.cpp, pc_menu.cpp's PcScreen "Profile"): the party (Online Play > Peer-to-Peer),
 # Profiles (R), "Ace" created, then Profiles again and Y (Q) on it: Profile Settings shows its 12 rows (the PC Options
 # rows Mouse Sensitivity, Scoped Sensitivity, Invert Mouse, Raw Mouse Input, Field of View and Button Prompts, then the
 # 6 controller rows). N5A split PC
@@ -16,11 +16,12 @@ key Space
 sleep 6
 key Space
 sleep 8
-expect log p1: pc mouse: screen SuperLauncher_MainScreen, 7 rows
+expect log p1: pc mouse: screen SuperLauncher_MainScreen, 6 rows
 key Down
 sleep 0.7
-key Down
-sleep 0.7
+key Space
+wait log p1: pc mouse: screen SuperLauncher_SystemLink
+sleep 2
 key Down
 sleep 0.7
 key Space

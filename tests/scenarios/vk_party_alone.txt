@@ -1,5 +1,5 @@
 # The party from the game alone in its window (N4.8, docs/multiplayer_frontend.md, src/game/pc_party.cpp,
-# src/linux/window_input.cpp): Multiplayer opens the party screen without restarting (one player needs no
+# src/linux/window_input.cpp): Online Play > Peer-to-Peer opens the party screen without restarting (one player needs no
 # compositor). A controller's A on it asks for split screen: the window restarts as the compositor, back on the party
 # screen, where the controller's A joins it as player 2 (a controller plugged into the restarted window: the test's
 # own again). Player 1 keeps its profile through the restart.
@@ -19,8 +19,9 @@ key Space
 sleep 8
 key Down
 sleep 0.7
-key Down
-sleep 0.7
+key Space
+wait log pc mouse: screen SuperLauncher_SystemLink
+sleep 2
 key Down
 sleep 0.7
 key Space

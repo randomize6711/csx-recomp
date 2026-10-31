@@ -17,9 +17,9 @@ wait draws<=20
 
 sleep 6
 expect log pc mouse: screen SuperLauncher_MainScreen
-pckey pointer 150 260
+pckey pointer 150 224
 sleep 1
-expect log pc mouse: SuperLauncher_MainScreen at 150 260, selection 4
+expect log pc mouse: SuperLauncher_MainScreen at 150 224, selection 3
 expect log pc mouse: highlight menu/buy_hover.wav
 pckey mclick 1
 sleep 3

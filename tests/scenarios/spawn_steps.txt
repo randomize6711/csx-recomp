@@ -21,6 +21,8 @@ snap main_menu
 expect image main_menu 20
 press DOWN
 sleep 2
+press DOWN
+sleep 2
 press A
 sleep 5
 snap single_player

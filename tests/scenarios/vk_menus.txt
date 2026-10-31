@@ -15,6 +15,8 @@ sleep 8
 windowshot main_menu
 key Down
 sleep 2
+key Down
+sleep 2
 key Space
 sleep 6
 windowshot single_player

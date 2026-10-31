@@ -24,11 +24,11 @@ sleep 1
 expect log pc mouse: name typing off \(Enter\), the name "Ace"
 wait log pc mouse: screen SuperLauncher_MainScreen
 sleep 2
-point 150 304
+point 150 268
 sleep 0.5
 click 1
 sleep 1
-point 150 305
+point 150 269
 sleep 0.3
 click 1
 wait log pc mouse: screen SuperLauncher_ChangeProfile

@@ -20,7 +20,7 @@ press A
 wait draws<=20
 sleep 6
 expect log pc mouse: screen SuperLauncher_MainScreen
-pckey pointer 150 260
+pckey pointer 150 224
 sleep 1
 pckey mclick 1
 sleep 3
@@ -138,7 +138,7 @@ expect log pc: settings saved
 expect count pc.mouse:.screen.SuperLauncher_Options, 2
 pckey mclick 2
 sleep 3
-pckey pointer 150 160
+pckey pointer 150 196
 sleep 1
 pckey mclick 1
 sleep 5

@@ -118,6 +118,31 @@ The title already limits the rows drawn to the table's area. Smooth scrolling cl
 - Row hit-tests use the table's own first shown row, so they stay right after scrolling.
 - Arrow clicks on a row are not affected: the bar is outside the rows.
 
+## Main menu (2026-10-31)
+
+| Before | After |
+|---|---|
+| Training | Training |
+| Single Player | (removed) |
+| Online Play | Online Play |
+| Multiplayer (the party) | **Instant Action**: the local match setup (Single Player's own screen) |
+| Options | Options |
+| Change Profile | Change Profile |
+| Exit Game | Exit Game |
+
+- **Instant Action.** It is Single Player's row, with its command (`open SuperLauncher_SinglePlayerMatch`: Quick
+  Match, and Custom Game with its map, bots, game mode and rules), renamed, in Multiplayer's place. Its help's
+  second line reads "opponents: maps, bots, modes and rules.".
+- **Single Player** is gone from the menu; the rows below it move up (the title lays its table out from the top), so
+  there is no gap. Its screen and everything in it stay: Instant Action opens it.
+- **Online play** keeps its place: Online Play has the Server Browser, Peer-to-Peer (the party) and Direct-IP or
+  Code.
+- Nothing addresses the main menu by its rows' positions: the party's and the browser's returns open their screens
+  by name.
+- Code: `pcmenu::MainMenuInstantAction` (src/game/pc_options_text.h), applied by pc_menu.cpp's ExtendMainMenu after
+  the party's and the browser's own changes to the menu, before Exit Game is added. Tested by
+  tests/pc_options_text_test.py.
+
 ## Multiplayer (the main menu's Online Play)
 
 | Before | After |
@@ -137,8 +162,8 @@ longer reached from these menus. The browser's Host a Match (Y) now opens Peer-t
 
 **Unchanged.** csx-server, its GUI (tools/csx_server_gui.py), its configuration and the authenticated transport.
 
-**Still in place.** The main menu's Multiplayer row (the party, N4.8) is still there, so Peer-to-Peer and it lead to
-the same party.
+**The party.** It is reached through Online Play > Peer-to-Peer (Local Only, split screen, Host LAN Match). The
+main menu's own Multiplayer row became Instant Action (below).
 
 ## Map search (2026-10-31)
 

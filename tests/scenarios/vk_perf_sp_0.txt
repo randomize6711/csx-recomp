@@ -1,5 +1,5 @@
 # Benchmark (N4.7, docs/splitscreen.md 17): the game alone in its window, a Single Player match on de_airstrip from
-# Single Player > Custom with no bots (the default 7, 7 Left presses); VSync Off, Frame Rate Limit 240, 1920x1080.
+# Instant Action > Custom with no bots (the default 7, 7 Left presses); VSync Off, Frame Rate Limit 240, 1920x1080.
 # The player is held at one view (setview) for 60 s. Run with CSX_SERVER_PROCESS=0 (the listen server) and 1 (the
 # local server) to compare; tools/split_perf.py and tools/proc_usage.py read it. No limits asserted.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
@@ -13,6 +13,8 @@ key Space
 sleep 6
 key Space
 sleep 8
+key Down
+sleep 2
 key Down
 sleep 2
 key Space

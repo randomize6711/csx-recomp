@@ -52,7 +52,7 @@ point 155 196
 sleep 1.4
 key Up
 sleep 1.9
-point 150 268
+point 150 232
 sleep 1.3
 expect count pc.mouse:.highlight.menu/buy_hover.wav 5
 expect menuaudio
@@ -102,7 +102,7 @@ key `
 sleep 1
 expect log input: console open
 expect log input: mouse mode menu
-point 150 268
+point 150 232
 sleep 0.5
 click 1
 sleep 2
@@ -110,7 +110,7 @@ expect count pc.mouse:.screen.SuperLauncher_Options, 3
 key Escape
 sleep 1
 expect log input: console closed
-point 150 268
+point 150 232
 sleep 0.5
 click 1
 sleep 3

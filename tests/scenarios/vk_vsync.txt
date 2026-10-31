@@ -23,7 +23,7 @@ winctl fullscreen 1
 sleep 2
 expect log window: size 1600x900
 expect fps 120 260
-point 150 268
+point 150 232
 sleep 0.5
 click 1
 sleep 3

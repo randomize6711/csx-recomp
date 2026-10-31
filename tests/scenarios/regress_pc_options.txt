@@ -27,8 +27,6 @@ press DOWN
 sleep 1
 press DOWN
 sleep 1
-press DOWN
-sleep 1
 press A
 sleep 3
 press DOWN

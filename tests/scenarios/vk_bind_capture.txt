@@ -20,7 +20,7 @@ sleep 6
 key Space
 sleep 8
 expect log pc mouse: screen SuperLauncher_MainScreen
-point 150 260
+point 150 224
 sleep 0.5
 click 1
 sleep 3
@@ -148,7 +148,7 @@ sleep 1
 expect log input: console closed
 click 3
 sleep 3
-point 150 160
+point 150 196
 sleep 0.5
 click 1
 sleep 5

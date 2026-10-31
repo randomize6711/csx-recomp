@@ -1,5 +1,5 @@
 # Four-player split-screen offline against bots (docs/splitscreen.md): the compositor (CSX_SPLIT_COMPOSITOR) starts
-# player 1 (keyboard and mouse), which goes from the intro through Single Player > Custom with 64 bots; with four local
+# player 1 (keyboard and mouse), which goes from the intro through Instant Action > Custom with 64 bots; with four local
 # players the match takes 61 bots (65 slots: 4 local players and 61 bots, all occupied); the compositor starts players
 # 2-4, each joining player 1's loopback server with its key pinned, each on its own test controller (virtual SDL
 # gamepads routed by the compositor). Each picks its team with its own controller's A (player 1 with Space); the 2x2
@@ -18,6 +18,8 @@ key Space
 sleep 6
 key Space
 sleep 8
+key Down
+sleep 2
 key Down
 sleep 2
 key Space
