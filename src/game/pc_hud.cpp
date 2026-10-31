@@ -5,8 +5,8 @@
 // own: net_graph 0). The setting sets the cvar when what it wants changes, so net_graph typed in the console still
 // works until then; cl_showfps is not touched.
 // Its place: the title puts it by net_graphpos (0x6E2D0: 1 the view's bottom right, 2 the middle, else the left)
-// over the HUD's bottom row; here (a hook after that, 0x6E613) it goes in the view's bottom right corner above the
-// HUD's money, health and ammunition: the wider of the graph and its text kKeep from the view's right edge (the view
+// over the HUD's bottom row; here (a hook after that, 0x6E613) it goes in the view's bottom right corner, over the
+// HUD's corner: the whole graph, its backdrop and its text kKeep inside the view's right and bottom edges (the view
 // is the player's own: a split-screen player's quarter or half; widescreen's columns are the view's).
 // Its size (Net Graph Size, net_graph_size 50 / 75 / 100, 50 by default since 2026-10-31): the engine's columns, one
 // unit wide each (net_graphwidth, 300 by default) and their height (value / net_scale, net_scale 5 by default), set
@@ -29,6 +29,7 @@ using kernel::R32;
 int g_set = -1;  // the net_graph level last set here
 int g_size = -1;  // the net_graph_size last set
 constexpr uint32_t kNetGraphValue = 0x3787D8 + 0xC;  // the net_graph cvar's value (float)
+constexpr uint32_t kGraphHeight = 0x3776BC + 0xC;   // graphheight's (64)
 }  // namespace
 
 // on the game thread every frame (pc_menu.cpp's PcMenuFrame)
@@ -58,17 +59,21 @@ void PcHudFrame() {
 }
 
 // [[hook]] at 0x6E613 (config/game.toml) in SCR_DrawNetGraph, its place just computed (0x6E2D0: the graph's x at
-// [esp+0x5C], its y at [esp+0x40]; esi the view's rectangle x, y, width, height; ebp the graph's width): the view's
-// bottom right corner, above the HUD's bottom row. The text starts at the graph's x: its longest line about 24
+// [esp+0x5C], its y at [esp+0x40]; esi the view's rectangle x, y, width, height; ebp the graph's width). The whole of
+// it goes in the view's bottom right corner (the user's choice: over the HUD's corner, kKeep inside the edges). Drawn
+// from that place (0x6E613 on): its backdrop from x - 5, y - graphheight - 5 (graphheight 64, cvar 0x3776BC), the graph's
+// width + 10 wide and graphheight + 34 high, so its bottom is y + 29; the text from x, its longest line about 24
 // characters at net_graph 1 (in, out, loss and choke), about 46 at 2 and 3 (the server's sv line)
 void PcNetGraphPlace(X86Context& ctx, uint8_t*) {
     int32_t x = int32_t(R32(ctx.esi)), y = int32_t(R32(ctx.esi + 4)), w = int32_t(R32(ctx.esi + 8)),
             h = int32_t(R32(ctx.esi + 0xC)), graph = int32_t(ctx.ebp);
     if (w <= 0 || h <= 0 || graph <= 0) return;
-    constexpr int32_t kKeep = 10, kChar = 8, kHudRow = 150;  // the margin; a character; above the HUD's bottom row
+    constexpr int32_t kKeep = 8, kChar = 8, kBelow = 29;  // the margin; a character; the backdrop's bottom below y
     float level = kernel::G<float>(kNetGraphValue);
+    float height = kernel::G<float>(kGraphHeight);
     int32_t text = (level >= 2.0f ? 46 : 24) * kChar;
-    int32_t wide = std::max(graph, text);
-    kernel::W32(ctx.esp + 0x5C, uint32_t(std::max(x + kKeep, x + w - wide - kKeep)));
-    kernel::W32(ctx.esp + 0x40, uint32_t(std::max(y + kKeep, y + h - kHudRow)));
+    int32_t right = std::max(graph + 5, text);  // the block's right edge past x
+    int32_t top = int32_t(height) + 5;          // its top above y
+    kernel::W32(ctx.esp + 0x5C, uint32_t(std::max(x + kKeep + 5, x + w - kKeep - right)));
+    kernel::W32(ctx.esp + 0x40, uint32_t(std::max(y + kKeep + top, y + h - kKeep - kBelow)));
 }
