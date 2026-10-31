@@ -280,13 +280,18 @@ std::string NumberValue(const std::string& key, const std::string& typed) {
     if (!digits || dots > (e->integer ? 0u : 1u)) return {};
     double v = std::strtod(typed.c_str(), nullptr);
     if (!(v >= e->lo && v <= e->hi)) return {};
-    char b[32];
-    std::snprintf(b, sizeof b, e->integer ? "%.0f" : "%.3f", v);
-    std::string s = b;  // without a decimal part's trailing zeros
-    if (s.find('.') != std::string::npos) {
+    // the digits as typed (not rounded): leading zeros dropped (one kept before the point), a decimal part's
+    // trailing zeros and a lone point dropped
+    std::string s = typed;
+    size_t point = s.find('.');
+    if (point != std::string::npos) {
         while (s.back() == '0') s.pop_back();
         if (s.back() == '.') s.pop_back();
     }
+    size_t lead = 0;
+    while (lead + 1 < s.size() && s[lead] == '0' && s[lead + 1] != '.') lead++;
+    s.erase(0, lead);
+    if (s.empty() || s[0] == '.') s.insert(0, "0");
     return s;
 }
 
@@ -1760,13 +1765,14 @@ void HintFrame(X86Context& ctx, const std::string& name, const PcScreen* s, uint
 // range is refused and the range shown there for two seconds
 struct Typing {
     enum Mode { Off, On, Refused } mode = Off;
+    bool selected = false;  // the text is the row's value, shown selected: a key replaces it (a click started it)
     std::string screen, text;
     uint32_t row = 0, cell = 0, shown = 0;
     uint8_t saved[0x1C] = {};
     std::chrono::steady_clock::time_point until{};
 };
 Typing g_typing;
-std::atomic<bool> g_number_row{false}, g_number_typing{false};
+std::atomic<bool> g_number_row{false}, g_number_typing{false}, g_number_edit{false};
 std::deque<int> g_number_keys;  // under g_bind_lock
 
 void EndTyping(const char* how) {
@@ -1783,6 +1789,7 @@ void StartTyping(const std::string& name, const PcScreen& s, uint32_t row) {
     uint32_t cell = cells[row], pick = R32(cell);
     if (pick >= Choices(cell)) return;
     g_typing.mode = Typing::On;
+    g_typing.selected = false;
     g_typing.screen = name;
     g_typing.text.clear();
     g_typing.row = row;
@@ -1806,12 +1813,24 @@ void TypeKey(X86Context& ctx, const PcScreen& s, int c) {
         }
         EndTyping(nullptr);
         SetCell(g_typing.cell, r, value);
-        LOGI("pc menu: %s typed %s (saved with Accept)", r.label.c_str(), value.c_str());
+        if (r.key == "mouse_sensitivity" || r.key == "mouse_zoom_sensitivity") {
+            // the mouse's: in use and saved at once (the active profile's when one is), not only with Accept
+            pc::Set(r.key, value);
+            pc::Save();
+            LOGI("pc menu: %s typed %s (in use and saved)", r.label.c_str(), value.c_str());
+        } else {
+            LOGI("pc menu: %s typed %s (saved with Accept)", r.label.c_str(), value.c_str());
+        }
         return;
+    }
+    if (g_typing.selected) {  // the value shown selected: Backspace or a character replaces it
+        g_typing.selected = false;
+        g_typing.text.clear();
+        if (c == csx::kNumberBackspace) c = 0;
     }
     if (c == csx::kNumberBackspace) {
         if (!g_typing.text.empty()) g_typing.text.pop_back();
-    } else if (g_typing.text.size() < 8) {
+    } else if (c > 0 && g_typing.text.size() < 8) {
         g_typing.text += char(c);
     }
     ShowChoice(ctx, g_typing.shown, (g_typing.text + "_").c_str());
@@ -1824,6 +1843,17 @@ void TypingFrame(X86Context& ctx, const std::string& name, const PcScreen* s, ui
     if (g_typing.mode != Typing::Off && (name != g_typing.screen || row != g_typing.row || console))
         EndTyping(g_typing.mode == Typing::On ? "ended (the row or the screen was left)" : nullptr);
     if (g_typing.mode == Typing::Refused && std::chrono::steady_clock::now() >= g_typing.until) EndTyping(nullptr);
+    // a click on the value (pc_mouse.cpp): typing with the row's value shown selected
+    if (g_number_edit.exchange(false) && numeric && g_typing.mode != Typing::On) {
+        StartTyping(name, *s, row);
+        if (g_typing.mode == Typing::On) {
+            const Setting& r = s->settings[row];
+            g_typing.text = CellValue(g_typing.cell, r);
+            g_typing.selected = !g_typing.text.empty();
+            ShowChoice(ctx, g_typing.shown, ("[" + g_typing.text + "]").c_str());
+            LOGI("pc menu: %s edited by a click (%s selected)", r.label.c_str(), g_typing.text.c_str());
+        }
+    }
     for (int c : typed) {
         if (g_typing.mode != Typing::On) {
             if (c <= 0 || !numeric) continue;
@@ -1853,6 +1883,7 @@ void BindInput(int key) {
 }
 bool NumberRowSelected() { return g_number_row; }
 bool NumberTyping() { return g_number_typing; }
+void NumberEdit() { g_number_edit = true; }
 void NumberInput(int c) {
     std::lock_guard<std::mutex> lock(g_bind_lock);
     g_number_keys.push_back(c);

@@ -45,6 +45,7 @@
 
 bool PcBindingScreen(const std::string& name);  // pc_menu.cpp
 bool PcBrowserClick(const std::string& screen, float x, float y);  // pc_browser.cpp
+bool PcSettingsScreen(const std::string& name);  // pc_menu.cpp
 bool PcBrowserScreen(const std::string& screen);
 
 namespace {
@@ -362,13 +363,21 @@ void Click(X86Context& ctx, uint32_t screen, const std::string& name, const Scre
         // the arrows at the ends of the highlight image
         float a0 = F(table + 0x2C) + F(table + 0x134), a1 = a0 + F(table + 0x13C);
         float arrow = std::min(28.0f, (a1 - a0) / 4);
+        // a number being typed: a click anywhere but on its value cancels it first (the row's value as it was)
+        if (csx::NumberTyping() && !(x >= a0 + arrow && x < a1 - arrow)) csx::NumberInput(csx::kNumberCancel);
         if (x >= a0 && x < a0 + arrow) Queue({kLeft, -1});
         else if (x >= a1 - arrow && x < a1) Queue({kRight, -1});
         // a binding's key name: waits for the key to bind
         else if (x >= a0 && x < a1 && PcBindingScreen(name)) csx::BindStart();
-        // elsewhere on a setting's row: selected; a double click is A (it accepts the whole screen: the in-game
-        // screens have no help bar to click)
-        else if (twice) Queue({0, kA});
+        // a setting's value: a number's (Mouse Sensitivity...) is typed, the value shown selected (pc_menu.cpp checks
+        // that the row takes a number); a double click elsewhere is A (it accepts the whole screen: the in-game
+        // screens have no help bar to click), not on a number being typed
+        else if (x >= a0 && x < a1 && PcSettingsScreen(name)) {
+            csx::NumberEdit();
+            if (twice && !csx::NumberTyping() && !csx::NumberRowSelected()) Queue({0, kA});
+        } else if (twice) {
+            Queue({0, kA});
+        }
         return;
     }
     Queue({0, kA});

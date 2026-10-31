@@ -72,6 +72,8 @@ void BindInput(int key);
 constexpr int kNumberCancel = -1, kNumberBackspace = -2, kNumberEnter = -3;
 bool NumberRowSelected();
 bool NumberTyping();
+// a click on a number row's value (pc_mouse.cpp): typing starts there with the value shown selected (a key replaces it)
+void NumberEdit();
 // the HUD editor (N10, src/game/pc_hud_layout.cpp): on while it edits (the keys and pad go to it); input: 'n' / 'p'
 // next / previous element, 'l' 'r' 'u' 'd' move (upper case: larger steps), '+' '-' size, 'x' reset it, 'X' reset all,
 // 's' save, 'c' cancel
