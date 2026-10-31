@@ -153,6 +153,8 @@ struct Player {
     bool equipped = true;     // the post-spawn equip done (PostSpawnEquip)
     uint32_t team = 0;        // the team the loadout was chosen in
     int primary = 0, secondary = 0;  // Deathmatch: the weapons last bought (ids, 0 none): given at each respawn
+    int grenades[3] = {};            // and the grenades held after the last grenade bought (pcmodes::kGrenadeIds)
+    bool Loadout() const { return primary || secondary || grenades[0] || grenades[1] || grenades[2]; }
 };
 constexpr float kEquipDelay = 0.6f;     // a respawn's equip: after the game's own late changes to the player
 std::array<Player, 65> g_players;
@@ -193,6 +195,40 @@ void Centre(X86Context& ctx, uint32_t edict, const std::string& text) {
 constexpr uint32_t kAmmo = 0x620;
 constexpr int kAmmoSlots = 32;
 std::map<uint32_t, int> g_ammo_index;
+
+// an item by the game's own name for it (GiveNamedItem: the item made at the player and touched, as a purchase is)
+void GiveItem(X86Context& ctx, uint32_t player, uint32_t name, const char* text) {
+    if (kernel::ReadCString(name, 32) != text) {
+        LOG_FIRST(8, "pc mode: %s not at %08X, not given", text, name);
+        return;
+    }
+    Saved s(ctx);
+    ctx.eax = name;
+    ctx.edi = player;
+    kernel::CallGuest(ctx, kGiveNamedItem, {});
+}
+
+// the grenades a player holds (its m_rgAmmo, by the game's ammunition table at 0x5282C0: {name, max} from index 1,
+// as GetAmmoIndex 0x121C30 reads it), in pcmodes::kGrenadeIds' order
+constexpr uint32_t kAmmoTable = 0x5282C0;
+constexpr const char* kGrenadeAmmo[3] = {"HEGrenade", "Flashbang", "SmokeGrenade"};
+constexpr uint32_t kGrenadeItem[3] = {0x33E690, 0x33E6A4, 0x33E67C};  // weapon_hegrenade, _flashbang, _smokegrenade
+constexpr const char* kGrenadeText[3] = {"weapon_hegrenade", "weapon_flashbang", "weapon_smokegrenade"};
+std::array<int, 3> HeldGrenades(uint32_t player) {
+    static int index[3] = {-2, -2, -2};
+    std::array<int, 3> held{};
+    for (int g = 0; g < 3; g++) {
+        if (index[g] == -2) {
+            index[g] = -1;
+            for (int i = 1; i < 32; i++)
+                if (uint32_t name = R32(kAmmoTable + uint32_t(i) * 8); name && kernel::ReadCString(name, 32) == kGrenadeAmmo[g])
+                    index[g] = i;
+            LOGI("pc mode: %s is ammunition %d", kGrenadeAmmo[g], index[g]);
+        }
+        if (index[g] > 0) held[size_t(g)] = int32_t(R32(player + 0x620 + uint32_t(index[g]) * 4));
+    }
+    return held;
+}
 
 void Give(X86Context& ctx, uint32_t player, const Weapon& w) {
     if (kernel::ReadCString(w.name, 32) != w.text) {
@@ -392,8 +428,10 @@ void Strip(X86Context& ctx, uint32_t player) {
 // a mode's respawn, once the game's own late changes to the player are done (kEquipDelay after the spawn: a respawn
 // here is followed by the game stripping the player once more, the suit too, then giving the default pistol back; why
 // is not found yet, so the equipment is made whole here, once, after it): the suit; Gun Game the level's weapons;
-// Deathmatch the loadout last bought (the knife, the pistol bought or the team's, the primary weapon bought), else the
-// knife the strip took
+// Deathmatch the loadout last bought (the knife, the pistol bought or the team's, the primary weapon bought, the
+// grenades: after a strip, so nothing adds up from one life to the next), else the knife the strip took; and full
+// armour with a helmet, free (the game's item_assaultsuit, 0x12B4D0: armour 100, the helmet, the HUD's ArmorType)
+constexpr uint32_t kAssaultSuit = 0x33BCDC;
 void PostSpawnEquip(X86Context& ctx, uint32_t client, uint32_t player, uint32_t pev, Player& p) {
     p.equipped = true;
     kernel::W32(pev + kWeaponBits, R32(pev + kWeaponBits) | kSuit);
@@ -402,19 +440,27 @@ void PostSpawnEquip(X86Context& ctx, uint32_t client, uint32_t player, uint32_t 
         p.armed = true;
         return;
     }
-    const Weapon* primary = p.primary ? WeaponById(p.primary) : nullptr;
-    const Weapon* secondary = p.secondary ? WeaponById(p.secondary) : nullptr;
-    if (!primary && !secondary) {
+    GiveItem(ctx, player, kAssaultSuit, "item_assaultsuit");
+    if (!p.Loadout()) {
         if (!(R32(pev + kWeaponBits) & kKnifeBit)) Give(ctx, player, kKnife);
         return;
     }
+    const Weapon* primary = p.primary ? WeaponById(p.primary) : nullptr;
+    const Weapon* secondary = p.secondary ? WeaponById(p.secondary) : nullptr;
     if (!secondary) secondary = WeaponById(R32(player + kTeam) == 2 ? 16 : 17);  // the team's pistol: USP, Glock
     Strip(ctx, player);
     Give(ctx, player, kKnife);
     if (secondary) Give(ctx, player, *secondary);
     if (primary) Give(ctx, player, *primary);
-    LOG_FIRST(32, "pc mode: %s respawned with the loadout last bought (%s%s%s)", Name(client).c_str(),
-              primary ? primary->text + 7 : "", primary && secondary ? ", " : "", secondary ? secondary->text + 7 : "");
+    std::string grenades;
+    for (int g = 0; g < 3; g++)
+        for (int n = 0; n < pcmodes::GrenadeCount(pcmodes::kGrenadeIds[g], p.grenades[g]); n++) {
+            GiveItem(ctx, player, kGrenadeItem[g], kGrenadeText[g]);  // a second flashbang adds to the first
+            grenades += std::string(", ") + (kGrenadeText[g] + 7);
+        }
+    LOG_FIRST(32, "pc mode: %s respawned with the loadout last bought (%s%s%s%s)", Name(client).c_str(),
+              primary ? primary->text + 7 : "", primary && secondary ? ", " : "", secondary ? secondary->text + 7 : "",
+              grenades.c_str());
 }
 
 // unlimited reserve ammunition (Deathmatch and Gun Game): each firearm the player holds has its ammunition's reserve
@@ -534,6 +580,7 @@ void Frame(X86Context& ctx) {
         if (team != p.team) {  // another team: its loadout is not the team's to buy
             p.team = team;
             p.primary = p.secondary = 0;
+            for (int& g : p.grenades) g = 0;
         }
         if (dead == 0 && !p.equipped && now >= p.spawned_at + kEquipDelay)
             PostSpawnEquip(ctx, client, player, pev, p);
@@ -693,6 +740,7 @@ void PcModesSpawnRoundTime(X86Context& ctx, uint8_t*) {
 
 namespace {
 std::map<uint32_t, uint32_t> g_bits_before;  // by player: the weapons held before a purchase
+std::map<uint32_t, std::array<int, 3>> g_grenades_before;  // and the grenades
 }
 
 // [[hook]] at 0x120D07, impulses 20 to 52 (the buy menu's, autobuy's and rebuy's purchases: 0x15B360 buys, the
@@ -700,7 +748,9 @@ std::map<uint32_t, uint32_t> g_bits_before;  // by player: the weapons held befo
 void PcModesBuyBefore(X86Context& ctx, uint8_t*) {
     if (g_mode != "deathmatch") return;
     uint32_t pev = R32(ctx.edi + 4);
-    if (pev) g_bits_before[ctx.edi] = R32(pev + kWeaponBits);
+    if (!pev) return;
+    g_bits_before[ctx.edi] = R32(pev + kWeaponBits);
+    g_grenades_before[ctx.edi] = HeldGrenades(ctx.edi);
 }
 
 // [[hook]] at 0x120D0E, after the purchase: a weapon bought becomes the loadout's primary or pistol (a weapon picked
@@ -713,8 +763,19 @@ void PcModesBuyAfter(X86Context& ctx, uint8_t*) {
     uint32_t added = R32(pev + kWeaponBits) & ~it->second;
     g_bits_before.erase(it);
     int slot = SlotOfEdict(R32(pev + 0x208));
-    if (slot < 0 || !added) return;
+    if (slot < 0) return;
     Player& p = g_players[size_t(slot)];
+    // a grenade bought (one more of a kind than before): the loadout's grenades are those held now
+    const std::array<int, 3> held = HeldGrenades(ctx.edi), before = g_grenades_before[ctx.edi];
+    g_grenades_before.erase(ctx.edi);
+    if (held[0] > before[0] || held[1] > before[1] || held[2] > before[2]) {
+        for (int g = 0; g < 3; g++) p.grenades[g] = pcmodes::GrenadeCount(pcmodes::kGrenadeIds[g], held[size_t(g)]);
+        p.team = R32(ctx.edi + kTeam);
+        uint32_t client = R32(kClients) + uint32_t(slot) * kClientSize;
+        LOG_FIRST(64, "pc mode: %s's loadout grenades: %d HE, %d flashbang, %d smoke", Name(client).c_str(), p.grenades[0],
+                  p.grenades[1], p.grenades[2]);
+    }
+    if (!added) return;
     for (int id = 1; id < 32; id++) {
         if (!(added & (1u << id))) continue;
         const pcmodes::WeaponInfo* w = pcmodes::FindWeapon(id);
@@ -726,6 +787,52 @@ void PcModesBuyAfter(X86Context& ctx, uint8_t*) {
         uint32_t client = R32(kClients) + uint32_t(slot) * kClientSize;
         LOG_FIRST(64, "pc mode: %s's loadout: %s", Name(client).c_str(), w->name);
     }
+}
+
+// Gun Game's equipment is the mode's alone (pcmodes::PickupAllowed): no weapon is dropped, none picked up. Bots,
+// split-screen players and network clients alike: these are the server's own functions.
+// [[hook]] at 0x118B25 in the player's death drop (PackDeadPlayerItems 0x118AF0, after the rules' DeadPlayerWeapons
+// and DeadPlayerAmmo): true takes the game's own "drop nothing" way (0x118B29: every item removed, no weapon box), so
+// a death leaves nothing on the ground
+bool PcModesNoDeathDrop(X86Context&, uint8_t*) {
+    if (g_mode != "gungame") return false;
+    LOG_FIRST(4, "pc mode: Gun Game: nothing dropped at a death");
+    return true;
+}
+
+// [[hook]] at 0x123C2E in DropPlayerItem (0x123C00: the drop key, ebx the player): true returns (0x123C6F) without
+// dropping: the level's weapon stays the player's
+bool PcModesNoDrop(X86Context&, uint8_t*) {
+    if (g_mode != "gungame") return false;
+    LOG_FIRST(4, "pc mode: Gun Game: no weapon dropped");
+    return true;
+}
+
+// [[hook]] at 0x137638 in a weapon's touch (CBasePlayerItem DefaultTouch 0x1375F0: esi the weapon, ebp the player,
+// a player's touch): true leaves it (0x1376B3). A weapon the game gives (GiveNamedItem 0x120720 marks it
+// SF_NORESPAWN, entvars spawnflags +0x1A0, before its touch) is the mode's own and is taken; one lying in the world
+// is refused in Gun Game
+bool PcModesWeaponTouch(X86Context& ctx, uint8_t*) {
+    if (g_mode != "gungame") return false;
+    uint32_t pev = R32(ctx.esi + 4);
+    bool given = pev && (R32(pev + 0x1A0) & (1u << 30));
+    if (pcmodes::PickupAllowed(true, given ? pcmodes::Pickup::Given : pcmodes::Pickup::World)) return false;
+    LOG_FIRST(4, "pc mode: Gun Game: a weapon in the world not picked up");
+    return true;
+}
+
+// [[hook]] at 0x139510 in a weapon box's touch (0x1394D0, ebp the player): true leaves it (0x139519, nothing taken)
+bool PcModesBoxTouch(X86Context&, uint8_t*) {
+    if (pcmodes::PickupAllowed(g_mode == "gungame", pcmodes::Pickup::WeaponBox)) return false;
+    LOG_FIRST(4, "pc mode: Gun Game: a weapon box not picked up");
+    return true;
+}
+
+// [[hook]] at 0x13A51A in an armoury's touch (CArmoury 0x13A500, esi the player): true leaves it (0x13A7FF)
+bool PcModesArmouryTouch(X86Context&, uint8_t*) {
+    if (pcmodes::PickupAllowed(g_mode == "gungame", pcmodes::Pickup::Armoury)) return false;
+    LOG_FIRST(4, "pc mode: Gun Game: a map's weapon not picked up");
+    return true;
 }
 
 // Map rotation (N9, csx-server's map_rotation, the server GUI's): "pc_rotation MAP,MAP,..." on the server. When a

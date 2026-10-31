@@ -667,6 +667,32 @@ on_true = 0x120D2B
 at = 0x121FB2
 call = "PcModesSpawnRoundTime"
 
+# Gun Game: nothing dropped, nothing picked up (src/game/pc_modes.cpp)
+[[hook]]
+at = 0x118B25
+call = "PcModesNoDeathDrop"
+on_true = 0x118B29
+
+[[hook]]
+at = 0x123C2E
+call = "PcModesNoDrop"
+on_true = 0x123C6F
+
+[[hook]]
+at = 0x137638
+call = "PcModesWeaponTouch"
+on_true = 0x1376B3
+
+[[hook]]
+at = 0x139510
+call = "PcModesBoxTouch"
+on_true = 0x139519
+
+[[hook]]
+at = 0x13A51A
+call = "PcModesArmouryTouch"
+on_true = 0x13A7FF
+
 [[hook]]
 at = 0x120D07
 call = "PcModesBuyBefore"

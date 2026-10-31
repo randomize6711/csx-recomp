@@ -35,6 +35,17 @@ int main() {
     Check(!UnlimitedReserve("hegrenade") && !UnlimitedReserve("flashbang") && !UnlimitedReserve("smokegrenade"),
           "grenades keep their rules");
     Check(!UnlimitedReserve("c4") && !UnlimitedReserve("knife"), "bomb and knife none");
+    // Deathmatch's grenades: the game's limits
+    Check(GrenadeCount(25, 3) == 2 && GrenadeCount(25, 2) == 2 && GrenadeCount(25, 1) == 1, "flashbangs: two at most");
+    Check(GrenadeCount(4, 2) == 1 && GrenadeCount(9, 5) == 1 && GrenadeCount(4, -1) == 0, "HE and smoke: one");
+    Check(GrenadeCount(28, 1) == 0, "an AK-47 is not a grenade");
+    for (int id : kGrenadeIds) Check(FindWeapon(id) && FindWeapon(id)->slot == WeaponInfo::Grenade, "a grenade id");
+    // Gun Game's pickups
+    Check(PickupAllowed(true, Pickup::Given), "Gun Game: the mode's own weapons");
+    Check(!PickupAllowed(true, Pickup::World) && !PickupAllowed(true, Pickup::WeaponBox) &&
+              !PickupAllowed(true, Pickup::Armoury), "Gun Game: no pickups");
+    Check(PickupAllowed(false, Pickup::World) && PickupAllowed(false, Pickup::WeaponBox) &&
+              PickupAllowed(false, Pickup::Armoury), "other modes: the game's pickups");
     // every id once
     for (const WeaponInfo& a : kWeaponInfo)
         for (const WeaponInfo& b : kWeaponInfo)

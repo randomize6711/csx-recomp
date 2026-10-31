@@ -51,6 +51,18 @@ inline bool UnlimitedReserve(std::string_view name) {
     return w && (w->slot == WeaponInfo::Primary || w->slot == WeaponInfo::Secondary);
 }
 
+// Deathmatch's grenades in a remembered loadout: how many of each the game lets a player carry (its own limits: one
+// HE grenade, two flashbangs, one smoke grenade); a count past that, or below 0, is held to it
+inline int GrenadeLimit(int id) { return id == 25 ? 2 : id == 4 || id == 9 ? 1 : 0; }
+inline int GrenadeCount(int id, int count) { return count < 0 ? 0 : count > GrenadeLimit(id) ? GrenadeLimit(id) : count; }
+inline constexpr int kGrenadeIds[] = {4, 25, 9};  // HE, flashbang, smoke: the order they are given in
+
+// Gun Game's pickups: a player gets only what the mode gives (the game's GiveNamedItem, which marks its item
+// SF_NORESPAWN before the touch that hands it over); a weapon lying in the world, a weapon box or an armoury is refused.
+// Other modes keep the game's own pickups
+enum class Pickup { Given, World, WeaponBox, Armoury };
+inline bool PickupAllowed(bool gungame, Pickup what) { return !gungame || what == Pickup::Given; }
+
 // a kill for a Gun Game level: by the level's own weapon (the weapon the server names for the kill: the killer's
 // weapon in hand at the kill, or the projectile's class for a grenade), of an enemy; a team kill, a suicide or a
 // death by the world counts for nothing
