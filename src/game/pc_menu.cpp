@@ -208,6 +208,10 @@ const Extra* ExtraOf(const std::string& key) {
         {"net_graph_level",
          {"Graph: the columns and the main numbers (net_graph 1). Graph and Details: more numbers (2). Numbers: the "
           "numbers alone (3)."}},
+        {"net_graph_size",
+         {"The width and height of the graph's columns: Small is half the engine's own size (its 300 columns, "
+          "net_graphwidth, and their height, net_scale), Medium three quarters. Its numbers keep the console's font. "
+          "The graph sits in the bottom right corner of the view (each split-screen player's own) above the HUD."}},
         {"prompt_style",
          {"Automatic shows the buttons of the device used last: the keyboard's keys, or the controller's (an Xbox, "
           "PlayStation, Switch, Steam or Wii controller is recognised by its make; any other shows Xbox 360 buttons).",
@@ -575,6 +579,12 @@ const std::vector<PcScreen>& Screens() {
                           "Net Graph Detail",
                           {"How much the network graph shows.", ""},
                           {{"Graph", "1"}, {"Graph and Details", "2"}, {"Numbers", "3"}},
+                          0},
+                         {"net_graph_size",
+                          "Net Graph Size",
+                          {"How large the network graph's columns are drawn.",
+                           "Original is the engine's own size."},
+                          {{"Small", "50"}, {"Medium", "75"}, {"Original", "100"}},
                           0},
                          // the menus (N5A src/game/pc_scroll.cpp; N5D src/game/pc_prompts.cpp, linux/pad_style.h)
                          {"menu_smooth_scroll",
