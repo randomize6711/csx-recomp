@@ -652,6 +652,25 @@ on_true = 0x58FEB
 at = 0x6F080
 call = "PcWideRect2D"
 
+# Deathmatch and Gun Game (src/game/pc_modes.cpp): kills by the server's named weapon, the respawn's buy menu, the
+# purchases a Deathmatch loadout remembers
+[[hook]]
+at = 0x149825
+call = "PcModesDeathNotice"
+
+[[hook]]
+at = 0x120D22
+call = "PcModesBuyMenuRequest"
+on_true = 0x120D2B
+
+[[hook]]
+at = 0x120D07
+call = "PcModesBuyBefore"
+
+[[hook]]
+at = 0x120D0E
+call = "PcModesBuyAfter"
+
 # dynamic lights on the world (the flashlight): the GL layer's empty glTexSubImage2D uploads the engine's rebuilt
 # lightmaps (src/game/pc_dlights.cpp)
 [[hook]]

@@ -35,11 +35,13 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <map>
 #include <sstream>
 #include <string>
 #include <vector>
 
 #include "core/log.h"
+#include "game/pc_modes_rules.h"
 #include "cpu/x86_context.h"
 #include "kernel/kernel.h"
 
@@ -98,6 +100,21 @@ constexpr Weapon kWeapons[] = {
     {0x347288, "weapon_knife", 0, 0},
 };
 constexpr const Weapon& kKnife = kWeapons[sizeof(kWeapons) / sizeof(kWeapons[0]) - 1];
+// bought in Deathmatch, not on the Gun Game ladder (the auto-snipers)
+constexpr Weapon kOtherWeapons[] = {
+    {0x33E6F0, "weapon_sg550", 0x3468FC, 90},
+    {0x33E700, "weapon_g3sg1", 0x3468E8, 90},
+};
+// a weapon by its id (pc_modes_rules.h), null for one with no entry
+const Weapon* WeaponById(int id) {
+    const pcmodes::WeaponInfo* info = pcmodes::FindWeapon(id);
+    if (!info) return nullptr;
+    for (const Weapon& w : kWeapons)
+        if (pcmodes::Bare(w.text) == info->name) return &w;
+    for (const Weapon& w : kOtherWeapons)
+        if (pcmodes::Bare(w.text) == info->name) return &w;
+    return nullptr;
+}
 
 // the ladder (pc_gungame_order; the default: kWeapons in order), the knife always last
 std::vector<const Weapon*> DefaultLadder() {
@@ -132,8 +149,13 @@ struct Player {
     int level = 0;
     float frags = 0;
     bool armed = false;  // Gun Game: given its level's weapon since its spawn
-    float watch_until = 0;  // a mode's respawn: the items it is stripped of just after put back until then
+    float spawned_at = -100;  // a mode's respawn (Spawned)
+    bool equipped = true;     // the post-spawn equip done (PostSpawnEquip)
+    uint32_t team = 0;        // the team the loadout was chosen in
+    int primary = 0, secondary = 0;  // Deathmatch: the weapons last bought (ids, 0 none): given at each respawn
 };
+constexpr float kEquipDelay = 0.6f;     // a respawn's equip: after the game's own late changes to the player
+constexpr float kBuyMenuQuiet = 1.0f;   // Deathmatch: no buy menu opened this soon after a spawn (its automatic one)
 std::array<Player, 65> g_players;
 
 float Now() { return kernel::G<float>(R32(kGlobals)); }
@@ -167,6 +189,12 @@ void Centre(X86Context& ctx, uint32_t edict, const std::string& text) {
     kernel::CallGuest(ctx, R32(kMessageEnd), {});
 }
 
+// the ammunition's index in the player's m_rgAmmo (player +0x620, 32 ints; SendAmmoUpdate 0x121C80 sends a change to
+// the client), by the game's ammunition name, learnt from GiveAmmo's answers
+constexpr uint32_t kAmmo = 0x620;
+constexpr int kAmmoSlots = 32;
+std::map<uint32_t, int> g_ammo_index;
+
 void Give(X86Context& ctx, uint32_t player, const Weapon& w) {
     if (kernel::ReadCString(w.name, 32) != w.text) {
         LOG_FIRST(8, "pc mode: %s not at %08X, not given", w.text, w.name);
@@ -181,7 +209,8 @@ void Give(X86Context& ctx, uint32_t player, const Weapon& w) {
     if (!w.ammo) return;
     Saved s(ctx);
     ctx.ecx = player;
-    kernel::CallGuest(ctx, R32(R32(player) + 0x70), {uint32_t(w.amount), w.ammo, uint32_t(w.amount)});
+    int32_t index = int32_t(kernel::CallGuest(ctx, R32(R32(player) + 0x70), {uint32_t(w.amount), w.ammo, uint32_t(w.amount)}));
+    if (index > 0 && index < kAmmoSlots) g_ammo_index[w.ammo] = index;  // GiveAmmo returns the ammunition's index
 }
 
 void Arm(X86Context& ctx, uint32_t player, int level) {
@@ -214,7 +243,8 @@ void EndMatch(const std::string& why) {
 
 void Spawned(X86Context& ctx, uint32_t client, uint32_t player, uint32_t pev, Player& p) {
     p.protect_until = Now() + kProtect;
-    p.watch_until = Now() + 1.5f;
+    p.spawned_at = Now();
+    p.equipped = false;
     if (!p.protecting) {
         p.fx = F(pev + kRenderFx);
         p.amt = F(pev + kRenderAmt);
@@ -353,6 +383,117 @@ void MatchTimer(X86Context& ctx, float now) {
     LOGI("pc mode: Deathmatch's timer shows the match's time left (%d s of the round, %u players told)", want, sent);
 }
 
+// the player's items gone but the suit (RemoveAllItems 0x118DB0 with 0: the suit kept)
+void Strip(X86Context& ctx, uint32_t player) {
+    Saved s(ctx);
+    ctx.eax = player;
+    kernel::CallGuest(ctx, kRemoveAllItems, {0});
+}
+
+// a mode's respawn, once the game's own late changes to the player are done (kEquipDelay after the spawn: a respawn
+// here is followed by the game stripping the player once more, the suit too, then giving the default pistol back; why
+// is not found yet, so the equipment is made whole here, once, after it): the suit; Gun Game the level's weapons;
+// Deathmatch the loadout last bought (the knife, the pistol bought or the team's, the primary weapon bought), else the
+// knife the strip took
+void PostSpawnEquip(X86Context& ctx, uint32_t client, uint32_t player, uint32_t pev, Player& p) {
+    p.equipped = true;
+    kernel::W32(pev + kWeaponBits, R32(pev + kWeaponBits) | kSuit);
+    if (g_mode == "gungame") {
+        Arm(ctx, player, p.level);
+        p.armed = true;
+        return;
+    }
+    const Weapon* primary = p.primary ? WeaponById(p.primary) : nullptr;
+    const Weapon* secondary = p.secondary ? WeaponById(p.secondary) : nullptr;
+    if (!primary && !secondary) {
+        if (!(R32(pev + kWeaponBits) & kKnifeBit)) Give(ctx, player, kKnife);
+        return;
+    }
+    if (!secondary) secondary = WeaponById(R32(player + kTeam) == 2 ? 16 : 17);  // the team's pistol: USP, Glock
+    Strip(ctx, player);
+    Give(ctx, player, kKnife);
+    if (secondary) Give(ctx, player, *secondary);
+    if (primary) Give(ctx, player, *primary);
+    LOG_FIRST(32, "pc mode: %s respawned with the loadout last bought (%s%s%s)", Name(client).c_str(),
+              primary ? primary->text + 7 : "", primary && secondary ? ", " : "", secondary ? secondary->text + 7 : "");
+}
+
+// unlimited reserve ammunition (Deathmatch and Gun Game): each firearm the player holds has its ammunition's reserve
+// at its maximum; the magazine is the game's (firing and reloading as ever), grenades, the bomb and the knife keep
+// their own rules (pc_modes_rules.h UnlimitedReserve). An ammunition whose index is not known yet is given once
+// through GiveAmmo, which answers with it
+void TopUpAmmo(X86Context& ctx, uint32_t player, uint32_t pev) {
+    const uint32_t bits = R32(pev + kWeaponBits);
+    auto each = [&](const Weapon& w) {
+        const pcmodes::WeaponInfo* info = pcmodes::FindWeapon(w.text);
+        if (!w.ammo || !info || !(bits & (1u << info->id)) || !pcmodes::UnlimitedReserve(w.text)) return;
+        auto it = g_ammo_index.find(w.ammo);
+        if (it == g_ammo_index.end()) {
+            Saved s(ctx);
+            ctx.ecx = player;
+            int32_t index = int32_t(kernel::CallGuest(ctx, R32(R32(player) + 0x70), {uint32_t(w.amount), w.ammo, uint32_t(w.amount)}));
+            if (index > 0 && index < kAmmoSlots) g_ammo_index[w.ammo] = index;
+            return;
+        }
+        uint32_t at = player + kAmmo + uint32_t(it->second) * 4;
+        if (int32_t(R32(at)) < w.amount) kernel::W32(at, uint32_t(w.amount));
+    };
+    for (const Weapon& w : kWeapons) each(w);
+    for (const Weapon& w : kOtherWeapons) each(w);
+}
+
+// the kills the server named this frame (PcModesDeathNotice): Gun Game's levels go by them
+struct Kill {
+    uint32_t killer = 0, victim = 0;  // edicts
+    std::string weapon;               // as the game names it ("ak47", "knife", "grenade")
+};
+std::vector<Kill> g_kills;
+
+int SlotOfEdict(uint32_t edict) {
+    for (size_t i = 0; i < g_players.size(); i++)
+        if (edict && g_players[i].edict == edict) return int(i);
+    return -1;
+}
+
+// Gun Game: a level for a kill by the level's own weapon of an enemy (pcmodes::LevelKill); the knife level's kill
+// wins. Each kill on its own, in their order (several in a frame each count; the match's end stops the rest)
+void GunGameKills(X86Context& ctx) {
+    std::vector<Kill> kills;
+    kills.swap(g_kills);
+    if (g_mode != "gungame") return;
+    for (const Kill& k : kills) {
+        if (g_ended) return;
+        int a = SlotOfEdict(k.killer), b = SlotOfEdict(k.victim);
+        if (a < 0 || k.killer == k.victim) continue;  // the world, a suicide
+        uint32_t client = R32(kClients) + uint32_t(a) * kClientSize;
+        uint32_t player = R32(k.killer + 0x7C), victim = b >= 0 ? R32(k.victim + 0x7C) : 0;
+        if (!player || !victim) continue;
+        Player& p = g_players[size_t(a)];
+        bool enemy = R32(player + kTeam) != R32(victim + kTeam);
+        if (!pcmodes::LevelKill(Level(p.level).text, k.weapon, enemy)) {
+            if (enemy)
+                LOG_FIRST(32, "pc mode: %s's kill with %s does not count (level %d is the %s)", Name(client).c_str(),
+                          k.weapon.c_str(), p.level + 1, Level(p.level).text + 7);
+            continue;
+        }
+        if (p.level >= Levels() - 1) {
+            std::string who = Name(client);
+            Centre(ctx, 0, who + " wins Gun Game!");
+            EndMatch(who + " won Gun Game (a " + k.weapon + " kill)");
+            return;
+        }
+        p.level++;
+        LOGI("pc mode: %s reaches level %d (%s, by a %s kill)", Name(client).c_str(), p.level + 1, Level(p.level).text,
+             k.weapon.c_str());
+        if (R32(k.killer + 0x80 + kDeadFlag) == 0) {
+            Arm(ctx, player, p.level);
+            if (!R32(client + kClientFake))
+                Centre(ctx, k.killer, "Level " + std::to_string(p.level + 1) + " of " + std::to_string(Levels()) + ": " +
+                                          (Level(p.level).text + 7));
+        }
+    }
+}
+
 void Frame(X86Context& ctx) {
     uint32_t n = R32(kMaxClients);
     float now = Now();
@@ -360,6 +501,10 @@ void Frame(X86Context& ctx) {
         WeaponCleanup(now);
         MatchTimer(ctx, now);
     }
+    GunGameKills(ctx);
+    static float next_ammo = 0;  // the reserve topped up 4 times a second
+    const bool ammo_due = now >= next_ammo || now < next_ammo - 1.f;
+    if (ammo_due) next_ammo = now + 0.25f;
     for (uint32_t i = 0; i < n && i < g_players.size(); i++) {
         uint32_t client = R32(kClients) + i * kClientSize;
         Player& p = g_players[i];
@@ -376,23 +521,6 @@ void Frame(X86Context& ctx) {
         bool joined = (team == 1 || team == 2) && R32(player + kJoining) == 0;
         int32_t dead = int32_t(R32(pev + kDeadFlag));
         float frags = F(pev + kFrags);
-        if (g_mode == "gungame" && joined && frags > p.frags) {
-            int gained = int(std::lround(frags - p.frags));
-            if (p.level >= Levels() - 1) {
-                std::string who = Name(client);
-                Centre(ctx, 0, who + " wins Gun Game!");
-                EndMatch(who + " won Gun Game");
-            } else {
-                p.level = std::min(Levels() - 1, p.level + std::max(1, gained));
-                LOGI("pc mode: %s reaches level %d (%s)", Name(client).c_str(), p.level + 1, Level(p.level).text);
-                if (dead == 0) {
-                    Arm(ctx, player, p.level);
-                    if (!R32(client + kClientFake))
-                        Centre(ctx, edict, "Level " + std::to_string(p.level + 1) + " of " + std::to_string(Levels()) +
-                                               ": " + (Level(p.level).text + 7));
-                }
-            }
-        }
         p.frags = frags;
         if (g_mode == "deathmatch" && g_fraglimit > 0 && frags >= float(g_fraglimit))
             EndMatch(Name(client) + " reached the frag limit, " + std::to_string(g_fraglimit));
@@ -404,19 +532,13 @@ void Frame(X86Context& ctx) {
             for (int k = 0; k < 3; k++) F(pev + kRenderColor + 4 * k) = p.color[k];
         }
         if (!joined) continue;
-        if (dead == 0 && now < p.watch_until && !(R32(pev + kWeaponBits) & kSuit)) {
-            // just after a respawn here, the game strips the player once more (every item, the suit too, then only
-            // the default pistol given back): without the suit the HUD hid the health, the armour, the ammunition and
-            // the crosshair, and the knife was gone. Put back as a spawn has them
-            p.watch_until = 0;
-            kernel::W32(pev + kWeaponBits, R32(pev + kWeaponBits) | kSuit);
-            if (g_mode == "gungame") {
-                Arm(ctx, player, p.level);
-            } else if (!(R32(pev + kWeaponBits) & kKnifeBit)) {
-                Give(ctx, player, kKnife);
-            }
-            LOG_FIRST(64, "pc mode: %s's suit and knife put back after the respawn (HUD, crosshair)", Name(client).c_str());
+        if (team != p.team) {  // another team: its loadout is not the team's to buy
+            p.team = team;
+            p.primary = p.secondary = 0;
         }
+        if (dead == 0 && !p.equipped && now >= p.spawned_at + kEquipDelay)
+            PostSpawnEquip(ctx, client, player, pev, p);
+        if (dead == 0 && ammo_due) TopUpAmmo(ctx, player, pev);
         if (dead == 0) {
             if (p.dead) {  // spawned again (by the game: a round's restart, or here)
                 p.dead = false;
@@ -537,6 +659,73 @@ bool PcModesNoRoundWin(X86Context&, uint8_t*) { return g_mode != "classic"; }
 
 // [[hook]] at 0x147DC3 in Think, the round's time out: true leaves the round running
 bool PcModesNoRoundTime(X86Context&, uint8_t*) { return g_mode != "classic"; }
+
+// [[hook]] at 0x149825 in the rules' DeathNotice (0x149740), the kill's weapon named (ebx: "ak47", "knife", "grenade",
+// as the game logs it: the killer's weapon in hand for a direct kill, the projectile's class otherwise; esi the
+// killer's entvars, ebp the victim player): the kill queued for Gun Game (the server's own account of it, never a
+// client's)
+void PcModesDeathNotice(X86Context& ctx, uint8_t*) {
+    if (g_mode != "gungame" || !ctx.ebx || !ctx.ebp) return;
+    uint32_t killer = ctx.esi ? R32(ctx.esi + 0x208) : 0, victim_pev = R32(ctx.ebp + 4);
+    uint32_t victim = victim_pev ? R32(victim_pev + 0x208) : 0;
+    g_kills.push_back({killer, victim, kernel::ReadCString(ctx.ebx, 32)});
+}
+
+// [[hook]] at 0x120D22 in the player's impulses (0x120AE0), impulse 53: the client asks for the buy menu (the server
+// answers with SrtBuyMenu, the client opens it); true skips it (to 0x120D2B). Gun Game has nothing to buy; Deathmatch
+// opens it no more by itself at a respawn (the request a spawn makes, within kBuyMenuQuiet of it), the player's own
+// buy key still does after that. The player in edi
+bool PcModesBuyMenuRequest(X86Context& ctx, uint8_t*) {
+    if (g_mode == "classic") return false;
+    if (g_mode == "gungame") {
+        LOG_FIRST(4, "pc mode: Gun Game: no buy menu");
+        return true;
+    }
+    uint32_t pev = R32(ctx.edi + 4);
+    int slot = pev ? SlotOfEdict(R32(pev + 0x208)) : -1;
+    if (slot >= 0 && Now() < g_players[size_t(slot)].spawned_at + kBuyMenuQuiet) {
+        LOG_FIRST(8, "pc mode: Deathmatch: the buy menu not opened by the respawn");
+        return true;
+    }
+    return false;
+}
+
+namespace {
+std::map<uint32_t, uint32_t> g_bits_before;  // by player: the weapons held before a purchase
+}
+
+// [[hook]] at 0x120D07, impulses 20 to 52 (the buy menu's, autobuy's and rebuy's purchases: 0x15B360 buys, the
+// player in edi): the weapons held before
+void PcModesBuyBefore(X86Context& ctx, uint8_t*) {
+    if (g_mode != "deathmatch") return;
+    uint32_t pev = R32(ctx.edi + 4);
+    if (pev) g_bits_before[ctx.edi] = R32(pev + kWeaponBits);
+}
+
+// [[hook]] at 0x120D0E, after the purchase: a weapon bought becomes the loadout's primary or pistol (a weapon picked
+// up from the ground never does: only purchases come here)
+void PcModesBuyAfter(X86Context& ctx, uint8_t*) {
+    if (g_mode != "deathmatch") return;
+    auto it = g_bits_before.find(ctx.edi);
+    uint32_t pev = R32(ctx.edi + 4);
+    if (it == g_bits_before.end() || !pev) return;
+    uint32_t added = R32(pev + kWeaponBits) & ~it->second;
+    g_bits_before.erase(it);
+    int slot = SlotOfEdict(R32(pev + 0x208));
+    if (slot < 0 || !added) return;
+    Player& p = g_players[size_t(slot)];
+    for (int id = 1; id < 32; id++) {
+        if (!(added & (1u << id))) continue;
+        const pcmodes::WeaponInfo* w = pcmodes::FindWeapon(id);
+        if (!w || !WeaponById(id)) continue;
+        if (w->slot == pcmodes::WeaponInfo::Primary) p.primary = id;
+        else if (w->slot == pcmodes::WeaponInfo::Secondary) p.secondary = id;
+        else continue;
+        p.team = R32(ctx.edi + kTeam);
+        uint32_t client = R32(kClients) + uint32_t(slot) * kClientSize;
+        LOG_FIRST(64, "pc mode: %s's loadout: %s", Name(client).c_str(), w->name);
+    }
+}
 
 // Map rotation (N9, csx-server's map_rotation, the server GUI's): "pc_rotation MAP,MAP,..." on the server. When a
 // match ends the game's ChangeLevel (CHalfLifeMultiplay's: the next map from mapcycle.txt, the same map
