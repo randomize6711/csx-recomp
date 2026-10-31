@@ -19,6 +19,7 @@
 
 #include "core/log.h"
 #include "cpu/x86_context.h"
+#include "game/pc_dxt.h"
 #include "gpu/texture.h"
 #include "kernel/kernel.h"
 
@@ -27,7 +28,7 @@ using kernel::R32;
 constexpr uint32_t kBoundTexture = 0x45280C, kTextureUnit = 0x45281C, kGlTextures = 0x452DFC, kGlTextureSize = 0x2C;
 constexpr uint32_t kXGCompressRect = 0x2D198E;
 constexpr uint32_t kGlTexture2D = 0x0DE1, kGlRgba = 0x1908, kGlUnsignedByte = 0x1401;
-constexpr uint32_t kFormatDxt1 = 0x0C, kFormatLinearA8B8G8R8 = 0x3F;
+constexpr uint32_t kFormatDxt1 = 0x0C, kFormatDxt45 = 0x0F, kFormatLinearA8B8G8R8 = 0x3F;  // DXT4/5: a map's lightmaps
 // the engine's lightmaps (GL_BuildLightmaps 0x529xx): the RGBA blocks, bytes a texel, the first lightmap's texture
 // number, the changed flags; 128 blocks of 128x128 at most (lightmap_polys at 0x6D5960 has 0x80 entries)
 constexpr uint32_t kLightmapBuffer = 0x55199C, kLightmapBytes = 0x6E6380, kLightmapTextures = 0x6E7A04,
@@ -39,14 +40,16 @@ constexpr uint32_t kWorldModel = 0x778A68, kJcabRenderBsp = 0x3771EC, kFrameCoun
 // a texture's level 0 from RGBA rows (the whole level: XGCompressRect takes power-of-two sizes only), marked changed
 bool Upload(X86Context& ctx, uint32_t res, const gpu::TextureDesc& d, uint32_t pixels) {
     const uint32_t w = d.width, h = d.height;
-    if (d.format == kFormatDxt1) {
+    if (d.format == kFormatDxt1 || d.format == kFormatDxt45) {
         X86Context saved = ctx;
         ctx.esp -= 0x100;
         ctx.eax = 2;  // the flags glTexImage2D passes in eax
         float alpha_ref = 0.01f;
         uint32_t ref;
         std::memcpy(&ref, &alpha_ref, 4);
-        kernel::CallGuest(ctx, kXGCompressRect, {d.data, kFormatDxt1, w * 2, w, h, pixels, kFormatLinearA8B8G8R8, w * 4, ref});
+        // a row of 4x4 blocks: 8 bytes a block in DXT1 (w * 2 a row of blocks), 16 in DXT4/5 (w * 4)
+        const uint32_t pitch = d.format == kFormatDxt1 ? w * 2 : w * 4;
+        kernel::CallGuest(ctx, kXGCompressRect, {d.data, d.format, pitch, w, h, pixels, kFormatLinearA8B8G8R8, w * 4, ref});
         ctx = saved;
     } else if (d.format == kFormatLinearA8B8G8R8 && d.linear) {
         uint32_t pitch = d.pitch ? d.pitch : w * 4;
@@ -98,38 +101,11 @@ void PcGlTexSubImage(X86Context& ctx, uint8_t*) {
 
 // The lightmaps' RGBA blocks: the engine's buffer at [0x55199C] is freed once the lightmaps are compressed into
 // their DXT1 textures (null in a match: the play-test's log), so each block a light reaches gets its own 128x128 RGBA
-// block in guest memory (the game's malloc), filled once from its texture (DXT1 decoded), so the block's other
+// block in guest memory (the game's malloc), filled once from its texture (DXT1 or DXT4/5 decoded), so the block's other
 // surfaces keep their light; a new world (a map) starts again. The engine's buffer is used while it is there.
 constexpr uint32_t kMalloc = 0x22D86A, kFree = 0x22C609;  // cdecl
 uint32_t g_blocks[kMaxLightmaps] = {};
 uint32_t g_blocks_world = 0;
-
-// a DXT1 level into RGBA bytes (R, G, B, A: the engine's GL_RGBA order), w x h texels, 4x4 blocks row by row
-void DecodeDxt1(const uint8_t* src, uint8_t* out, uint32_t w, uint32_t h) {
-    auto colour = [](uint16_t c, uint8_t* rgb) {
-        rgb[0] = uint8_t(((c >> 11) & 31) * 255 / 31);
-        rgb[1] = uint8_t(((c >> 5) & 63) * 255 / 63);
-        rgb[2] = uint8_t((c & 31) * 255 / 31);
-    };
-    for (uint32_t by = 0; by < h / 4; by++)
-        for (uint32_t bx = 0; bx < w / 4; bx++, src += 8) {
-            const uint16_t c0 = uint16_t(src[0] | src[1] << 8), c1 = uint16_t(src[2] | src[3] << 8);
-            uint8_t p[4][4];
-            colour(c0, p[0]);
-            colour(c1, p[1]);
-            p[0][3] = p[1][3] = p[2][3] = 255;
-            p[3][3] = c0 > c1 ? 255 : 0;
-            for (int k = 0; k < 3; k++) {
-                p[2][k] = uint8_t(c0 > c1 ? (2 * p[0][k] + p[1][k]) / 3 : (p[0][k] + p[1][k]) / 2);
-                p[3][k] = uint8_t(c0 > c1 ? (p[0][k] + 2 * p[1][k]) / 3 : 0);
-            }
-            const uint32_t bits = uint32_t(src[4]) | uint32_t(src[5]) << 8 | uint32_t(src[6]) << 16 | uint32_t(src[7]) << 24;
-            for (uint32_t t = 0; t < 16; t++) {
-                uint8_t* o = out + ((by * 4 + t / 4) * w + bx * 4 + t % 4) * 4;
-                std::memcpy(o, p[(bits >> (2 * t)) & 3], 4);
-            }
-        }
-}
 
 // block lm's RGBA rows (0 when its texture is not a 128x128 DXT1 or raw RGBA one)
 uint32_t BlockBuffer(X86Context& ctx, uint32_t lm) {
@@ -158,8 +134,8 @@ uint32_t BlockBuffer(X86Context& ctx, uint32_t lm) {
     ctx = saved;
     if (!block) return 0;
     uint8_t* out = static_cast<uint8_t*>(kernel::HostPtr(block));
-    if (d.format == kFormatDxt1) {
-        DecodeDxt1(static_cast<const uint8_t*>(kernel::HostPtr(d.data)), out, kBlock, kBlock);
+    if (d.format == kFormatDxt1 || d.format == kFormatDxt45) {
+        pcdxt::DecodeDxt(static_cast<const uint8_t*>(kernel::HostPtr(d.data)), out, kBlock, kBlock, d.format == kFormatDxt45);
     } else if (d.format == kFormatLinearA8B8G8R8 && d.linear) {
         uint32_t pitch = d.pitch ? d.pitch : kBlock * 4;
         for (uint32_t row = 0; row < kBlock; row++)
