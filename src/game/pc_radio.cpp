@@ -175,16 +175,16 @@ const std::vector<Menu>& Menus() {
 }
 }  // namespace
 
-// the radio menus' screens, for the in-game menus' text (pc_menu.cpp ExtendInGame): a panel at the left, the rows
-// numbered, A (or a click, Enter) sends a row's command and closes the menu, B (Escape, the right button) closes it
+// the radio menus' screens, for the in-game menus' text (pc_menu.cpp ExtendInGame): a panel at the left with the
+// rows; A (Space, a click) sends a row's command and closes the menu, B or START (Escape, Enter, the right button)
+// closes it
 std::string PcRadioScreens() {
     std::string out;
     for (const Menu& m : Menus()) {
         std::string rows;
-        int n = 0;
         for (const MenuRow& r : m.rows)
             rows += "\t\tRow\r\n\t\t{\r\n\t\t\tCommandSelect \"!" + std::string(r.command) +
-                    ";xbui exit\"\r\n\t\t\tCellFixed \"" + std::to_string(++n % 10) + ". " + r.label + "\"\r\n\t\t}\r\n";
+                    ";xbui exit\"\r\n\t\t\tCellFixed \"" + r.label + "\"\r\n\t\t}\r\n";
         out += std::string("\r\n") + m.screen + "\r\n{\r\n"
                "\tMenuType \"superlauncher\"\r\n\tEnterSound \"menu/buy_enter.wav\"\r\n"
                "\tSelectSound \"menu/buy_submenu.wav\"\r\n\tHighlightSound \"menu/buy_hover.wav\"\r\n"
