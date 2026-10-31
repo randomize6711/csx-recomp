@@ -38,6 +38,7 @@ constexpr uint32_t kKeyBindings = 0x6CABE0;  // char* keybindings[256]
 constexpr uint32_t kCurrentScreen = 0x5523D4;  // the UI's open screen, 0 while playing
 
 std::atomic<bool> g_menu{false};
+std::atomic<bool> g_buy_menu{false};  // the menu open is one of the buy menu's (CT_BuyMenuRoot, T_BuyMenuPistols, ...)
 std::mutex g_lock;
 std::deque<std::pair<int, bool>> g_queue;
 std::deque<std::string> g_commands;
@@ -79,6 +80,7 @@ void QueueEngineCommand(const std::string& text) {
 }
 
 bool MenuOpen() { return g_menu; }
+bool BuyMenuOpen() { return g_buy_menu; }
 
 std::string EngineBinding(int key) {
     uint32_t p = R32(kKeyBindings + uint32_t(key) * 4);
@@ -308,6 +310,7 @@ void PcKeysFrame(X86Context& ctx, uint8_t*) {
     uint32_t screen = R32(kCurrentScreen);
     std::string name = screen ? GuestString(R32(screen)) : std::string();
     bool menu = screen && !PcScreenPassThrough(name);
+    g_buy_menu = menu && name.find("BuyMenu") != std::string::npos;
     if (menu != g_menu) {
         g_menu = menu;
         LOGI("pc keys: %s%s", menu ? "menu " : "playing", menu ? name.c_str() : "");

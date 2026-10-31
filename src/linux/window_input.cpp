@@ -217,6 +217,17 @@ unsigned PadAction(int key) {
     return it == g_pad_actions.end() ? 0 : it->second;
 }
 
+// the command of the PC binding (PC Controls) for Buy Primary Ammo or Buy Secondary Ammo whose key is this engine key
+// number, null for any other key
+const char* BuyAmmoCommand(int key) {
+    if (key < 0) return nullptr;
+    for (const pc::Action& a : pc::Actions()) {
+        if (std::strcmp(a.id, "buyammo1") != 0 && std::strcmp(a.id, "buyammo2") != 0) continue;
+        if (const pc::KeyInfo* k = pc::FindKey(pc::BoundKey(a)); k && k->number == key) return a.command;
+    }
+    return nullptr;
+}
+
 void EngineKeyEvent(int key, bool down) {
     if (key < 0) return;
     if (down && !g_engine_held.insert(key).second) return;  // auto repeat
@@ -443,6 +454,10 @@ void HandleEvent(const void* p) {
                 }
             } else if (g_console) {
                 ConsoleEditKey(e.key.key);
+            } else if (const char* buy = csx::BuyMenuOpen() ? BuyAmmoCommand(EngineKey(e.key.key, e.key.scancode)) : nullptr) {
+                // the buy menu: the keys bound to Buy Primary / Secondary Ammo still buy, as in CS 1.6 (the menu takes
+                // every other key as the pad); the server's rules decide the purchase, the menu stays open
+                if (!e.key.repeat) csx::QueueEngineCommand(buy);
             } else if (int key = EngineKey(e.key.key, e.key.scancode); !csx::MenuOpen() && key >= 0) {
                 if (unsigned pad = PadAction(key)) g_pad_held[key] = pad;
                 else EngineKeyEvent(key, true);

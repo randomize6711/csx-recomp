@@ -181,6 +181,12 @@ with both kept; Accept, Start: the local server's match line has +mp_buytime 0.7
 
 - **Ammunition** (PC Controls, appended rows): Buy Primary Ammo `,` (buyammo1), Buy Secondary Ammo `.` (buyammo2): the
   game's own commands.
+  - Also while the buy menu is open (2026-10-31), as in CS 1.6. A menu takes the keyboard as the pad, so these keys
+    never reached their bindings there.
+  - Now the key a player bound to either row (PC Controls, not a fixed key) sends its command while one of the buy
+    menu's screens (`*BuyMenu*`) is open. The menu stays open; the server's rules decide (money, buy zone, buy time,
+    full ammunition; Deathmatch's endless buy time).
+  - Not in the console, a text field or other menus.
 - **Autobuy and Rebuy** (src/game/pc_buy.cpp; F3, F4): the Xbox buy menu buys with "impulse <item id>" in the next move
   (its purchase, 0xD8060: the item looked up by name, 0xDEC60; the client's check, 0xCC260: money, team, limits), not
   with a string command; the server decides as for the menu (money, buy zone, buy time, team). Autobuy and Rebuy do

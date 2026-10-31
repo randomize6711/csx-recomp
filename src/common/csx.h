@@ -90,6 +90,8 @@ bool MapSearchKeys();
 void MapSearchInput(int c);
 // a menu screen of the game is open (keyboard and mouse act as the pad there; otherwise as engine keys)
 bool MenuOpen();
+// one of the buy menu's screens is open (window_input.cpp: the ammunition keys still buy there)
+bool BuyMenuOpen();
 // a server browser screen is open (src/game/pc_browser.cpp): Escape is the pad's B there, F5 its X (refresh),
 // Page Up / Page Down its triggers (the tabs)
 bool BrowserKeys();
