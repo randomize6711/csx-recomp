@@ -664,6 +664,10 @@ call = "PcModesBuyMenuRequest"
 on_true = 0x120D2B
 
 [[hook]]
+at = 0x121FB2
+call = "PcModesSpawnRoundTime"
+
+[[hook]]
 at = 0x120D07
 call = "PcModesBuyBefore"
 

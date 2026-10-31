@@ -35,9 +35,11 @@ The game's rules object is CHalfLifeMultiplay. Its `Think` (0x147620) runs every
 - Each spawn gives $16000 (`AddAccount` 0x11B710) and restarts the buy time: the rules' round start (+0x30) is set to
   now, and the game measures `mp_buytime` from it. A player can therefore buy in the spawn's buy zone after every
   death; autobuy and rebuy (F3/F4, N5C) work as usual.
-- **No buy menu by itself at a respawn.** The buy menu opens on the client when the server answers impulse 53
-  (0x120D22, SrtBuyMenu). Requests within 1 s of a mode's respawn are refused there (hook `PcModesBuyMenuRequest`);
-  the player's own buy key (B, or the menu's Buy) works after that, and the ammunition keys as before.
+- **No buy menu by itself at a spawn.** After each spawn the server's UpdateClientData starts the player's HUD and
+  sends the round timer (0x11B780) with flag 3 (0x121FB0). The client's RoundTime handler (0x1D4DE0) takes 3 as "open
+  the buy menu", and the menu frame (0xCD814) opens it once no screen is open and the player is in a buy zone. In
+  Deathmatch and Gun Game the flag is 2, the timer alone (hook `PcModesSpawnRoundTime`, 0x121FB2). The buy key (B, or
+  the menu's Buy) opens it at any time in Deathmatch, and the ammunition keys work as before.
 - **Loadout.** Each purchase (impulses 20..52, hooks 0x120D07 / 0x120D0E: the weapon bits before and after) records the
   primary and the pistol bought, per player, bots too. At each respawn, 0.6 s after it (see the limitation below),
   the player gets the knife, the pistol bought (else the team's: USP or Glock) and the primary bought. A weapon picked
@@ -62,10 +64,11 @@ Ladder of 23 levels:
 - Each spawn and each level-up strips the player (`RemoveAllItems` 0x118DB0, keeping the suit). The player then gets
   the knife and the level's weapon (`GiveNamedItem` 0x120720) with full ammunition (`GiveAmmo`, vtable +0x70). Weapon
   names are the game's own strings, checked before use.
-- Money is set to $0 at each spawn, so nothing can be bought, and the buy menu never opens (impulse 53 refused).
+- Money is set to $0 at each spawn, so nothing can be bought. The buy menu never opens: not at a spawn (above), and
+  the buy key's request (impulse 53, 0x120D22) is refused.
   The level's weapon is given at the respawn, with no menu.
 - **Kills are checked by the weapon the server names for them.** The rules' DeathNotice (0x149740, hook 0x149825)
-  names the killer, the victim and the weapon (the weapon in hand for a direct kill, "grenade" for an HE grenade).
+  names the killer (esi), the victim (the first argument, [esp+0x1C] at the hook) and the weapon (the weapon in hand for a direct kill, "grenade" for an HE grenade).
   The kills are queued and handled in the next rules Think, each on its own and in order (several in one frame each
   count; a win stops the rest). A kill counts only if its weapon is the level's (`pcmodes::LevelKill`,
   src/game/pc_modes_rules.h):
@@ -87,8 +90,6 @@ indexes are learnt from GiveAmmo's return values.
 - **The respawn's late strip.** Just after a mode's respawn, the game strips the player once more (the suit too) and
   gives back the default pistol; the cause is not found. The respawn's equipment (suit, Gun Game weapons, Deathmatch
   loadout) is therefore given once, 0.6 s after the spawn, rather than re-applied whenever it is lost.
-- **The automatic buy menu** is refused on the server by its timing (1 s after a respawn); where the client's request
-  comes from is not pinned down. A buy key pressed in that first second is refused too.
 
 - **Objectives still play out but end no round.** A planted bomb explodes and hostages can be rescued. The bomb is
   given only at a round start, so in practice once per match.

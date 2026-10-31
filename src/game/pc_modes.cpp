@@ -155,7 +155,6 @@ struct Player {
     int primary = 0, secondary = 0;  // Deathmatch: the weapons last bought (ids, 0 none): given at each respawn
 };
 constexpr float kEquipDelay = 0.6f;     // a respawn's equip: after the game's own late changes to the player
-constexpr float kBuyMenuQuiet = 1.0f;   // Deathmatch: no buy menu opened this soon after a spawn (its automatic one)
 std::array<Player, 65> g_players;
 
 float Now() { return kernel::G<float>(R32(kGlobals)); }
@@ -662,32 +661,34 @@ bool PcModesNoRoundTime(X86Context&, uint8_t*) { return g_mode != "classic"; }
 
 // [[hook]] at 0x149825 in the rules' DeathNotice (0x149740), the kill's weapon named (ebx: "ak47", "knife", "grenade",
 // as the game logs it: the killer's weapon in hand for a direct kill, the projectile's class otherwise; esi the
-// killer's entvars, ebp the victim player): the kill queued for Gun Game (the server's own account of it, never a
-// client's)
+// killer's entvars; the victim player is the first argument, [esp+0x1C] here: the instruction at 0x149825 loads it into
+// ebp, after this hook): the kill queued for Gun Game (the server's own account of it, never a client's)
 void PcModesDeathNotice(X86Context& ctx, uint8_t*) {
-    if (g_mode != "gungame" || !ctx.ebx || !ctx.ebp) return;
-    uint32_t killer = ctx.esi ? R32(ctx.esi + 0x208) : 0, victim_pev = R32(ctx.ebp + 4);
+    uint32_t victim_player = R32(ctx.esp + 0x1C);
+    if (g_mode != "gungame" || !ctx.ebx || !victim_player) return;
+    uint32_t killer = ctx.esi ? R32(ctx.esi + 0x208) : 0, victim_pev = R32(victim_player + 4);
     uint32_t victim = victim_pev ? R32(victim_pev + 0x208) : 0;
     g_kills.push_back({killer, victim, kernel::ReadCString(ctx.ebx, 32)});
 }
 
-// [[hook]] at 0x120D22 in the player's impulses (0x120AE0), impulse 53: the client asks for the buy menu (the server
-// answers with SrtBuyMenu, the client opens it); true skips it (to 0x120D2B). Gun Game has nothing to buy; Deathmatch
-// opens it no more by itself at a respawn (the request a spawn makes, within kBuyMenuQuiet of it), the player's own
-// buy key still does after that. The player in edi
-bool PcModesBuyMenuRequest(X86Context& ctx, uint8_t*) {
-    if (g_mode == "classic") return false;
-    if (g_mode == "gungame") {
-        LOG_FIRST(4, "pc mode: Gun Game: no buy menu");
-        return true;
-    }
-    uint32_t pev = R32(ctx.edi + 4);
-    int slot = pev ? SlotOfEdict(R32(pev + 0x208)) : -1;
-    if (slot >= 0 && Now() < g_players[size_t(slot)].spawned_at + kBuyMenuQuiet) {
-        LOG_FIRST(8, "pc mode: Deathmatch: the buy menu not opened by the respawn");
-        return true;
-    }
-    return false;
+// [[hook]] at 0x120D22 in the player's impulses (0x120AE0), impulse 53: the client asks for the buy menu (the buy
+// key; the server answers with SrtBuyMenu, the client opens it); true skips it (to 0x120D2B). Gun Game has nothing to
+// buy. The player in edi
+bool PcModesBuyMenuRequest(X86Context&, uint8_t*) {
+    if (g_mode != "gungame") return false;
+    LOG_FIRST(4, "pc mode: Gun Game: no buy menu");
+    return true;
+}
+
+// [[hook]] at 0x121FB2 in the player's UpdateClientData, its HUD's start after a spawn (m_fInitHUD): the round timer
+// to the player (0x11B780, stdcall player, flag) with flag 3 just pushed ([esp]). The client's RoundTime handler
+// (0x1D4DE0) takes 3 as "open the buy menu" (0x55234C, opened by the menu frame 0xCD814 once no screen is open and
+// the player is in a buy zone): the buy menu after every spawn. Deathmatch and Gun Game send 2 (the timer alone), as
+// the game's other callers do; the buy key still opens it in Deathmatch
+void PcModesSpawnRoundTime(X86Context& ctx, uint8_t*) {
+    if (g_mode == "classic" || R32(ctx.esp) != 3) return;
+    kernel::W32(ctx.esp, 2);
+    LOG_FIRST(4, "pc mode: no buy menu at the spawn (%s)", g_mode.c_str());
 }
 
 namespace {
