@@ -636,6 +636,15 @@ void HandleEvent(const void* p) {
                 (e.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH || e.gbutton.button == SDL_GAMEPAD_BUTTON_START)) {
                 LOGI("input: a controller asks to join the party");
                 csx::PartyJoinRequest();
+            } else if (!splitp::Active() && csx::MenuJoin() && e.gbutton.button == SDL_GAMEPAD_BUTTON_START &&
+                       !(g_pad && SDL_GetGamepadID(g_pad) == e.gbutton.which)) {
+                // Instant Action: START on a controller that is not player 1's own (the one driving the game) joins;
+                // player 1's START stays its own (the menus' A); the other controller's press reaches no menu
+                char guid[64] = {};
+                SDL_GUIDToString(SDL_GetGamepadGUIDForID(e.gbutton.which), guid, sizeof guid);
+                LOGI("input: a controller's START asks to join (%s)", SDL_GetGamepadNameForID(e.gbutton.which));
+                csx::SetPartyJoinGuid(guid);
+                csx::PartyJoinRequest();
             }
             break;
         case SDL_EVENT_WINDOW_MOUSE_LEAVE:

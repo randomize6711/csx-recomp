@@ -7,14 +7,17 @@
 //   Bot Settings       the same screen on Number of Bots (Bot Skill Level, Bot Team below; Y the bots' weapons)
 //   Settings           the title's Custom Options (time and round limits, money, friendly fire, collision); its
 //                      Accept sets Match Options' rules to Custom, so they count
-// Solo and split screen are the same match: the local players are the party's (pc_party.cpp: a controller's START in
-// the menus joins, its profile chosen in the join popup), and Start Match starts the title's match for them all (the
-// split-screen compositor starts players 2-4 when player 1's match starts); its bots held so the local players and
-// the bots fit the match's 65 slots. The hub shows the local players and the free slots beside the match as set.
+// Solo and split screen are the same match: the local players are the party's (pc_party.cpp: a free controller's
+// START on this screen takes the next slot at once, no popup; BACK on a joined player's controller leaves), and Start
+// Match starts the title's match for them all (the split-screen compositor starts players 2-4 when player 1's match
+// starts); its bots held so the local players and the bots fit the match's 65 slots. The right-hand panel shows the
+// local players (P1 to P4) above the match as set (map, mode, bots), redrawn when either changes.
 // Match Options' and Custom Options' Accept return here (they went on to the map list before). The hub shows the
 // match as set (map, mode, bots, rules) in its preview panel, from those screens' own tables. A match's end brings
 // the title back to the screen it started from, Single Player's (its difficulties): that screen is the hub's now.
+#include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <initializer_list>
 #include <string>
@@ -32,6 +35,9 @@ void PcSetSelectedRow(const std::string& screen, int row);                      
 uint32_t PcListCell(const std::string& screen, size_t row);                                     // pc_menu.cpp
 int PcBotCountAt(int index);                                                                     // pc_menu.cpp
 std::string PcMapListSelected();                                                                 // pc_mapsearch.cpp
+std::vector<int> PcListRows(const std::string& screen);                                          // pc_menu.cpp
+bool PcSetListRows(const std::string& screen, const std::vector<int>& picks);                    // pc_menu.cpp
+int PcSelectedRow(const std::string& screen);                                                    // pc_menu.cpp
 void PcMapSearchChooseOnly();                                                                    // pc_mapsearch.cpp
 
 namespace {
@@ -58,39 +64,62 @@ std::string Name(int index, std::initializer_list<const char*> names) {
     return "?";
 }
 
-// the local players' panel (the hub's BackgroundText 5..9): each slot's player and profile, or the slot free
-std::string g_players_shown;
-void ShowPlayers(X86Context& ctx, bool force) {
+// the right-hand panel (the hub's BackgroundText 1..9): LOCAL PLAYERS, P1 to P4 (a player and its profile, a guest,
+// a disconnected controller, or how to join), then the match as set (map, mode, bots) and a hint or a passing note
+constexpr int kLineTitle = 1, kLinePlayers = 2, kLineMap = 6, kLineMode = 7, kLineBots = 8, kLineHint = 9;
+std::string g_shown;
+std::string g_note;      // a passing note in the hint's place ("All four player slots are taken.")
+double g_note_until = 0;
+
+double Seconds() {
+    return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+void ShowPanel(X86Context& ctx, bool force) {
     const std::vector<PcPartyMember> members = PcPartyMembers();
-    std::string shown;
+    std::vector<std::string> lines(10);
+    lines[kLineTitle] = "LOCAL PLAYERS";
     for (int i = 0; i < 4; i++) {
         const bool in = i == 0 || (i < int(members.size()) && members[size_t(i)].in);
         std::string name = i < int(members.size()) ? members[size_t(i)].name : "";
         if (i == 0 && name.empty()) name = PcPartyProfileName();  // player 1: the profile in use
         if (i == 0 && name.empty()) name = "Player 1";
-        shown += join::SlotLine(i + 1, in, in ? name : "") + "\n";
+        const bool lost = i > 0 && in && i < int(members.size()) && !members[size_t(i)].pad;
+        lines[size_t(kLinePlayers + i)] = join::SlotLine(i + 1, in, in ? name : "", lost);
     }
-    if (!force && shown == g_players_shown) return;
-    g_players_shown = shown;
-    for (int i = 0, at = 0; i < 4; i++) {
-        size_t e = shown.find('\n', size_t(at));
-        PcSetScreenLine(ctx, pcmenu::kInstantScreen, 5 + i, shown.substr(size_t(at), e - size_t(at)));
-        at = int(e) + 1;
-    }
-}
-
-// the preview panel's lines (the hub's BackgroundText 1..4)
-void Show(X86Context& ctx) {
     const std::string map = PcMapListSelected();
     const int bots = PcBotCountAt(Choice(kRowBots));
-    PcSetScreenLine(ctx, pcmenu::kInstantScreen, 1, "Map: " + (map.empty() ? std::string("?") : map));
-    PcSetScreenLine(ctx, pcmenu::kInstantScreen, 2, "Mode: " + Name(Choice(kRowMode), {"Classic", "Deathmatch", "Gun Game"}));
-    PcSetScreenLine(ctx, pcmenu::kInstantScreen, 3,
-                    "Bots: " + (bots < 0 ? std::string("?") : std::to_string(bots)) + ", " +
-                        Name(Choice(kRowSkill), {"Beginner", "Standard", "Professional", "Expert"}));
-    PcSetScreenLine(ctx, pcmenu::kInstantScreen, 4,
-                    "Rules: " + Name(Choice(kRowRules), {"Beginner", "Standard", "Professional", "Expert", "Custom"}));
-    ShowPlayers(ctx, true);
+    lines[kLineMap] = "Map:  " + (map.empty() ? std::string("?") : map);
+    lines[kLineMode] = "Mode:  " + Name(Choice(kRowMode), {"Classic", "Deathmatch", "Gun Game"});
+    lines[kLineBots] = "Bots:  " + (bots < 0 ? std::string("?") : std::to_string(bots)) + " (" +
+                       Name(Choice(kRowSkill), {"Beginner", "Standard", "Professional", "Expert"}) + ")";
+    if (!g_note.empty() && Seconds() > g_note_until) g_note.clear();
+    lines[kLineHint] = g_note.empty() ? "START on a controller joins, BACK leaves" : g_note;
+    std::string all;
+    for (const std::string& l : lines) all += l + "\n";
+    if (!force && all == g_shown) return;
+    g_shown = all;
+    for (int i = 1; i < int(lines.size()); i++) PcSetScreenLine(ctx, pcmenu::kInstantScreen, i, lines[size_t(i)]);
+}
+
+void Show(X86Context& ctx) { ShowPanel(ctx, true); }
+
+// Instant Action's choices across the game alone's restart as split screen (the first player to join): the title's
+// match screens' list rows and the map list's selection, kept in the environment the restart keeps
+constexpr char kBots[] = "SuperLauncher_SinglePlayerMatchBotOptions";
+std::string Rows(const std::vector<int>& v) {
+    std::string s;
+    for (int x : v) s += (s.empty() ? "" : ",") + std::to_string(x);
+    return s;
+}
+std::vector<int> Ints(const std::string& s) {
+    std::vector<int> v;
+    for (size_t at = 0; at < s.size();) {
+        size_t e = s.find(',', at);
+        v.push_back(std::atoi(s.substr(at, e == std::string::npos ? std::string::npos : e - at).c_str()));
+        at = e == std::string::npos ? s.size() : e + 1;
+    }
+    return v;
 }
 
 // Number of Bots held so the local players and the bots fit the match's slots (its largest choice within them)
@@ -129,22 +158,21 @@ std::string PcInstantScreens() {
                "!pc_instant bots") +
         HubRow("Settings", "Time and round limits, money, friendly fire", "and the other match rules.",
                "!pc_instant rules");
-    // the right: two panels, near opaque so their text reads over the background's art (a blue-grey border, the
-    // field's light grey inside, as the map search's field): the match as set, and the local players
+    // the right: one panel, near opaque so its text reads over the background's art (a blue-grey border, the map
+    // search field's light grey inside), a thin rule between the players and the match
     const std::string preview =
-        "\tBackgroundImage \"whitebox 110 128 146 255 340 104 252 112\"\r\n"
-        "\tBackgroundImage \"whitebox 236 239 242 235 341 105 250 110\"\r\n"
-        "\tBackgroundImage \"whitebox 110 128 146 255 340 226 252 128\"\r\n"
-        "\tBackgroundImage \"whitebox 236 239 242 235 341 227 250 126\"\r\n"
-        "\tBackgroundText \"54 83 107 255 352 110 230 24 0.75\"\t\" \"\r\n"
-        "\tBackgroundText \"54 83 107 255 352 135 230 24 0.75\"\t\" \"\r\n"
-        "\tBackgroundText \"54 83 107 255 352 160 230 24 0.75\"\t\" \"\r\n"
-        "\tBackgroundText \"54 83 107 255 352 185 230 24 0.75\"\t\" \"\r\n"
-        "\tBackgroundText \"54 83 107 255 352 232 230 22 0.7\"\t\" \"\r\n"
-        "\tBackgroundText \"54 83 107 255 352 254 230 22 0.7\"\t\" \"\r\n"
-        "\tBackgroundText \"54 83 107 255 352 276 230 22 0.7\"\t\" \"\r\n"
-        "\tBackgroundText \"54 83 107 255 352 298 230 22 0.7\"\t\" \"\r\n"
-        "\tBackgroundText \"110 128 146 255 352 324 230 22 0.6\"\t\"START joins, BACK leaves (a controller)\"\r\n";
+        "\tBackgroundImage \"whitebox 110 128 146 255 340 96 252 218\"\r\n"
+        "\tBackgroundImage \"whitebox 236 239 242 238 341 97 250 216\"\r\n"
+        "\tBackgroundImage \"whitebox 110 128 146 255 352 214 228 1\"\r\n"
+        "\tBackgroundText \"54 83 107 255 352 101 230 22 0.75\"\t\"LOCAL PLAYERS\"\r\n"
+        "\tBackgroundText \"54 83 107 255 352 124 230 22 0.7\"\t\" \"\r\n"
+        "\tBackgroundText \"54 83 107 255 352 146 230 22 0.7\"\t\" \"\r\n"
+        "\tBackgroundText \"54 83 107 255 352 168 230 22 0.7\"\t\" \"\r\n"
+        "\tBackgroundText \"54 83 107 255 352 190 230 22 0.7\"\t\" \"\r\n"
+        "\tBackgroundText \"54 83 107 255 352 220 230 22 0.7\"\t\" \"\r\n"
+        "\tBackgroundText \"54 83 107 255 352 242 230 22 0.7\"\t\" \"\r\n"
+        "\tBackgroundText \"54 83 107 255 352 264 230 22 0.7\"\t\" \"\r\n"
+        "\tBackgroundText \"110 128 146 255 352 290 230 20 0.6\"\t\" \"\r\n";
     return pcmenu::HubScreen(pcmenu::kInstantScreen, "Instant Action", rows, preview, "!pc_instant show");
 }
 
@@ -164,15 +192,51 @@ std::string PcCurrentScreen();  // pc_browser.cpp
 // on the game thread every frame (pc_menu.cpp's PcMenuFrame): the title's Single Player screen (reached only by the
 // title itself now: back from a match, the screen the match was started from) gives way to the hub, Back from which
 // is the main menu as before
+void PcInstantRestoreState(const std::string& state);
+
 void PcInstantFrame(X86Context& ctx) {
     static std::string last;
     const std::string screen = PcCurrentScreen();
-    if (screen == pcmenu::kInstantScreen) ShowPlayers(ctx, false);  // a player joined, left or chose a profile
+    // Instant Action's choices from before the game alone restarted as split screen
+    if (const char* kept = std::getenv("CSX_INSTANT_STATE"); kept && *kept && !PcListRows(kOptions).empty()) {
+        PcInstantRestoreState(kept);
+        unsetenv("CSX_INSTANT_STATE");
+        if (screen == pcmenu::kInstantScreen) Show(ctx);
+    }
+    if (screen == pcmenu::kInstantScreen) ShowPanel(ctx, false);  // a player joined or left, a note passed
     if (screen == last) return;
     last = screen;
     if (screen != kMatch) return;
     LOGI("pc instant: back from a match: the Instant Action hub instead of Single Player's screen");
+    PcSetSelectedRow(pcmenu::kInstantScreen, 0);  // on Start Match
     csx::QueueEngineCommand(std::string("xbui back\nxbui open ") + pcmenu::kInstantScreen + "\n");
+}
+
+// a passing note in the panel's hint line (pc_party.cpp: all four slots taken)
+void PcInstantNote(const std::string& text) {
+    g_note = text;
+    g_note_until = Seconds() + 5;
+}
+
+// Instant Action's choices, to keep across the game alone's restart as split screen ("o=..;c=..;b=..;m=N")
+std::string PcInstantSaveState() {
+    return "o=" + Rows(PcListRows(kOptions)) + ";c=" + Rows(PcListRows(kCustom)) + ";b=" + Rows(PcListRows(kBots)) +
+           ";m=" + std::to_string(PcSelectedRow(kMaps));
+}
+
+void PcInstantRestoreState(const std::string& state) {
+    for (size_t at = 0; at < state.size();) {
+        size_t e = state.find(';', at);
+        std::string part = state.substr(at, e == std::string::npos ? std::string::npos : e - at);
+        at = e == std::string::npos ? state.size() : e + 1;
+        if (part.size() < 2 || part[1] != '=') continue;
+        const std::string v = part.substr(2);
+        if (part[0] == 'o') PcSetListRows(kOptions, Ints(v));
+        else if (part[0] == 'c') PcSetListRows(kCustom, Ints(v));
+        else if (part[0] == 'b') PcSetListRows(kBots, Ints(v));
+        else if (part[0] == 'm' && std::atoi(v.c_str()) >= 0) PcSetSelectedRow(kMaps, std::atoi(v.c_str()));
+    }
+    LOGI("pc instant: the match's choices kept across the restart as split screen (%s)", state.c_str());
 }
 
 // "pc_instant show|start|map|mode|bots|rules|back|custom" (the hub's rows and its screens' Accept)

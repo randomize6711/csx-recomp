@@ -361,6 +361,8 @@ SDL_Window* g_win = nullptr;
 bool g_focus = true, g_captured = false, g_capture_play = true;
 int g_kbm = 1;             // the player who has the keyboard and mouse
 bool g_party = false;      // player 1 shows a party screen: the other members' controllers drive their panels there
+bool g_join = false;       // player 1 shows Instant Action ("party join on"): a free controller's START joins
+std::string g_auto_join;   // the controller whose START restarted the game alone as this (CSX_SPLIT_JOIN_GUID)
 int g_menu_focus = 0;      // a member whose controller drives player 1's menus (editing its profile); 0 none
 bool g_test_only = false;  // CSX_TEST_INPUT_ONLY: only the test's input (no host keyboard, mouse or controllers)
 
@@ -829,6 +831,7 @@ void PartyJoin(SDL_JoystickID id) {
         }
     if (g_configured >= kMaxPlayers) {
         LOGI("split: party: a controller asked to join: the party is full");
+        PartyInput(0, "full");  // player 1 says so
         return;
     }
     g_configured++;
@@ -997,7 +1000,7 @@ void HandleInput(const SDL_Event& e) {
         break;
     case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
     case SDL_EVENT_GAMEPAD_BUTTON_UP:
-        if (g_party) {  // player 1's party screens (N4.8)
+        if (g_party || g_join) {  // player 1's party screens (N4.8), or Instant Action (START joins there)
             Player* p = PadOwner(e.gbutton.which);
             if (p && p->n == g_menu_focus) {
                 SendPad(g_players[0], 1, e.gbutton.button, e.gbutton.down ? 1 : 0);
@@ -1010,7 +1013,10 @@ void HandleInput(const SDL_Event& e) {
                 break;
             }
             if (!p) {
-                if (e.gbutton.down && (e.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH || e.gbutton.button == SDL_GAMEPAD_BUTTON_START))
+                // a free controller: A or START on a party screen, START on Instant Action (A there is the menus'):
+                // the next slot at once (no popup); its START is not player 1's, so it activates nothing there
+                if (e.gbutton.down && (e.gbutton.button == SDL_GAMEPAD_BUTTON_START ||
+                                       (g_party && e.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH)))
                     PartyJoin(e.gbutton.which);
                 break;
             }
@@ -1099,6 +1105,11 @@ void OnSetup(const std::string& text) {
             g_party = on;
             if (!on) SetMenuFocus(0);
             for (auto& p : g_players) p.stick = 0;
+        } else if (!std::strcmp(verb, "join")) {  // "party join on|off": player 1's Instant Action
+            bool on = text.find(" on") != std::string::npos;
+            if (on != g_join) LOGI("split: START %s", on ? "joins on Instant Action" : "no longer joins (another screen, or a match)");
+            g_join = on;
+            if (!on && !g_party) SetMenuFocus(0);
         } else if (!std::strcmp(verb, "focus") && std::sscanf(text.c_str(), "party focus %d", &n) == 1) {
             SetMenuFocus(n);
         } else if (!std::strcmp(verb, "leave") && std::sscanf(text.c_str(), "party leave %d", &n) == 1) {
@@ -1110,6 +1121,19 @@ void OnSetup(const std::string& text) {
             p.profile = profiles::IdValid(id) ? id : "";
             p.team = std::clamp(team, 0, 2);
             p.party_ready = ready != 0;
+        }
+        // the controller that restarted the game alone (its START): joined now, as if pressed again
+        if ((g_party || g_join) && !g_auto_join.empty()) {
+            int count = 0;
+            SDL_JoystickID* ids = SDL_GetGamepads(&count);
+            for (int i = 0; ids && i < count; i++)
+                if (PadGuid(ids[i]) == g_auto_join && !PadOwner(ids[i])) {
+                    LOGI("split: party: the controller that asked to join joins");
+                    PartyJoin(ids[i]);
+                    break;
+                }
+            SDL_free(ids);
+            g_auto_join.clear();
         }
         SendState();
         return;
@@ -1963,6 +1987,8 @@ int CompositorMain(const std::string& game) {
     ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
     g_exe = n > 0 ? std::string(exe, size_t(n)) : "";
     g_configured = std::clamp(std::getenv("CSX_SPLIT_PLAYERS") ? std::atoi(std::getenv("CSX_SPLIT_PLAYERS")) : 2, 1, 4);
+    if (const char* g = std::getenv("CSX_SPLIT_JOIN_GUID"); g && *g) g_auto_join = g;
+    unsetenv("CSX_SPLIT_JOIN_GUID");
     g_vertical = pc::Get("split_layout", "horizontal") == "vertical";
     g_kbm = std::clamp(std::atoi(pc::Get("split_kbm", "1").c_str()), 1, 4);
     g_test_only = std::getenv("CSX_TEST_INPUT_ONLY") && *std::getenv("CSX_TEST_INPUT_ONLY") == '1';

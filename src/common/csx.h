@@ -119,6 +119,13 @@ void SetPartyScreenOpen(bool open);
 bool PartyScreenOpen();
 void PartyJoinRequest();
 bool TakePartyJoinRequest();
+// the game alone in its window on Instant Action (2026-10-31, its local players): a controller other than player 1's
+// own asks to join with START only (A there is the menus'); the controller that asked, kept for the compositor to
+// join it at once after the restart (SDL's GUID text)
+void SetMenuJoin(bool on);
+bool MenuJoin();
+void SetPartyJoinGuid(const std::string& guid);
+std::string PartyJoinGuid();
 // a split-screen player is about to relaunch (into a match or back to the menus): its next display aspect set
 void SplitPrepareRelaunch(bool match);
 void SetSplitPrepareRelaunch(void (*prepare)(bool match));

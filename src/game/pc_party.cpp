@@ -11,8 +11,12 @@
 // is there (the compositor's menu focus: its controller works player 1's front end, player 1's devices wait). Player
 // 1 plays as its profile (pc::UseProfile); players 2-4 are started with theirs (CSX_PC_PROFILE).
 //
-// The game alone in its window (no compositor) restarts as the compositor when Multiplayer is opened, back on this
-// screen (CSX_FRONTEND_OPEN).
+// The game alone in its window (no compositor) restarts as the compositor when another controller asks to join, back on
+// this screen (CSX_FRONTEND_OPEN).
+//
+// Instant Action (2026-10-31) has its own local players with no screen of their own: a free controller's START there
+// takes the next slot (InstantInput), the slot's last profile when free or a guest; its panel shows them
+// (pc_instant.cpp). The party screen itself is Multiplayer > Host Game's.
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -27,6 +31,7 @@
 #include "common/profiles.h"
 #include "core/log.h"
 #include "cpu/x86_context.h"
+#include "game/pc_join_rules.h"
 #include "game/pc_party.h"
 
 void PcSetScreenLine(X86Context& ctx, const char* screen, int index, const std::string& text);  // pc_browser.cpp
@@ -37,6 +42,8 @@ std::string PcKeyboardScreen(const char* name, const char* title, const char* co
 std::string PcEditText(const char* screen);
 void PcClearEdit(X86Context& ctx, const char* screen, const std::string& text);
 void PcTypeAgain();  // pc_mouse.cpp
+std::string PcInstantSaveState();               // pc_instant.cpp
+void PcInstantNote(const std::string& text);    // pc_instant.cpp
 std::map<std::string, std::string> PcScreenValues(const std::string& name);                           // pc_menu.cpp
 void PcSetScreenValues(const std::string& name, const std::map<std::string, std::string>& values);   // pc_menu.cpp
 std::vector<int> PcListRows(const std::string& screen);                                              // pc_menu.cpp
@@ -84,6 +91,7 @@ std::vector<std::string> PcProbeTake(const std::string& screen) {
 namespace {
 
 constexpr char kParty[] = "SuperLauncher_PCParty";
+constexpr char kInstant[] = "SuperLauncher_PCInstantAction";  // pcmenu::kInstantScreen (pc_instant.cpp)
 constexpr char kProfiles[] = "SuperLauncher_PCProfiles";
 constexpr char kName[] = "SuperLauncher_PCProfileName";
 constexpr char kDelete[] = "SuperLauncher_PCProfileDelete";
@@ -106,6 +114,7 @@ int g_count = 1, g_kbm = 1, g_focus = 0;
 std::string g_note[4];          // a panel's passing message ("That profile is player 2's.")
 std::string g_shown;            // what the panels show now (redrawn when it changes)
 bool g_party_on = false;        // the compositor was told a party screen is shown
+bool g_join_on = false;         // the compositor was told Instant Action is shown (START joins there)
 bool g_pad_applied = false;     // the profile's controller options given to the title this boot (a relaunch: again)
 
 // the Profiles screen: whose, the cursor, the list it shows, what the keyboard is for
@@ -750,23 +759,56 @@ void PcPartyCommand(X86Context& ctx, const std::vector<std::string>& a) {
     if (w1 == "1") return PanelInput(ctx, 1, w2);
 }
 
+// the other local players on Instant Action (2026-10-31): a controller that joined (its START) plays as the profile its
+// slot had last when that is free, else as a guest (no saved profile touched); BACK on a joined player's controller
+// leaves (before a match: the compositor's PartyLeave); a START with every slot taken says so in the panel
+void InstantInput(int n, const std::string& what) {
+    ReadState();
+    if (n == 0 && what == "full") {
+        LOGI("party: Instant Action: a controller's START, but all four player slots are taken");
+        return PcInstantNote("All four player slots are taken.");
+    }
+    if (n < 2 || n > 4) return;
+    if (what == "joined") {
+        std::vector<std::string> others;
+        for (int i = 0; i < 4; i++)
+            if (i + 1 != n && g_m[i].in) others.push_back(g_m[i].profile);
+        const std::string remembered = pc::GetGlobal("party.profile_" + std::to_string(n), "");
+        const std::string id = join::SlotProfile(remembered, !remembered.empty() && Store().Exists(remembered), others);
+        g_m[n - 1].profile = id;
+        Tell(n);
+        LOGI("party: Instant Action: player %d joined as %s", n, id.empty() ? join::GuestName(n).c_str() : ProfileName(id).c_str());
+    } else if (what == "back") {
+        LOGI("party: Instant Action: player %d leaves", n);
+        csx::SplitSend(csx::kSplitSetup, "party leave " + std::to_string(n));
+    }
+}
+
 // on the menu frame (pc_menu.cpp's PcMenuFrame): the compositor told whether a party screen is shown, the other
 // members' input applied, the keyboard screen filled when it opens, a screen asked for at boot opened
 void PcPartyMenuFrame(X86Context& ctx) {
     ApplyControllerOptions();
     std::string screen = PcCurrentScreen();
     bool on = PartyScreen(screen);
-    // the game alone in its window: another controller's A or START (window_input.cpp) restarts it as the
-    // compositor, back on the party screen, where that controller joins with A again
+    // Instant Action: a free controller's START takes the next local player's slot (no popup)
+    const bool instant = screen == kInstant;
+    // the game alone in its window: another controller's A or START on a party screen, or its START on Instant Action
+    // (window_input.cpp), restarts it as the compositor, back on the same screen; that controller joins at once there
+    // (CSX_SPLIT_JOIN_GUID), and Instant Action keeps its choices (CSX_INSTANT_STATE)
     csx::SetPartyScreenOpen(on && !csx::SplitPlayer());
-    if (csx::TakePartyJoinRequest() && on && !csx::SplitPlayer()) {
+    csx::SetMenuJoin(instant && !csx::SplitPlayer());
+    if (csx::TakePartyJoinRequest() && (on || instant) && !csx::SplitPlayer()) {
 #ifndef _WIN32
-        setenv("CSX_FRONTEND_OPEN", kParty, 1);
+        setenv("CSX_FRONTEND_OPEN", instant ? kInstant : kParty, 1);
+        if (instant) setenv("CSX_INSTANT_STATE", PcInstantSaveState().c_str(), 1);
+        if (std::string guid = csx::PartyJoinGuid(); !guid.empty()) setenv("CSX_SPLIT_JOIN_GUID", guid.c_str(), 1);
 #endif
         LOGI("party: another controller asks to join: split screen starts");
         if (!csx::SplitStart(1)) {
 #ifndef _WIN32
             unsetenv("CSX_FRONTEND_OPEN");
+            unsetenv("CSX_INSTANT_STATE");
+            unsetenv("CSX_SPLIT_JOIN_GUID");
 #endif
         }
         return;
@@ -774,6 +816,10 @@ void PcPartyMenuFrame(X86Context& ctx) {
     if (on != g_party_on && csx::SplitPlayer() == 1) {
         csx::SplitSend(csx::kSplitSetup, on ? "party on" : "party off");
         g_party_on = on;
+    }
+    if (instant != g_join_on && csx::SplitPlayer() == 1) {
+        csx::SplitSend(csx::kSplitSetup, instant ? "party join on" : "party join off");
+        g_join_on = instant;
     }
     static std::string last;
     if (screen != last) {
@@ -802,6 +848,7 @@ void PcPartyMenuFrame(X86Context& ctx) {
         std::string what = in.substr(std::min(in.size(), in.find(' ') + 1));
         if (screen == kParty) PanelInput(ctx, n, what);
         else if (screen.rfind("SuperLauncher_PCLobby", 0) == 0) PcLobbyInput(ctx, n, what);
+        else if (screen == kInstant) InstantInput(n, what);
         else if (what == "joined" || what == "pad on" || what == "pad off") ReadState();
     }
     if (const char* open = std::getenv("CSX_FRONTEND_OPEN");
