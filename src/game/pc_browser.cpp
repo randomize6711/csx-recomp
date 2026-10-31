@@ -1,7 +1,7 @@
 // The server browser in the game's own menus (docs/pc_multiplayer.md "N3"; FINDINGS.md "Original menus"). The
-// original System Link menus are the base: System Link becomes Multiplayer (LAN Matches, Internet Matches, Favorites,
-// Recent Servers, Join by Address, Host a Match), and the server list is the console's own session list screen
-// (Xbox Live's OptiMatch Sessions layout: its background, columns, highlight, details lines and the System Link
+// original System Link menus are the base: System Link becomes Multiplayer (since 2026-10-31 three rows: Server
+// Browser, Peer-to-Peer, Direct-IP or Code; MultiplayerTable), and the server list is the console's own session list
+// screen (Xbox Live's OptiMatch Sessions layout: its background, columns, highlight, details lines and the System Link
 // screen's Join / Refresh / Host a Match / Cancel bar), written as menu text at load and drawn, navigated and sounded
 // by the game's UI code. Nothing here draws: the list's rows are the table's rows, made with the game's own row and
 // cell functions (as its System Link list was filled, 0xF12F0); the title, tabs, status and details are the screen's
@@ -354,7 +354,7 @@ struct Join {
     bool trusted = false;   // the identity warning was answered with Accept
 } g_join;
 
-// a typed address being contacted (Join by Address)
+// a typed address being contacted (Direct-IP or Code)
 struct Contact {
     bool active = false;
     std::string text;
@@ -868,19 +868,18 @@ std::string Pie(bool tabs) {
 }
 
 // System Link's rows: the PC's ways into a match, then the console's own Host a Match
+// the PC's online menu (2026-10-31: three rows). Server Browser: the one browser (its tabs: LAN, Internet, Favorites,
+// Recent). Peer-to-Peer: hosting for friends, the party's (pc_party.cpp, pc_lobby.cpp: map, mode, bots, rules, a
+// password, split-screen players; the match runs in this PC's local csx-server process and is seen on the LAN: no
+// direct peer-to-peer networking, NAT traversal or relay). Direct-IP or Code: an address or an invite code. The
+// title's System Link host screen (its Dedicated Server row) is no longer offered here
 std::string MultiplayerTable() {
-    return MenuRow("LAN Matches", "!pc_browser open 0; xbui open SuperLauncher_PCBrowser",
-                   "Find and join a match on your local network.") +
-           MenuRow("Internet Matches", "!pc_browser open 1; xbui open SuperLauncher_PCBrowser",
-                   "Find and join a match listed by a master server.") +
-           MenuRow("Favorites", "!pc_browser open 2; xbui open SuperLauncher_PCBrowser",
-                   "Join one of the servers you saved.") +
-           MenuRow("Recent Servers", "!pc_browser open 3; xbui open SuperLauncher_PCBrowser",
-                   "Join a server you played on lately.") +
-           MenuRow("Join by Address", "!pc_browser address_open; xbui open SuperLauncher_PCAddress",
-                   "Type a server's address (and port) to join it.") +
-           MenuRow("Host a Match", "open SuperLauncher_LocalServerOptions",
-                   "Create and host your own match for your network.");
+    return MenuRow("Server Browser", "!pc_browser open 0; xbui open SuperLauncher_PCBrowser",
+                   "Find LAN and internet matches, your favorites and recent servers.") +
+           MenuRow("Peer-to-Peer", "open SuperLauncher_PCParty",
+                   "Host a match for friends: map, mode, bots and rules.") +
+           MenuRow("Direct-IP or Code", "!pc_browser address_open; xbui open SuperLauncher_PCAddress",
+                   "Join by a server's address (and port) or an invite code.");
 }
 
 std::string BrowserScreen() {
@@ -892,7 +891,7 @@ std::string BrowserScreen() {
         "\tOnEntry \"!pc_browser enter\"\r\n"
         "\tOnButtonDownA \"!pc_browser join\"\r\n\tOnButtonDownStart \"!pc_browser join\"\r\n"
         "\tOnButtonDownX \"!pc_browser refresh\"\r\n"
-        "\tOnButtonDownY \"!pc_browser leave; xbui swap SuperLauncher_LocalServerOptions\"\r\n"
+        "\tOnButtonDownY \"!pc_browser leave; xbui swap SuperLauncher_PCParty\"\r\n"  // Host a Match: Peer-to-Peer's
         "\tOnButtonDownB \"!pc_browser leave; xbui back\"\r\n"
         "\tOnButtonDownBack \"open SuperLauncher_PCFilters\"\r\n"
         "\tOnButtonDownWhite \"!pc_browser favorite\"\r\n\tOnButtonDownBlack \"!pc_browser sort\"\r\n"
@@ -1024,7 +1023,7 @@ std::string ExtendMultiplayer(const std::string& text) {
         if (hidden != 2) LOGW("browser: the main menu's Xbox Live status lines not as expected (%d hidden)", hidden);
     }
     out += BrowserScreen();
-    out += KeyboardScreen(kAddress, "Join by Address", "pc_browser address", "A server's address (port if not 27015), or an invite code.");
+    out += KeyboardScreen(kAddress, "Direct-IP or Code", "pc_browser address", "A server's address (port if not 27015), or an invite code.");
     out += KeyboardScreen(kPassword, "Server Password", "pc_browser password", "This server asks for a password.");
     // Continue closes them once A and B are released (PcBrowserMenuFrame): closed on the press, the screen under them
     // took the same held A as its own press (the main menu's first row opened, N4.7)
@@ -1032,7 +1031,7 @@ std::string ExtendMultiplayer(const std::string& text) {
     out += MessageScreen(kServerMessage, "Match Server", 3, "Continue", "!pc_browser message_done", "!pc_browser message_done");
     out += MessageScreen(kIdentity, "Server Identity", 7, "Cancel_Accept", "!pc_browser trust", "!pc_browser untrust; xbui back",
                          true);
-    out += MessageScreen(kContacting, "Join by Address", 1, "Cancel", "!pc_browser contact_cancel; xbui back",
+    out += MessageScreen(kContacting, "Direct-IP or Code", 1, "Cancel", "!pc_browser contact_cancel; xbui back",
                          "!pc_browser contact_cancel; xbui back");
     return out;
 }
