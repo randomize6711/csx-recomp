@@ -23,14 +23,23 @@ struct Box {
     }
 };
 
-// the screen in the 2D layout: a wider frame keeps 640 columns in the middle with a side column either side
+// The parent's coordinates are the frame's units (480 lines, as wide as the frame: 854 at 16:9), the space the
+// net graph's fills land in: its view rectangle (SCR_DrawNetGraph's, logged as 0 0 854 480 at 16:9) is the screen.
+// Its text goes through the text renderer, whose hook (pc_wide.cpp PcWideText) adds the side column (frame - 640) / 2
+// to every string, for the menus' and HUD's 640-column layout: a string meant for frame x is given x - side
+// (TextDrawX) so it lands there. Before 2026-10-31's fix the two differed by that side column: at 16:9 the graph sat
+// 107 units left of its labels.
 struct Screen {
     float left, top, right, bottom;
 };
-inline Screen ScreenOf(float side, float view_x, float view_y, float view_w, float view_h) {
-    if (side > 0) return {-side, view_y, 640.0f + side, view_y + view_h};
+inline Screen ScreenOf(float view_x, float view_y, float view_w, float view_h) {
     return {view_x, view_y, view_x + view_w, view_y + view_h};
 }
+
+// a string's x for the text renderer, to land at frame x (side: the text hook's shift, 0 at 4:3)
+inline float TextDrawX(float frame_x, float side) { return frame_x - side; }
+// where the text renderer puts a string given x (the text hook's shift)
+inline float TextFrameX(float draw_x, float side) { return draw_x + side; }
 
 // the origin that puts the box (relative to its origin) kMargin inside the screen's right and bottom edges, kept
 // inside the left and top ones when it is larger than the screen

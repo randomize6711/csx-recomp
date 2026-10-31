@@ -7,8 +7,8 @@
 // Its place: the title puts it by net_graphpos (0x6E2D0: 1 the view's bottom right, 2 the middle, else the left)
 // over the HUD's bottom row; here (a hook after that, 0x6E613) the whole of it, its backdrop, columns and text as
 // measured while it draws, goes in the screen's bottom right corner (over the HUD's corner), a margin inside (the
-// view is the player's own: a split-screen player's quarter or half; on a wider frame the screen's right edge is the
-// frame's, past the 640 columns the 2D layout keeps in the middle).
+// view is the player's own: a split-screen player's quarter or half; its coordinates are the frame's units, which its
+// fills land in, and its text is given them less the text hook's side column).
 // Its size (Net Graph Size, net_graph_size 50 / 75 / 100, 50 by default since 2026-10-31): the engine's columns, one
 // unit wide each (net_graphwidth, 300 by default) and their height (value / net_scale, net_scale 5 by default), set
 // with net_graph while this setting shows it. The text keeps the console font (8 units a character).
@@ -103,8 +103,8 @@ void PcNetGraphFont(uint32_t font) {
 // [[hook]] at 0x6E613 (config/game.toml) in SCR_DrawNetGraph, its place just computed (0x6E2D0: the graph's x at
 // [esp+0x5C], its y at [esp+0x40]; esi the view's rectangle x, y, width, height; ebp the graph's width). All of it
 // (backdrop, columns, text: one box, measured as it draws) goes kMargin inside the screen's bottom right corner
-// (src/game/pc_netgraph_layout.h). The screen in the 2D layout: on a wider frame the 640 columns sit in the middle
-// with a side column either side (pc_wide.cpp), so its right edge is 640 + the side, not the view's own
+// (src/game/pc_netgraph_layout.h). The screen is the view's rectangle, in the frame's units (0 0 854 480 at 16:9),
+// the space the fills land in; the text renderer's strings are given their x less the side column its hook adds
 void PcNetGraphPlace(X86Context& ctx, uint8_t*) {
     int32_t x = int32_t(R32(ctx.esi)), y = int32_t(R32(ctx.esi + 4)), w = int32_t(R32(ctx.esi + 8)),
             h = int32_t(R32(ctx.esi + 0xC)), graph = int32_t(ctx.ebp);
@@ -117,7 +117,8 @@ void PcNetGraphPlace(X86Context& ctx, uint8_t*) {
     }
     const pcnetgraph::Box rel =
         g_extent.Valid() ? g_extent : pcnetgraph::Estimate(graph, height, level >= 2.0f ? 30 : 24, g_scale);
-    const pcnetgraph::Screen screen = pcnetgraph::ScreenOf(PcWideSide(), float(x), float(y), float(w), float(h));
+    const pcnetgraph::Screen screen = pcnetgraph::ScreenOf(float(x), float(y), float(w), float(h));
+    LOG_FIRST(2, "pc hud: net_graph in the view %d %d %d %d (the frame's units)", x, y, w, h);
     const pcnetgraph::Origin o = pcnetgraph::Place(rel, screen);
     kernel::W32(ctx.esp + 0x5C, uint32_t(o.x));
     kernel::W32(ctx.esp + 0x40, uint32_t(o.y));
@@ -143,8 +144,8 @@ void PcNetGraphRect(X86Context& ctx, uint8_t*) {
 void PcNetGraphTextAt(X86Context& ctx, uint8_t*) {
     if (!g_measuring) return;
     float* p = static_cast<float*>(kernel::HostPtr(ctx.esp));
-    p[0] = g_tf.X(p[0]), p[1] = g_tf.Y(p[1]);
-    g_text_x = p[0], g_text_y = p[1];
+    g_text_x = g_tf.X(p[0]), g_text_y = g_tf.Y(p[1]);  // the frame's units, as the fills
+    p[0] = pcnetgraph::TextDrawX(g_text_x, PcWideSide()), p[1] = g_text_y;  // the text hook adds the side back
     kernel::W32(ctx.esp + 0x18, uint32_t(pcnetgraph::kTextWidth));
 }
 

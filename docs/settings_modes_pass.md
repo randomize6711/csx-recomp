@@ -54,6 +54,14 @@ Every category is a row of the title's own Options, front end and pause menu (do
     and the renderer cuts a string past it with "..." (its flag 8, cleared only when the string fits). The 2D layout
     reaches 747 at 16:9, so every string placed past x 640 was cut. The graph had also been shrunk through the
     engine's cvars while its text kept its size.
+  - Fifth fix (the next screenshot, 1649x927: the graph ending about x 1425, its 30/s and 60/s labels about 1580):
+    the net graph's fills land in the frame's units (0..854 at 16:9: its view rectangle, logged 0 0 854 480), but the
+    text renderer's hook (pc_wide.cpp PcWideText) adds the side column ((854 - 640) / 2 = 107) to every string, for
+    the menus' and HUD's middle 640 columns. The labels sat 107 units (207 px) right of their graph, and the screen
+    edge used (640 + 107) suited the text but not the fills. Now the parent's coordinates are the frame's units for
+    every piece: the screen is the view rectangle, and each string is given its frame x less the side column
+    (TextDrawX), so the hook puts it back where the parent wants it. The test model reproduces the screenshot's two
+    positions without the correction, and puts the labels inside the graph with it.
   - **Now: one parent.** The engine draws its own layout (net_graphwidth 300, net_scale 5, its text lines) from the
     origin, and every piece goes through one transform about that origin, scaled by Net Graph Size:
     - the fills at 0x6D7D1 (their float rectangle: backdrop, columns, lines);
