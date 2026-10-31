@@ -1,6 +1,6 @@
 // The server browser in the game's own menus (docs/pc_multiplayer.md "N3"; FINDINGS.md "Original menus"). The
-// original System Link menus are the base: System Link becomes Multiplayer (since 2026-10-31 four rows: Server
-// Browser, Split-Screen, Host Game, Direct-IP / Code; MultiplayerTable), and the server list is the console's own session list
+// original System Link menus are the base: System Link becomes Multiplayer (since 2026-10-31 three rows: Server
+// Browser, Host Game, Direct-IP / Code; MultiplayerTable; split screen is Instant Action's), and the server list is the console's own session list
 // screen (Xbox Live's OptiMatch Sessions layout: its background, columns, highlight, details lines and the System Link
 // screen's Join / Refresh / Host a Match / Cancel bar), written as menu text at load and drawn, navigated and sounded
 // by the game's UI code. Nothing here draws: the list's rows are the table's rows, made with the game's own row and
@@ -876,8 +876,6 @@ std::string Pie(bool tabs) {
 std::string MultiplayerTable() {
     return MenuRow("Server Browser", "!pc_browser open 0; xbui open SuperLauncher_PCBrowser",
                    "Find LAN and internet matches, your favorites and recent servers.") +
-           MenuRow("Split-Screen", "!pc_party intent local; xbui open SuperLauncher_PCParty",
-                   "Two to four players on this PC, each with a controller.") +
            MenuRow("Host Game", "!pc_party intent host; xbui open SuperLauncher_PCParty",
                    "Host a match others on your network can join.") +
            MenuRow("Direct-IP / Code", "!pc_browser address_open; xbui open SuperLauncher_PCAddress",

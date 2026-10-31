@@ -646,8 +646,10 @@ const std::vector<PcScreen>& Screens() {
                      false});
         // N8 (src/common/mods.h): the installed mods, read once; changes take effect at the next start
         {
+            // (hidden: a row of Extras, pcmenu::MainMenuLayout, not of Options; changes take effect at the next start, so
+            // the pause menu has none)
             PcScreen mods{"Mods", "Mods", {"Turn installed mods on or off. Changes take", "effect when the game next starts."}, {},
-                          true, false, false};
+                          true, false, true};
             mods.settings.push_back({"mods_original", "Looks",
                                      {"Mods uses the mods turned on below. Original", "Xbox turns every mod off at once."},
                                      {{"Mods", "0"}, {"Original Xbox", "1"}},

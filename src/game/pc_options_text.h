@@ -100,7 +100,8 @@ inline std::string ExtendOptions(const std::string& text, const std::vector<Opti
 // - Instant Action: Single Player's row (its help), opening the Instant Action hub (pc_instant.cpp);
 // - Multiplayer: Online Play's row (pc_browser.cpp: the title's System Link screen, the PC's online menu);
 // - Options: the title's own;
-// - Extras: a hub of the title's style (HubScreen) holding Training's and Change Profile's own rows, as they were.
+// - Extras: a hub of the title's style (HubScreen) holding Training's and Change Profile's own rows, as they were,
+//   and Mods (the PC's Mods screen, not a row of Options since 2026-10-31).
 // Single Player's and the party's (Multiplayer, N4.8) rows leave the main menu: Instant Action opens the same match
 // setup, the party is the online menu's Split-Screen and Host Game. Returns the text with the main menu laid out and
 // the Extras screen added; empty when the menu is not as expected
@@ -191,7 +192,7 @@ inline std::string MainMenuLayout(const std::string& text) {
     const std::string multiplayer =
         Relabel(row(online), "Multiplayer", "", {"Server browser, split-screen, hosting, Direct-IP."});
     const std::string extras = Relabel(row(training), "Extras", std::string("open ") + kExtrasScreen,
-                                       {"Training, and changing your profile."});
+                                       {"Training, your profile and mods."});
     if (instant.empty() || multiplayer.empty() || extras.empty()) return {};
     // the main table's rows: from its first row to its last, replaced
     const size_t first = std::min({training.first, single.first, online.first, party.first, options.first, profile.first});
@@ -205,7 +206,10 @@ inline std::string MainMenuLayout(const std::string& text) {
         if (at != std::string::npos) others.erase(at, t.size());
     }
     const std::string rows = instant + multiplayer + row(options) + others + extras;
-    const std::string hub = HubScreen(kExtrasScreen, "Extras", row(training) + row(profile));
+    const std::string hub = HubScreen(kExtrasScreen, "Extras",
+                                      row(training) + row(profile) +
+                                          HubRow("Mods", "Turn installed mods on or off. Changes take",
+                                                 "effect when the game next starts.", "open SuperLauncher_PCMods"));
     return text.substr(0, first) + rows + text.substr(last) + hub;
 }
 

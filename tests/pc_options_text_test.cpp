@@ -114,8 +114,10 @@ int main() {
     Check(labels_of(menu, "SuperLauncher_MainScreen") ==
               std::vector<std::string>({"Instant Action", "Multiplayer", "Options", "Extras"}),
           "main menu: Instant Action, Multiplayer, Options, Extras (no gap)");
-    Check(labels_of(menu, pcmenu::kExtrasScreen) == std::vector<std::string>({"Training", "Change Profile"}),
-          "Extras: Training and Change Profile");
+    Check(labels_of(menu, pcmenu::kExtrasScreen) == std::vector<std::string>({"Training", "Change Profile", "Mods"}),
+          "Extras: Training, Change Profile, Mods");
+    Check(menu.find("CommandSelect \"open SuperLauncher_PCMods\"", menu.find(pcmenu::kExtrasScreen)) != std::string::npos,
+          "Extras' Mods opens the Mods screen");
     auto command_of = [&](const std::string& screen, const std::string& label) {
         size_t at = menu.find("\n" + screen + "\r\n"), l = menu.find("CellFixed \"" + label + "\"", at);
         size_t c = menu.rfind("CommandSelect \"", l), e = menu.find('"', c + 15);
