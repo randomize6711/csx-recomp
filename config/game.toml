@@ -658,6 +658,10 @@ call = "PcWideRect2D"
 at = 0x72480
 call = "PcGlTexSubImage"
 
+[[hook]]
+at = 0x5236D
+call = "PcDlightsSweep"
+
 # the loading screen's progress bar held inside its frame (src/game/pc_loading.cpp)
 [[hook]]
 at = 0xC2F69
