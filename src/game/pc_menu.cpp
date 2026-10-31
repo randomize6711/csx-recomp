@@ -913,32 +913,44 @@ std::string PanelLines(const char* colour) {
 
 // the list's columns: the label, then the value with its arrows (2026-10-30: wider value columns; a 60/40 split cut
 // values such as "Native (1920x1080)" and the panel's labels)
+// the label's share (beside a panel the value's is wider; ArrowImages takes the same)
+constexpr int kLabelPercent = 52, kPanelLabelPercent = 55;
 std::string Columns(const PcScreen& s) {
-    const char* label = s.panel ? "55" : "52";
-    const char* value = s.panel ? "45" : "48";
-    return std::string("\t\t\tColumnWidthPercentage \"") + label + "\"\r\n\t\t\tColumnJustify \"truncated\"\r\n"
-           "\t\t\tColumnWidthPercentage \"" + value + "\"\r\n\t\t\tColumnJustify \"center\"\r\n";
+    int label = s.panel ? kPanelLabelPercent : kLabelPercent;
+    return "\t\t\tColumnWidthPercentage \"" + std::to_string(label) + "\"\r\n\t\t\tColumnJustify \"truncated\"\r\n"
+           "\t\t\tColumnWidthPercentage \"" + std::to_string(100 - label) + "\"\r\n\t\t\tColumnJustify \"center\"\r\n";
+}
+
+// the value's arrows (Arrows_Selected, and Arrows_Unselected on the front end) over a table's value column. The game
+// draws a centred cell's text kValueBias x its text scale left of the column's centre (measured on the window shots:
+// 12.5 menu units at 0.8, 13.1 at 0.875, on 384 and 500 wide tables, whatever the text's length; the title's own
+// Control Options art sits as far left of its column's centre). The image keeps the column's left edge and gives up
+// twice that at its right, so the value is centred between its arrows on every screen, size and aspect.
+constexpr float kValueBias = 15.2f;
+std::string ArrowImages(float table_width, float label_percent, float scale, bool unselected) {
+    float column = table_width * label_percent / 100.0f, width = table_width - column;
+    float x = column + 2.0f, w = width - 4.0f - 2.0f * kValueBias * scale;
+    char geometry[64];
+    std::snprintf(geometry, sizeof geometry, " %.1f 2.0 %.1f 22.0\"\r\n", x, w);
+    std::string t = std::string("\t\t\tHighlightImage \"Arrows_Selected 1.0 1.0 1.0 1.0") + geometry;
+    if (unselected) t += std::string("\t\t\tNonHighlightImage \"Arrows_Unselected 1.0 1.0 1.0 1.0") + geometry;
+    return t;
 }
 
 // the list's table: the whole width, or beside a panel (narrower, a smaller text, its arrows moved with its value
-// column); the arrows' image spans the value column (Columns)
+// column); the arrows' image over the value column (ArrowImages)
 std::string TableLayout(const PcScreen& s, bool front_end) {
     if (!s.panel)
         return front_end ? std::string("\t\t\tTableVerticalWrap\r\n\t\t\tTableTextScale \"0.875\"\r\n\t\t\tTableLocation \"75 100\"\r\n"
                                        "\t\t\tTableRowSpacing \"5\"\r\n\t\t\tTableSize \"500 ") + (s.status_lines ? "140" : "250") + "\"\r\n"
-                                       "\t\t\tNonSelectFG \"0.24 0.29 0.33 1\"\r\n"
-                                       "\t\t\tHighlightImage \"Arrows_Selected 1.0 1.0 1.0 1.0 262.0 2.0 236.0 22.0\"\r\n"
-                                       "\t\t\tNonHighlightImage \"Arrows_Unselected 1.0 1.0 1.0 1.0 262.0 2.0 236.0 22.0\"\r\n"
+                                       "\t\t\tNonSelectFG \"0.24 0.29 0.33 1\"\r\n" + ArrowImages(500, kLabelPercent, 0.875f, true)
                          : "\t\t\tTableVerticalWrap\r\n\t\t\tTableTextScale \"0.875\"\r\n\t\t\tTableLocation \"75 100\"\r\n"
-                           "\t\t\tTableRowSpacing \"5\"\r\n\t\t\tTableSize \"475 300\"\r\n"
-                           "\t\t\tHighlightImage \"Arrows_Selected 1.0 1.0 1.0 1.0 249.0 2.0 224.0 22.0\"\r\n";
+                           "\t\t\tTableRowSpacing \"5\"\r\n\t\t\tTableSize \"475 300\"\r\n" +
+                               ArrowImages(475, kLabelPercent, 0.875f, false);
     std::string t = "\t\t\tTableVerticalWrap\r\n\t\t\tTableTextScale \"0.8\"\r\n\t\t\tTableLocation \"232 100\"\r\n"
                     "\t\t\tTableRowSpacing \"5\"\r\n\t\t\tTableSize \"384 250\"\r\n";
-    if (front_end)
-        return t + "\t\t\tNonSelectFG \"0.24 0.29 0.33 1\"\r\n"
-                   "\t\t\tHighlightImage \"Arrows_Selected 1.0 1.0 1.0 1.0 213.0 2.0 169.0 22.0\"\r\n"
-                   "\t\t\tNonHighlightImage \"Arrows_Unselected 1.0 1.0 1.0 1.0 213.0 2.0 169.0 22.0\"\r\n";
-    return t + "\t\t\tHighlightImage \"Arrows_Selected 1.0 1.0 1.0 1.0 213.0 2.0 169.0 22.0\"\r\n";
+    if (front_end) return t + "\t\t\tNonSelectFG \"0.24 0.29 0.33 1\"\r\n" + ArrowImages(384, kPanelLabelPercent, 0.8f, true);
+    return t + ArrowImages(384, kPanelLabelPercent, 0.8f, false);
 }
 
 // the front end's screen: its Control Options screen (backgrounds, sounds, arrows, layout, help lines); the list

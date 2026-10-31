@@ -41,7 +41,7 @@ sleep 0.3
 click 1
 sleep 2
 windowshot after_hub_click
-point 570 121
+point 535 121
 sleep 0.5
 click 1
 sleep 1

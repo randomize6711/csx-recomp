@@ -45,7 +45,7 @@ sleep 4
 expect log pc mouse: screen SuperLauncher_SinglePlayerMatchCustomOptions, 10 rows
 windowshot custom
 expect image custom 20
-point 545 355
+point 535 355
 sleep 0.5
 click 1
 sleep 1

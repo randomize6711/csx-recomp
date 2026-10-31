@@ -58,7 +58,7 @@ sleep 2
 expect log pc mouse: screen InGame_PCGraphics, 5 rows from 240 108, 24 high
 pckey pointer 500 121
 sleep 0.5
-pckey pointer 600 121
+pckey pointer 578 121
 sleep 0.5
 pckey mclick 1
 sleep 1

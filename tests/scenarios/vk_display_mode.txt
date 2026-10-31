@@ -35,7 +35,7 @@ sleep 0.5
 click 1
 sleep 3
 expect log pc mouse: screen SuperLauncher_PCGraphics, 5 rows
-point 600 121
+point 578 121
 sleep 0.5
 click 1
 sleep 1
@@ -58,7 +58,7 @@ sleep 0.5
 click 1
 sleep 3
 expect log pc mouse: screen SuperLauncher_PCVideo, 5 rows
-point 600 121
+point 578 121
 sleep 0.5
 click 1
 sleep 1
@@ -72,7 +72,7 @@ point 150 124
 sleep 0.5
 click 1
 sleep 3
-point 600 121
+point 578 121
 sleep 0.5
 click 1
 sleep 1
