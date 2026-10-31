@@ -44,6 +44,17 @@ The game's rules object is CHalfLifeMultiplay. Its `Think` (0x147620) runs every
   primary and the pistol bought, per player, bots too. At each respawn, 0.6 s after it (see the limitation below),
   the player gets the knife, the pistol bought (else the team's: USP or Glock) and the primary bought. A weapon picked
   up from the ground never enters the loadout (only purchases are seen). A team change clears it. Not in Gun Game.
+- **Grenades in the loadout (2026-10-31).** After a purchase that adds a grenade (the player's HE, flashbang and smoke
+  counts before and after, read from m_rgAmmo by the game's ammunition table at 0x5282C0), the loadout's grenades are
+  the ones held then. Buying another kind updates it; throwing some and buying again sets it to what is held then. At
+  each respawn they are given after the strip (`GiveNamedItem` per grenade: a second flashbang adds to the first), held
+  to the game's limits (`pcmodes::GrenadeCount`: 1 HE, 2 flashbangs, 1 smoke), so nothing adds up across lives.
+  Grenades thrown in a life are not given back in it. A team change clears them with the weapons.
+- **Free armour and helmet (2026-10-31).** At each respawn every player, bots too, gets the game's `item_assaultsuit`
+  (its touch 0x12B4D0: armour 100, the helmet, the pickup sound and the HUD's ArmorType message), free: no money
+  changes. Damage to armour works as the game's. The buy menu's Kevlar and Kevlar+Helmet stay: with full armour and a
+  helmet the game itself refuses them ("already have"), so no money is lost; after damage they repair the armour at
+  the game's price.
 - The match ends at `mp_timelimit` (Think's own check) or when a player reaches the **frag limit** (`pc_fraglimit`, 0
   for none).
 - Teams are kept (team deathmatch). Friendly fire follows `mp_friendlyfire`.
@@ -78,6 +89,17 @@ Ladder of 23 levels:
   Frags are no longer used for levels.
 - A knife kill at the knife level wins. Everyone sees "NAME wins Gun Game!" and the match ends.
 - Players see their level as a centre text at each spawn and level-up.
+- **Nothing dropped, nothing picked up (2026-10-31).** Gun Game's equipment is the mode's alone
+  (`pcmodes::PickupAllowed`). These are the server's own functions, so bots, split-screen players and network
+  clients are all covered:
+  - a death drops nothing: the death drop (PackDeadPlayerItems 0x118AF0) takes the game's own "drop nothing" way
+    (hook 0x118B25 to 0x118B29: every item removed, no weapon box made), so no weapons gather on the ground;
+  - the drop key drops nothing (DropPlayerItem 0x123C00, hook 0x123C2E to its own return 0x123C6F);
+  - a weapon box (0x1394D0, hook 0x139510) and a map's armoury (0x13A500, hook 0x13A51A) give nothing;
+  - a weapon lying in the world is refused at its touch (DefaultTouch 0x1375F0, hook 0x137638). A weapon the game
+    gives (GiveNamedItem marks it SF_NORESPAWN before handing it over) is taken as before: the level's weapons.
+  - Switching between the knife and the level's weapon is unchanged.
+  Other modes keep the game's own drops and pickups.
 
 ### Unlimited reserve ammunition (both modes)
 
@@ -96,7 +118,8 @@ indexes are learnt from GiveAmmo's return values.
 - **The HUD's round timer** counts down to 0:00 and stays there. The server ignores it.
 - **No free-for-all.** Deathmatch is team deathmatch.
 - **Gun Game details:**
-  - Weapons dropped by dead players can be picked up; their kills do not count for a level.
+  - No weapon is dropped or picked up (above). A box left from before Gun Game was chosen stays until its own
+    removal (its think) or the map changes, but cannot be picked up.
   - The HE-grenade level is left out, because re-giving grenades would leak weapon entities.
   - Bots use what they are given but do not know the ladder.
 - **Mid-match changes.** A mode set in the middle of a match takes effect at once. Players already alive keep their
@@ -112,5 +135,6 @@ indexes are learnt from GiveAmmo's return values.
   - `pc_fraglimit 2` typed at the console ends the match and the next map loads.
 - `tests/scenarios/regress_mode_gungame.txt` (headless, `tests/launch/de_aztec_gungame`): levels are reached, respawns
   happen, no round ends, and every ladder weapon name resolves.
-- `tests/pc_modes_rules_test.py` (no game): Gun Game's kill rule, the weapons' slots, unlimited reserve's weapons.
+- `tests/pc_modes_rules_test.py` (no game): Gun Game's kill rule and pickups, the weapons' slots, unlimited
+  reserve's weapons, Deathmatch's grenade limits.
 - A Gun Game win, spawn protection's glow and the lobby/Custom Game rows are on the manual checklist.

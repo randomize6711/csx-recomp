@@ -87,7 +87,7 @@ fidelity audit"):
 The title's dynamic gamma (FINDINGS.md "Dynamic gamma"), with `CSX_LOG_DYNGAMMA=1` (its measurement and ramp points
 once a second; drive.py `exposure NAME`, `expect exposure`, `expect exposurediff`, `expect exposuretrack`):
 `vk_auto_exposure.txt` (Vulkan: the late read-back, settling, floor / sky / back, the pause menu's identity ramp, after
-a flashbang, PC Options' Auto Exposure Off and On by mouse), `vk_auto_exposure_rates.txt` (30, 120 and 240 frames per
+a flashbang, Video's Auto Exposure Off and On by mouse), `vk_auto_exposure_rates.txt` (30, 120 and 240 frames per
 second: the same points, the rates held) and `regress_dynamic_gamma.txt` (headless: the reference renderer's 8 bit
 target, the setting). `CSX_DYNGAMMA_READBACK=0` leaves the read-back out (the earlier behaviour, for comparisons).
 
@@ -123,7 +123,7 @@ bounds (before the cube texture was bound: below them), the cube texture's creat
 
 ## Bloom
 
-The title's bloom and PC Options' Bloom (FINDINGS.md "Bloom"), at de_aztec's white sky with the player held there
+The title's bloom and Video's Bloom (FINDINGS.md "Bloom"), at de_aztec's white sky with the player held there
 (`setview`): `regress_bloom.txt` (headless, the reference renderer) starts with Bloom Off (`--pc bloom=0`) and expects
 the map's light config's 0.5 taken back to 0, On giving 0.5 back and the glow across the frame's upper right quarter
 (`expect regiondiff`; before SDK patch 0034 the composite was clipped to the top left corner), and a console intensity
@@ -312,13 +312,13 @@ current vertex data is lost (SDK patch 0025).
 0.3 degrees apart (`expect darkfrac NAME X0 Y0 X1 Y1 LUM MIN MAX`: share of the box's pixels darker than LUM): the
 sign's ink fills about 0.57 of the box with the polygon offset, 0.00-0.46 and varying without it (SDK patch 0026).
 
-## PC Options
+## PC settings in Options
 
-`regress_pc_options.txt` boots through the front end to Options > PC Options (the screen added to the game's own menu
+`regress_pc_options.txt` boots through the front end to Options > Mouse (the PC rows added to the game's own menu
 text, src/game/pc_menu.cpp), seeded with `--pc mouse_sensitivity=4` (drive.py writes the run folder's
 pc_settings.ini; without --pc a run starts with none), steps the setting to 6, accepts, checks the save in the log and
-that Control Options still opens. `regress_pc_options_ingame.txt` does the same from the direct match through the
-pause menu (START > Options > PC Options). run_regression.sh passes `--pc` lines of a scenario header like `--env`
+that Controller still opens. `regress_pc_options_ingame.txt` does the same from the direct match through the
+pause menu (START > Options). run_regression.sh passes `--pc` lines of a scenario header like `--env`
 ones.
 
 ## PC key bindings
@@ -342,7 +342,7 @@ and 0.7 s (it does not) at 30, 60, 120 and 240 frames per second.
 
 `regress_pc_fov.txt` starts a match with FOV 110 (`--pc fov=110`), buys an AWP through the buy menu (+buymenu, the
 pie's directions), zooms to its 40 and 10 and back (the game's own FOVs, logged by src/game/pc_view.cpp as "pc view:
-fov N"), then sets 115 in the pause menu's PC Options and sees it applied.
+fov N"), then sets 115 in the pause menu's Options > Video and sees it applied.
 
 ## Widescreen
 
@@ -408,8 +408,8 @@ window scenarios too.
 The headless scenarios send the pointer in the menus' 640x480 (`pckey pointer X Y`), clicks (`pckey mclick 1|2|11`:
 left, right, left double) and wheel notches (`pckey mwheel N`) to src/game/pc_mouse.cpp; it logs each screen with its
 rows ("pc mouse: screen NAME, 7 rows from 160 128, 26 high, 340 wide"), which gives the coordinates to point at.
-`regress_pc_menu_mouse.txt` (in game: team, buy pie, pause menu, PC Options) and `regress_pc_menu_mouse_fe.txt`
-(front end: main menu, PC Options with the help bar, PC Controls with the wheel). `vk_menu_mouse.txt` drives the
+`regress_pc_menu_mouse.txt` (in game: team, buy pie, pause menu, Options > Video) and `regress_pc_menu_mouse_fe.txt`
+(front end: main menu, Options > Video with the help bar, PC Controls with the wheel). `vk_menu_mouse.txt` drives the
 Vulkan window with SDL mouse events: `point X Y` moves the pointer to a menu point through the window's own mapping,
 `click 1|3|11` clicks there.
 

@@ -1,4 +1,4 @@
-# Details and typed numbers (N5B, src/game/pc_menu.cpp, src/linux/window_input.cpp), in the pause menu's PC Options >
+# Details and typed numbers (N5B, src/game/pc_menu.cpp, src/linux/window_input.cpp), in the pause menu's Options >
 # Mouse: the hint under the list names Y (Details) and, on Mouse Sensitivity, the range to type. Invert Mouse is
 # changed (not saved yet), then Y (Q) on Mouse Sensitivity opens its Details; Escape comes back with Invert Mouse still
 # changed. Typed 50 is refused (its range shown in the row); typed 2.75 then Enter becomes the row's own value,
@@ -20,7 +20,7 @@ key Left_Ctrl
 sleep 15
 pckey cmd bot_zombie 1
 expect log input: relative mouse mode on through 
-# the pause menu, Options (its sixth row), PC Options (third), Mouse (the hub's second)
+# the pause menu, Options (its sixth row), Mouse (its fourth)
 mark
 key Escape
 wait newlog pc keys: menu InGame_RootSinglePlayer
@@ -42,9 +42,6 @@ key Down
 sleep 0.5
 key Down
 sleep 0.5
-key Space
-wait newlog pc mouse: screen InGame_PCOptions
-sleep 1
 key Down
 sleep 0.5
 key Space
@@ -105,8 +102,6 @@ expect setting mouse_invert 1
 key Escape
 sleep 1
 key Escape
-sleep 1
-key Escape
 wait newlog pc keys: playing
 sleep 2
 pckey set mouse_invert 0
@@ -134,10 +129,7 @@ sleep 0.5
 key Space
 wait newlog pc mouse: screen Options,
 sleep 1
-# (the title keeps each screen's highlighted row: PC Options, then Mouse, again)
-key Space
-wait newlog pc mouse: screen InGame_PCOptions
-sleep 1
+# (the title keeps each screen's highlighted row: Mouse, again)
 key Space
 wait newlog pc mouse: screen InGame_PCMouse, 4 rows
 expect count pc.menu:.Mouse.Sensitivity.shows.2.75.\(its.own.value\) 2
@@ -147,7 +139,7 @@ key Left
 sleep 0.5
 windowshot left
 key Escape
-wait newlog pc mouse: screen InGame_PCOptions
+wait newlog pc mouse: screen Options,
 sleep 1
 expect setting mouse_sensitivity 2.75
 expect nolog guest trap

@@ -1,4 +1,4 @@
-# PC Options > Xbox Graphical Effects, headless (FINDINGS.md "Xbox Graphical Effects", src/common/pc_settings.cpp
+# Options > Video > Xbox Graphical Effects, headless (FINDINGS.md "Xbox Graphical Effects", src/common/pc_settings.cpp
 # pc::XboxEffect): the master over the two optional effects, Bloom (cl_hdrbloom) and Auto Exposure (cl_dynamicgamma).
 # Started with the master Off saved and Bloom and Auto Exposure On saved: both are off from the map's first frame
 # (the map's 0.5 and 1 taken back after its light config) while their own saved values stay 1. Then all eight

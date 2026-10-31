@@ -1,7 +1,7 @@
 # Auto exposure at 30, 120 and 240 frames per second (FINDINGS.md "Dynamic gamma"): the title steps its ramp by the
 # frame time, so it settles on the same points and moves as far in a second at every rate; the late copy of its
 # measurement never makes the frame wait (the rates hold). The Frame Rate Limit changed while playing (pckey set, as
-# PC Options' Accept), VSync off for 240. At each rate: level view, then the floor (one second and eight seconds
+# Options > Video's Accept), VSync off for 240. At each rate: level view, then the floor (one second and eight seconds
 # after looking down), then level again. The look down is about 60 degrees (26 x 35 counts, 0.066 degree a count), inside
 # the 89-degree clamp, so the same stream up returns to level: a stream past the clamp (26 x 80) came back 48 degrees
 # up, and the level views at 120 and 240 were of the sky against level30's horizon (+0.018 "middle" from the view,

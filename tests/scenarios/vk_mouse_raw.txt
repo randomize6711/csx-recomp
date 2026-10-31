@@ -6,7 +6,7 @@
 # second: no acceleration, smoothing, frame time or lost or doubled motion; at 240 every look pass turns about the same
 # (the window waits on events: read in 5 ms batches some frames had none and the next two). Sensitivity 1.5 halves
 # the turn, Invert Mouse flips the pitch, full screen changes nothing. Motion over the pause menu and the open console
-# does not turn the view, nor does any after them. Raw Mouse Input Off from the pause menu's PC Options is saved and
+# does not turn the view, nor does any after them. Raw Mouse Input Off from the pause menu's Options > Mouse is saved and
 # applied at once (SDL's relative system scale: the desktop's pointer motion; the pushed counts are not the desktop's,
 # so they turn the same), and On again.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960 -r 120), with
@@ -143,12 +143,8 @@ point 300 271
 sleep 0.5
 click 1
 sleep 2
-point 300 249
-sleep 0.5
-click 1
-sleep 2
-expect log pc mouse: screen InGame_PCOptions, 5 rows
-point 320 223
+expect log pc mouse: screen Options, 8 rows
+point 320 275
 sleep 0.5
 click 1
 sleep 2
@@ -164,8 +160,6 @@ sleep 2
 expect log pc: mouse_raw = 0
 expect log input: Raw Mouse Input off: 
 expect setting mouse_raw 0
-click 3
-sleep 2
 click 3
 sleep 2
 point 300 141

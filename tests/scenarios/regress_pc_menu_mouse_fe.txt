@@ -1,6 +1,6 @@
 # Mouse navigation in the front end's menus (FINDINGS.md "Mouse in the menus", src/game/pc_mouse.cpp; the pointer and
 # clicks through pc_keys.cpp's pckey requests, in the menus' 640x480): the main menu's Options row pointed at and
-# clicked, then PC Options; Field of View's right arrow clicked twice (100); the help bar's Reset (X) and Accept (A)
+# clicked, then Video; Field of View's right arrow clicked twice (100); the help bar's Reset (X) and Accept (A)
 # clicked (the defaults shown, saved); Keybinds by a click; the wheel scrolling the list (not the selection); the right button back.
 # Hover on the main menu plays its HighlightSound as the stick does.
 wait draws==1
@@ -24,12 +24,7 @@ expect log pc mouse: highlight menu/buy_hover.wav
 pckey mclick 1
 sleep 3
 expect log pc mouse: screen SuperLauncher_Options,
-pckey pointer 150 232
-sleep 1
-pckey mclick 1
-sleep 3
-expect log pc mouse: screen SuperLauncher_PCOptions,
-pckey pointer 150 124
+pckey pointer 150 120
 sleep 1
 pckey mclick 1
 sleep 3
@@ -58,10 +53,8 @@ pckey mclick 1
 sleep 2
 expect log pc: fov = 95
 expect log pc: settings saved
-pckey mclick 2
-sleep 3
-expect log pc mouse: screen SuperLauncher_Options,
-pckey pointer 150 268
+count pc.mouse:.screen.SuperLauncher_Options, 2
+pckey pointer 150 260
 sleep 1
 pckey mclick 1
 sleep 3
@@ -70,7 +63,7 @@ pckey mwheel -3
 sleep 3
 pckey mclick 2
 sleep 3
-count pc.mouse:.screen.SuperLauncher_Options, 2
+count pc.mouse:.screen.SuperLauncher_Options, 3
 pckey mclick 2
 sleep 3
 count pc.mouse:.screen.SuperLauncher_MainScreen 2

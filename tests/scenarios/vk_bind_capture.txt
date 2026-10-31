@@ -24,7 +24,7 @@ point 150 260
 sleep 0.5
 click 1
 sleep 3
-point 150 268
+point 150 260
 sleep 0.5
 click 1
 sleep 3
@@ -191,7 +191,7 @@ point 300 271
 sleep 0.5
 click 1
 sleep 2
-point 300 275
+point 300 327
 sleep 0.5
 click 1
 sleep 2

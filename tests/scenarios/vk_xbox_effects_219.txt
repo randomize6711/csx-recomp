@@ -1,4 +1,4 @@
-# PC Options > Xbox Graphical Effects in the Vulkan window at 21:9 (FINDINGS.md "Xbox Graphical Effects"): saved
+# Options > Video > Xbox Graphical Effects in the Vulkan window at 21:9 (FINDINGS.md "Xbox Graphical Effects"): saved
 # Off with Bloom and Auto Exposure saved On, the map starts with both off (its light config's cl_hdrbloom 0.5 and
 # cl_dynamicgamma 1 taken back, `expect effects`, CSX_LOG_EFFECTS=1) and their saved values untouched. The master
 # leaves the rendering fixes on: Vulkan's depth clamp (FOV 120, a K&M SMG bought: the reserve ammunition over the

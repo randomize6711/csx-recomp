@@ -10,7 +10,7 @@
 # scissor brightened by 10 to 32 levels). Auto Exposure Off from the start: the map's cl_dynamicgamma 1 is taken back
 # to 0 and no adjustment runs (CSX_LOG_DYNGAMMA logs one a second while it does; FINDINGS.md "Auto Exposure at the
 # start").
-# 4:3 windowed; the Bloom row of the pause menu's PC Options > Video (its last, row 10 of 10) turns it off with the mouse.
+# 4:3 windowed; the Bloom row of the pause menu's Options > Video (its last, row 10 of 10) turns it off with the mouse.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), with
 #   --launch tests/launch/de_aztec_nobots --env CSX_LOG_FADE=1 --env CSX_LOG_DYNGAMMA=1 --pc bloom=0
 #   --pc auto_exposure=0 --pc aspect=4:3
@@ -68,11 +68,7 @@ point 300 271
 sleep 0.5
 click 1
 sleep 2
-point 300 249
-sleep 0.5
-click 1
-sleep 2
-expect log pc mouse: screen InGame_PCOptions, 5 rows
+expect log pc mouse: screen Options, 8 rows
 point 320 197
 sleep 0.5
 click 1
@@ -89,8 +85,6 @@ sleep 2
 expect log pc: bloom = 0
 expect setting bloom 0
 expect count pc:.Bloom.off,.cl_hdrbloom.0$ 4
-click 3
-sleep 2
 click 3
 sleep 2
 point 300 141

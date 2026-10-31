@@ -1,7 +1,7 @@
-# VSync in the front end's PC Options, the Vulkan window with real SDL events (FINDINGS.md "VSync", src/vulkan/
+# VSync in the front end's Options > Video, the Vulkan window with real SDL events (FINDINGS.md "VSync", src/vulkan/
 # vk_backend.cpp, src/game/pc_menu.cpp). The surface's present modes are listed. Started with a saved vsync = 0 the
 # swapchain takes a present mode that does not wait (IMMEDIATE, else MAILBOX: gamescope offers MAILBOX and FIFO) and
-# the menus pass the display's 60 Hz under a 240 limit; VSync On from PC Options (the row's right arrow, Accept)
+# the menus pass the display's 60 Hz under a 240 limit; VSync On from Options > Video (the row's right arrow, Accept)
 # saves vsync = 1 and makes the swapchain again with FIFO (60), Off again goes back. The window is left alone: it
 # stays full screen at its size (a compositor's full screen, as on Hyprland), is not minimized, and Display Mode is
 # not applied. With no setting VSync is on: vk_vsync_play.txt.
@@ -27,12 +27,8 @@ point 150 268
 sleep 0.5
 click 1
 sleep 3
-point 150 232
-sleep 0.5
-click 1
-sleep 3
-expect log pc mouse: screen SuperLauncher_PCOptions, 5 rows
-point 150 124
+expect log pc mouse: screen SuperLauncher_Options, 9 rows
+point 150 120
 sleep 0.5
 click 1
 sleep 3
@@ -52,7 +48,7 @@ expect log vulkan: VSync on, the swapchain is made again
 expect log vulkan: swapchain 1600x900, .* present mode fifo \(VSync on\)
 sleep 2
 expect fps 55 63
-point 150 124
+point 150 120
 sleep 0.5
 click 1
 sleep 3

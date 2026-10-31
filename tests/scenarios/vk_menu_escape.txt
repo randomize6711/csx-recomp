@@ -1,7 +1,7 @@
-# Escape is Back in the menus, Exit Game, PC Options' screens (N5A, src/linux/window_input.cpp, src/game/pc_menu.cpp
-# ExtendExit / HubFrontEnd): from the main menu (7 rows: Exit Game last) Options, PC Options (a hub of 5: Video,
-# Mouse, Interface, Multiplayer, Mods), Video (its 10 settings); Escape goes back one screen at a time to the main menu
-# without starting anything. Exit Game asks: Escape is No (the main menu again); A closes the game.
+# Escape is Back in the menus, Exit Game, the PC settings screens (N5A, src/linux/window_input.cpp, src/game/pc_menu.cpp
+# ExtendExit / HubFrontEnd): from the main menu (7 rows: Exit Game last) Options (9 rows: Video, Sound Options,
+# Interface, Mouse, Controller, Keybinds, Multiplayer, Mods, View Credits), Video (its first, 10 settings); Escape goes
+# back one screen at a time to the main menu without starting anything. Exit Game asks: Escape is No (the main menu again); A closes the game.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960)
 # timeout: 300
 wait log renderer: vulkan
@@ -15,7 +15,7 @@ key Space
 sleep 8
 expect log pc mouse: screen SuperLauncher_MainScreen, 7 rows
 windowshot main_menu
-# Options (the fifth row), PC Options (its fourth), Video (the hub's first)
+# Options (the fifth row), Video (its first)
 key Down
 sleep 0.7
 key Down
@@ -25,27 +25,15 @@ sleep 0.7
 key Down
 sleep 0.7
 key Space
-wait log pc mouse: screen SuperLauncher_Options
+wait log pc mouse: screen SuperLauncher_Options, 9 rows
 sleep 2
-key Down
-sleep 0.7
-key Down
-sleep 0.7
-key Down
-sleep 0.7
-key Space
-wait log pc mouse: screen SuperLauncher_PCOptions, 5 rows
-sleep 2
-windowshot pc_options
+windowshot options
 key Space
 wait log pc mouse: screen SuperLauncher_PCVideo, 10 rows
 sleep 2
 windowshot video
-# Escape: back to PC Options, Options, the main menu
+# Escape: back to Options, the main menu
 mark
-key Escape
-wait newlog pc mouse: screen SuperLauncher_PCOptions
-sleep 1.5
 key Escape
 wait newlog pc mouse: screen SuperLauncher_Options
 sleep 1.5

@@ -4,9 +4,9 @@
 # de_dust2 (no bots: nothing ends the round): the measurement reads the frame (mean above 0), the ramp's points settle
 # and stay (no drift over 10 s), looking at the floor and at the sky moves them and looking back returns them; the
 # pause menu shows the title's identity ramp and the ramp comes back after it; after a flashbang at the player's feet
-# the exposure settles back on the scene once its white screen fade is over (FINDINGS.md "Flashbang"); PC
-# Options > Auto Exposure Off (by mouse: the row's arrow, a double click accepting) saves "0", stops the measurement
-# and sets the identity ramp, On (as Accept does) starts it again.
+# the exposure settles back on the scene once its white screen fade is over (FINDINGS.md "Flashbang"); the pause
+# menu's Options > Video > Auto Exposure Off (by mouse: the row's arrow, a double click accepting) saves "0", stops
+# the measurement and sets the identity ramp, On (as Accept does) starts it again.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), with
 #   --launch tests/launch/de_dust2_nobots --env CSX_VK_AUDIT=1 --env CSX_LOG_DYNGAMMA=1
 wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
@@ -100,11 +100,7 @@ point 300 271
 sleep 0.5
 click 1
 sleep 2
-point 300 249
-sleep 0.5
-click 1
-sleep 2
-expect log pc mouse: screen InGame_PCOptions, 5 rows
+expect log pc mouse: screen Options, 8 rows
 point 320 197
 sleep 0.5
 click 1
@@ -120,8 +116,6 @@ click 11
 sleep 2
 expect log pc: auto_exposure = 0
 expect setting auto_exposure 0
-click 3
-sleep 2
 click 3
 sleep 2
 point 300 141

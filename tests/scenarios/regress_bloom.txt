@@ -1,4 +1,4 @@
-# Bloom headless (FINDINGS.md "Bloom", src/game/pc_bloom.cpp): PC Options' Bloom is the title's cl_hdrbloom, which
+# Bloom headless (FINDINGS.md "Bloom", src/game/pc_bloom.cpp): Options > Video's Bloom is the title's cl_hdrbloom, which
 # each map's light config sets as the map starts ("exec <map>-light.cfg", 0.5 on de_aztec). Started with Bloom Off:
 # the map's 0.5 is taken back to 0; On gives the map's 0.5 back; an intensity set in the console (0.3) stays through
 # Off and On. The reference renderer's bloom, at aztec's white sky with the player held there (tools/drive.py

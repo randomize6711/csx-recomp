@@ -1,7 +1,7 @@
 # The flashbang's white-out at 30, 60, 120, 144 and 240 frames per second (FINDINGS.md "Flashbang"): the title times
 # its screen fade by the client clock, so it holds and fades for as long at every rate, in client and in real time,
 # and the frame is white while it holds; the exposure comes back after it. 30 and 60 with VSync on (a 60 Hz output),
-# 120, 144 and 240 with VSync off; the Frame Rate Limit changed while playing (pckey set, as PC Options' Accept). One
+# 120, 144 and 240 with VSync off; the Frame Rate Limit changed while playing (pckey set, as Options > Video's Accept). One
 # flashbang bought and thrown at the player's feet per rate, the view kept on the floor; the title opens the buy menu
 # itself as the player spawns and closes it 20 s later, the test buys after that.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960 -r 60), with

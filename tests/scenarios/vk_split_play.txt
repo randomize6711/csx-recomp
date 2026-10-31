@@ -5,7 +5,7 @@
 # (chooseteam: the team menu again, the other team picked): the server logs its new team. Player 1 dies (kill): it
 # spectates while player 2 plays on. A round restart (sv_restartround 1, player 1's server): both play the new round.
 # Bots stand still (bot_zombie) so the round lasts. Player 2 is put mid-map, away from both spawns (place); player 1 throws a
-# flashbang at its feet: its own view whites out (the screen fade over its whole 32:9 frame), player 2's does not. Player 1's PC Options Display Mode set to
+# flashbang at its feet: its own view whites out (the screen fade over its whole 32:9 frame), player 2's does not. Player 1's Options > Video Display Mode set to
 # Fullscreen makes the compositor's window full screen, Windowed again back.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
 #   --env CSX_SPLIT_COMPOSITOR=1 --env CSX_SPLIT_PLAYERS=2 --env CSX_SPLIT_ZCACHE=$PWD/build/zcache --env CSX_LOG_FADE=1

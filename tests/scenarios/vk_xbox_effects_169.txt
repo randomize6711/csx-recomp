@@ -1,8 +1,8 @@
-# PC Options > Xbox Graphical Effects through the menus, map changes and relaunches, in the Vulkan window at 16:9
+# Options > Video > Xbox Graphical Effects through the menus, map changes and relaunches, in the Vulkan window at 16:9
 # (FINDINGS.md "Xbox Graphical Effects"): saved Off before the start (Bloom and Auto Exposure saved On), the front end
 # starts de_airstrip in a new process (a relaunch reading pc_settings.ini) with both effects off from the map's first
 # frame (`expect effects`, CSX_LOG_EFFECTS=1: cl_hdrbloom and cl_dynamicgamma as the title holds them). The pause
-# menu's PC Options > Video > Xbox Visual Effects (the mouse: its arrow, a double click accepting) turns the master On: saved, the map's 0.5
+# menu's Options > Video > Xbox Visual Effects (the mouse: its arrow, a double click accepting) turns the master On: saved, the map's 0.5
 # and the adjustment back. A console cl_hdrbloom 0.8 stands, and the master Off and On again gives it back (On
 # restores what the cvar last held); the master Off, Change Map to de_aztec (another relaunch): its light config's 0.5
 # and 1 taken back to 0 before its first frame; the master On gives back de_aztec's own 0.5, not the console's 0.8.
@@ -51,11 +51,7 @@ point 300 271
 sleep 0.5
 click 1
 sleep 2
-point 300 249
-sleep 0.5
-click 1
-sleep 2
-expect log pc mouse: screen InGame_PCOptions, 5 rows
+expect log pc mouse: screen Options, 8 rows
 point 320 197
 sleep 0.5
 click 1
@@ -73,8 +69,6 @@ expect log pc: xbox_effects = 1
 expect setting xbox_effects 1
 expect setting bloom 1
 expect setting auto_exposure 1
-click 3
-sleep 2
 click 3
 sleep 2
 point 300 141

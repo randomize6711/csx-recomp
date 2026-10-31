@@ -1,6 +1,6 @@
 # Button prompts (N5D, src/game/pc_prompts.cpp, tools/make_prompts.py): the artwork loads beside the launcher's own
 # textures; the front end's legend strips are drawn as glyphs and the title's text. Automatic: the keyboard used (the
-# keys that pass the intro) shows the keyboard's keys. PC Options > Interface > Button Prompts (pc_settings.ini
+# keys that pass the intro) shows the keyboard's keys. Options > Interface > Button Prompts (pc_settings.ini
 # prompt_style) chosen: PlayStation, Nintendo Switch, Wii Remote, Xbox (Original) each take the glyphs' place on the
 # same screen (window shots, looked at by hand); Automatic again shows the keyboard's. No physical controller here:
 # a controller's own style (linux/pad_style.h) is not exercised.
@@ -27,17 +27,8 @@ sleep 0.7
 key Down
 sleep 0.7
 key Space
-wait log pc mouse: screen SuperLauncher_Options
+wait log pc mouse: screen SuperLauncher_Options, 9 rows
 sleep 2
-key Down
-sleep 0.7
-key Down
-sleep 0.7
-key Down
-sleep 0.7
-key Space
-wait log pc mouse: screen SuperLauncher_PCOptions, 5 rows
-sleep 1
 key Space
 wait log pc mouse: screen SuperLauncher_PCVideo
 sleep 1.5

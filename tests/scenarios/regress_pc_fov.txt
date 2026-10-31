@@ -1,5 +1,5 @@
 # Field of view (FINDINGS.md "FOV and widescreen", src/game/pc_view.cpp): seeded with 110, the unzoomed view uses it;
-# an AWP bought through the buy menu zooms to its own 40 and 10 and back to 110; the pause menu's PC Options > Video sets 115,
+# an AWP bought through the buy menu zooms to its own 40 and 10 and back to 110; the pause menu's Options > Video sets 115,
 # which applies at once.
 #   --launch tests/launch/de_airstrip_beginner --pc fov=110
 wait log open D:\\.*\.sxwad
@@ -43,12 +43,6 @@ press DOWN
 sleep 1
 press DOWN
 sleep 1
-press DOWN
-sleep 1
-press DOWN
-sleep 1
-press A
-sleep 2
 press DOWN
 sleep 1
 press DOWN

@@ -1,10 +1,10 @@
-# PC Options and the window's display mode, the Vulkan window with real SDL events (FINDINGS.md "PC Settings
+# The PC settings screens and the window's display mode, the Vulkan window with real SDL events (FINDINGS.md "PC Settings
 # minimizing", src/linux/window_main.cpp): a window the compositor made full screen (Hyprland's fullscreen key;
-# here a test request) stays full screen when PC Options are entered, a setting changed and accepted, and the screen
+# here a test request) stays full screen when Options > Video is entered, a setting changed and accepted, and the screen
 # left again with the right button (the Display Mode was applied on every save: the window went back to its tile,
 # looking minimized); changing Display Mode itself still applies it (Fullscreen, then Windowed). gamescope does not
 # keep SDL's full screen flag, so the check is the window's decision ("Display Mode ... applied"), not the
-# compositor's answer; that needs a play-test on the desktop. The settings are PC Options' screens (N5A): Field of
+# compositor's answer; that needs a play-test on the desktop. The settings are the Options screen's PC rows (N5A): Field of
 # View is Video's sixth row, Display Mode its first.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1600 -H 900)
 wait log renderer: vulkan
@@ -25,12 +25,8 @@ point 150 268
 sleep 0.5
 click 1
 sleep 3
-point 150 232
-sleep 0.5
-click 1
-sleep 3
-expect log pc mouse: screen SuperLauncher_PCOptions, 5 rows
-point 150 124
+expect log pc mouse: screen SuperLauncher_Options, 9 rows
+point 150 120
 sleep 0.5
 click 1
 sleep 3
@@ -45,7 +41,7 @@ click 1
 sleep 3
 expect log pc: fov = 95
 expect nolog window: Display Mode .* applied
-point 150 124
+point 150 120
 sleep 0.5
 click 1
 sleep 3
@@ -53,7 +49,7 @@ click 3
 sleep 3
 expect count pc.mouse:.screen.SuperLauncher_PCVideo, 2
 expect nolog window: Display Mode .* applied
-point 150 124
+point 150 120
 sleep 0.5
 click 1
 sleep 3
@@ -68,7 +64,7 @@ click 1
 sleep 3
 expect log pc: display_mode = fullscreen
 expect log window: Display Mode fullscreen applied
-point 150 124
+point 150 120
 sleep 0.5
 click 1
 sleep 3

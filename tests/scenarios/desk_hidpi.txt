@@ -1,7 +1,7 @@
 # High pixel density on a scaled desktop (FINDINGS.md "High pixel density", src/linux/window_main.cpp): the window's
 # surface has the display's own pixels (Hyprland at 1.6: a 581x643 window is 930x1029 pixels, full screen 2400x1350 is
 # 3840x2160), the swapchain and Native take them, the desktop mode is given in pixels, and the menus' pointer still
-# lands (logical units): PC Options opened by clicks. Not a gamescope test (it has no fractional scale): run on the
+# lands (logical units): Options > Video opened by clicks. Not a gamescope test (it has no fractional scale): run on the
 # desktop with
 #   python3 -I tools/drive.py tests/scenarios/desk_hidpi.txt --exe build/window/CounterStrike --run build/wruns/desk_hidpi
 #   --env CSX_RENDERER=vulkan --env FPS=30 --env CSX_AUDIO=null
@@ -20,11 +20,12 @@ point 150 268
 sleep 0.5
 click 1
 sleep 3
-point 150 232
+expect log pc mouse: screen SuperLauncher_Options, 9 rows
+point 150 120
 sleep 0.5
 click 1
 sleep 3
-expect log pc mouse: screen SuperLauncher_PCOptions, 5 rows
+expect log pc mouse: screen SuperLauncher_PCVideo,
 click 3
 sleep 2
 winctl fullscreen 1

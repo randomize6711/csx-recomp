@@ -1,25 +1,43 @@
-# The PC menus' structure (2026-10-31)
+# The PC menus' structure (2026-10-31, PC Options merged into Options the same day)
 
 The PC settings and online menus after the consolidation pass. The code is in src/game/pc_menu.cpp (`Screens()`),
 src/game/pc_scroll.cpp (scrollbar), src/game/pc_mouse.cpp (mouse) and src/game/pc_browser.cpp (online menu).
 
-## PC Options
+## Options (no PC Options since 2026-10-31)
+
+Every setting category is a row of the title's own Options screen, front end and pause menu. There is no PC Options
+hub any more. The code is `ExtendOptions` (src/game/pc_options_text.h, tested by tests/pc_options_text_test.py), and
+the row order is `kOptionsOrder`.
+
+| Row | Front end | Pause menu |
+|---|---|---|
+| Video | display, frame rate, field of view, effects | the same |
+| Sound Options | the title's 7 rows, then the PC's audio rows | the PC's audio rows (the title has no Sound Options there) |
+| Interface | gameplay effects, HUD, net graph, menus | the same |
+| Mouse | sensitivity, scoped sensitivity, invert, raw input | the same |
+| Controller | the title's Control Options (6 rows), then the PC's controller rows | the same |
+| Keybinds | keys and mouse buttons | the same |
+| Multiplayer | match server, network rates | the same |
+| Mods | installed mods | the same |
+| View Credits | the title's | (none) |
+
+- **Left out.** Online Options (Xbox Live status, Xbox voice: no service, no voice chat on a PC).
+- **Renamed.** The title's Control Options row and screen title are now "Controller".
+- **The title's rows** keep their commands and help as written; the PC's rows carry their help lines.
+- **Layout.** The front end's rows are 28 units apart (the title's 36), so the nine fit above the help lines, with no
+  scrolling. The pause menu's eight fit as they are.
+- **Back** from a category returns to Options.
 
 | Before | After |
 |---|---|
-| Video | **Video**: its rows and Advanced Graphics' |
-| Advanced Graphics | (in Video) |
-| Mouse | Mouse |
-| Keyboard (PC Controls) | **Keybinds**: a row of the title's Options only (front end and pause menu), no longer in PC Options |
-| Controller | its rows in the title's **Control Options** (Options > Controller) |
-| Audio | its rows in the title's **Sound Options** (Options > Sound), front end |
-| Gameplay | (in Interface) |
-| HUD and Menus | (in Interface) |
-| — | **Interface** |
-| Multiplayer | Multiplayer |
-| Mods | Mods |
-
-PC Options is a hub of five: Video, Mouse, Interface, Multiplayer, Mods.
+| Options > PC Options > Video | Options > Video |
+| Options > PC Options > Mouse | Options > Mouse |
+| Options > PC Options > Interface | Options > Interface |
+| Options > PC Options > Multiplayer | Options > Multiplayer |
+| Options > PC Options > Mods | Options > Mods |
+| Options > Keybinds | Options > Keybinds |
+| Options > Sound Options (front end only) | Options > Sound Options (both menus) |
+| Options > Control Options | Options > Controller |
 
 **Video**, in order:
 1. Display Mode
@@ -38,16 +56,15 @@ explanation panel stays beside the list.
 
 **Interface**, grouped in order:
 - Gameplay effects: Flashbang Effect, Death Camera.
-- HUD: HUD Scale, HUD Scale (Split Screen), Scoreboard, Net Graph, Net Graph Detail. The HUD editor (F7 in a match)
-  is unchanged.
+- HUD: HUD Scale, HUD Scale (Split Screen), Scoreboard, Net Graph, Net Graph Detail, Net Graph Size (Small, the
+  default since 2026-10-31; Medium; Original). The HUD editor (F7 in a match) is unchanged.
 - Menus: Smooth Menu Scrolling, Button Prompts (moved from Controller).
 
 The match rules (Custom Match, the party's Rules) are not here.
 
-**Keybinds** is PC Controls renamed. The screen ids, the `bind.*` keys and press-a-key rebinding are unchanged. It is
-opened from the title's Options (its own row there), not from PC Options: one entry.
+**Keybinds** is PC Controls renamed. The screen ids, the `bind.*` keys and press-a-key rebinding are unchanged.
 
-**Controller.** The title's Control Options (front end and pause menu) keeps its own six rows:
+**Controller.** The title's Control Options (front end and pause menu, now named Controller) keeps its own six rows:
 1. Inverted Look
 2. Look Sensitivity
 3. Fast Look
@@ -64,17 +81,18 @@ Then come the PC's rows, Flashlight and Spray Logo (the pad's buttons for them).
 There is no separate PC Controller page.
 
 **Sound.** The title's Sound Options (front end, `SuperLauncher_Sound`) keeps its own seven rows, then come the PC's
-audio rows: the same `embed` mechanism as Control Options (the PcScreen "Audio", `embed = "Sound"`, `embed_first = 7`,
-hidden from the hub). Accept saves the PC rows (`pc_options_save`) and then runs the title's own Accept
+audio rows: the same `embed` mechanism as Control Options (the PcScreen "Audio", `embed = "Sound"`, `embed_first = 7`). Accept saves the PC rows (`pc_options_save`) and then runs the title's own Accept
 (`stuffUItoPlayerData`). The pc_settings.ini keys are unchanged, so saved audio values carry over. The pause menu has
-no Sound Options screen in this title, so the audio settings are reached from the front end only.
+no Sound Options screen in this title: there the same rows are a screen of their own (`InGame_PCSound`, a copy of the
+PcScreen with `in_game_only`), so the audio settings are reached from both menus.
 
 **Saved settings.** Every setting keeps its pc_settings.ini key (and its profile scope), so existing settings and
 profiles carry over unchanged. Only where a row is shown changed.
 
 ## Scrollbar
 
-One component for every PC settings list, including the Controller rows in Control Options.
+One component for every PC settings list, including the Controller rows in Controller (the title's Control Options).
+The Options screen itself needs none: its nine rows fit.
 
 **Drawing.** At the end of the title's table draw (hook 0xCD1E2, pc_scroll.cpp `DrawBar`), a list that has more rows
 than it shows gets a 5-unit track and a thumb, 4 units right of the list:

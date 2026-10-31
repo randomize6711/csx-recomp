@@ -1,5 +1,5 @@
 # Death Camera First Person (N7, src/game/pc_gameplay.cpp, docs/n7_gameplay.md): in a match on de_dust2 (no bots), the
-# player dies (kill) with PC Options > Interface > Death Camera First Person: the view stays at its eyes, sinking and
+# player dies (kill) with Options > Interface > Death Camera First Person: the view stays at its eyes, sinking and
 # rolling onto its side (window shots during the fall and after it), then after 3 s the original's camera (a shot).
 # Looked at by hand; the log says the camera ran.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), with

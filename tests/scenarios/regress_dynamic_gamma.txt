@@ -1,7 +1,7 @@
 # Auto exposure headless (FINDINGS.md "Dynamic gamma", src/game/dynamic_gamma.cpp, SDK patch 0030): the reference
 # renderer stores the title's 40x60 LIN_L8 luminance measurement one byte a pixel and draws it on every frame, so after
 # a drawn frame (a snap) the title measures a picture (the ramp had sunk to black on RGB565 noise and cleared
-# targets) and its ramp settles on it; PC Options' Auto Exposure Off stops the measurement and sets the title's
+# targets) and its ramp settles on it; Options > Video's Auto Exposure Off stops the measurement and sets the title's
 # identity ramp, On starts it again.
 #   --env FPS=30 --env CSX_LOG_DYNGAMMA=1 --launch tests/launch/de_dust2_nobots
 wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad

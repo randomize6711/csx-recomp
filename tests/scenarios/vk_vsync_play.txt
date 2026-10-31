@@ -1,6 +1,6 @@
 # VSync and Frame Rate Limit while playing, the Vulkan window with real SDL events at a 120 Hz display (FINDINGS.md
 # "VSync", src/vulkan/vk_backend.cpp, src/game/pc_frame.cpp). VSync On with a 240 limit runs at the display's 120
-# (FIFO); VSync Off from the pause menu's PC Options (the right arrow, a double click accepting, Return to Game) makes
+# (FIFO); VSync Off from the pause menu's Options > Video (the right arrow, a double click accepting, Return to Game) makes
 # the swapchain again, the mouse is captured again on returning, and the frame rate passes 120 (the CPU's limit in a
 # match, about 170-190 here, not 240); then settings changed while playing (as Accept saves them): Off with 144, Off
 # with 60, On with 60, On with 240. At every one the movement keeps real time (1000 ms of movement a second), a jump
@@ -34,11 +34,7 @@ point 300 271
 sleep 0.5
 click 1
 sleep 2
-point 300 249
-sleep 0.5
-click 1
-sleep 2
-expect log pc mouse: screen InGame_PCOptions, 5 rows
+expect log pc mouse: screen Options, 8 rows
 point 320 197
 sleep 0.5
 click 1
@@ -55,8 +51,6 @@ sleep 2
 expect log pc: vsync = 0
 expect log vulkan: VSync off, the swapchain is made again
 expect log vulkan: swapchain 1152x864, .* present mode (immediate|mailbox) \(VSync off\)
-click 3
-sleep 2
 click 3
 sleep 2
 point 300 141

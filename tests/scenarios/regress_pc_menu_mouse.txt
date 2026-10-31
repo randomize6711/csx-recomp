@@ -1,7 +1,7 @@
 # Mouse navigation in the in-game menus (FINDINGS.md "Mouse in the menus", src/game/pc_mouse.cpp; pointer and clicks as
 # pckey requests in the menus' 640x480): Terrorist pointed at and clicked in team selection; the buy pie: Rifles, then
 # the Magnum (the AWP: its zoom to 40 proves the purchase) with the right button closing it; the pause menu's Options
-# and PC Options by clicks, Field of View's right arrow, a double click on the row accepting (115); Return to Game.
+# and Video by clicks, Field of View's right arrow, a double click on the row accepting (115); Return to Game.
 #   --launch tests/launch/de_airstrip_beginner --pc fov=110
 wait log open D:\\.*\.sxwad
 wait draws>=150
@@ -45,12 +45,7 @@ pckey pointer 300 271
 sleep 0.5
 pckey mclick 1
 sleep 2
-expect log pc mouse: screen Options,
-pckey pointer 300 249
-sleep 0.5
-pckey mclick 1
-sleep 2
-expect log pc mouse: screen InGame_PCOptions, 5 rows
+expect log pc mouse: screen Options, 8 rows
 pckey pointer 320 197
 sleep 0.5
 pckey mclick 1
@@ -69,8 +64,6 @@ sleep 0.2
 pckey mclick 11
 sleep 2
 expect log pc: fov = 115
-pckey mclick 2
-sleep 2
 pckey mclick 2
 sleep 2
 pckey pointer 300 141

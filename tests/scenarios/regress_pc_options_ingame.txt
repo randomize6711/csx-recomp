@@ -1,4 +1,4 @@
-# PC Options in the pause menu (InGameUI.txt's Options screen, src/game/pc_menu.cpp): START, Options, PC Options, Mouse (N5A); the
+# The PC screens in the pause menu (InGameUI.txt's Options screen, src/game/pc_menu.cpp): START, Options, Mouse (N5A); the
 # screen shows the seeded value (3.5, one step right makes it 4) and A saves during the match.
 #   --launch tests/launch/de_airstrip_beginner --pc mouse_sensitivity=3.5
 wait log open D:\\.*\.sxwad
@@ -32,8 +32,6 @@ press DOWN
 sleep 1
 press DOWN
 sleep 1
-press A
-sleep 2
 press DOWN
 sleep 1
 press A

@@ -3,7 +3,7 @@
 # of the virtual keyboard and a click types it; a click on the name field, then typed text (SDL text input), Backspace
 # and Enter (Done) make the profile; on the main menu the pointer's moves select rows with the game's HighlightSound
 # and the keyboard's d-pad (the game's own moves) still plays it; the menu sound is found in the capture at every
-# mouse move (tools/check_menu_audio.py); Options and PC Options by clicks, an arrow, Reset and Accept on the help bar;
+# mouse move (tools/check_menu_audio.py); Options and Video by clicks, an arrow, Reset and Accept on the help bar;
 # Keybinds by a click, the wheel, the right button back twice; the developer console over the menu takes clicks
 # away from it and Escape closes it.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), with
@@ -59,12 +59,7 @@ expect menuaudio
 click 1
 sleep 3
 expect log pc mouse: screen SuperLauncher_Options,
-point 150 232
-sleep 0.5
-click 1
-sleep 3
-expect log pc mouse: screen SuperLauncher_PCOptions,
-point 150 124
+point 150 120
 sleep 0.5
 click 1
 sleep 3
@@ -88,10 +83,8 @@ click 1
 sleep 2
 expect log pc: fov = 95
 expect log pc: settings saved
-click 3
-sleep 3
 expect count pc.mouse:.screen.SuperLauncher_Options, 2
-point 150 268
+point 150 260
 sleep 0.5
 click 1
 sleep 3

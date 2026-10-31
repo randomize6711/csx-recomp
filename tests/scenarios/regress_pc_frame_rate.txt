@@ -1,4 +1,4 @@
-# Frame rate (FINDINGS.md "Frame rate", src/game/pc_frame.cpp, PC Options > Frame Rate Limit): at 144 the title
+# Frame rate (FINDINGS.md "Frame rate", src/game/pc_frame.cpp, Options > Video > Frame Rate Limit): at 144 the title
 # presents 144 frames per second (the window's pacing and the engine's fps_max), and the movement is the same as at
 # any rate: GoldSrc's movement command counts whole milliseconds, which at 144 dropped 0.94 of every 6.94 ms (the
 # player walked 216 units/s instead of 250); the fraction is now carried. A jump rises 45 units, two seconds of
