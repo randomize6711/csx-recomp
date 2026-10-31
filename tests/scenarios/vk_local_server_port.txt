@@ -101,6 +101,9 @@ sleep 1
 key Space
 sleep 3
 expect last pc.mouse:.screen SuperLauncher_SystemLink
+# TODO(menu 2026-10-31): Host a Match (row 5, SuperLauncher_LocalServerOptions) is gone: Multiplayer has 3 rows now
+# (Server Browser, Peer-to-Peer, Direct-IP or Code). Re-do the hosted part through Peer-to-Peer (SuperLauncher_PCParty:
+# destination, map, mode, rules, the lobby's START) and recheck the screen the port message closes back into.
 key Down
 sleep 1
 key Down

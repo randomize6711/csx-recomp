@@ -1,7 +1,7 @@
-# PC key bindings (FINDINGS.md "PC key bindings", src/game/pc_keys.cpp, Options > PC Controls): keys reach the engine
+# PC key bindings (FINDINGS.md "PC key bindings", src/game/pc_keys.cpp, Options > Keybinds): keys reach the engine
 # as its own keys and run the bindings kept in keybindings[]. Seeded with Jump on Tab (a saved setting, as after a
 # restart): Tab jumps, Space does nothing, the pad's A still jumps, Mouse 1 fires, R reloads, B opens the buy menu; in
-# the pause menu's PC Controls X restores the defaults and A saves them: Space jumps again.
+# the pause menu's Keybinds X restores the defaults and A saves them: Space jumps again.
 #   --launch tests/launch/de_airstrip_beginner --pc bind.jump=TAB
 wait log open D:\\.*\.sxwad
 wait draws>=150

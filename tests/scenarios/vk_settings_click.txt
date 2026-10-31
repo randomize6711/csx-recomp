@@ -1,5 +1,5 @@
 # Issue 1 of the bug-fix pass (pc_browser.cpp PcBrowserScreen: Gameplay and Mods were taken for server lists, where a
-# click only selects): PC Options' hub opens Gameplay by a click; a click on the first row's right arrow and on the
+# click only selects): PC Options' hub opens Interface (once Gameplay) by a click; a click on the first row's right arrow and on the
 # second row's left arrow change their values; a click on ACCEPT in the legend saves them (pc_settings.ini).
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960)
 # timeout: 300
@@ -32,11 +32,11 @@ sleep 0.5
 key Space
 wait log pc mouse: screen SuperLauncher_PCOptions
 sleep 1.5
-point 200 340
+point 200 268
 sleep 0.5
 click 1
 sleep 1
-point 200 341
+point 200 269
 sleep 0.3
 click 1
 sleep 2

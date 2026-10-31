@@ -2,7 +2,7 @@
 # (FINDINGS.md "Xbox Graphical Effects"): saved Off before the start (Bloom and Auto Exposure saved On), the front end
 # starts de_airstrip in a new process (a relaunch reading pc_settings.ini) with both effects off from the map's first
 # frame (`expect effects`, CSX_LOG_EFFECTS=1: cl_hdrbloom and cl_dynamicgamma as the title holds them). The pause
-# menu's PC Options row 9 (the mouse: its arrow, a double click accepting) turns the master On: saved, the map's 0.5
+# menu's PC Options > Video > Xbox Visual Effects (the mouse: its arrow, a double click accepting) turns the master On: saved, the map's 0.5
 # and the adjustment back. A console cl_hdrbloom 0.8 stands, and the master Off and On again gives it back (On
 # restores what the cvar last held); the master Off, Change Map to de_aztec (another relaunch): its light config's 0.5
 # and 1 taken back to 0 before its first frame; the master On gives back de_aztec's own 0.5, not the console's 0.8.
@@ -55,17 +55,17 @@ point 300 249
 sleep 0.5
 click 1
 sleep 2
-expect log pc mouse: screen InGame_PCOptions, 10 rows
-point 320 223
+expect log pc mouse: screen InGame_PCOptions, 7 rows
+point 320 197
 sleep 0.5
 click 1
 sleep 2
-expect log pc mouse: screen InGame_PCGraphics, 5 rows
-point 578 147
+expect log pc mouse: screen InGame_PCVideo, 10 rows
+point 578 288
 sleep 0.5
 click 1
 sleep 1
-point 300 147
+point 300 288
 sleep 0.5
 click 11
 sleep 2

@@ -36,8 +36,6 @@ press A
 sleep 2
 press DOWN
 sleep 1
-press DOWN
-sleep 1
 press A
 sleep 2
 snap ig_pc

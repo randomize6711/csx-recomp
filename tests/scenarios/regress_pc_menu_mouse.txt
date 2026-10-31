@@ -50,19 +50,19 @@ pckey pointer 300 249
 sleep 0.5
 pckey mclick 1
 sleep 2
-expect log pc mouse: screen InGame_PCOptions, 10 rows
-pckey pointer 320 223
+expect log pc mouse: screen InGame_PCOptions, 7 rows
+pckey pointer 320 197
 sleep 0.5
 pckey mclick 1
 sleep 2
-expect log pc mouse: screen InGame_PCGraphics, 5 rows from 240 108, 24 high
-pckey pointer 500 121
+expect log pc mouse: screen InGame_PCVideo, 10 rows from 240 108, 24 high
+pckey pointer 500 240
 sleep 0.5
-pckey pointer 578 121
+pckey pointer 578 240
 sleep 0.5
 pckey mclick 1
 sleep 1
-pckey pointer 300 121
+pckey pointer 300 240
 sleep 0.5
 pckey mclick 1
 sleep 0.2

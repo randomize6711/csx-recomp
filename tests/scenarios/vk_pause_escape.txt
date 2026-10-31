@@ -1,6 +1,6 @@
 # Escape in a match (N5A, src/linux/window_input.cpp): playing, Escape opens the pause menu (the pad's START); held,
 # it does not close it again; pressed again it is Back (B) there: the pause menu closes, play resumes. Escape in the
-# pause menu's Options goes back to the pause menu; PC Options (its hub) opens Graphics, Escape goes back each screen.
+# pause menu's Options goes back to the pause menu; PC Options (its hub) opens Video, Escape goes back each screen.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), with
 #   --launch tests/launch/de_airstrip_beginner
 # timeout: 300
@@ -26,7 +26,7 @@ mark
 key Escape
 wait newlog pc keys: playing
 sleep 2
-# again, then Options (the pause menu's sixth row), PC Options, Graphics; Escape back each time
+# again, then Options (the pause menu's sixth row), PC Options, Video; Escape back each time
 mark
 key Escape
 wait newlog pc keys: menu InGame_RootSinglePlayer
@@ -52,10 +52,8 @@ key Space
 wait newlog pc mouse: screen InGame_PCOptions
 sleep 1
 windowshot pc_options
-key Down
-sleep 0.5
 key Space
-wait newlog pc mouse: screen InGame_PCGraphics, 5 rows
+wait newlog pc mouse: screen InGame_PCVideo, 10 rows
 sleep 1
 windowshot graphics
 mark

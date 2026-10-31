@@ -41,8 +41,6 @@ press A
 sleep 3
 press DOWN
 sleep 1
-press DOWN
-sleep 1
 press A
 sleep 3
 snap pc_options
@@ -74,6 +72,8 @@ press UP
 sleep 1
 press A
 sleep 3
+# TODO(menu 2026-10-31): Control Options now shows the PC's Flashlight and Spray Logo rows after its own six: the
+# control_options reference image may need re-taking.
 snap control_options
 expect image control_options 20
 expect nolog fatal error screen

@@ -1,6 +1,6 @@
-# Smooth menu scrolling (N5A, src/game/pc_scroll.cpp): PC Controls' list (longer than its table) is stepped down
+# Smooth menu scrolling (N5A, src/game/pc_scroll.cpp): Keybinds' list (longer than its table) is stepped down
 # past its last shown row; the frames after a step show the rows easing up (window bursts, looked at by hand), the
-# rows clipped to the table; with PC Options > Game > Smooth Menu Scrolling Off (pc_settings.ini menu_smooth_scroll=0)
+# rows clipped to the table; with PC Options > Interface > Smooth Menu Scrolling Off (pc_settings.ini menu_smooth_scroll=0)
 # the same step is a whole row at once.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960)
 # timeout: 300

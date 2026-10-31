@@ -1,5 +1,5 @@
 # Walking in every direction with the PC keys, the Vulkan window with real SDL events (FINDINGS.md "Walking right",
-# src/linux/window_input.cpp): in the pause menu's PC Controls with Move Right selected, holding D, A, W and S leaves
+# src/linux/window_input.cpp): in the pause menu's Keybinds with Move Right selected, holding D, A, W and S leaves
 # the bindings as they are (in the menus WASD were the pad's left stick, whose pieces stepped the selected row's key:
 # D made Move Right's key E, unseen, and D stopped walking right); Accept saves them unchanged. Playing: W forward, S
 # back, A left, D right, W and D together forward right, each along the view; nothing moves once they are let go;

@@ -1,8 +1,8 @@
 # Issue 4 of the bug-fix pass (pc_browser.cpp ExtendMultiplayer): the main menu's Xbox Live row is Online Play and
-# opens the PC's online menu (the System Link screen, "Multiplayer": LAN, Internet, Favorites, Recent, Join by Address,
-# Host) by a click; nothing waits for Xbox Live (the old row's black screen), and the main menu's Live status text
-# ("Sign In failed") is not drawn (main_menu shot). Back returns to the main menu, and the LAN Matches row opens the
-# PC server browser (the one browser).
+# opens the PC's online menu (the System Link screen, "Multiplayer": Server Browser, Peer-to-Peer, Direct-IP or
+# Code) by a click; nothing waits for Xbox Live (the old row's black screen), and the main menu's Live status text
+# ("Sign In failed") is not drawn (main_menu shot). Back returns to the main menu, and the Server Browser row opens the
+# PC server browser (the one browser, at its LAN tab).
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960)
 # timeout: 300
 wait log renderer: vulkan

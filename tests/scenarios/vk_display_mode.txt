@@ -5,7 +5,7 @@
 # looking minimized); changing Display Mode itself still applies it (Fullscreen, then Windowed). gamescope does not
 # keep SDL's full screen flag, so the check is the window's decision ("Display Mode ... applied"), not the
 # compositor's answer; that needs a play-test on the desktop. The settings are PC Options' screens (N5A): Field of
-# View is Graphics' first row, Display Mode Video's first.
+# View is Video's sixth row, Display Mode its first.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1600 -H 900)
 wait log renderer: vulkan
 wait log open d:\\Media\\Videos\\ESRB.xmv
@@ -29,13 +29,13 @@ point 150 232
 sleep 0.5
 click 1
 sleep 3
-expect log pc mouse: screen SuperLauncher_PCOptions, 10 rows
-point 150 160
+expect log pc mouse: screen SuperLauncher_PCOptions, 7 rows
+point 150 124
 sleep 0.5
 click 1
 sleep 3
-expect log pc mouse: screen SuperLauncher_PCGraphics, 5 rows
-point 578 121
+expect log pc mouse: screen SuperLauncher_PCVideo, 10 rows
+point 578 240
 sleep 0.5
 click 1
 sleep 1
@@ -45,19 +45,19 @@ click 1
 sleep 3
 expect log pc: fov = 95
 expect nolog window: Display Mode .* applied
-point 150 160
+point 150 124
 sleep 0.5
 click 1
 sleep 3
 click 3
 sleep 3
-expect count pc.mouse:.screen.SuperLauncher_PCGraphics, 2
+expect count pc.mouse:.screen.SuperLauncher_PCVideo, 2
 expect nolog window: Display Mode .* applied
 point 150 124
 sleep 0.5
 click 1
 sleep 3
-expect log pc mouse: screen SuperLauncher_PCVideo, 5 rows
+expect log pc mouse: screen SuperLauncher_PCVideo, 10 rows
 point 578 121
 sleep 0.5
 click 1

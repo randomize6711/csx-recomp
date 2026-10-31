@@ -20,7 +20,7 @@ key Left_Ctrl
 sleep 15
 pckey cmd bot_zombie 1
 expect log input: relative mouse mode on through 
-# the pause menu, Options (its sixth row), PC Options (third), Mouse (the hub's third)
+# the pause menu, Options (its sixth row), PC Options (third), Mouse (the hub's second)
 mark
 key Escape
 wait newlog pc keys: menu InGame_RootSinglePlayer
@@ -45,8 +45,6 @@ sleep 0.5
 key Space
 wait newlog pc mouse: screen InGame_PCOptions
 sleep 1
-key Down
-sleep 0.5
 key Down
 sleep 0.5
 key Space

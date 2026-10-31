@@ -1,5 +1,5 @@
 # N7 gameplay (docs/n7_gameplay.md, src/game/pc_gameplay.cpp), headless: de_aztec, no bots, the match line's
-# "+mp_flashlight 1 +pc_gravity 400", PC Options > Gameplay > Flashbang Effect Black. The gravity is set on the
+# "+mp_flashlight 1 +pc_gravity 400", PC Options > Interface > Flashbang Effect Black. The gravity is set on the
 # server; the flashlight (impulse 100, the binding's command) turns on and off on the server; held looking down
 # (tools/drive.py setview), the spray (impulse 201) sprays a logo on the floor (the server's spray, its next spray
 # time set; a snap shows what the client draws) and a flashbang bought (buyitem) and thrown at the player's feet

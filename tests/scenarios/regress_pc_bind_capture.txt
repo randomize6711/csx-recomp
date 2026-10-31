@@ -1,11 +1,11 @@
-# Press-a-key rebinding in PC Controls (FINDINGS.md "Press-a-key rebinding", src/game/pc_menu.cpp): from a fresh
-# front end, Options > PC Controls. A click on Jump's key name waits for a key (the pad's A meanwhile does nothing), K
+# Press-a-key rebinding in Keybinds (FINDINGS.md "Press-a-key rebinding", src/game/pc_menu.cpp): from a fresh
+# front end, Options > Keybinds. A click on Jump's key name waits for a key (the pad's A meanwhile does nothing), K
 # becomes Jump's; Enter (pckey bindstart, as the window sends it) on Fire waits, Mouse 5 becomes Fire's; Reload's wait
 # is cancelled by Escape (bindcancel) and by the pad's B, Reload unchanged and the screen still open; Use stepped by the
 # pad's right (the list as before); Next Weapon takes Wheel Up, which Previous Weapon held (the key goes to the row
 # just bound: Previous Weapon shows None at once); Toggle Developer Console refuses an unknown key and takes F2. A saves them all.
 # A Single Player match (the title relaunches: a new process reading pc_settings.ini): K jumps, Space does not, Mouse 5
-# fires, Mouse 1 does not. In the pause menu's PC Controls X restores the defaults and A saves them: Space jumps again.
+# fires, Mouse 1 does not. In the pause menu's Keybinds X restores the defaults and A saves them: Space jumps again.
 # The window's own routing (SDL keys, buttons, wheel, Escape, layouts) is vk_bind_capture.txt.
 wait draws==1
 expect nolog fatal error screen

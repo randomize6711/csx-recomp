@@ -1,6 +1,6 @@
 # The server browser in the Vulkan window at 4:3 (docs/pc_multiplayer.md "N3", src/game/pc_browser.cpp): six servers
 # answer on the LAN ports (tools/master/fake_main.cpp in the game's network namespace, spawn step). Main menu >
-# Multiplayer (renamed System Link) > LAN Matches lists the six with players, map and ping; the keyboard and mouse
+# Multiplayer (renamed System Link) > Server Browser (its LAN tab) lists the six with players, map and ping; the keyboard and mouse
 # drive it: a click on the Players header sorts by players (the fullest first), a click on a row selects it (no join),
 # a click on the Favorites tab switches tabs, Page Up twice goes back to LAN (Internet between), a click on "Sort" cycles the order, Escape
 # leaves. Shots of Multiplayer, the list and the details at this aspect ratio.
@@ -38,7 +38,7 @@ key Down
 sleep 1
 key Space
 sleep 3
-expect log pc mouse: screen SuperLauncher_SystemLink, 6 rows
+expect log pc mouse: screen SuperLauncher_SystemLink, 3 rows
 windowshot multiplayer
 key Space
 wait log browser:.LAN.Matches:.6.rows
