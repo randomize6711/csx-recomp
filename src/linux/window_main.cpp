@@ -15,6 +15,8 @@
 #endif
 #include <windows.h>
 #else
+#include <dlfcn.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #endif
 
@@ -120,8 +122,57 @@ void FinishHandover() {
     g_handover = nullptr;
 }
 #else
-void OpenHandover() {}
-void FinishHandover() {}
+// A title relaunch on Linux execs the image again (kernel::Relaunch): the window's display connection closed with the
+// old image, so the desktop showed (Hyprland: the workspace without its full-screen window) until the new image's
+// window was up and full screen again, about half a second, and a tiled window for a moment before that. Now the
+// relaunch leaves a child holding that one connection (SDK patch 0045: RELAUNCH_HOLD_FD, named here for each window),
+// so the old window stays on screen with its last frame; this image ends the child once its own window has shown
+// two frames as the Display Mode wants it (full screen, or a window), or after 3 s. One window at a time is the
+// user's: nothing here raises or focuses a window
+bool WantFullscreen();
+pid_t g_holder = 0;
+std::chrono::steady_clock::time_point g_holder_since;
+void OpenHandover() {
+    const char* h = std::getenv("RELAUNCH_HOLDER_PID");
+    if (h && std::atoi(h) > 0) {
+        g_holder = pid_t(std::atoi(h));
+        g_holder_since = std::chrono::steady_clock::now();
+        LOGI("window: relaunched, the last window held (pid %d) until this one shows", int(g_holder));
+    }
+    unsetenv("RELAUNCH_HOLDER_PID");
+}
+void EndHolder(const char* why) {
+    if (g_holder <= 0) return;
+    ::kill(g_holder, SIGKILL);
+    ::waitpid(g_holder, nullptr, 0);
+    LOGI("window: the last window let go (%s)", why);
+    g_holder = 0;
+}
+void FinishHandover() {
+    if (g_holder <= 0 || harness::g_frames < 2 || !g_window) return;
+    const bool full = (SDL_GetWindowFlags(g_window) & SDL_WINDOW_FULLSCREEN) != 0;
+    if (full == WantFullscreen()) return EndHolder(full ? "this one is full screen" : "this one is shown");
+    if (std::chrono::steady_clock::now() - g_holder_since > std::chrono::seconds(3)) EndHolder("3 s");
+}
+// the window's connection to the display (Wayland's, or X11's), named for the next relaunch to hold
+void NameHeldConnection(SDL_Window* win) {
+    SDL_PropertiesID props = SDL_GetWindowProperties(win);
+    int fd = -1;
+    if (void* d = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WAYLAND_DISPLAY_POINTER, nullptr)) {
+        if (void* lib = dlopen("libwayland-client.so.0", RTLD_LAZY | RTLD_NOLOAD)) {
+            if (auto get = reinterpret_cast<int (*)(void*)>(dlsym(lib, "wl_display_get_fd"))) fd = get(d);
+            dlclose(lib);
+        }
+    } else if (void* x = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_X11_DISPLAY_POINTER, nullptr)) {
+        if (void* lib = dlopen("libX11.so.6", RTLD_LAZY | RTLD_NOLOAD)) {
+            if (auto get = reinterpret_cast<int (*)(void*)>(dlsym(lib, "XConnectionNumber"))) fd = get(x);
+            dlclose(lib);
+        }
+    }
+    if (fd > 2) setenv("RELAUNCH_HOLD_FD", std::to_string(fd).c_str(), 1);
+    LOGI("window: %s", fd > 2 ? ("its display connection (descriptor " + std::to_string(fd) + ") kept on screen through a relaunch").c_str()
+                              : "no display connection found: a relaunch closes the window first");
+}
 #endif
 
 // Options > PC Options: Display Mode, windowed or fullscreen (SDL's borderless desktop fullscreen). Applied once the
@@ -308,6 +359,9 @@ int main(int argc, char** argv) {
                                        : SDL_WINDOW_RESIZABLE | (hidpi ? SDL_WINDOW_HIGH_PIXEL_DENSITY : SDL_WindowFlags(0)) |
                                            (g_vulkan ? SDL_WINDOW_VULKAN : SDL_WindowFlags(0)) | start_full);
     g_window = win;
+#ifndef _WIN32
+    if (!split_player && win) NameHeldConnection(win);
+#endif
     if (split_player) splitp::Start(win);
     else csx::SetSplitStarter(splitp::StartFromWindow);  // the Split Screen screen restarts the window as the compositor
     // the party leader's Quit Game (N4.8): as the window's own close (under the compositor: player 1 ends, and with it
@@ -810,5 +864,8 @@ int main(int argc, char** argv) {
         }
     }
     LOGI("window: closed");
+#ifndef _WIN32
+    EndHolder("the game closes");
+#endif
     kernel::Shutdown(0);
 }

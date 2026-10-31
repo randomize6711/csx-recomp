@@ -1,0 +1,46 @@
+--- a/runtime/kernel/boot.cpp
++++ b/runtime/kernel/boot.cpp
+@@ -1,4 +1,5 @@
+ #include <algorithm>
++#include <cstdio>
+ #include <cstring>
+ #include <cstdlib>
+ #include <fstream>
+@@ -17,6 +18,7 @@
+ #else
+ #include <fcntl.h>
+ #include <sys/syscall.h>
++#include <time.h>
+ #include <unistd.h>
+ #endif
+ #include "xbe/xbe.h"
+@@ -225,6 +227,29 @@
+     // its compositor)
+     if (const char* keep = std::getenv("RELAUNCH_KEEP_FD"); keep && std::atoi(keep) > 2)
+         ::fcntl(std::atoi(keep), F_SETFD, 0);
++    // the window's handover (as Windows' above): the host program names its window's display connection
++    // (RELAUNCH_HOLD_FD). A child holds that one descriptor open, nothing else, and runs nothing, so the window stays
++    // on screen with its last frame until the new image has its own up: the new image ends it (RELAUNCH_HOLDER_PID,
++    // its own child, the same process id), or it ends itself after 15 s
++    unsetenv("RELAUNCH_HOLDER_PID");
++    if (const char* hold = std::getenv("RELAUNCH_HOLD_FD"); hold && std::atoi(hold) > 2) {
++        const int fd = std::atoi(hold);
++        pid_t holder = ::fork();
++        if (holder == 0) {  // only async-signal-safe calls from here: the other threads did not come along
++            ::syscall(SYS_close_range, 0u, unsigned(fd - 1), 0u);
++            ::syscall(SYS_close_range, unsigned(fd + 1), ~0u, 0u);
++            struct timespec t = {15, 0};
++            while (::nanosleep(&t, &t) != 0) {
++            }
++            ::_exit(0);
++        }
++        if (holder > 0) {
++            char text[16];
++            std::snprintf(text, sizeof text, "%d", int(holder));
++            setenv("RELAUNCH_HOLDER_PID", text, 1);
++        }
++    }
++    unsetenv("RELAUNCH_HOLD_FD");  // the new image names its own window's
+     execl(path.c_str(), path.c_str(), nullptr);
+     std::_Exit(0);
+ #endif
