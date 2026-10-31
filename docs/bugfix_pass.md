@@ -170,6 +170,10 @@ the root cause found, the fix, the files and the targeted tests. Commits and res
 ## 14. Related items
 
 - **Radio text drawn several times.** Fixed with the radio menus (11).
+- **Deathmatch timer, corrected 2026-10-31.** Its first version broke Deathmatch: nobody could walk. The round's
+  length it set also replaced the freeze time's, so the freeze at the first round's start lasted the match's hour.
+  In the user's local-server logs: no "Round_Start", no kill. It now waits for the rules' own m_bFreezePeriod
+  (+0x04) to clear.
 - **Deathmatch timer at 0:00.** The HUD's timer shows the match's time left: the round's length (rules +0x38) set to
   end with mp_timelimit once the round proper runs, the players sent the game's own timer message (0x11B780).
 - **Death camera clipping, CS 1.6 model textures, spray logos.** Not changed in this pass (see the report).

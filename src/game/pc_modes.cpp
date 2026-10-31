@@ -66,6 +66,7 @@ constexpr uint32_t kNumEdicts = 0x62B418, kEdicts = 0x62B420, kEdictSize = 0x318
 constexpr uint32_t kModel = 0xB8, kNextThink = 0x104;
 constexpr uint32_t kCvarFindVar = 0x41F20, kCvarDirectSet = 0x41F90;  // Cvar_FindVar (name), Cvar_DirectSet (cvar, text)
 constexpr float kWeaponStayDefault = 20.f;
+constexpr uint32_t kFreezePeriod = 0x04;  // the rules' m_bFreezePeriod
 constexpr uint32_t kSendRoundTime = 0x11B780;  // the round timer to one player (stdcall: player, 2), from the rules'
                                                // round length (+0x38, seconds) and its start (+0x30)
 
@@ -324,13 +325,11 @@ void MatchTimer(X86Context& ctx, float now) {
     float limit = F(cvar + 0xC) * 60.f;
     if (g_map_start < 0) g_map_start = now;
     if (limit <= 0) return;
-    // not in the freeze time at the round's start: the round's length is the freeze time's then (mp_freezetime), and
-    // the game starts the round proper when it has run out
-    static uint32_t freeze_cvar = 0;
-    if (!freeze_cvar) freeze_cvar = FindCvar(ctx, "mp_freezetime");
-    int32_t freeze = freeze_cvar ? int32_t(F(freeze_cvar + 0xC)) : 0, secs = int32_t(R32(g_rules + 0x38));
-    if (freeze > 0 && secs == freeze) return;                      // the freeze time: its own length
-    if (now - F(g_rules + 0x30) < float(std::max(freeze, 0)) + 1.f) return;  // the round proper not yet a second old
+    // not in the freeze time at a round's start (the rules' m_bFreezePeriod, +0x04: Think clears it where it logs
+    // "Round_Start", 0x147B2B): the round's length is the freeze time's then, and the game ends the freeze when that
+    // has run out. (A guess from mp_freezetime and the round's start time missed it in local-server matches: the
+    // freeze got the match's hour and nobody could walk.)
+    if (R32(g_rules + kFreezePeriod)) return;
     bool human = false;  // the map's start before anyone joined: the game starts its first round itself
     for (uint32_t i = 0; i < R32(kMaxClients) && !human; i++) {
         uint32_t client = R32(kClients) + i * kClientSize;
