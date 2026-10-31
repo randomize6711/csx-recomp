@@ -115,7 +115,7 @@ void Save() {
     bool written = false;
     {
         std::ofstream f(tmp, std::ios::trunc);
-        f << "# PC settings (Counter-Strike Xbox recompilation), edited in Options > PC Options\n";
+        f << "# PC settings (Counter-Strike Xbox recompilation), edited in the game's Options\n";
         for (auto& [k, v] : g_values) f << k << " = " << v << "\n";
         f.flush();
         written = bool(f);

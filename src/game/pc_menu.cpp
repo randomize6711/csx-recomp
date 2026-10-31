@@ -35,6 +35,7 @@
 #include "cpu/x86_context.h"
 #include "game/local_server.h"
 #include "game/net_engine.h"
+#include "game/pc_options_text.h"
 #include "game/player_slots.h"
 #include "kernel/kernel.h"
 
@@ -88,13 +89,13 @@ struct PcScreen {
     const char* on_y = nullptr;       // Y opens another screen
     const char* external = nullptr;   // its values are not pc_settings.ini's: "!<external>_load" fills it, its Accept runs
                                       // "!<external>_save" (a profile's settings, the match rules)
-    std::vector<const char*> opens = {};  // a hub (N5A): no settings, a row opening each of these screens (by id)
     bool panel = false;  // the highlighted row's description beside the list (N5B: the graphics options)
     // its rows added to a screen of the title's own (SuperLauncher_<embed> and InGame_<embed>) after that screen's
     // embed_first rows: Accept saves them, entering loads them; no screen of its own (the Controller rows in the title's
     // Control Options)
     const char* embed = nullptr;
     int embed_first = 0;
+    bool in_game_only = false;  // a screen of the pause menu alone (its Sound Options: the title has none there)
 };
 
 // the controller's extra actions' buttons (N7, src/linux/window_input.cpp Poll)
@@ -358,7 +359,8 @@ std::vector<Choice> AudioDevices() {
 const std::vector<PcScreen>& Screens() {
     static const std::vector<PcScreen> s = [] {
         std::vector<PcScreen> v;
-        // PC Options (N5A): a hub of the title's style with a screen a group; the settings' keys as before
+        // the PC's categories, rows of the title's own Options (front end and pause menu, OptionsOrder) since
+        // 2026-10-31 (N5A to then: rows of a PC Options hub); the settings' keys as before
         v.push_back({"Video",
                      "Video",
                      {"Set the display, the frame rate, the field of", "view and the original's graphical effects."},
@@ -430,7 +432,7 @@ const std::vector<PcScreen>& Screens() {
                      },
                      true,
                      false,
-                     true});
+                     false});
         v.back().panel = true;  // Video
         v.push_back({"Mouse",
                      "Mouse",
@@ -463,7 +465,7 @@ const std::vector<PcScreen>& Screens() {
                      },
                      true,
                      false,
-                     true});
+                     false});
         // N5D (src/game/pc_prompts.cpp, linux/pad_style.h)
         v.push_back({"Controller",
                      "Controller",
@@ -495,7 +497,7 @@ const std::vector<PcScreen>& Screens() {
                      {
                          {"master_volume",
                           "Master Volume",
-                          {"Set the volume of everything the game plays.", "Options > Sound sets its parts."},
+                          {"Set the volume of everything the game plays.", "The game's own volumes set its parts."},
                           Numbers({"0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100"}),
                           10},
                          // N5E (src/linux/sdl_audio.cpp)
@@ -515,6 +517,16 @@ const std::vector<PcScreen>& Screens() {
                      true});
         v.back().embed = "Sound";  // after the title's own seven rows of its Sound Options (since 2026-10-31)
         v.back().embed_first = 7;
+        {  // the pause menu has no Sound Options of the title's: the same rows (the same keys) as a screen of its own
+            PcScreen sound = v.back();
+            sound.id = "Sound";
+            sound.title = "Sound Options";
+            sound.embed = nullptr;
+            sound.embed_first = 0;
+            sound.hidden = false;
+            sound.in_game_only = true;
+            v.push_back(sound);
+        }
         // the game's look on this PC: gameplay effects, the HUD, the menus and their button prompts (one category since
         // 2026-10-31: Gameplay, HUD and Menus were three)
         v.push_back({"Interface",
@@ -582,7 +594,7 @@ const std::vector<PcScreen>& Screens() {
                      },
                      true,
                      false,
-                     true});
+                     false});
         v.push_back({"Multiplayer",
                      "Multiplayer",
                      {"Set where matches run and how much this PC", "sends and receives online."},
@@ -617,11 +629,11 @@ const std::vector<PcScreen>& Screens() {
                      },
                      true,
                      false,
-                     true});
+                     false});
         // N8 (src/common/mods.h): the installed mods, read once; changes take effect at the next start
         {
             PcScreen mods{"Mods", "Mods", {"Turn installed mods on or off. Changes take", "effect when the game next starts."}, {},
-                          true, false, true};
+                          true, false, false};
             mods.settings.push_back({"mods_original", "Looks",
                                      {"Mods uses the mods turned on below. Original", "Xbox turns every mod off at once."},
                                      {{"Mods", "0"}, {"Original Xbox", "1"}},
@@ -641,19 +653,6 @@ const std::vector<PcScreen>& Screens() {
             }
             v.push_back(mods);
         }
-        v.push_back({"Options",
-                     "PC Options",
-                     {"Set mouse and other options for playing", "on a PC."},
-                     {},
-                     false,
-                     false,
-                     false,
-                     nullptr,
-                     nullptr,
-                     0,
-                     nullptr,
-                     nullptr,
-                     {"Video", "Mouse", "Interface", "Multiplayer", "Mods"}});
         PcScreen controls{"Controls",
                           "Keybinds",
                           {"Choose the keys and mouse buttons for moving,", "shooting and the other actions."},
@@ -998,72 +997,6 @@ std::string InGameScreen(const PcScreen& s) {
            "\t\t}\r\n" + ListRows(s, false) + "\t}\r\n}\r\n";
 }
 
-// a hub row's name: the screen's title
-std::string HubLabel(const PcScreen& c) { return c.title; }
-
-// a hub (N5A: PC Options): the title's own Options screens, front end and pause menu, with a row opening each of its
-// screens (the front end's rows carry their help lines)
-std::string HubFrontEnd(const PcScreen& s) {
-    std::string rows;
-    for (const char* id : s.opens)
-        if (const PcScreen* c = FindScreenById(id)) {
-            std::string help[2] = {c->row_help[0], c->row_help[1]};
-            rows += "\t\tRow\r\n\t\t{\r\n" + HelpTable(help, 2, "\t\t\t") + "\t\t\tCommandSelect \"open " +
-                    FrontEndName(*c) + "\"\r\n\t\t\tCellFixed " + Quote(HubLabel(*c)) + "\r\n\t\t}\r\n";
-        }
-    return "\r\n" + FrontEndName(s) + "\r\n{\r\n"
-           "\tMenuType \"superlauncher\"\r\n\tEnterSound \"menu/buy_submenu.wav\"\r\n"
-           "\tHighlightSound \"menu/buy_hover.wav\"\r\n\tPieceOffsetDegrees \"90\"\r\n"
-           "\tCachedImage \"whitebox\t\t\t\t255 255 255 255\"\r\n\tCommandSelect \"RowSelect\"\r\n"
-           "\tBackgroundImage \"Back_MainScreen\t\t200 200 200 255\t\t0   0 640 480\"\r\n"
-           "\tBackgroundImage \"Back_Select 200 200 200 255 0 411 640 69\"\r\n"
-           "\tOnButtonDownB \"back\"\r\n"
-           "\tBackgroundText \"54 83 107 255 65 45 400 30\"\t" + Quote(s.title) + "\r\n"
-           "\tGeneric_4_1\r\n\t{\r\n\t\tCommandHighlight\t\"tableMoveUp\"\r\n\t}\r\n\tGeneric_4_2\r\n\t{\r\n\t}\r\n"
-           "\tGeneric_4_3\r\n\t{\r\n\t\tCommandHighlight\t\"tableMoveDown\"\r\n\t}\r\n\tGeneric_4_4\r\n\t{\r\n\t}\r\n"
-           "\tTable\r\n\t{\r\n\t\tLayout\r\n\t\t{\r\n"
-           "\t\t\tColumnWidthPercentage \"100\"\r\n\t\t\tTableVerticalWrap\r\n\t\t\tTableLocation \"80 98\"\r\n"
-           "\t\t\tTableSize \"236 252\"\r\n\t\t\tTableRowSpacing \"12\"\r\n\t\t\tNonSelectBG \"0 0 0 0\"\r\n"
-           "\t\t\tNonSelectFG \"0.24 0.29 0.33 1\"\r\n"
-           "\t\t\tHighlightImage \"MainMenu_Highlight 1.0 1.0 1.0 1.0 -40.0 -1.0 240.0 38.0\"\r\n"
-           "\t\t}\r\n" + rows + "\t}\r\n}\r\n";
-}
-
-std::string HubInGame(const PcScreen& s) {
-    std::string rows;
-    for (const char* id : s.opens)
-        if (const PcScreen* c = FindScreenById(id))
-            rows += "\t\tRow\r\n\t\t{\r\n\t\t\tCommandSelect   \"open " + InGameName(*c) +
-                    "\"\r\n\t\t\tCellFixed \" \"\r\n\t\t\tCellFixed " + Quote(HubLabel(*c)) + "\r\n\t\t\tCellFixed \" \"\r\n\t\t}\r\n";
-    return "\r\n" + InGameName(s) + "\r\n{\r\n"
-           "\tMenuType \"superlauncher\"\r\n\tEnterSound \"menu/buy_enter.wav\"\r\n"
-           "\tSelectSound \"menu/buy_submenu.wav\"\r\n\tHighlightSound \"menu/buy_hover.wav\"\r\n"
-           "\tPieceOffsetDegrees \"90\"\r\n\tCachedImage \"angleSelect\t\t\t\t255 255 255 255\"\r\n"
-           "\tCommandSelect \"RowSelect\"\r\n"
-           "\tBackgroundImage \"csxbackground\t\t100 100 80 235\t\t0 0 640 480\"\r\n\tModal \"50\"\r\n"
-           "\tOnButtonDownA \" \"\r\n\tOnButtonDownStart \"back\"\r\n\tOnButtonDownB \"back\"\r\n"
-           "\tBackgroundText \"177 169 54 255 65 45 400 30\"\t" + Quote(s.title) + "\r\n"
-           "\tGeneric_4_1\r\n\t{\r\n\t\tCommandHighlight\t\"tableMoveUp\"\r\n\t}\r\n\tGeneric_4_2\r\n\t{\r\n\t}\r\n"
-           "\tGeneric_4_3\r\n\t{\r\n\t\tCommandHighlight\t\"tableMoveDown\"\r\n\t}\r\n\tGeneric_4_4\r\n\t{\r\n\t}\r\n"
-           "\tTable\r\n\t{\r\n\t\tLayout\r\n\t\t{\r\n"
-           "\t\t\tColumnWidthPercentage \"10\"\r\n\t\t\tColumnJustify \"center\"\r\n"
-           "\t\t\tColumnWidthPercentage \"80\"\r\n\t\t\tColumnJustify \"center\"\r\n"
-           "\t\t\tColumnWidthPercentage \"10\"\r\n\t\t\tColumnJustify \"center\"\r\n"
-           "\t\t\tTableVerticalWrap\r\n\t\t\tTableLocation \"0 150\"\r\n\t\t\tTableSize \"640 300\"\r\n"
-           "\t\t\tNonSelectBG \"0 0 0 0\"\r\n\t\t\tSelectBG \"0 0 100 40\"\r\n"
-           "\t\t\tHighlightImage \"Secondary_Highlight 1.0 1.0 1.0 1.0 205.0 -1.0 230.0 34.0\"\r\n"
-           "\t\t}\r\n\t\tHeader\r\n\t\t{\r\n\t\t\tCellFixed \" \"\r\n\t\t\tCellFixed \" \"\r\n\t\t\tCellFixed \" \"\r\n\t\t}\r\n" +
-           rows + "\t}\r\n}\r\n";
-}
-
-// a screen a hub opens (shown only from there)
-bool HubChild(const PcScreen& s) {
-    for (const PcScreen& h : Screens())
-        for (const char* id : h.opens)
-            if (std::string(id) == s.id) return true;
-    return false;
-}
-
 // a row's Details (N5B): a screen of text lines in the menu's style (the front end's message screens, the pause menu's
 // overlay), filled on entry for the row Y (BACK) was pressed on; A or B goes back to its screen as it was
 constexpr char kDetailsFrontEnd[] = "SuperLauncher_PCDetails", kDetailsInGame[] = "InGame_PCDetails";
@@ -1211,8 +1144,6 @@ bool PcBotCountLimit(X86Context& ctx, uint8_t*) {
 
 namespace {
 
-// the front end text: before View Credits in SuperLauncher_Options a row per screen (as its rows are written, with
-// help), then the screens; empty when its layout is not the one expected
 // the embedded screens (PcScreen::embed): their rows after the title's own in its table, its entering loading them
 // and its Accept saving them first (its own commands then, as before: the profile's controller options, pc_party.cpp);
 // the text unchanged when the title's screen is not as expected
@@ -1250,26 +1181,20 @@ std::string ExtendEmbedded(const std::string& text, bool front_end) {
 }
 
 std::string ExtendFrontEnd(const std::string& text) {
-    size_t screen = text.find("\nSuperLauncher_Options");
-    size_t credits = screen == std::string::npos ? screen : text.find("CommandSelect \"!PlayCredits\"", screen);
-    // the credits row's own line (two tabs; the rows of its help table have four)
-    size_t row = credits == std::string::npos ? credits : text.rfind("\n\t\tRow\r\n", credits);
-    if (row == std::string::npos || row < screen) return {};
-    row += 1;
-    std::string rows, screens;
+    std::vector<pcmenu::OptionsRow> rows;
+    std::string screens;
     for (const PcScreen& s : Screens()) {
+        if (s.embed || s.in_game_only) continue;  // its rows go into the title's own screen (ExtendEmbedded)
+        screens += FrontEndScreen(s);
+        if (s.hidden) continue;
         std::string help[2] = {s.row_help[0], s.row_help[1]};
-        if (s.embed) continue;  // its rows go into the title's own screen (ExtendEmbedded)
-        if (s.hidden) {
-            screens += FrontEndScreen(s);
-            continue;
-        }
-        rows += "\t\tRow\r\n\t\t{\r\n" + HelpTable(help, 2, "\t\t\t") + "\t\t\tCommandSelect \"open " +
-                FrontEndName(s) + "\"\r\n\t\t\tCellFixed " + Quote(s.title) + "\r\n\t\t}\r\n";
-        screens += s.opens.empty() ? FrontEndScreen(s) : HubFrontEnd(s);
+        rows.push_back({std::string("pc:") + s.id, "\t\tRow\r\n\t\t{\r\n" + HelpTable(help, 2, "\t\t\t") +
+                                                    "\t\t\tCommandSelect \"open " + FrontEndName(s) + "\"\r\n\t\t\tCellFixed " +
+                                                    Quote(s.title) + "\r\n\t\t}\r\n"});
     }
-    screens += DetailsScreen(true);
-    return text.substr(0, row) + rows + text.substr(row) + screens;
+    std::string out = pcmenu::ExtendOptions(text, rows, true);
+    if (out.empty()) return {};
+    return out + screens + DetailsScreen(true);
 }
 
 // the main menu's Exit Game (N5A): a last row (the title's art has room for a seventh, empty there), after Change
@@ -1356,26 +1281,20 @@ std::string ExtendXboxLeftovers(const std::string& text) {
 }
 
 std::string ExtendInGame(const std::string& text) {
-    size_t screen = text.find("\nOptions\r\n{");
-    size_t online = screen == std::string::npos ? screen : text.find("\"open InGame_OnlineOptions\"", screen);
-    size_t end = online == std::string::npos ? online : text.find("\n\t\t}\r\n", online);
-    if (end == std::string::npos) return {};
-    end += std::strlen("\n\t\t}\r\n");
-    std::string rows, screens;
+    std::vector<pcmenu::OptionsRow> rows;
+    std::string screens;
     for (const PcScreen& s : Screens()) {
-        if (s.embed) continue;  // its rows go into the title's own screen (ExtendEmbedded)
-        if (s.hidden) {
-            if (HubChild(s)) screens += InGameScreen(s);  // PC Options' screens (N5A)
-            continue;
-        }
-        rows += "\t\tRow\r\n\t\t{\r\n\t\t\tCommandSelect   \"open " + InGameName(s) +
-                "\"\r\n\t\t\tCellFixed \" \"\r\n\t\t\tCellFixed " + Quote(s.title) +
-                "\r\n\t\t\tCellFixed \" \"\r\n\t\t}\r\n";
-        screens += s.opens.empty() ? InGameScreen(s) : HubInGame(s);
+        if (s.embed || s.hidden) continue;  // embedded: its rows go into the title's own screen (ExtendEmbedded)
+        rows.push_back({std::string("pc:") + s.id, "\t\tRow\r\n\t\t{\r\n\t\t\tCommandSelect   \"open " + InGameName(s) +
+                                                    "\"\r\n\t\t\tCellFixed \" \"\r\n\t\t\tCellFixed " + Quote(s.title) +
+                                                    "\r\n\t\t\tCellFixed \" \"\r\n\t\t}\r\n"});
+        screens += InGameScreen(s);
     }
+    std::string out = pcmenu::ExtendOptions(text, rows, false);
+    if (out.empty()) return {};
     screens += DetailsScreen(false);
     screens += PcRadioScreens();  // pc_radio.cpp: the radio menus
-    return PcPartyExtendInGame(ExtendXboxLeftovers(ExtendPauseTeams(text.substr(0, end) + rows + text.substr(end) + screens)));
+    return PcPartyExtendInGame(ExtendXboxLeftovers(ExtendPauseTeams(out + screens)));
 }
 
 constexpr uint32_t kExtra = 512 * 1024;  // room added to the load buffer (the controls screens' lists are long)
@@ -1771,7 +1690,7 @@ struct Hint {
 Hint g_hint;
 
 void HintFrame(X86Context& ctx, const std::string& name, const PcScreen* s, uint32_t row) {
-    if (!s || s->settings.empty() || !s->opens.empty()) return;
+    if (!s || s->settings.empty()) return;
     std::string text = PcPromptName(DetailsOnBack(name, *s) ? "back" : "y") + " Details";
     if (row < s->settings.size() && Numeric(s->settings[row].key)) {
         // within the hint's box (250 wide at 0.7: about 24 units), left of the help bar's buttons
