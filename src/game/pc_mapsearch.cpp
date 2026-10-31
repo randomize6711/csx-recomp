@@ -373,7 +373,8 @@ void PcMapSearchFrame(X86Context& ctx) {
     if (screen == kKeyboard) return;
     if (!l) {
         if (!screen.empty()) {  // another screen: the lists whole again, the next starts afresh
-            g_choose_only = false;
+            // Select Map's choice ends with the list it was for (not on the hub before the list has opened)
+            if (!g_screen.empty()) g_choose_only = false;
             for (List& each : g_lists) Restore(each);
             g_field.Clear();
             Mirror();

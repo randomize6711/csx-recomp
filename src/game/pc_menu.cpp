@@ -1996,6 +1996,7 @@ void PcSplitMenuFrame(X86Context& ctx);    // pc_split.cpp
 void PcPartyMenuFrame(X86Context& ctx);    // pc_party.cpp
 void PcLobbyMenuFrame(X86Context& ctx);    // pc_lobby.cpp
 void PcMapSearchFrame(X86Context& ctx);    // pc_mapsearch.cpp
+void PcInstantFrame(X86Context& ctx);      // pc_instant.cpp
 
 void PcMenuFrame(X86Context& ctx) {
     PcBrowserMenuFrame(ctx);
@@ -2003,6 +2004,7 @@ void PcMenuFrame(X86Context& ctx) {
     PcPartyMenuFrame(ctx);
     PcLobbyMenuFrame(ctx);
     PcMapSearchFrame(ctx);
+    PcInstantFrame(ctx);
     PcPromptsFrame(ctx);
     PcBuyFrame(ctx);
     PcHudFrame();

@@ -8,7 +8,8 @@
 //   Advanced Settings  the title's Custom Options (time and round limits, money, friendly fire, collision); its
 //                      Accept sets Match Options' rules to Custom, so they count
 // Match Options' and Custom Options' Accept return here (they went on to the map list before). The hub shows the
-// match as set (map, mode, bots, rules) in its preview panel, from those screens' own tables.
+// match as set (map, mode, bots, rules) in its preview panel, from those screens' own tables. A match's end brings
+// the title back to the screen it started from, Single Player's (its difficulties): that screen is the hub's now.
 #include <cstdint>
 #include <cstring>
 #include <initializer_list>
@@ -107,6 +108,21 @@ std::string PcInstantRewire(const std::string& text) {
     return out;
 }
 
+std::string PcCurrentScreen();  // pc_browser.cpp
+
+// on the game thread every frame (pc_menu.cpp's PcMenuFrame): the title's Single Player screen (reached only by the
+// title itself now: back from a match, the screen the match was started from) gives way to the hub, Back from which
+// is the main menu as before
+void PcInstantFrame(X86Context&) {
+    static std::string last;
+    const std::string screen = PcCurrentScreen();
+    if (screen == last) return;
+    last = screen;
+    if (screen != kMatch) return;
+    LOGI("pc instant: back from a match: the Instant Action hub instead of Single Player's screen");
+    csx::QueueEngineCommand(std::string("xbui back\nxbui open ") + pcmenu::kInstantScreen + "\n");
+}
+
 // "pc_instant show|start|map|mode|bots|rules|back|custom" (the hub's rows and its screens' Accept)
 void PcInstantCommand(X86Context& ctx, const std::string& what) {
     if (what == "show") return Show(ctx);
@@ -118,6 +134,7 @@ void PcInstantCommand(X86Context& ctx, const std::string& what) {
     }
     if (what == "map") {
         PcMapSearchChooseOnly();
+        LOGI("pc instant: Select Map (choosing returns here)");
         return csx::QueueEngineCommand(std::string("xbui open ") + kMaps + "\n");
     }
     if (what == "mode" || what == "bots") {
@@ -130,5 +147,8 @@ void PcInstantCommand(X86Context& ctx, const std::string& what) {
         LOGI("pc instant: the match's rules are Custom Options'");
         return csx::QueueEngineCommand("xbui back\n");
     }
-    if (what == "back") return csx::QueueEngineCommand("xbui back\n");
+    if (what == "back") {
+        LOGI("pc instant: Match Options accepted: back to the hub");
+        return csx::QueueEngineCommand("xbui back\n");
+    }
 }
