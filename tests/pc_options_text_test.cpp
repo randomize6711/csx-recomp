@@ -82,6 +82,45 @@ int main() {
     Check(out_ig.find("TableSize \"640 300\"") != std::string::npos, "pause menu: its layout unchanged");
 
     Check(pcmenu::ExtendOptions("no options here", pc, true).empty(), "a menu not as expected: empty (left as it is)");
+
+    // the main menu: Multiplayer becomes Instant Action (Single Player's command and help), Single Player removed
+    auto main_row = [](const std::string& help1, const std::string& help2, const std::string& command, const std::string& label) {
+        return "\t\tRow\r\n\t\t{\r\n\t\t\tTable\r\n\t\t\t{\r\n\t\t\t\tRow\r\n\t\t\t\t{\r\n\t\t\t\t\tCellFixed \"" + help1 +
+               "\"\r\n\t\t\t\t}\r\n\t\t\t\tRow\r\n\t\t\t\t{\r\n\t\t\t\t\tCellFixed \"" + help2 +
+               "\"\r\n\t\t\t\t}\r\n\t\t\t}\r\n\t\t\tCommandSelect \"" + command + "\"\r\n\t\t\tCellFixed \"" + label +
+               "\"\r\n\t\t}\r\n";
+    };
+    const std::string main_menu =
+        "\r\nSuperLauncher_MainScreen\r\n{\r\n\tTable\r\n\t{\r\n\t\tLayout\r\n\t\t{\r\n\t\t}\r\n" +
+        main_row("Learn how to play Counter-Strike.", "", "open SuperLauncher_Training", "Training") +
+        main_row("Play a match against computer-controlled", "opponents (bots).", "open SuperLauncher_SinglePlayerMatch",
+                 "Single Player") +
+        main_row("Join or host a match on your network or the internet.", "", "!SystemLinkSetup; xbui open SuperLauncher_SystemLink",
+                 "Online Play") +
+        main_row("Play with others on your network or the internet.", "", "open SuperLauncher_PCParty", "Multiplayer") +
+        main_row("Change your audio, controller, and online options.", "", "open SuperLauncher_Options", "Options") +
+        main_row("Select a different profile.", "", "open SuperLauncher_ChangeProfile", "Change Profile") +
+        "\t}\r\n}\r\n\r\nSuperLauncher_SinglePlayerMatch\r\n{\r\n}\r\n";
+    const std::string menu = pcmenu::MainMenuInstantAction(main_menu);
+    std::vector<std::string> labels;
+    for (size_t at = menu.find("\t\t\tCellFixed \""); at != std::string::npos; at = menu.find("\t\t\tCellFixed \"", at + 1)) {
+        if (menu.compare(at - 1, 1, "\t") == 0) continue;  // a help line (deeper)
+        size_t q = at + 14, e = menu.find('"', q);
+        labels.push_back(menu.substr(q, e - q));
+    }
+    Check(labels == std::vector<std::string>({"Training", "Online Play", "Instant Action", "Options", "Change Profile"}),
+          "main menu: Instant Action in Multiplayer's place, no Single Player, no gap");
+    size_t instant = menu.find("CellFixed \"Instant Action\"");
+    size_t its_row = menu.rfind("\n\t\tRow\r\n", instant);
+    Check(menu.find("CommandSelect \"open SuperLauncher_SinglePlayerMatch\"", its_row) < instant,
+          "Instant Action opens the local match setup");
+    Check(menu.find("opponents: maps, bots, modes and rules.", its_row) < instant &&
+              menu.find("Play a match against computer-controlled", its_row) < instant, "Instant Action's help lines");
+    Check(menu.find("open SuperLauncher_PCParty") == std::string::npos, "the party's row gone from the main menu");
+    Check(menu.find("!SystemLinkSetup; xbui open SuperLauncher_SystemLink") != std::string::npos,
+          "Online Play kept (the browser, Peer-to-Peer, Direct-IP)");
+    Check(menu.find("\r\nSuperLauncher_SinglePlayerMatch\r\n{") != std::string::npos, "the match setup screen itself kept");
+    Check(pcmenu::MainMenuInstantAction("not a menu").empty(), "a main menu not as expected: left as it is");
     std::printf("%d checks, %d failed\n", checks, failed);
     return failed ? 1 : 0;
 }

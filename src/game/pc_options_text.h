@@ -93,4 +93,44 @@ inline std::string ExtendOptions(const std::string& text, const std::vector<Opti
     return head + out + tail;
 }
 
+// The main menu (2026-10-31): Multiplayer (System Link's row, the party's since N4.8) becomes Instant Action, which
+// opens the local match setup (Single Player's own screen), in Multiplayer's place; the Single Player row is removed
+// and the rows below it move up. The party, the server browser and Direct-IP or Code stay under Online Play. Empty
+// when the menu is not as expected
+inline std::string MainMenuInstantAction(const std::string& text) {
+    size_t screen = text.find("\nSuperLauncher_MainScreen\r\n");
+    size_t end = screen == std::string::npos ? screen : text.find("\n}", screen + 1);
+    auto row_of = [&](const std::string& marker) -> std::pair<size_t, size_t> {
+        size_t at = screen == std::string::npos ? screen : text.find(marker, screen);
+        if (at == std::string::npos || at > end) return {std::string::npos, std::string::npos};
+        size_t start = text.rfind("\n\t\tRow\r\n", at), stop = text.find("\r\n\t\t}\r\n", at);
+        if (start == std::string::npos || start < screen || stop == std::string::npos || stop > end)
+            return {std::string::npos, std::string::npos};
+        return {start + 1, stop + std::strlen("\r\n\t\t}\r\n")};
+    };
+    const auto single = row_of("CommandSelect \"open SuperLauncher_SinglePlayerMatch\"");
+    const auto multi = row_of("CellFixed \"Multiplayer\"");
+    if (single.first == std::string::npos || multi.first == std::string::npos || single.first > multi.first) {
+        return {};
+    }
+    // Instant Action: Single Player's row (its command, its help table's two lines), named and described anew
+    std::string instant = text.substr(single.first, single.second - single.first);
+    const std::string label = "CellFixed \"Single Player\"";
+    size_t l = instant.find(label);
+    if (l == std::string::npos) {
+        return {};
+    }
+    instant.replace(l, label.size(), "CellFixed \"Instant Action\"");
+    // its help lines: the help table's two CellFixed lines before the command (44 characters fit a line)
+    size_t h1 = instant.find("CellFixed \""), h2 = h1 == std::string::npos ? h1 : instant.find("CellFixed \"", h1 + 1);
+    const size_t command = instant.find("CommandSelect");
+    if (h1 != std::string::npos && h2 != std::string::npos && h2 < command) {
+        size_t e2 = instant.find("\r\n", h2);  // (the first line, "Play a match against computer-controlled", kept)
+        instant.replace(h2, e2 - h2, "CellFixed \"opponents: maps, bots, modes and rules.\"");
+    }
+    std::string out = text.substr(0, single.first) + text.substr(single.second, multi.first - single.second) + instant +
+                      text.substr(multi.second);
+    return out;
+}
+
 }  // namespace pcmenu

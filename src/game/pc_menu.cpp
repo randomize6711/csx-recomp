@@ -1207,6 +1207,24 @@ std::string ExtendFrontEnd(const std::string& text) {
     return out + screens + DetailsScreen(true);
 }
 
+// the main menu simplified (2026-10-31): Multiplayer (System Link's row, the party's since N4.8) is Instant Action,
+// which opens the local match setup (Single Player's own screen: Quick Match, Custom Game with its map, bots, game
+// mode and rules), in Multiplayer's place; the Single Player row itself is gone, the rows below it move up (the
+// title lays a table's rows out from its top). The party (Local Only, split screen, Host LAN Match), the server
+// browser and Direct-IP or Code stay under Online Play (pc_browser.cpp: Peer-to-Peer is the party). Nothing else
+// changes: the screens, modes, maps and settings are all as they were. The text unchanged when the main menu is not
+// as expected
+std::string ExtendMainMenu(const std::string& text) {
+    if (text.empty()) return text;  // the front end's text already left as it was
+    std::string out = pcmenu::MainMenuInstantAction(text);
+    if (out.empty()) {
+        LOGW("pc menu: the main menu not as expected: Single Player and Multiplayer left as they are");
+        return text;
+    }
+    LOGI("pc menu: the main menu: Multiplayer is Instant Action (the local match setup), Single Player removed");
+    return out;
+}
+
 // the main menu's Exit Game (N5A): a last row (the title's art has room for a seventh, empty there), after Change
 // Profile, written as the title's rows are, and its confirmation (A quits: csx::AppQuit, as N4.8's Quit Game; B
 // back); the text unchanged when the main menu is not as expected
@@ -2034,8 +2052,8 @@ void PcUiLoadText(X86Context& ctx, uint8_t*) {
         std::ofstream(app::ExeDir() / "uidump" / name, std::ios::binary) << text;
     }
     const bool front_end = name.rfind("FrontEndUI", 0) == 0;
-    std::string out = front_end ? ExtendPrompts(ExtendExit(ExtendFrontEnd(ExtendMapSearch(ExtendLobby(ExtendParty(
-                                      ExtendSplitMenu(ExtendMultiplayer(ExtendBotCount(ExtendCustomOptions(ExtendDlcMaps(text)))))))))))
+    std::string out = front_end ? ExtendPrompts(ExtendExit(ExtendMainMenu(ExtendFrontEnd(ExtendMapSearch(ExtendLobby(ExtendParty(
+                                      ExtendSplitMenu(ExtendMultiplayer(ExtendBotCount(ExtendCustomOptions(ExtendDlcMaps(text))))))))))))
                                 : ExtendPrompts(ExtendInGame(ExtendDlcMaps(text)));
     if (!out.empty()) out = ExtendEmbedded(out, front_end);  // last: after pc_party.cpp's Accept of the same screens
     if (name.rfind("InGameUI", 0) == 0 && !out.empty()) out = ExtendScoreboard(out);
