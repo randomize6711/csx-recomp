@@ -1090,6 +1090,9 @@ bool PcBrowserScreen(const std::string& screen) {
     // their arrows step a setting. (A fixed list of them left out the later Gameplay and Mods screens: a click on
     // their arrows only selected the row, 2026-10-30)
     if (PcSettingsScreen(screen) || screen == "SuperLauncher_PCDetails") return false;
+    // nor the main menu's hubs (Instant Action, Extras): ordinary buttons, a single click activates one (taken for a
+    // list, they needed a double click, 2026-10-31)
+    if (screen == "SuperLauncher_PCInstantAction" || screen == "SuperLauncher_PCExtras") return false;
     return true;
 }
 
