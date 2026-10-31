@@ -503,6 +503,7 @@ void HandleEvent(const void* p) {
             }
             break;
         case SDL_EVENT_MOUSE_BUTTON_UP:
+            if (MenuMouse() && e.button.button == SDL_BUTTON_LEFT) csx::MenuClick(-1);  // a scrollbar drag ends
             g_pad_held.erase(EngineMouseKey(e.button.button));
             EngineKeyEvent(EngineMouseKey(e.button.button), false);
             g_mouse_buttons &= ~(1u << e.button.button);

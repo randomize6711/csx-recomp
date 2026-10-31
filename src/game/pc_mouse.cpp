@@ -46,6 +46,7 @@
 bool PcBindingScreen(const std::string& name);  // pc_menu.cpp
 bool PcBrowserClick(const std::string& screen, float x, float y);  // pc_browser.cpp
 bool PcSettingsScreen(const std::string& name);  // pc_menu.cpp
+int PcScrollbarRow(uint32_t table, float x, float y, bool dragging);  // pc_scroll.cpp
 bool PcBrowserScreen(const std::string& screen);
 
 namespace {
@@ -91,7 +92,8 @@ struct Press {
 std::mutex g_lock;
 float g_x = -1, g_y = -1;  // the pointer, menu pixels; -1 while outside the window
 bool g_moved = false;
-std::deque<int> g_clicks;  // 1 left, 2 right; wheel notches as 100 + n
+std::deque<int> g_clicks;  // 1 left, 2 right; wheel notches as 100 + n; -1 the left button let go
+uint32_t g_bar_drag = 0;   // the table whose scrollbar the left button holds (pc_scroll.cpp)
 // on the game thread
 std::deque<Press> g_presses;
 int g_press_frames = 0;  // > 0: the front press is held; < 0: released, frames until the next
@@ -354,6 +356,12 @@ void Click(X86Context& ctx, uint32_t screen, const std::string& name, const Scre
     }
     uint32_t table = R32(screen + 0x380);
     if (!table) return;
+    // a PC settings list's scrollbar: the row at that height along the track, held for a drag
+    if (int row = PcScrollbarRow(table, x, y, false); row >= 0) {
+        g_bar_drag = table;
+        Select(ctx, screen, ui, table, row);
+        return;
+    }
     RowHit h = HitRow(table, x, y, ui && ui->header);
     if (h.row < 0 || !RowEnabled(table, h.row)) return;
     Select(ctx, screen, ui, table, h.row);
@@ -637,12 +645,16 @@ void PcMouseFrame(X86Context& ctx) {
             } else {
                 g_stick_on = false;
             }
+        } else if (table && g_bar_drag == table) {  // the scrollbar dragged: the row at the pointer's height
+            if (int row = PcScrollbarRow(table, x, y, true); row >= 0) Select(ctx, screen, ui, table, row);
         } else if (table) {
             RowHit h = HitRow(table, x, y, ui && ui->header);
             if (h.row >= 0) Select(ctx, screen, ui, table, h.row);
         }
     }
+    if (g_bar_drag && g_bar_drag != table) g_bar_drag = 0;  // the screen changed
     for (int c : clicks) {
+        if (c == -1) g_bar_drag = 0;
         if ((c == 1 || c == 11) && x >= 0) Click(ctx, screen, name, ui, x, y, c == 11);
         else if (c == 2) Queue({0, kB});
         else if (c == 101 || c == 99) Queue({c == 101 ? kUp : kDown, -1});

@@ -8,17 +8,27 @@
 // movement uncovers, and the rows clipped to the table's area below its header with the D3D scissor (the title's
 // D3DDevice_SetScissors, 0x3067B0) while they are drawn. Larger jumps (a list wrapping from its last row to its first)
 // are not eased. The rows' positions for the mouse (pc_mouse.cpp) are the table's own: the easing is only drawn.
+//
+// The scrollbar (2026-10-31): a PC settings list (pc_menu.cpp's screens, the Controller rows in the title's Control
+// Options too) with more rows than it shows gets a bar at its right edge, drawn after its rows (the engine's FillRGBA,
+// 0x476C0: a track and a thumb in the menu's colour, the front end's blue, the pause menu's gold). The thumb's length
+// is the shown rows' share of all rows, its place the first shown row's. pc_mouse.cpp clicks and drags it
+// (PcScrollbarRow: the row under the pointer's height along the track, which the list then shows); the wheel, the
+// keys and the pad move the selection, which the list keeps in view.
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <map>
+#include <string>
 
 #include "common/pc_settings.h"
 #include "core/log.h"
 #include "cpu/x86_context.h"
 #include "kernel/kernel.h"
+
+bool PcSettingsScreen(const std::string& name);  // pc_menu.cpp
 
 namespace {
 using kernel::R32;
@@ -35,6 +45,17 @@ struct Ease {
 std::map<uint32_t, Ease> g_tables;  // by table address (the menus' tables live as long as their screen)
 bool g_clipped = false;             // the scissor is set for the rows being drawn
 std::map<uint32_t, int> g_shown;    // by table address: how many rows its last draw showed (pc_mapsearch.cpp)
+
+// the scrollbar: drawn for the list being drawn when it is a PC settings list with rows out of view
+struct Bar {
+    float x0 = 0, x1 = 0, y0 = 0, y1 = 0;  // the track, the menu's 640x480 coordinates
+    int rows = 0, shown = 0, first = 0;
+};
+std::map<uint32_t, Bar> g_bars;  // by table address, from its last draw (none: no bar)
+uint32_t g_drawing = 0;          // the table whose rows are being drawn
+int g_step = 0;                  // its row step (pixels)
+constexpr uint32_t kCurrentScreen = 0x5523D4, kFillRGBA = 0x476C0, kGlEnable = 0x6A89E8, kGlBlend = 0x0BE2;
+constexpr float kBarGap = 4, kBarWidth = 5;
 
 bool Enabled() {
     static unsigned seen = ~0u;
@@ -58,6 +79,8 @@ float AsFloat(uint32_t bits) {
 void PcScrollRows(X86Context& ctx, uint8_t*) {
     g_clipped = false;
     g_shown[ctx.esi] = int(R32(ctx.esp + 0x28)) - int(ctx.edi) + 1;
+    g_drawing = ctx.esi;
+    g_step = int(ctx.ebx);
     if (!Enabled()) return;
     const uint32_t table = ctx.esi;
     const int first = int(R32(table + 0x120));
@@ -94,11 +117,78 @@ void PcScrollRows(X86Context& ctx, uint8_t*) {
     g_clipped = true;
 }
 
-// [[hook]] at 0xCD1E2 in the table draw, after its rows' loop: the scissor taken off again
+namespace {
+std::string ScreenName(uint32_t screen) {
+    std::string out;
+    for (uint32_t p = screen ? R32(screen) : 0, i = 0; p && i < 64; i++) {
+        char c = static_cast<const char*>(kernel::HostPtr(p))[i];
+        if (!c) break;
+        out += c;
+    }
+    return out;
+}
+
+void Fill(X86Context& ctx, float x, float y, float w, float h, const uint8_t c[3], uint32_t alpha) {
+    X86Context saved = ctx;
+    ctx.esp -= 0x200;
+    kernel::CallGuest(ctx, kFillRGBA, {uint32_t(int32_t(std::lround(x))), uint32_t(int32_t(std::lround(y))),
+                                       uint32_t(std::max(1L, std::lround(w))), uint32_t(std::max(1L, std::lround(h))),
+                                       c[0], c[1], c[2], alpha});
+    ctx = saved;
+}
+
+// the bar of the list just drawn, when it is the current screen's PC settings list and has rows out of view
+void DrawBar(X86Context& ctx) {
+    const uint32_t table = g_drawing, screen = R32(kCurrentScreen);
+    g_drawing = 0;
+    if (!table || !screen || R32(screen + 0x380) != table) return;
+    std::string name = ScreenName(screen);
+    if (!PcSettingsScreen(name)) return;
+    Bar b;
+    b.rows = R32(table + 0x60) ? int((R32(table + 0x64) - R32(table + 0x60)) >> 5) : 0;
+    b.shown = g_shown[table];
+    b.first = int(R32(table + 0x120));
+    if (b.rows <= b.shown || b.shown <= 0 || g_step <= 0) {
+        g_bars.erase(table);
+        return;
+    }
+    b.x0 = AsFloat(R32(table + 0x34)) + kBarGap;
+    b.x1 = b.x0 + kBarWidth;
+    b.y0 = AsFloat(R32(table + 0x30));
+    b.y1 = b.y0 + float(b.shown * g_step);
+    g_bars[table] = b;
+    const bool in_game = name.rfind("InGame_", 0) == 0;
+    static const uint8_t blue[3] = {54, 83, 107}, gold[3] = {177, 169, 54};
+    const uint8_t* c = in_game ? gold : blue;
+    const float h = b.y1 - b.y0, thumb = std::max(8.0f, h * float(b.shown) / float(b.rows));
+    const float top = b.y0 + (h - thumb) * float(b.first) / float(std::max(1, b.rows - b.shown));
+    Fill(ctx, b.x0, b.y0, kBarWidth, h, c, 70);       // the track
+    Fill(ctx, b.x0, top, kBarWidth, thumb, c, 230);  // the thumb
+    X86Context saved = ctx;  // FillRGBA leaves blending off: the menu draws on with it on
+    ctx.esp -= 0x100;
+    kernel::CallGuest(ctx, R32(kGlEnable), {kGlBlend});
+    ctx = saved;
+}
+}  // namespace
+
+// [[hook]] at 0xCD1E2 in the table draw, after its rows' loop: the scissor taken off again, the scrollbar drawn
 void PcScrollRowsDone(X86Context& ctx, uint8_t*) {
-    if (!g_clipped) return;
-    g_clipped = false;
-    kernel::CallGuest(ctx, kSetScissors, {0, 0, 0});
+    if (g_clipped) {
+        g_clipped = false;
+        kernel::CallGuest(ctx, kSetScissors, {0, 0, 0});
+    }
+    DrawBar(ctx);
+}
+
+// a click or a drag on a list's scrollbar (pc_mouse.cpp): the row its height along the track stands for, -1 off the
+// bar (dragging: the height alone counts, wherever the pointer went sideways)
+int PcScrollbarRow(uint32_t table, float x, float y, bool dragging) {
+    auto it = g_bars.find(table);
+    if (it == g_bars.end()) return -1;
+    const Bar& b = it->second;
+    if (!dragging && !(x >= b.x0 - 3 && x < b.x1 + 4 && y >= b.y0 && y < b.y1)) return -1;
+    float f = std::clamp((y - b.y0) / std::max(1.0f, b.y1 - b.y0), 0.0f, 1.0f);
+    return std::clamp(int(f * float(b.rows)), 0, b.rows - 1);
 }
 
 // how many rows a table's last draw showed (0 before its first), for moving its highlight into view
