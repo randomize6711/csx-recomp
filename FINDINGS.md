@@ -3058,3 +3058,27 @@ Up, Backspace, Escape closing without the pause menu, mouse capture restored, th
   bound one at 0x45280C[unit 0x45281C]), and marks it changed.
 - **Why a mark is needed.** The renderer's texture signature samples 64 x 64 bytes of a texture of 4 KB or more, which
   misses a lightmap's small changes.
+
+### Flashlight: objects lit, the world not (2026-10-31, from the code; awaits a play-test)
+
+- **The play-test's log.** The flashlight's light was placed ("the flashlight's light at -941 432 28, radius 420"),
+  but no lightmap upload was logged at all, neither by glTexSubImage2D nor by the frame-end sweep: no world lightmap
+  was rebuilt. Models are lit by the dlights in the studio renderer's own lighting, so objects and players showed it.
+- **Why.** With jcab_render_bsp on (the default), the world is drawn by replaying the push buffer recorded at load.
+  R_RecursiveWorldNode still runs, but no world surface reaches the texture chains, so R_RenderDynamicLightmaps
+  (0x513C0) never rebuilds a world lightmap. R_PushDlights still marks the surfaces each light reaches
+  (R_MarkLights 0x4B870: it reads the surface from +0x14, so dlightframe is +0x30 and dlightbits +0x34 of the 0x5C
+  msurface).
+- **Fix (src/game/pc_dlights.cpp `RebuildWorld`, at the sweep 0x5236D).** It does R_RenderDynamicLightmaps' own work,
+  checked against its code (0x51466..0x5153D), for each world surface with a lightmap (not SURF_DRAWTILED):
+  - when the surface is marked this frame (dlightframe == r_framecount 0x6E7FA0), or was lit when last built
+    (cached_dlight +0x50: built once more without the light, so no light stays behind);
+  - R_BuildLightMap (0x4FD80: the surface and the row stride pushed, the destination in eax) into its place in its
+    128x128 block (lightmaptexturenum +0x38, light_s +0x1C, light_t +0x20), and the block marked changed;
+  - the sweep then compresses each changed block into its DXT1 texture. The recorded world samples those same
+    textures, so the replay shows the new light.
+- **Kept as the engine's.** Nothing runs with r_dynamic 0 (0x37735C) or without jcab_render_bsp (then the engine's
+  own paths do it). The light's radius, falloff and direction are the client's (0x24B10), and models are unchanged.
+- **Not verified in a running game.** Whether the recorded world picks up the recompressed lightmap at once (the
+  replay's texture binding) is the open question for the play-test; the log says "world surfaces lit again by dynamic
+  lights" and "lightmap uploads" when this path works.

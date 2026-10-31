@@ -32,6 +32,8 @@ constexpr uint32_t kFormatDxt1 = 0x0C, kFormatLinearA8B8G8R8 = 0x3F;
 constexpr uint32_t kLightmapBuffer = 0x55199C, kLightmapBytes = 0x6E6380, kLightmapTextures = 0x6E7A04,
                    kLightmapModified = 0x6E7800, kMaxLightmaps = 0x80, kBlock = 128;
 constexpr uint32_t kFlashlightLight = 0x7791EC;
+constexpr uint32_t kWorldModel = 0x778A68, kJcabRenderBsp = 0x3771EC, kFrameCount = 0x6E7FA0, kSurfaceSize = 0x5C,
+                   kBuildLightMap = 0x4FD80, kRDynamic = 0x37735C + 0xC;  // r_dynamic's value
 
 // a texture's level 0 from RGBA rows (the whole level: XGCompressRect takes power-of-two sizes only), marked changed
 bool Upload(X86Context& ctx, uint32_t res, const gpu::TextureDesc& d, uint32_t pixels) {
@@ -92,6 +94,41 @@ void PcGlTexSubImage(X86Context& ctx, uint8_t*) {
     if (Upload(ctx, res, d, pixels - y * w * 4)) Count("glTexSubImage2D");
 }
 
+// the Xbox BSP renderer (jcab_render_bsp) draws the world from its recording: no world surface goes through the
+// texture chains, so none had its lightmap rebuilt for a dynamic light. R_PushDlights (0x4BA10, every view) still
+// marks the surfaces each light reaches (R_MarkLights 0x4B870: dlightframe +0x30, dlightbits +0x34, the surface's
+// fields read from +0x14 there); a surface marked
+// this frame (r_framecount 0x6E7FA0), or lit last time it was built (+0x50: its light gone, built once more without
+// it), is rebuilt here as R_RenderDynamicLightmaps does: R_BuildLightMap (0x4FD80; the surface and the row stride
+// pushed, the destination in eax) into its place in its block (lightmaptexturenum +0x38, light_s +0x1C,
+// light_t +0x20), its block marked changed
+void RebuildWorld(X86Context& ctx, uint32_t base) {
+    float jcab, dynamic;
+    std::memcpy(&jcab, kernel::HostPtr(kJcabRenderBsp), 4);
+    std::memcpy(&dynamic, kernel::HostPtr(kRDynamic), 4);
+    uint32_t world = R32(kWorldModel);
+    if (jcab == 0.0f || dynamic == 0.0f || !world) return;  // the engine's own paths; r_dynamic 0: no dynamic light
+    const uint32_t count = R32(world + 0xB0), surfaces = R32(world + 0xB4), frame = R32(kFrameCount);
+    if (!surfaces || count > 0x40000) return;
+    uint32_t built = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t surf = surfaces + i * kSurfaceSize;
+        if (R32(surf + 0x08) & 0x10) continue;  // no lightmap (SURF_DRAWTILED: water, sky)
+        if (R32(surf + 0x30) != frame && !R32(surf + 0x50)) continue;
+        uint32_t lm = R32(surf + 0x38);
+        if (lm >= kMaxLightmaps) continue;
+        uint32_t dest = base + ((lm * kBlock + R32(surf + 0x20)) * kBlock + R32(surf + 0x1C)) * 4;
+        X86Context saved = ctx;
+        ctx.esp -= 0x100;
+        ctx.eax = dest;
+        kernel::CallGuest(ctx, kBuildLightMap, {surf, kBlock * 4});
+        ctx = saved;
+        kernel::W32(kLightmapModified + 4 * lm, 1);
+        built++;
+    }
+    if (built) LOG_FIRST(8, "pc dlights: %u world surfaces lit again by dynamic lights", built);
+}
+
 // [[hook]] at 0x5236D, the end of R_DrawWorld (after R_BlendLightmaps, or where it was skipped): a lightmap still
 // marked changed (lightmap_modified, 0x6E7800) by a dynamic light is uploaded here, whichever drawing path left it
 // (the Xbox BSP renderer draws the world from its recording, not through the chains that upload)
@@ -105,6 +142,7 @@ void PcDlightsSweep(X86Context& ctx, uint8_t*) {
     if (R32(kLightmapBytes) != 4) return;
     const uint32_t base = R32(kLightmapBuffer), first = R32(kLightmapTextures);
     if (!base || !first) return;
+    RebuildWorld(ctx, base);
     for (uint32_t i = 0; i < kMaxLightmaps; i++) {
         if (!R32(kLightmapModified + 4 * i)) continue;
         kernel::W32(kLightmapModified + 4 * i, 0);
