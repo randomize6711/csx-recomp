@@ -148,6 +148,12 @@ their map, and the party's (`SuperLauncher_PCMatchMaps`), used by Peer-to-Peer a
 src/game/pc_mapsearch.cpp; the search itself is in src/game/pc_mapsearch_filter.h, tested by
 tests/pc_mapsearch_filter_test.py.
 
+- **Where.** The field is in the header, on the "Map Selection" title's line, between the title and the background's
+  COUNTER-STRIKE logo: 232..382 x 50..70 of the 640x480 menu layout. The logo starts at x 402. The 2D layout keeps
+  those 640 columns at every aspect ratio, so the field keeps its place there too. It has a blue-grey border (two
+  whitebox rectangles, well within the title's 8 images a screen) and its [x] at the right end. The list and the
+  preview do not move. A screen whose title leaves no room (mapsearch::PlaceInHeader) gets the field above its list
+  instead.
 - **The field.** It shows "Search maps..." until something is typed.
   - A letter, digit, - or _ typed on the list starts typing in it, and so does a click on it.
   - Backspace, Delete, Left, Right, Home and End edit it. Ctrl+A selects all, and Ctrl+C, Ctrl+X and Ctrl+V copy,

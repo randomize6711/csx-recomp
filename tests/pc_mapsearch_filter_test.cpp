@@ -72,6 +72,17 @@ int main() {
     f.Clear();
     f.Insert("de_\x01" "dust\n");
     Check(f.text == "de_dust", "pasted control characters left out");
+    // the field's place: in the header on the title's line ("Map Selection" at 65 45, 146 wide), clear of the logo
+    {
+        const Header h = PlaceInHeader(65, 45, 146, 402);
+        Check(h.in_header && h.x == 232 && h.y == 50 && h.w == 150 && h.h == 20, "in the header, compact");
+        Check(h.x >= 65 + 146 + 16 && h.x + h.w <= 402 - 16, "between the title and the logo, with gaps");
+        Check(h.y + h.h <= 135 - 10, "above the list's first row (75 135), which does not move");
+        const Header longer = PlaceInHeader(65, 45, 300, 402);
+        Check(!longer.in_header, "a long title: above the list instead");
+        const Header tight = PlaceInHeader(65, 45, 190, 402);
+        Check(tight.in_header && tight.x + tight.w <= 402 - 16 && tight.w >= 110, "a narrower field when it still fits");
+    }
     // a large list: 5000 maps, filtered on each keystroke within a millisecond or so
     std::vector<std::pair<std::string, std::string>> many;
     for (int i = 0; i < 5000; i++) many.push_back({"Custom Map " + std::to_string(i), "cm_" + std::to_string(i)});

@@ -105,4 +105,19 @@ struct Field {
     }
 };
 
+// the search field's place on a map screen (the 640x480 menu layout): in the header, on the title's line after the
+// title, compact, ending a gap before the background's logo; not in the header (above the list instead) when the
+// title leaves it too little room
+struct Header {
+    bool in_header;
+    float x, y, w, h;
+};
+inline Header PlaceInHeader(float title_x, float title_y, float title_width, float logo_left) {
+    constexpr float kWidth = 150, kHeight = 20, kGap = 16, kMinWidth = 110;
+    const float x = std::max(232.0f, title_x + title_width + kGap);
+    const float w = std::min(kWidth, logo_left - kGap - x);
+    if (w < kMinWidth) return {false, 0, 0, 0, 0};
+    return {true, x, title_y + 5, w, kHeight};
+}
+
 }  // namespace mapsearch

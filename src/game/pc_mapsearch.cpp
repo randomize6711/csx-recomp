@@ -44,12 +44,16 @@ std::string PcKeyboardScreen(const char* name, const char* title, const char* co
 std::string PcEditText(const char* screen);
 void PcClearEdit(X86Context& ctx, const char* screen, const std::string& text);
 int PcTableShownRows(uint32_t table);  // pc_scroll.cpp
+float PcTextUnits(const std::string& s);  // pc_menu.cpp: a text's width in the menu font's units
 void PcScrollForget(uint32_t table);   // pc_scroll.cpp: its scrollbar's rows in view dropped
 
 namespace {
 using kernel::R32;
 
 constexpr char kKeyboard[] = "SuperLauncher_PCMapSearch";
+// the menu font's units to the 640x480 layout's at a BackgroundText's scale 1 ("Map Selection": 11.6 units, 146 wide on
+// the screen), and where the map screen's background has its COUNTER-STRIKE logo (Back_Select_A_Map: x 402 to 580)
+constexpr float kTitleUnit = 12.6f, kLogoLeft = 402.0f;
 constexpr uint32_t kRowSize = 0x20;
 
 struct List {
@@ -231,22 +235,43 @@ std::string ExtendMapSearch(const std::string& text) {
         if (!l.accept.empty() && l.accept[0] == '!') l.accept.erase(0, 1);
         out.replace(a, c1 + 1 - a, "\tOnButtonDownA \"!pc_mapsearch accept\"");
         out.insert(a, "\tOnButtonDownY \"!pc_mapsearch open\"\r\n");
-        // the field above the table (30 units over its first row), left-aligned with it, and its [x]
+        // the field: in the header, on the title's line between the title and the background's COUNTER-STRIKE logo
+        // (x 402 on in the 640x480 layout, which the 2D layout keeps at every aspect ratio), compact, with a
+        // blue-grey border (two whitebox rectangles: the border, the field inside it) and its [x] at its right end.
+        // When the title leaves no room before the logo, above the list instead (its first row stays where it is)
         table = out.find("\n\tTable\r\n", screen);
-        size_t loc = out.find("TableLocation \"", table);
-        float tx = 75, ty = 135;
-        if (loc != std::string::npos) std::sscanf(out.c_str() + loc, "TableLocation \"%f %f\"", &tx, &ty);
-        l.fx = tx + 5, l.fy = ty - 32, l.fw = 165, l.fh = 24, l.cx = tx + 178;
+        float title_x = 65, title_y = 45;
+        std::string title;
+        if (size_t t = out.find("BackgroundText \"", screen); t < table) {
+            std::sscanf(out.c_str() + t, "BackgroundText \"%*f %*f %*f %*f %f %f", &title_x, &title_y);
+            size_t q1 = out.find('"', out.find('"', t + 16) + 1), q2 = q1 == std::string::npos ? q1 : out.find('"', q1 + 1);
+            if (q2 != std::string::npos && q2 < table) title = out.substr(q1 + 1, q2 - q1 - 1);
+        }
+        const mapsearch::Header header = mapsearch::PlaceInHeader(title_x, title_y, PcTextUnits(title) * kTitleUnit, kLogoLeft);
+        if (!header.in_header) {
+            size_t loc = out.find("TableLocation \"", table);
+            float tx = 75, ty = 135;
+            if (loc != std::string::npos) std::sscanf(out.c_str() + loc, "TableLocation \"%f %f\"", &tx, &ty);
+            l.fx = tx + 5, l.fy = ty - 32, l.fw = 165, l.fh = 22;
+        } else {
+            l.fx = header.x, l.fy = header.y, l.fw = header.w, l.fh = header.h;
+        }
+        l.cx = l.fx + l.fw - 22;
         int lines = 0;
         for (size_t b = out.find("BackgroundText", screen); b != std::string::npos && b < table; b = out.find("BackgroundText", b + 1))
             lines++;
         l.field_line = lines;
-        char field[160];
+        char field[400];
         std::snprintf(field, sizeof field,
-                      "\tBackgroundText \"120 132 142 255 %.0f %.0f %.0f %.0f 0.75\"\t\"Search maps...\"\r\n"
-                      "\tBackgroundText \"54 83 107 255 %.0f %.0f 30 %.0f 0.75\"\t\" \"\r\n",
-                      l.fx, l.fy, l.fw, l.fh, l.cx, l.fy, l.fh);
+                      "\tBackgroundImage \"whitebox 110 128 146 255 %.0f %.0f %.0f %.0f\"\r\n"
+                      "\tBackgroundImage \"whitebox 236 239 242 235 %.0f %.0f %.0f %.0f\"\r\n"
+                      "\tBackgroundText \"120 132 142 255 %.0f %.0f %.0f %.0f 0.7\"\t\"Search maps...\"\r\n"
+                      "\tBackgroundText \"54 83 107 255 %.0f %.0f 20 %.0f 0.7\"\t\" \"\r\n",
+                      l.fx, l.fy, l.fw, l.fh, l.fx + 1, l.fy + 1, l.fw - 2, l.fh - 2, l.fx + 6, l.fy + 1, l.fw - 30, l.fh,
+                      l.cx, l.fy + 1, l.fh);
         out.insert(table + 1, field);
+        LOGI("pc maps: %s's search field %s at %.0f %.0f (%.0f x %.0f)", l.screen,
+             header.in_header ? "in the header" : "above the list (no room in the header)", l.fx, l.fy, l.fw, l.fh);
         end = out.find("\n}", screen + 1);
         l.rows = RowsOf(out, screen, end);
         l.entries = mapsearch::Index(l.rows);
@@ -294,7 +319,7 @@ void PcMapSearchCommand(X86Context& ctx, const std::string& what) {
 bool PcMapSearchClick(X86Context& ctx, const std::string& screen, float x, float y) {
     List* l = ListOf(screen);
     if (!l || l->field_line < 0) return false;
-    if (y >= l->fy && y < l->fy + l->fh && x >= l->cx - 4 && x < l->cx + 30 && !g_field.text.empty()) {
+    if (y >= l->fy && y < l->fy + l->fh && x >= l->cx - 2 && x < l->fx + l->fw + 2 && !g_field.text.empty()) {
         g_field.Clear();
         Mirror();
         Apply(ctx, *l);
