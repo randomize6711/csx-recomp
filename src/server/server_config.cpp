@@ -138,12 +138,14 @@ bool Set(Config& c, const std::string& key, const std::string& value, std::strin
         return true;
     }
     if (key == "gungame_order") {
+        if (value == "default") return c.gungame_order.clear(), true;  // Describe's word for the default ladder
         if (value.size() > 300 || value.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789,") != std::string::npos)
             return error = "weapon names (lower case) separated by commas", false;
         c.gungame_order = value;
         return true;
     }
     if (key == "map_rotation") {
+        if (value == "none") return c.map_rotation.clear(), true;  // Describe's word for none (kept across relaunches)
         if (value.size() > 600 || value.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_,") != std::string::npos)
             return error = "map names (lower case) separated by commas", false;
         c.map_rotation = value;

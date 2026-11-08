@@ -137,6 +137,13 @@ int main() {
         err.clear();
         Check(MatchLine(lc, bad, err).empty() && !err.empty(), std::string("match line: refused: ") + bad);
     }
+    {  // a relaunch reads Describe's own words back: no rotation, the default Gun Game ladder (not a map "none")
+        Config d, r;
+        std::vector<Error> e3;
+        ParseFile(r, Describe(d, true), "kept", e3);
+        Check(e3.empty() && r.map_rotation.empty() && r.gungame_order.empty(), "describe: none / default read back as empty");
+        Check(CommandLine(r).find("pc_rotation") == std::string::npos, "describe: no rotation after a relaunch");
+    }
     std::printf("%d checks, %d failed\n", g_checks, g_failed);
     return g_failed ? 1 : 0;
 }
