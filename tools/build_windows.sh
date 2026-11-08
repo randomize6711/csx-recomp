@@ -10,6 +10,7 @@ cd "$root"
 [ -f build/gen/game/x86_func_mapping.cpp ] || { echo "run tools/iterate.sh first"; exit 1; }
 tools/apply_sdk_patches.sh > /dev/null
 tools/fetch_windows_deps.sh > /dev/null
+tools/fetch_vulkan_headers.sh
 [ -f build/windows/build.ninja ] ||
     cmake -S cmake/windows -B build/windows -G Ninja \
         -DCMAKE_TOOLCHAIN_FILE="$root/cmake/toolchains/x86_64-w64-mingw32-clang.cmake" > /dev/null

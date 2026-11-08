@@ -66,15 +66,17 @@ how it is imported.
 ### Prerequisites
 
 - Clang and LLD, CMake, Ninja, Python 3, `pkg-config`
-- SDL3, libsodium, the Vulkan loader and headers, the DirectX Shader Compiler (`libdxcompiler`)
+- SDL3, libsodium, the Vulkan loader, the DirectX Shader Compiler (`libdxcompiler`), Git
 - `unshare` (util-linux): the scripts run the game in a private network namespace unless network play is asked for
 
 On Arch Linux:
 
-    sudo pacman -S --needed clang lld cmake ninja python pkgconf sdl3 libsodium vulkan-icd-loader vulkan-headers \
-        directx-shader-compiler util-linux
+    sudo pacman -S --needed clang lld cmake ninja python pkgconf sdl3 libsodium vulkan-icd-loader \
+        directx-shader-compiler util-linux git
 
-Zydis, toml++, Dear ImGui and (for the SDK's own tools) SDL3 are fetched by CMake.
+Zydis, toml++, Dear ImGui and (for the SDK's own tools) SDL3 are fetched by CMake. The Khronos Vulkan headers
+(v1.4.363) are cloned into `third_party/Vulkan-Headers` by `tools/build_window.sh` on its first run
+(`tools/fetch_vulkan_headers.sh`).
 
 ### 1. Clone with the SDK
 
