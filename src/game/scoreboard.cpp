@@ -248,6 +248,48 @@ void ScoreSpectatorName(X86Context& ctx, uint8_t*) {
     SetCellText(ctx, R32(ctx.esp), g.indicator_now ? scoreboard::MoreText(g.view.players_below) : "Spectators");
 }
 
+// [[hook]] at 0x1B4593 (the Spectator screen's update, its Time cell just set; [esp+0x18] the xbui Spectator screen):
+// the second row's CT and T cells set to 0 before the team loop (to 0x1B46B7) writes the score of each team it finds.
+// The client's team list holds only teams with players, so an empty team's cell kept the screen's placeholder
+// ("CT Score:" under "CT Score:" with nobody on the CT side). The row is [[[screen+0x380]+0x60]+0x2C], its cells'
+// text strings at +0x0C (CT), +0x84 (Time) and +0xFC (T), as the loop reaches them.
+uint32_t SpectatorScoreRow(X86Context& ctx) {
+    uint32_t screen = R32(ctx.esp + 0x18);
+    uint32_t table = screen ? R32(screen + 0x380) : 0;
+    uint32_t rows = table ? R32(table + 0x60) : 0;
+    return rows ? R32(rows + 0x2C) : 0;
+}
+
+void SpectatorScoresZero(X86Context& ctx, uint8_t*) {
+    if (uint32_t row = SpectatorScoreRow(ctx))
+        for (uint32_t at : {0x0Cu, 0xFCu})
+            if (uint32_t cell = R32(row + at)) SetCellText(ctx, cell, "0");
+}
+
+// a cell's std::wstring as text (the scores' digits; anything past ASCII as '?')
+std::string CellText(uint32_t str) {
+    uint32_t n = std::min<uint32_t>(R32(str + 0x14), 64);
+    uint32_t chars = R32(str + 0x18) >= 8 ? R32(str + 4) : str + 4;
+    std::string s;
+    for (uint32_t i = 0; chars && i < n; i++) {
+        uint16_t c;
+        std::memcpy(&c, static_cast<const uint8_t*>(kernel::HostPtr(chars)) + i * 2, 2);
+        s += c < 0x80 ? char(c) : '?';
+    }
+    return s;
+}
+
+// [[hook]] at 0x1B46BD (the team loop done; the same stack): the two scores logged when they change (tests)
+void SpectatorScoresShown(X86Context& ctx, uint8_t*) {
+    uint32_t row = SpectatorScoreRow(ctx);
+    if (!row || !R32(row + 0x0C) || !R32(row + 0xFC)) return;
+    static std::string last;
+    std::string now = "CT " + CellText(R32(row + 0x0C)) + ", T " + CellText(R32(row + 0xFC));
+    if (now == last) return;
+    last = now;
+    LOGI("spectator: scores %s", now.c_str());
+}
+
 // [[hook]] at 0x1BA4C3 (a player row's Deaths cell made; [esp+0x280] the panel, [esp+0x288] the row): true runs the
 // Deaths cell's code again (0x1BA43E) as the Ping cell, once
 bool ScorePingCellAgain(X86Context& ctx, uint8_t*) {

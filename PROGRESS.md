@@ -879,3 +879,12 @@ manual testing and approval; no optimization or complete regression until then.
   net_reconnect, net_ded_lifecycle, net_ded_restart, net_split_ded_4, net_ded_one. net_party_private and
   net_browse_join time out in the main menu, before any connection: they walk the menu from before the redesign
   (TODO "Tests left behind by the main menu redesign", 19 scenarios).
+
+## 2026-11-08: the spectator screen's score row
+
+- FINDINGS.md "The spectator screen's score row with an empty team": the TODO's "garbled status line" is the score
+  row's CT cell keeping its placeholder ("CT Score:") when the CT side has no players; both score cells are now 0
+  before the update writes the teams it knows. The "menu backdrop" is the screen's own art (spectatorBackground, a
+  grid frame), drawn as on the console: not changed.
+- Tests: vk_spectator_scores (new: an empty match, the row shows CT 0, T 0), vk_spectator (now ends with the bots
+  let loose while the player is dead: a CT win showed CT 1 over the zero). Both passed.

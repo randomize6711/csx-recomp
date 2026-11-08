@@ -1090,6 +1090,14 @@ at = 0x1B9979
 call = "ScoreRowNext"
 
 [[hook]]
+at = 0x1B4593
+call = "SpectatorScoresZero"
+
+[[hook]]
+at = 0x1B46BD
+call = "SpectatorScoresShown"
+
+[[hook]]
 at = 0x1B9E63
 call = "ScoreSpectatorTitle"
 

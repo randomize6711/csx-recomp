@@ -1388,7 +1388,9 @@ the Xbox GL layer's glTexSubImage2D is empty.)
 
 Other observations:
 - The spectator screen (after dying, Free Look) draws the menu's backdrop art over the view and one status line in
-  garbled characters (where "Enemy: name" was); not a graphics effect (the UI's text), noted in TODO.md.
+  garbled characters (where "Enemy: name" was); not a graphics effect (the UI's text), noted in TODO.md. (2026-11-08: the backdrop
+  is the screen's own art, the line the CT score cell's placeholder: "The spectator screen's score row with an empty
+  team")
 
 Recommended order: (1) dynamic gamma in Vulkan (a write-back of the LIN_L8 measurement for the title's inlined lock,
 then checking the adaptation on several maps; the reference's collapse alongside); (2) de_aztec's cube texture
@@ -3133,3 +3135,28 @@ Found in the server tool's regression: net_ded_lossy timed out once, one client 
   still rejoins.
 - The transport's own idle timeout (30 s, transport.cpp) is never reached by a client in a match: the engine's comes
   first.
+
+## The spectator screen's score row with an empty team (2026-11-08)
+
+The note from the graphics audit (2026-10-21, "Other observations"): after dying in an empty match the Spectator
+screen showed "a status line in garbled characters" and "the menu's backdrop over the view". Seen again on the
+current build (tests/scenarios/vk_spectator_scores.txt, de_dust2 without bots):
+
+- **The backdrop is the original design.** InGameUI*.txt's Spectator screen draws `BackgroundImage
+  "spectatorBackground 100 100 80 235 0 0 640 480"`, a 512x256 DXT texture in Media\PieMenuUI\Spectator.xpr: a grey
+  grid frame at the edges, transparent in the middle. It is drawn as the console drew it; not changed.
+- **The "garbled" line is the score row's CT cell.** The screen's Table has two rows of three cells, both made with
+  the labels ("CT Score:", "Time:", "T Score:"); the client's spectator update (0x1B4000) writes the second row:
+  the time (0x1B4549, the cell at row+0x84), then a loop over the client's team list (0x548A28, 0x2C a team, to
+  0x1B46B7) that writes "%d" of a team's score into the T cell (+0xFC, name "TERRORIST") or the CT cell (+0x0C, name
+  "CT"); the row is [[[screen+0x380]+0x60]+0x2C], the screen [esp+0x18] (0xD71E0 of "Spectator"). The team list
+  holds only teams that have had players, so with nobody on one side its cell kept the placeholder: "CT Score:"
+  under "CT Score:". Any match with an empty side shows it (a humans-only server with everyone on one team too).
+- The same function also fills the PC Half-Life spectator panel ([ebp+0xA60], VGUI labels at +0xD8..+0xF4, laid out
+  by 0x1DA920), which the console never shows: writing those labels changes nothing on screen.
+- Fix (src/game/scoreboard.cpp SpectatorScoresZero, a hook at 0x1B4593): both score cells set to 0 before the loop,
+  which then writes the real score of each team it finds. A team that has never had a player cannot score (a round
+  that times out with nobody on the CT side is a draw), so 0 is its score; a team whose players all left keeps its
+  entry and its score (checked: a CT bot that joined and left, then a CT win on time showed CT 1). Not covered: a
+  client that joins after a team scored and emptied would show 0 for it (the placeholder before).
+- SpectatorScoresShown (a hook at 0x1B46BD) logs "spectator: scores CT n, T n" when the row changes, for tests.

@@ -1,0 +1,23 @@
+# The Spectator screen's score row with an empty team (FINDINGS.md "The spectator screen's score row with an empty
+# team", src/game/scoreboard.cpp SpectatorScoresZero): the screen's update writes a team's score only for the teams in
+# the client's team list, which holds teams with players, so an empty team's cell kept the screen's placeholder ("CT
+# Score:" under "CT Score:"). An empty match: the player (T) dies and the row shows CT 0, T 0 (a
+# real score written over the zero: vk_spectator.txt's end).
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 960), with
+#   --launch tests/launch/de_dust2_nobots
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+sleep 45
+key Down
+sleep 6
+key Down
+sleep 6
+key Space
+sleep 30
+key Left_Ctrl
+sleep 20
+pckey cmd kill
+wait log spectator: scores CT 0, T 0
+sleep 1
+windowshot empty_team
+expect nolog spectator: scores .*Score
+expect nolog guest trap

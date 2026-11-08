@@ -56,4 +56,9 @@ mouse 600 0
 sleep 1
 state s5
 expect yaw s4 s5 -39.6 6
+# the bots let loose, the player still dead: the round's winner's score shown on the Spectator screen's row over the
+# zero both cells start each update with (src/game/scoreboard.cpp SpectatorScoresZero)
+expect log spectator: scores CT 0, T 0
+pckey cmd bot_zombie 0
+wait log spectator: scores (CT 1, T 0|CT 0, T 1)
 expect nolog guest trap

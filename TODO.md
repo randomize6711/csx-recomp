@@ -39,8 +39,9 @@
    without VK_EXT_surface_maintenance1 (not the renderer's; DISABLE_GAMESCOPE_WSI=1 runs have none); the performance
    warning OutputNotConsumed (vertex outputs and attributes the title's shaders leave unread). Validation was run on
    one GPU (RADV): a check on another vendor's driver would be worth having.
-0. The spectator screen (Free Look after dying): one status line in garbled characters, the menu backdrop over the
-   view.
+0. ~~The spectator screen (Free Look after dying): one status line in garbled characters, the menu backdrop over the
+   view.~~ Done 2026-11-08: the CT score cell's placeholder with an empty team (fixed); the backdrop is the screen's
+   own art (FINDINGS.md "The spectator screen's score row with an empty team").
 0. Play-test on the desktop (Hyprland): Display Mode with the compositor's own fullscreen key, VSync Off at a 240
    limit (frame rate past 120, whether IMMEDIATE tears in full screen: it should not without allow_tearing), the
    menu pointer after the header fix, the loading screens.
