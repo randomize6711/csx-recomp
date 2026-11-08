@@ -1,0 +1,34 @@
+# The server tool's telemetry (docs/server_tool.md) with one remote player: net_ded_one with CSX_SERVER_TELEMETRY=1.
+# The status lines go to the server's stdout (run.out); tests/server_telemetry_check.py reads them afterwards.
+# timeout: 420
+[server] --server "--map de_aztec --bots 0" --env CSX_LOG_NET=1 --env CSX_SERVER_TELEMETRY=1
+wait log dedicated:.the.engine.loads.as.a.dedicated.server
+wait log net:.server.identity
+wait log net:.client.127\.0\.0\.2:[0-9]+.connected
+count entered.the.game 1
+sleep 20
+players one
+expect playercount one 1 1
+expect log net.stats:.snapshots.a.second
+expect nolog guest trap
+expect nolog Host_Error
+wait log net:.client.127\.0\.0\.2:[0-9]+.closed
+sleep 2
+pckey cmd quit
+[client] --after server:net:.server.identity --delay 5 --launch tests/launch/connect_local --env FPS=30 --env CSX_LOG_NET=1 --env CSX_SERVER_TELEMETRY=1
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+sleep 10
+state m1
+pckey tap +moveleft 0.5
+sleep 1.5
+state m2
+expect moved m1 m2 20 400
+expect nolog Host_Error
+sleep 5
+pckey cmd disconnect
+sleep 3
