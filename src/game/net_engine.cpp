@@ -295,6 +295,16 @@ std::string ServerIdentityKey() {
     return g_server_key;
 }
 
+// game thread (the endpoints are the game thread's)
+bool ServerNetTotals(uint64_t& bytes_in, uint64_t& bytes_out, size_t& connections) {
+    if (!g_ep[1]) return false;
+    const net::Stats& s = g_ep[1]->GetStats();
+    bytes_in = s.bytes_in;
+    bytes_out = s.bytes_out;
+    connections = g_ep[1]->ConnectionCount();
+    return true;
+}
+
 uint16_t ServerEndpointPort() {
     std::lock_guard<std::mutex> l(g_server_lock);
     return g_server_port;

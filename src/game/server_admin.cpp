@@ -36,6 +36,8 @@
 #include "kernel/kernel.h"
 #include "net/transport.h"
 
+void PcRotationCommand(const std::string& arg);  // pc_modes.cpp
+
 namespace {
 using kernel::R16;
 using kernel::R32;
@@ -67,6 +69,7 @@ const std::vector<Command> kCommands = {
     {"restart", "restart", "restart [SECONDS]: restart the round (1..15 s, 1)"},
     {"bots", "bots", "bots N: the bots from the next map (0..max_players: the title sets them at a match's start)"},
     {"bot_difficulty", "bots", "bot_difficulty N: 0 easy .. 3 expert, from the next map"},
+    {"rotation", "map", "rotation MAP,MAP,...|-: the maps played in turn when a match ends (- for none), at once"},
     {"friendly_fire", "settings", "friendly_fire on|off"},
     {"round_time", "settings", "round_time MINUTES: 1..9"},
     {"password", "settings", "password TEXT|-: the join password (- for none)"},
@@ -150,7 +153,11 @@ void AdminLog(const std::string& text) {
     LOGI("admin: %s", text.c_str());
     std::error_code ec;
     std::filesystem::create_directories(app::ExeDir() / "logs", ec);
-    std::ofstream out((app::ExeDir() / "logs" / "admin.log").string(), std::ios::app);
+    // kept to two files of at most 1 MB: admin.log and the one before it, admin.log.1
+    auto path = app::ExeDir() / "logs" / "admin.log";
+    if (std::filesystem::exists(path, ec) && std::filesystem::file_size(path, ec) > (1u << 20) && !ec)
+        std::filesystem::rename(path, app::ExeDir() / "logs" / "admin.log.1", ec);
+    std::ofstream out(path.string(), std::ios::app);
     std::time_t t = std::time(nullptr);
     char stamp[32];
     std::strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", std::localtime(&t));
@@ -466,6 +473,28 @@ bool AdminCommand(X86Context& ctx, uint32_t cl, const std::string& text) {
         if (!csx::Dedicated()) return Reply(ctx, "admin: " + cmd + " is for the dedicated server (csx-server)"), true;
         if (!SetNextMapSetting(cmd, std::to_string(v))) return Reply(ctx, "admin: the server's settings were not found"), true;
         return done(cmd + " " + std::to_string(v) + " from the next map (admin map NAME, or the match's end)");
+    }
+    if (cmd == "rotation") {
+        // live (pc_modes.cpp PcRotationCommand: the next match's end goes by it) and kept for the relaunches
+        // the engine's tokenizer makes a comma a word of its own ("a , b"): spaces and commas both separate
+        std::string list;
+        for (char ch : rest == "-" ? std::string() : rest)
+            if (ch == ' ' || ch == ',') {
+                if (!list.empty() && list.back() != ',') list += ',';
+            } else list += ch;
+        if (!list.empty() && list.back() == ',') list.pop_back();
+        if (list.size() > 600 || list.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_,") != std::string::npos)
+            return usage();
+        const char* game = std::getenv("GAME_DIR");
+        std::istringstream maps(list);
+        for (std::string m; std::getline(maps, m, ',');) {
+            if (m.empty() || m.size() > 31) return usage();
+            if (!game || !std::filesystem::exists(std::filesystem::path(game) / (m + ".SXWad")))
+                return Reply(ctx, "admin: no map " + m + " on this server"), true;
+        }
+        PcRotationCommand(list);
+        if (csx::Dedicated()) SetNextMapSetting("map_rotation", list.empty() ? "none" : list);
+        return done(list.empty() ? std::string("rotation off (the same map again)") : "rotation " + list);
     }
     if (cmd == "friendly_fire") {
         if (rest != "on" && rest != "off") return usage();

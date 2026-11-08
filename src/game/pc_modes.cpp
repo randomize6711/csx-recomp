@@ -861,6 +861,16 @@ void PcRotationCommand(const std::string& arg) {
     LOGI("pc rotation: %s", maps.empty() ? "none (the game's own)" : text.c_str());
 }
 
+// the map the rotation changes to when this match ends (the server tool's telemetry); empty without a rotation
+std::string PcRotationNextMap() {
+    if (g_rotation.empty()) return {};
+    std::string now = kernel::ReadCString(kSvName, 64);
+    size_t i = 0;
+    for (size_t k = 0; k < g_rotation.size(); k++)
+        if (g_rotation[k] == now) i = (k + 1) % g_rotation.size();
+    return g_rotation[i];
+}
+
 // [[hook]] at 0x14A8BA (config/game.toml): CHANGE_LEVEL about to run with the next map's name at [esp]
 void PcRotationNext(X86Context& ctx, uint8_t*) {
     if (g_rotation.empty()) return;

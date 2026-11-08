@@ -25,12 +25,14 @@ namespace csx {
 namespace {
 std::atomic<uint64_t> g_frames{0};
 std::atomic<bool> g_finished{false};
+std::atomic<double> g_frame_ms{0};  // the last host frame's work (its start to the next tick's wait), milliseconds
 }
 bool Dedicated() {
     static const bool on = std::getenv("CSX_DEDICATED") && *std::getenv("CSX_DEDICATED") == '1';
     return on;
 }
 uint64_t ServerFrames() { return g_frames.load(std::memory_order_relaxed); }
+double ServerFrameMs() { return g_frame_ms.load(std::memory_order_relaxed); }
 void SetServerFinished() { g_finished = true; }
 bool ServerFinished() { return g_finished; }
 }  // namespace csx
@@ -94,11 +96,16 @@ void DedicatedTick(X86Context& ctx, uint8_t*) {
     using clock = std::chrono::steady_clock;
     static const auto period = std::chrono::duration_cast<clock::duration>(std::chrono::duration<double>(1.0 / kTickRate));
     static clock::time_point next = clock::now();
+    static clock::time_point frame_start{};  // when the previous frame's work began (its wait ended)
     auto now = clock::now();
+    if (frame_start != clock::time_point{})
+        csx::g_frame_ms.store(std::chrono::duration<double, std::milli>(now - frame_start).count(), std::memory_order_relaxed);
+    csx::ServerTelemetry(ctx);  // the server tool's status line, once a second (server_status.cpp)
     if (next < now - period) next = now;
     // the wait answers server queries as they arrive (server_query.cpp), so a browser's ping is not the tick's
     if (next > now) csx::ServerQueryWait(std::chrono::duration<double>(next - now).count());
     next += period;
+    frame_start = clock::now();
 }
 
 // [[hook]] at 0xA1D64 in SV_Frame (0xA1D20), after it read the clients' packets, where it skips the simulation

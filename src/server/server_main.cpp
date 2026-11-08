@@ -18,6 +18,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -303,6 +304,9 @@ int main(int argc, char** argv) {
     setenv("GAME_DIR", game.c_str(), 1);
     setenv("CSX_SERVER_SETTINGS", server::Describe(cfg, true).c_str(), 1);
     setenv("CSX_DEDICATED", "1", 1);
+    // the server's first start, which its relaunches (map changes) inherit: the telemetry's uptime (server_status.cpp)
+    if (!relaunch || !std::getenv("CSX_SERVER_STARTED"))
+        setenv("CSX_SERVER_STARTED", std::to_string((long long)std::time(nullptr)).c_str(), 1);
     setenv("CSX_NET_HOST", "1", 1);
     setenv("CSX_NET_PORT", std::to_string(cfg.port).c_str(), 1);
     setenv("CSX_NET_LAN_ONLY", cfg.lan_only ? "1" : "0", 1);

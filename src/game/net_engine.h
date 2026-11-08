@@ -41,6 +41,12 @@ std::string ServerEndpointError();
 // the process is the dedicated server (csx-server: CSX_DEDICATED=1; dedicated.cpp); its host frames so far
 bool Dedicated();
 uint64_t ServerFrames();
+double ServerFrameMs();  // the last host frame's work in milliseconds (the tick's wait not counted)
+// the server tool's telemetry (server_status.cpp): with CSX_SERVER_TELEMETRY=1, one "@csx status {JSON}" line a
+// second on stdout (docs/server_tool.md), from the game thread
+void ServerTelemetry(X86Context& ctx);
+// the server endpoint's transport totals: false when it is not open
+bool ServerNetTotals(uint64_t& bytes_in, uint64_t& bytes_out, size_t& connections);
 // the dedicated server shut down (its quit: the players told), so csx-server exits
 void SetServerFinished();
 bool ServerFinished();
