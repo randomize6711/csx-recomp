@@ -221,12 +221,24 @@ X86_FUNC(sub_001030E0) {
 namespace {
 constexpr uint32_t kMsgStatShot = 0x552A4C;
 constexpr uint32_t kDamage = 0x10;  // damage to player 1 .. N
+bool g_shot_open = false;           // between a Reset and its Send
 }  // namespace
 
 // [[hook]] at 0x153804 (StatShot reset, eax = this): the damage of every player cleared (the original's 17 stores
 // follow)
 void SlotsStatShotReset(X86Context& ctx, uint8_t*) {
     std::memset(kernel::HostPtr(ctx.eax + kDamage), 0, 4 * N);
+    g_shot_open = true;
+}
+
+// [[hook]] at 0x1538AC (StatShot AddDamage with a shooter at +4, esi = this): damage is counted only inside a shot
+// (Reset .. Send). A shooter outside one is a stale one, a player that may have been removed since (TODO 1e3; Send
+// now clears it after every shot, so this is never expected): logged and not counted; false skips the add
+// (0x1538D8) before anything is read through it.
+bool SlotsStatShotShooter(X86Context& ctx, uint8_t*) {
+    if (g_shot_open) return true;
+    LOG_FIRST(10, "statshot: damage with no shot in progress (stale shooter 0x%08X), not counted", R32(ctx.esi + 4));
+    return false;
 }
 
 // [[hook]] at 0x1538CE (StatShot AddDamage, eax = the victim's entity index): an index past the N players is not
@@ -234,10 +246,20 @@ void SlotsStatShotReset(X86Context& ctx, uint8_t*) {
 bool SlotsStatShotIndex(X86Context& ctx, uint8_t*) { return ctx.eax >= 1 && ctx.eax <= N; }
 
 // StatShot Send (0x1538E0, ecx = this, the player at +4, its weapon at +8): the hit masks of enemies (damage > 0)
-// and teammates (damage < 0) as 3 dwords each, the damage dealt and taken and the weapon as bytes
+// and teammates (damage < 0) as 3 dwords each, the damage dealt and taken and the weapon as bytes.
+// The shooter at +4 is cleared after every shot. The original cleared it only after a human's shot (a bot's left it
+// set until the next Reset), so a bot removed mid-round (bot_kick, a quota change, a disconnect) stayed there freed,
+// and the next damage taken anywhere (AddDamage 0x153890 reads the shooter's team at +0x1E0) read released memory:
+// TODO 1e3. With +4 clear AddDamage adds nothing (its own test at 0x1538A8); a bot's statistics were never sent and
+// Reset zeroes them, so nothing that reached a player changes.
 X86_FUNC(sub_001538E0) {
     (void)base;
     uint32_t self = ctx.ecx, player = R32(self + 4);
+    g_shot_open = false;
+    if (!player) {  // no shot in progress (the original would call through a null player)
+        ctx.esp += 4;
+        return;
+    }
     uint32_t saved = ctx.ecx;
     ctx.ecx = player;
     uint32_t skip = CallGuest(ctx, R32(R32(player) + 0x158), {});  // the original's test (a bot's shots)
@@ -257,8 +279,8 @@ X86_FUNC(sub_001538E0) {
         Call(ctx, kWriteByte, {uint32_t(taken) & 0xFF});
         Call(ctx, kWriteByte, {R32(self + 8) & 0xFF});
         Call(ctx, kMessageEnd, {});
-        W32(self + 4, 0);
     }
+    W32(self + 4, 0);
     ctx.esp += 4;
 }
 

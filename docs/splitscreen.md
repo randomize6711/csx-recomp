@@ -181,8 +181,8 @@ Names: Y opens Player Names (N4.6, section 16.1); saved as `split_name_1..4` in 
 
 Every local player is a separate client of the server: its own client_t, entity, team, score, scoreboard row. An
 offline or menu-hosted split-screen match leaves room for four local players: bots are capped at 61 (65 slots). The
-title sets its bots at a match's start and never removes one for a joining player (bot_kick has a known crash, TODO
-1e3), so this is what lets a controller's START, or a map change with more players, find a slot. Verified as
+title sets its bots at a match's start and never removes one for a joining player (bot_kick had a known crash, TODO
+1e3, fixed 2026-11-08), so this is what lets a controller's START, or a map change with more players, find a slot. Verified as
 occupancy (the server's client_t count, the `players` step): 4 local players + 61 bots = 65; 3 + 61 = 64, then the
 fourth player joined with START = 65 (vk_split_4, vk_split_3). A server that is full refuses a joining player as any
 client (net_split_*: the refusal reaches the compositor, the player's slot is given back).
@@ -283,7 +283,8 @@ Network scenarios: section 12. Unit tests unchanged (the IPC is exercised by eve
 - **Layout changes during a match** crop the wider players' views until their next boot (section 6).
 - **The compositor costs** about 18% of the frame rate against the game alone at high frame rates (section 11, corrected in 17.6; first recorded as a quarter).
 - **Bots for local players**: an offline split-screen match takes at most 61 bots (room for four local players);
-  bot_kick's crash (TODO 1e3) stops the server from making room by removing one.
+  bot_kick's crash (TODO 1e3) stopped the server from making room by removing one; fixed 2026-11-08, so
+  removing a bot for a joining player is now possible (not built).
 - **Audio** is one mix of all players (no per-viewport panning); four streams were measured (16.5), not listened to.
 - **Physical controllers** were not used in the tests (virtual SDL gamepads only).
 - **Linux only**: the compositor and the player side use Unix sockets, SCM_RIGHTS and VK_KHR_external_memory_fd; a

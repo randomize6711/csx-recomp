@@ -1038,11 +1038,16 @@ on_false = 0x1D8363
 at = 0x1B9354
 call = "SlotsScoreSortedClear"
 
-# the game DLL (src/game/player_slots_game.cpp): StatShot's reset and index check, trigger_hurt's touched players,
+# the game DLL (src/game/player_slots_game.cpp): StatShot's reset, shooter and index checks, trigger_hurt's touched players,
 # the team sizes (spawn points no longer cap a team)
 [[hook]]
 at = 0x153804
 call = "SlotsStatShotReset"
+
+[[hook]]
+at = 0x1538AC
+call = "SlotsStatShotShooter"
+on_false = 0x1538D8
 
 [[hook]]
 at = 0x1538CE

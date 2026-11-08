@@ -1,0 +1,63 @@
+# Bots removed mid-round (TODO 1e3, FINDINGS.md "Bots removed mid-round"): 16 bots on de_dust2 fight, then eight of them are
+# kicked by user id (the engine's kick #ID in the developer console, a client's drop as for a
+# disconnecting player) while the round goes on; the other eight keep fighting. The title's shot statistics (StatShot at
+# *0x552B08) kept the last bot that fired as its shooter, and the next damage taken (AddDamage 0x153890) read that
+# bot after it was removed: a SIGSEGV in most runs before the fix. The match must go on through every kick: rounds
+# still end and start, kills are still logged, no guest trap, and no damage counted for a shooter outside a shot
+# (the guard at 0x1538AC logs one: with the fix taken out it shows within the kicks).
+#   --env FPS=30 --launch tests/launch/de_dust2_bots16
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+count game:.World.triggered."Round_Start" 2
+sleep 12
+pckey key 96 1
+sleep 0.2
+pckey key 96 0
+sleep 1
+expect log pc console: open
+pckey con kick #2
+sleep 0.3
+pckey conkey enter
+sleep 2.5
+pckey con kick #3
+sleep 0.3
+pckey conkey enter
+sleep 2.5
+pckey con kick #4
+sleep 0.3
+pckey conkey enter
+sleep 2.5
+pckey con kick #5
+sleep 0.3
+pckey conkey enter
+sleep 2.5
+pckey con kick #6
+sleep 0.3
+pckey conkey enter
+sleep 2.5
+pckey con kick #7
+sleep 0.3
+pckey conkey enter
+sleep 2.5
+pckey con kick #8
+sleep 0.3
+pckey conkey enter
+sleep 2.5
+pckey con kick #9
+sleep 0.3
+pckey conkey enter
+sleep 2.5
+count game:.*<BOT>.*disconnected 8
+count game:.*killed 2
+sleep 40
+count game:.World.triggered."Round_Start" 3
+expect nolog statshot: damage with no shot in progress
+expect nolog guest trap

@@ -1,0 +1,49 @@
+# Bots removed mid-round (TODO 1e3): 16 bots fight on de_dust2, then bots are kicked while the round goes on, by
+# bot_kick and by the engine's kick (a client's disconnect). The server must stay up through every kick and keep
+# fighting afterwards, and no damage may be counted for a shooter outside a shot (the StatShot guard's log line: a
+# removed bot left as the shooter, which crashed the server when its memory had been released). The bot quota
+# refills the slots at once here, so the crash itself was not seen on the unfixed server (tests/scenarios/
+# regress_bot_kick.txt is the offline match's check). GAME is replaced by the test runner.
+game GAME
+profile BotKick
+set map de_dust2
+set bots 16
+set bot_difficulty 2
+set round_time 5
+start
+wait_online 120
+wait_status bots == 16 30
+# let the round's fighting start (bots shooting each other)
+sleep 25
+command bot_kick
+sleep 3
+wait_state Online 1
+command bot_kick
+sleep 3
+wait_state Online 1
+command bot_kick
+sleep 3
+wait_state Online 1
+kick 2
+sleep 3
+wait_state Online 1
+kick 3
+sleep 3
+wait_state Online 1
+command bot_kick
+sleep 3
+wait_state Online 1
+kick 5
+sleep 3
+wait_state Online 1
+command bot_kick
+# the fighting after the kicks: grenades, falls and shots by the bots that remain
+sleep 30
+wait_state Online 1
+expect_no_line Segmentation
+expect_no_line crashed
+expect_no_line statshot: damage with no shot in progress
+print
+stop
+wait_offline 40
+expect_exit_code 0

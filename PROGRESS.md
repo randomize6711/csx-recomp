@@ -854,3 +854,15 @@ docs/manual_checklist_n5_n11.md.
 
 Commits e97c3e2 (N5B..N10 combined), be4d28b (N11), and the docs. Branch g8.2b, not merged. Waiting for the user's
 manual testing and approval; no optimization or complete regression until then.
+
+## 2026-11-08: the crash when a player leaves mid-round (TODO 1e3)
+
+- Cause (FINDINGS.md "Bots removed mid-round"): StatShot's Send kept a bot as the shooter after its shot; a bot
+  removed meanwhile was then read freed by the next non-shot damage (AddDamage 0x153890). Fixed in the Send
+  replacement (the shooter cleared after every shot) with a guard at 0x1538AC that logs and refuses damage outside a
+  shot. No gameplay change (a bot's counts were never sent).
+- Tests: regress_bot_kick (new; negative check: the guard's line in 1 of 2 runs with the original behaviour, none with
+  the fix), tests/server_tool/bot_kick.txt (new). Passed: regress_bot_kick, regress_bots_dust2_16,
+  regress_bots_aztec_16, regress_elite_fire, regress_pc_grenades, regress_mode_deathmatch, regress_mode_gungame,
+  regress_gameplay_n7, server tool bot_kick and lifecycle, net_ded_bots_65, net_ded_two_bots. The complete
+  regression was not run (deferred until approved).

@@ -78,8 +78,9 @@
 1e2. Further high population performance, each needing approval (FINDINGS.md "High population performance"): a
    native bit-exact trace (the BSP hull walk, the largest server cost with 64 bots), bots' visibility scans spread over
    frames (changes behaviour), Vulkan recording on its own thread, draw batching.
-1e3. A pre-existing crash when players leave mid-round (bot_kick: StatShot AddDamage 0x153890 on a released damage
-   record; the G7 build too): matters for online play, where players disconnect. Needs its own fix and approval.
+1e3. Done 2026-11-08 (FINDINGS.md "Bots removed mid-round"): the crash when a player leaves mid-round (a removed
+   bot left as StatShot's shooter). Left: bots can now be removed for a joining player (docs/splitscreen.md, FINDINGS
+   "Bots are never removed for a joining player") if wanted.
 1e4. PC multiplayer (docs/pc_multiplayer.md): N0 done 2026-10-24; N1 signed off 2026-10-25 (section 15.8); N2 the
    dedicated server 2026-10-25 (section 16); N3 the server browser built 2026-10-26 (section 17); N4 split-screen
    built 2026-10-27 (docs/splitscreen.md), N4.7 2026-10-28 (a menu match in its own csx-server; the changemap fix), waiting for the user's approval before N5. Left (sections 16.9, 17.10): the client-side message parsers against a

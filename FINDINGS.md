@@ -2061,8 +2061,8 @@ What split-screen (docs/splitscreen.md) found about the title and the platform:
 - **The title creates its device once**: the aspect (pc_wide.cpp's Hor+) is fixed when a process boots, so a layout
   change during a match cannot reshape a running player's frame; a wider frame fills its new viewport with the sides
   cropped (split::FrameRect) until that player's next boot. Verified in vk_split_3 (the fourth player joining three).
-- **Bots are never removed for a joining player**: the title sets its bots at a match's start and bot_kick has a
-  known crash (TODO 1e3), so a 65-slot offline match with 64 bots left no slot for a second local player (START was
+- **Bots are never removed for a joining player**: the title sets its bots at a match's start and bot_kick had a
+  known crash (TODO 1e3, fixed 2026-11-08: "Bots removed mid-round"), so a 65-slot offline match with 64 bots left no slot for a second local player (START was
   refused "The server is full"). Offline and menu-hosted split matches cap bots at 61; verified 4 + 61 = 65.
 - **gamescope drops SDL's full screen flag** (SDL_GetWindowFlags reports windowed after SDL_SetWindowFullscreen
   succeeded), so a later "windowed" request did nothing: the compositor keeps the state it asked for itself.
@@ -2371,11 +2371,8 @@ within ~10% are not differences. The runs are in build/perf/baseline and build/w
   recompiled one: the largest single cost, gameplay-neutral only if exact), spreading each bot's visibility scans
   evenly over frames (changes when a bot sees, so it changes behaviour), recording Vulkan commands on a second thread
   (XBE_RENDER_THREAD exists in the runtime), and batching draws.
-- **Found, not fixed (pre-existing):** kicking bots mid-round (bot_kick) crashes the game in 1 of 5 runs with 64 bots
-  and 4 of 6 with 16: SIGSEGV in 0x153890 (StatShot's AddDamage, through CBasePlayer::TakeDamage 0x117EB0 from a
-  bot's damage handler 0x1749A0), a damage record whose memory has been released (decommitted, as on the console).
-  The G7 build (before the player slots) crashes the same way. Normal play has no kicks; a disconnecting player in a
-  future online match would be the same case.
+- **Found (pre-existing), fixed 2026-11-08:** kicking bots mid-round (bot_kick) crashed the game in 1 of 5 runs with
+  64 bots and 4 of 6 with 16. See "Bots removed mid-round" below.
 
 ## Scoreboard (2026-10-24, G8.2B)
 
@@ -3082,3 +3079,34 @@ Up, Backspace, Escape closing without the pause menu, mouse capture restored, th
 - **Not verified in a running game.** Whether the recorded world picks up the recompressed lightmap at once (the
   replay's texture binding) is the open question for the play-test; the log says "world surfaces lit again by dynamic
   lights" and "lightmap uploads" when this path works.
+
+## Bots removed mid-round (2026-11-08)
+
+The crash when a bot (or any player) leaves during a round, TODO 1e3: SIGSEGV in StatShot's AddDamage (0x153890)
+through CBasePlayer::TakeDamage (0x117EB0), seen with bot_kick, present in the original title (the G7 build too).
+
+- **StatShot** (the Xbox shot statistics, one object at *0x552B08, vtable 0x351F10) has a shooter at +4. A shot is
+  Reset (0x153800: shooter and weapon set, damage cleared), AddDamage for each player hit (0x153890, called from
+  TakeDamage at 0x118249 and 0x118A48 on every damage a player takes), then Send (0x1538E0). Send returns at once
+  for a bot's shot (the test at 0x1538F3, the player's vfunc +0x158) and clears the shooter only after a human's
+  (0x1539D4). So after a bot's shot the shooter stays set until the next Reset.
+- **The crash**: a bot removed in that window (kicked, or a player dropped) is freed but stays the shooter. The
+  next damage that is not a shot (a grenade, a fall, trigger_hurt, the bomb) runs AddDamage outside any Reset and
+  reads the freed bot's team (+0x1E0 at 0x1538C5). When the heap has decommitted those pages (PROT_NONE in the
+  runtime, as on the console) that read faults; when the memory has been reused (a new bot from the quota) it reads
+  garbage. Whether it faults depends on the heap, which is why the crash came and went from run to run.
+- **The fix** (src/game/player_slots_game.cpp, no gameplay change): Send (already a host replacement since G8.2B)
+  clears the shooter after every shot, a bot's too; AddDamage's own test (0x1538A8) then counts nothing outside a
+  shot, as after a human's. A bot's damage counts were never sent and Reset clears them, so nothing that reached a
+  player differs. A guard at 0x1538AC (`SlotsStatShotShooter`, config/game.toml) also refuses damage for a shooter
+  outside a Reset .. Send pair and logs "statshot: damage with no shot in progress" (never expected now), and Send
+  with no shooter returns (the original would call through a null pointer).
+- **Tests**: tests/scenarios/regress_bot_kick.txt (16 bots on de_dust2, 8 dropped by `kick #ID` in the console while
+  the round goes on, the rest keep fighting, rounds go on; the guard's line must not appear). Negative check: with
+  the shooter cleared after a human's shot only (the original), the guard's line appeared in 1 of 2 runs (a stale
+  shooter at 0x00AD8010 after the kicks); with the fix, 0 in every run. The unfixed build did not crash in these
+  runs (4 runs, 32 kicks): the freed pages had been reused, so a crash count cannot be the test. tests/server_tool/
+  bot_kick.txt does the same against csx-server through the tool (bot_kick and the engine's kick; the quota refills
+  the slots at once).
+- `bot_kick` with no name removes every bot (the quota then refills them); `kick #ID` drops one client by user id
+  (the bots are 2..17 with 16 bots, their names are random).
