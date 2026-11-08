@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "logs.h"
-#include "process.h"
+#include "server_process.h"
 #include "server/server_config.h"
 #include "storage.h"
 #include "sysstats.h"

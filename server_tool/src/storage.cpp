@@ -113,7 +113,11 @@ Paths ResolvePaths(const std::string& base_dir, const std::string& pref_dir, con
         p.portable = true;
         return p;
     }
-    fs::path local = fs::path(base_dir) / "csx-server-tool-data";
+    // a package keeps its programs in bin/: the data goes beside bin/, at the package's top
+    fs::path top = fs::path(base_dir);
+    if (top.filename().empty()) top = top.parent_path();
+    if (top.filename() == "bin") top = top.parent_path();
+    fs::path local = top / "csx-server-tool-data";
     if (!fs::is_directory(local, ec)) fs::create_directories(local, ec);
     // writable? (a read-only install folder falls back to the per-user one)
     if (fs::is_directory(local, ec)) {

@@ -311,7 +311,10 @@ void App::Frame() {
     ImGui::TextColored(theme::kTextDim, " -  Counter-Strike Xbox Dedicated Server  -  profile \"%s\"", ctl.profile.c_str());
     ImGui::EndGroup();
     ImGui::SetCursorPosX(8);
-    ImGui::BeginChild("##pagebody", {ImGui::GetContentRegionAvail().x - 8, ImGui::GetContentRegionAvail().y - 6});
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {4, 2});
+    ImGui::BeginChild("##pagebody", {ImGui::GetContentRegionAvail().x - 8, ImGui::GetContentRegionAvail().y - 6},
+                      ImGuiChildFlags_AlwaysUseWindowPadding);
+    ImGui::PopStyleVar();
     switch (page_) {
     case Page::Overview: PageOverview(); break;
     case Page::Configuration: PageConfiguration(); break;

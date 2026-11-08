@@ -26,12 +26,14 @@ set(IMGUI_SOURCES ${IMGUI_DIR}/imgui.cpp ${IMGUI_DIR}/imgui_draw.cpp ${IMGUI_DIR
 
 # the parts without a window (unit-tested)
 add_library(csx_tool_core STATIC
-    src/controller.cpp src/gamefiles.cpp src/json.cpp src/logs.cpp src/netaddr.cpp src/process.cpp src/sha256.cpp
+    src/controller.cpp src/gamefiles.cpp src/json.cpp src/logs.cpp src/netaddr.cpp src/server_process.cpp src/sha256.cpp
     src/storage.cpp src/sysstats.cpp src/telemetry.cpp src/script.cpp ${REPO}/src/server/server_config.cpp)
 target_include_directories(csx_tool_core PUBLIC src ${REPO}/src)
 target_link_libraries(csx_tool_core PUBLIC SDL3::SDL3)
 if(WIN32)
-    target_link_libraries(csx_tool_core PUBLIC iphlpapi ws2_32 psapi)
+    target_link_libraries(csx_tool_core PUBLIC iphlpapi ws2_32 psapi pthread)
+    # the C and C++ runtimes linked in statically, as the game's Windows build (no libstdc++ / winpthread DLLs)
+    target_link_options(csx_tool_core INTERFACE -static)
 endif()
 
 # ImGui 1.91.0's SDL3 backends predate SDL 3.2's renames (SDL_TRUE): SDL's own compatibility names for them
@@ -42,8 +44,6 @@ target_include_directories(csx-server-tool PRIVATE ${IMGUI_DIR} ${IMGUI_DIR}/bac
 target_link_libraries(csx-server-tool PRIVATE csx_tool_core)
 if(WIN32)
     set_target_properties(csx-server-tool PROPERTIES WIN32_EXECUTABLE ON)
-    target_link_options(csx-server-tool PRIVATE -static-libgcc -static-libstdc++)
-    target_link_libraries(csx-server-tool PRIVATE -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic)
 endif()
 
 add_executable(csx-server-tool-tests tests/unit_test.cpp)

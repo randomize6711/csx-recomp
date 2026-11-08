@@ -16,7 +16,7 @@
 #include "gamefiles.h"
 #include "json.h"
 #include "logs.h"
-#include "process.h"
+#include "server_process.h"
 #include "sha256.h"
 #include "storage.h"
 #include "telemetry.h"

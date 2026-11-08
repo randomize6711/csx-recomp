@@ -103,6 +103,7 @@ void Usage() {
                 "  csx-server-tool [--data DIR] [--minimized]\n"
                 "  csx-server-tool --script FILE [--data DIR]   (no window: a test script against the real server)\n"
                 "  csx-server-tool --screenshot FILE.bmp [--page NAME] [--tab N] [--size WxH] [--frames N] [--data DIR]\n"
+                "                  [--start-server --wait SECONDS]   (the profile's server started, captured after SECONDS)\n"
                 "Data (profiles, settings): csx-server-tool-data/ beside the program when it is writable, else the\n"
                 "per-user folder; --data chooses another.\n");
 }
@@ -112,7 +113,8 @@ void Usage() {
 int main(int argc, char** argv) {
     std::string data, script, shot, page_name;
     int shot_w = 1280, shot_h = 800, shot_frames = 6, tab = 0;
-    bool minimized = false;
+    bool minimized = false, start_server = false;
+    double shot_wait = 0;
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
         auto next = [&]() -> std::string { return i + 1 < argc ? argv[++i] : std::string(); };
@@ -124,6 +126,8 @@ int main(int argc, char** argv) {
         else if (a == "--frames") shot_frames = std::max(2, std::atoi(next().c_str()));
         else if (a == "--size") std::sscanf(next().c_str(), "%dx%d", &shot_w, &shot_h);
         else if (a == "--minimized") minimized = true;
+        else if (a == "--start-server") start_server = true;
+        else if (a == "--wait") shot_wait = std::atof(next().c_str());
         else if (a == "-h" || a == "--help") return Usage(), 0;
         else return std::fprintf(stderr, "unknown option %s\n", a.c_str()), Usage(), 2;
     }
@@ -181,6 +185,8 @@ int main(int argc, char** argv) {
         for (int p = 0; p < int(tool::Page::Count); p++)
             if (SDL_strcasecmp(page_name.c_str(), tool::PageName(tool::Page(p))) == 0) app.SetPage(tool::Page(p));
     if (!shot.empty()) app.SetConfigTab(tab);
+    if (start_server) app.ctl.Start();
+    const Uint64 shot_start = SDL_GetTicks();
 
     Tray tray;
     if (shot.empty()) {
@@ -258,7 +264,7 @@ int main(int argc, char** argv) {
         SDL_SetRenderDrawColor(ren, 74, 86, 66, 255);
         SDL_RenderClear(ren);
         ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), ren);
-        if (!shot.empty() && ++frame >= shot_frames) {
+        if (!shot.empty() && ++frame >= shot_frames && double(SDL_GetTicks() - shot_start) / 1000.0 >= shot_wait) {
             SDL_Surface* s = SDL_RenderReadPixels(ren, nullptr);
             bool ok = s && SDL_SaveBMP(s, shot.c_str());
             if (s) SDL_DestroySurface(s);
