@@ -222,7 +222,7 @@ void Events(X86Context& ctx, int sock) {
             // a local server paused by its owner's menu: another player's match goes on (server_admin.cpp)
             if (sock == 1 && csx::OwnedServer() && e.identity != std::getenv("CSX_SERVER_OWNER_KEY")) csx::OwnerPauseCheck(ctx);
             if (sock == 0) {
-                csx::NetServerJoined();
+                csx::NetServerJoined(who);
                 // split-screen player 1 joined a server: the other local players follow it (its key, its password)
                 if (csx::SplitPlayer() == 1) {
                     const char* pw = std::getenv("CSX_NET_PASSWORD");
@@ -333,8 +333,14 @@ void NetDisconnectClient(const std::string& peer, int reason, const std::string&
     if (auto a = net::Address::Parse(peer, NetServerPort())) g_ep[1]->Disconnect(*a, net::Reason(reason), text);
 }
 
-void NetClientClose() {
-    if (g_ep[0]) g_ep[0]->DisconnectAll(net::Reason::Closed);
+void NetClientClose(X86Context& ctx) {
+    if (!g_ep[0]) return;
+    // what the server sent before the engine's own disconnect is taken first: its close (a shutdown's reason, a map
+    // change's rejoin) may be in datagrams behind the engine message that ended the connection (delay jitter,
+    // reordering), and a connection closed here drops them
+    g_ep[0]->Pump();
+    Events(ctx, 0);
+    g_ep[0]->DisconnectAll(net::Reason::Closed);
 }
 
 std::optional<std::string> NetPeerIdentity(const std::string& peer) {

@@ -27,6 +27,7 @@ namespace {
 bool g_connecting = false;   // CL_Connect_f is closing the old connection before the new one
 bool g_lobby_off = false;    // the system link lobby was not set up (a PC direct connect)
 bool g_joined = false;       // this process's client connected to a network server (and so loaded its world)
+std::string g_server_peer;   // the server it connected to (address:port)
 std::string g_reconnect;     // a server that relaunched into another map: the client relaunches to rejoin it
 std::string g_match_line;    // the party's lobby started a match (N4.8): the title relaunches into it
 bool g_front_end = false;    // the party's leader returns to its lobby (N4.8): the title relaunches into the front end
@@ -237,8 +238,9 @@ bool NetClientOnly() {
     return g_lobby_off;
 }
 
-void NetServerJoined() {
+void NetServerJoined(const std::string& peer) {
     g_joined = true;
+    g_server_peer = peer;
 }
 
 void NetServerClosed(const std::string& peer, int reason, const std::string& text) {
@@ -252,8 +254,8 @@ void NetServerClosed(const std::string& peer, int reason, const std::string& tex
 
 // [[hook]] at 0x29019 in CL_Disconnect, after it sent "dropclient": the client's transport connection is closed too
 // (the server is told at once instead of timing it out)
-void ClDisconnectTransport(X86Context&, uint8_t*) {
-    csx::NetClientClose();
+void ClDisconnectTransport(X86Context& ctx, uint8_t*) {
+    csx::NetClientClose(ctx);
 }
 
 // [[hook]] at 0xE7040, the front end's map change (cdecl: the map name), which relaunches the host into the next
@@ -276,7 +278,7 @@ void RelaunchNotify(X86Context& ctx, uint8_t*) {
         uint32_t launch = kernel::R32(ctx.esp + 4);
         if (launch && kernel::R32(launch) == 1) {
             LOGI("net: split-screen player %d leaves its match%s", csx::SplitPlayer(), g_left_by_choice ? " (its choice)" : "");
-            csx::NetClientClose();
+            csx::NetClientClose(ctx);
             csx::SplitSend(csx::kSplitMatch, std::string(g_left_by_choice ? "left " : "ended ") + "the player's session ended");
             LOGI("net: split-screen player %d's process ends", csx::SplitPlayer());
             logx::Flush();
@@ -358,7 +360,7 @@ void RelaunchNotify(X86Context& ctx, uint8_t*) {
     } else {
         csx::NetDisconnectServer(int(net::Reason::ServerShutdown), "server shut down");
     }
-    csx::NetClientClose();
+    csx::NetClientClose(ctx);
 }
 
 // [[hook]] at 0x290B3 in CL_Disconnect (0x28F20): a client that was connected opens the Xbox "LostHost" screen
@@ -394,6 +396,15 @@ bool ClDisconnectLostHost(X86Context& ctx, uint8_t*) {
     // a join from the server browser: back to its list with why, instead of the console's LostHost screen. At once,
     // as that screen does (its own loop ends only in a relaunch): the disconnect's callers do not expect to go on
     if (BrowserJoin()) RelaunchToFrontEnd(ctx, ReturnMessage());
+    // a direct connect from the command line (+connect HOST:PORT, run_game.sh --connect) that had joined: the same,
+    // into the server browser with why (its join address set as a browser join's), instead of the LostHost box that
+    // never returns (a server gone silent left the player there for good). One refused before it joined keeps the
+    // console's LostHost (it was never in the match: tests/net/net_party_private.txt).
+    if (g_lobby_off && g_joined && !g_server_peer.empty() && !csx::Dedicated()) {
+        LOGI("net: lost the server %s: %s", g_server_peer.c_str(), ReturnMessage().c_str());
+        FrontEndMessage("CSX_BROWSER_JOIN", g_server_peer);  // (a variable set, as the message's)
+        RelaunchToFrontEnd(ctx, ReturnMessage());
+    }
     return false;
 }
 

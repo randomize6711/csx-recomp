@@ -1,0 +1,31 @@
+# A dedicated server that goes silent without a word (SIGSTOP 45 s after it started: no shutdown notice, its socket
+# still open, so no port unreachable either; TODO "a client that never noticed its server ended"). The connected
+# client (a command line direct connect, +connect) must notice by itself and leave the match: the engine's timeout,
+# then back to the menus' server browser with why. Before, the console's LostHost box opened, whose own loop never
+# returns and never reads the network again: the player was stuck there for good (no "closed" ever logged).
+# timeout: 300
+[server] --server "--map de_aztec --bots 2" --env CSX_LOG_NET=1 --freeze-after 45
+wait log net:.server.identity
+sleep 200
+[client] --after server:net:.server.identity --delay 3 --launch tests/launch/connect_local --env FPS=30 --env CSX_LOG_NET=1
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+wait log net:.lost.the.server.127\.0\.0\.1:27015:.The.connection.to.the.server.was.lost
+# this run's fresh disk has no title profile: the front end asks for one first (a player's own disk goes straight to
+# the main screen), then the browser opens with the message
+wait log pc.keys:.menu.Initial_CreateProfile
+sleep 3
+press A
+wait draws>=50
+sleep 3
+press A
+wait log browser:.back.from.127\.0\.0\.1:27015:.The.connection.to.the.server.was.lost
+wait log pc.mouse:.screen.SuperLauncher_PCMessage
+sleep 5
+expect nolog pc.keys:.menu.LostHost
+expect nolog guest trap
+expect nolog Host_Error

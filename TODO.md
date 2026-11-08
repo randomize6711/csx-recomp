@@ -6,10 +6,15 @@
    cmake/windows target, a relaunch that keeps the tool's pipes or a parent that outlives its relaunches); a Windows
    package; internet hosting tested from another network; team balance and per-team bot settings if the server gains
    them; the old web GUI (tools/csx_server_gui.py) retired once the tool is accepted.
-0. Found in the server tool's regression (2026-11-08): net_ded_lossy timed out once (passed alone right after). Under
-   3% loss one client missed the server's shutdown notice and never noticed the server was gone (no "closed" in its
-   log for 550 s): a client-side timeout for a silent server seems missing or not reached. Not caused by the tool's
-   changes (the client and the shutdown path are unchanged); needs its own look.
+0. Done 2026-11-08 (FINDINGS.md "A client whose server went away"): a client whose server went silent was stuck on
+   the LostHost box for good (a command line direct connect); the server's shutdown notice read after the engine's
+   disconnect was dropped (the net_ded_lossy flake).
+0. Tests left behind by the main menu redesign (2026-10-31; found 2026-11-08): 19 scenarios still walk the old main
+   menu (Multiplayer as the fourth row, then the party screen) and now reach Extras instead: net_browse_address,
+   _favorites, _join, _lan, _many, _master, net_party_private, net_party_lan, net_split_browse, net_split_listen,
+   vk_local_server_port, vk_party_alone, _join, _match, _rules, _pads, _numbers, vk_profile_settings, vk_split_3.
+   They need the new route (Multiplayer second, its hub: Server Browser, Host Game, Direct-IP / Code;
+   docs/menus.md "Main menu") once the redesign is approved.
 0. Autonomous pass N5..N11 leftovers (docs/autonomous_pass.md, each milestone's doc):
    - Ragdolls (N7): find the Xbox studio renderer's bone setup, vendor Jolt, a world mesh per map.
    - Free-for-all Deathmatch (N6C): the game's team checks for damage, frags and the team-killer kick.

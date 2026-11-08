@@ -866,3 +866,16 @@ manual testing and approval; no optimization or complete regression until then.
   regress_bots_aztec_16, regress_elite_fire, regress_pc_grenades, regress_mode_deathmatch, regress_mode_gungame,
   regress_gameplay_n7, server tool bot_kick and lifecycle, net_ded_bots_65, net_ded_two_bots. The complete
   regression was not run (deferred until approved).
+
+## 2026-11-08: a client whose server went away
+
+- FINDINGS.md "A client whose server went away": a command line direct connect whose server went silent stayed on
+  the console's LostHost box for good; it now returns to the server browser with why, as a browser join does. The
+  client takes the server's last transport events before closing its connection, so a shutdown notice or a map
+  change read after the engine's disconnect is no longer dropped (the net_ded_lossy flake).
+- Tests: net_ded_silent (new: the server frozen by SIGSTOP; before the fix the client never left LostHost in 250 s,
+  now back in the browser with "The connection to the server was lost." 10 s after the server went silent). Passed:
+  net_ded_silent, net_ded_lossy (twice), net_ded_map_change, net_map_change, net_ded_changemap, net_disconnect,
+  net_reconnect, net_ded_lifecycle, net_ded_restart, net_split_ded_4, net_ded_one. net_party_private and
+  net_browse_join time out in the main menu, before any connection: they walk the menu from before the redesign
+  (TODO "Tests left behind by the main menu redesign", 19 scenarios).

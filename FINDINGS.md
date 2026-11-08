@@ -3110,3 +3110,26 @@ through CBasePlayer::TakeDamage (0x117EB0), seen with bot_kick, present in the o
   the slots at once).
 - `bot_kick` with no name removes every bot (the quota then refills them); `kick #ID` drops one client by user id
   (the bots are 2..17 with 16 bots, their names are random).
+
+## A client whose server went away (2026-11-08)
+
+Found in the server tool's regression: net_ded_lossy timed out once, one client never logging its server's shutdown
+(TODO "a client that never noticed its server ended").
+
+- **A server gone silent** (tests/net/net_ded_silent.txt: csx-server stopped by SIGSTOP, no shutdown notice and no
+  port unreachable): the client's engine notices in about 10 s (its own timeout) and CL_Disconnect opened the
+  console's LostHost box (0xE9320). That box runs its own render loop that never returns and never reads the network
+  again, so the player was stuck there for good and the transport's close was never logged. A join from the server
+  browser already went back to the browser at that point; a command line direct connect (+connect, run_game.sh
+  --connect) did not. Now it does the same (ClDisconnectLostHost, src/game/net_session.cpp): "net: lost the server
+  ADDRESS: why", then the browser with the message box (its address set as a browser join's). A client refused before
+  it joined keeps the console's LostHost (net_party_private).
+- **The shutdown notice behind the engine's message** (the lossy flake): the server sends the engine's disconnect in
+  its reliable stream and then the transport's Disconnect frame three times. With delay jitter and reordering the
+  engine message can be read one poll before the Disconnect frames; CL_Disconnect then closed the transport
+  connection (ClDisconnectTransport) and the frames behind it were dropped as a closing connection's, so the reason
+  (server shut down) and a map change's MapChange (the rejoin) could be lost. NetClientClose now pumps the client
+  endpoint and takes its events first (src/game/net_engine.cpp), so the reason is logged and shown, and a map change
+  still rejoins.
+- The transport's own idle timeout (30 s, transport.cpp) is never reached by a client in a match: the engine's comes
+  first.
