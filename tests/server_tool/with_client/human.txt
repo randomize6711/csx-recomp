@@ -1,0 +1,19 @@
+# The tool with a real remote player (tests/net/net_tool_human.txt runs it beside a game client): the player appears in
+# the tool's telemetry with a ping, an address and a key, and the tool's Kick removes them.
+game GAME
+profile Human
+set map de_aztec
+set bots 2
+start
+wait_online 120
+wait_status humans == 1 180
+sleep 8
+expect_human
+print
+kick_human
+wait_line admin console: admin: kicked
+wait_status humans == 0 30
+expect_status bots == 2
+stop
+wait_offline 40
+expect_exit_code 0

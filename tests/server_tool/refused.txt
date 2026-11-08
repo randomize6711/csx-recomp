@@ -1,0 +1,18 @@
+# Starts the tool refuses before running anything, with the reason.
+profile Refused
+game /nonexistent/folder
+expect_start_fails
+expect_line The game folder does not exist
+game GAME
+set map de_nowhere
+expect_start_fails
+expect_line The starting map de_nowhere is not in the game folder
+set map de_dust2
+set map_rotation de_dust2,de_gone
+expect_start_fails
+expect_line The rotation's map de_gone is not in the game folder
+set map_rotation none
+set max_players 4
+set bots 9
+expect_start_fails
+expect_status state == Error

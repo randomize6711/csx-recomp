@@ -1,0 +1,14 @@
+# The server tool (csx-server-tool --script) running the dedicated server with a real remote player: the tool's
+# telemetry shows the player with a ping, an address and a key; the tool's Kick drops them (tests/server_tool/with_client).
+# timeout: 420
+[tool] --exec "build/server_tool/csx-server-tool --script tests/server_tool/with_client/human.txt --data build/nruns/net_tool_human/tool/data"
+[client] --after tool:online.within --delay 3 --launch tests/launch/connect_local --env FPS=30
+wait log net:.server.127\.0\.0\.1:27015.connected
+wait log pc.keys:.menu.TeamSelect
+sleep 2
+press A
+sleep 4
+press B
+sleep 40
+expect nolog guest trap
+expect nolog Host_Error

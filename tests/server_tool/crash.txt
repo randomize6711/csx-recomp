@@ -1,0 +1,23 @@
+# Crash recovery: the server killed (SIGKILL) is restarted after the policy's delay; after too many crashes in the
+# window the tool gives up and says so.
+game GAME
+profile Crash
+set map de_aztec
+set bots 2
+restart_policy on 2 2
+start
+wait_online 120
+sleep 11
+kill
+wait_state Error 10
+wait_line Restarting in 2 s (attempt 1 of 2)
+wait_online 120
+sleep 11
+kill
+wait_line Restarting in 4 s (attempt 2 of 2)
+wait_online 120
+sleep 11
+kill
+wait_line Not restarting: 3 crashes
+sleep 6
+expect_status state == Error

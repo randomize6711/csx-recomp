@@ -1,0 +1,42 @@
+# The tool's controller against the real csx-server: start, telemetry, live rotation, map changes through the tool,
+# bots from the next map, console commands, a clean stop. GAME is replaced by the test runner.
+game GAME
+profile Lifecycle
+set map de_dust2
+set bots 4
+set bot_difficulty 1
+set name Tool test server
+start
+wait_online 120
+expect_status map == de_dust2
+wait_status bots == 4 30
+expect_status max_players == 65
+wait_status tick_hz >= 25 10
+expect_meter
+print
+rotation de_aztec,de_dust2
+wait_status next_map == de_aztec 10
+map de_aztec
+wait_line net: relaunching into de_aztec
+wait_status map == de_aztec 90
+wait_state Online 60
+wait_status bots == 4 30
+expect_status uptime >= 3
+bots 2
+difficulty 3
+map de_dust2
+wait_status map == de_dust2 90
+wait_status bots == 2 30
+wait_status next_map == de_aztec 10
+command admin status
+wait_line admin console: 2 of 65 slots in use
+say hello from the tool test
+wait_line said "hello from the tool test"
+command status
+print
+stop
+wait_offline 40
+expect_exit_code 0
+wait_state Offline 5
+expect_no_line guest trap
+expect_no_line Host_Error

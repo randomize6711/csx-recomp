@@ -100,7 +100,11 @@ int RunScript(const std::string& path, const Paths& paths, const std::string& to
         auto arg = [&](size_t i, const std::string& d = {}) { return i < a.size() ? a[i] : d; };
         double timeout = 60;
 
-        if (cmd == "game") c.game_dir = rest;
+        if (cmd == "game") {
+            // GAME: GAME_DIR, else the repository build's game folder beside the tool's (build/gamedata)
+            c.game_dir = rest;
+            if (rest == "GAME") c.game_dir = std::getenv("GAME_DIR") ? std::getenv("GAME_DIR") : tool_dir + "/../gamedata";
+        }
         else if (cmd == "exe") c.server_exe = rest;
         else if (cmd == "profile") {
             c.profile = rest;
@@ -164,7 +168,16 @@ int RunScript(const std::string& path, const Paths& paths, const std::string& to
                    "measured: cpu " + (c.meter.cpu_percent ? std::to_string(*c.meter.cpu_percent) : "n/a") + " %, memory " +
                        (c.meter.memory_mb ? std::to_string(*c.meter.memory_mb) : "n/a") + " MB");
         } else if (cmd == "expect_exit_code") report(c.last_exit_code == std::atoi(arg(0).c_str()), "exit code " + std::to_string(c.last_exit_code));
-        else if (cmd == "command") report(c.Command(rest), "command " + rest);
+        else if (cmd == "expect_human" || cmd == "kick_human") {
+            // a network player as the telemetry shows it: a ping, an address and an identity key
+            const PlayerRow* h = nullptr;
+            for (const auto& p : c.status.players)
+                if (!p.bot && p.ping && !p.address.empty() && p.key.size() == 64) h = &p;
+            std::string who = h ? "\"" + h->name + "\" slot " + std::to_string(h->slot) + " " + h->team + " ping " +
+                                      std::to_string(*h->ping) + " " + h->address : std::string("none");
+            if (cmd == "expect_human") report(h != nullptr, "a human: " + who);
+            else report(h && c.Kick(h->slot, "kicked by the tool test"), "kick " + who);
+        } else if (cmd == "command") report(c.Command(rest), "command " + rest);
         else if (cmd == "say") report(c.Say(rest), "say " + rest);
         else if (cmd == "kick") report(c.Kick(std::atoi(arg(0).c_str()), "kicked by test"), "kick " + arg(0));
         else if (cmd == "ban") report(c.Ban(std::atoi(arg(0).c_str()), std::atoi(arg(1, "0").c_str())), "ban " + rest);
