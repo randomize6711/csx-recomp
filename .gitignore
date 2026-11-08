@@ -27,3 +27,17 @@ settings.toml
 .vscode/
 .idea/
 .local
+
+# python caches
+__pycache__/
+*.pyc
+
+# game files in any form
+*.xbe
+*.xiso
+*.iso
+*.SXWad
+*.xpr
+*.xwb
+*.xsb
+*.uix
