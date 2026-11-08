@@ -328,6 +328,8 @@ int main(int argc, char** argv) {
     }
 
     logx::Init((app::ExeDir() / "logs").string(), "server", relaunch);
+    // the log's times count from the process's start: this line ties them to the wall clock (the server tool's Logs)
+    LOGI("server: wall clock %lld (Unix seconds)", (long long)std::time(nullptr));
     LOGI("server: %s on UDP port %d, map %s, %d player slots, %d bots", relaunch ? "relaunched" : "starting", cfg.port,
          cfg.map.c_str(), cfg.max_players, cfg.bots);
     {
