@@ -119,6 +119,20 @@ Every option (`--bots N`, `--host`, `--connect HOST[:PORT]`, `--build`, ...) is 
 
 Click the window to capture the mouse, F1 releases it. Settings and profiles are kept in `build/play/`.
 
+## Dedicated server tool
+
+`csx-server-tool` is a desktop application in the style of the 2004 Steam tools. It starts and administers the
+dedicated server (`csx-server`): status and statistics, settings, maps and rotation, players (kick, ban), bots, the
+console and the logs. It runs the real server as its child process. See `docs/server_tool.md`.
+
+    tools/build_server.sh                     # the dedicated server (after tools/iterate.sh)
+    tools/build_server_tool.sh                # the tool: build/server_tool/csx-server-tool
+    build/server_tool/csx-server-tool         # choose your game folder on the Overview page, then Start Server
+    tools/build_server_tool.sh package        # a portable Linux package in build/dist (no game files)
+
+The tool also cross-builds for Windows (`tools/build_server_tool.sh windows`), but the dedicated server itself is
+Linux only for now.
+
 ## Building for Windows
 
 The Windows executable is cross-built from Linux with Clang and MinGW-w64 from the same sources (SDL3 + Vulkan).

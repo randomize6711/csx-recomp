@@ -47,21 +47,29 @@ int HistoryCallback(ImGuiInputTextCallbackData* d) {
 }  // namespace
 
 void App::PageConsole() {
-    // the filtered view is rebuilt only when the lines or the filters change, so a busy server stays cheap to show
-    static std::vector<size_t> view;
-    static uint64_t view_last = ~0ull;
+    // the filtered view holds line ids (consecutive, so a line's index is its id minus the first's). New lines are
+    // only appended to it; it is rebuilt from scratch only when a filter or the search changes or the console is
+    // cleared, so a busy server costs one check per new line, not one per kept line
+    static std::vector<uint64_t> view;
+    static uint64_t view_last = 0;
     static std::string view_key;
     std::string key = std::string(console_search_) + char('0' + show_info_) + char('0' + show_warn_) + char('0' + show_error_) +
-                      char('0' + show_tool_) + std::to_string(ctl.console.Dropped());
+                      char('0' + show_tool_);
     const auto& lines = ctl.console.Lines();
-    if (view_last != ctl.console.LastId() || view_key != key) {
+    uint64_t first = lines.empty() ? ctl.console.LastId() + 1 : lines.front().id;
+    if (view_key != key || view_last > ctl.console.LastId() || (lines.empty() && !view.empty())) {
         view.clear();
-        for (size_t i = 0; i < lines.size(); i++)
-            if (SevShown(lines[i].sev, show_info_, show_warn_, show_error_, show_tool_) && ContainsNoCase(lines[i].text, console_search_))
-                view.push_back(i);
-        view_last = ctl.console.LastId();
+        view_last = 0;
         view_key = key;
     }
+    for (size_t i = view_last >= first ? size_t(view_last - first + 1) : 0; i < lines.size(); i++)
+        if (SevShown(lines[i].sev, show_info_, show_warn_, show_error_, show_tool_) && ContainsNoCase(lines[i].text, console_search_))
+            view.push_back(lines[i].id);
+    view_last = ctl.console.LastId();
+    size_t gone = 0;  // lines the buffer dropped from its front
+    while (gone < view.size() && view[gone] < first) gone++;
+    if (gone) view.erase(view.begin(), view.begin() + long(gone));
+    auto at = [&](uint64_t id) -> const ConsoleLine& { return lines[size_t(id - first)]; };
 
     // the toolbar
     ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14);
@@ -87,12 +95,12 @@ void App::PageConsole() {
     ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetContentRegionMax().x - 2 * bw - ImGui::GetStyle().ItemSpacing.x));
     if (theme::Button("Copy Console", {bw, 0})) {
         std::string all;
-        for (size_t i : view) all += FormatClock(lines[i].wall_ms) + "  " + lines[i].text + "\n";
+        for (uint64_t id : view) all += FormatClock(at(id).wall_ms) + "  " + at(id).text + "\n";
         ImGui::SetClipboardText(all.c_str());
     }
     theme::Describe("Copies the lines shown (with the filters and search) to the clipboard.");
     ImGui::SameLine();
-    if (theme::Button("Clear Console", {bw, 0})) ctl.console.Clear(), view_last = ~0ull;
+    if (theme::Button("Clear Console", {bw, 0})) ctl.console.Clear(), view.clear();
 
     // the output
     float input_h = ImGui::GetFrameHeightWithSpacing() + 4;
@@ -108,7 +116,7 @@ void App::PageConsole() {
     clip.Begin(int(view.size()));
     while (clip.Step())
         for (int r = clip.DisplayStart; r < clip.DisplayEnd; r++) {
-            const ConsoleLine& l = lines[view[size_t(r)]];
+            const ConsoleLine& l = at(view[size_t(r)]);
             ImGui::TextColored(theme::kTextDim, "%s", FormatClock(l.wall_ms).c_str());
             ImGui::SameLine();
             ImGui::PushStyleColor(ImGuiCol_Text, SeverityColor(l.sev));
@@ -173,7 +181,6 @@ void App::PageLogs() {
     ImGui::SameLine();
     ImGui::BeginGroup();
     // the lines to show: the live output, or a file (read once; Reload reads it again)
-    std::vector<std::pair<std::string, Severity>> shown;
     bool live = log_selected_ == 0 || log_selected_ > int(log_files_.size());
     if (!live) {
         const LogFile& f = log_files_[size_t(log_selected_ - 1)];
@@ -206,22 +213,33 @@ void App::PageLogs() {
     if (!live) ImGui::SameLine();
     if (theme::Button("Open Logs Folder")) OpenFolder((fs::path(dir) / "logs").string());
 
-    // absolute times for a file's lines: the server logs its wall clock at each (re)start
-    std::vector<std::string> times;
-    if (live) {
-        for (const auto& l : ctl.console.Lines())
-            if (l.sev != Severity::Tool && SevShown(l.sev, log_info_, log_warn_, log_error_, false) && ContainsNoCase(l.text, log_search_))
-                shown.push_back({l.text, l.sev}), times.push_back(FormatClock(l.wall_ms));
-    } else {
-        double base = -1;  // Unix seconds at log time 0
-        for (const auto& t : log_lines_) {
-            size_t wc = t.find("server: wall clock ");
-            if (wc != std::string::npos) base = std::atof(t.c_str() + wc + 19) - std::max(0.0, LogTime(t));
-            Severity s = LineSeverity(t);
-            if (!SevShown(s, log_info_, log_warn_, log_error_, false) || !ContainsNoCase(t, log_search_)) continue;
-            shown.push_back({t, s});
-            double lt = LogTime(t);
-            times.push_back(base >= 0 && lt >= 0 ? FormatClock(int64_t((base + lt) * 1000)) : "--:--:--");
+    // what is shown, rebuilt only when the source, its lines or a filter changed (not every frame)
+    static std::vector<std::pair<std::string, Severity>> shown;
+    static std::vector<std::string> times;
+    static std::string shown_key;
+    std::string key = (live ? std::string("live") + std::to_string(ctl.console.LastId()) + "/" + std::to_string(ctl.console.Lines().size())
+                            : log_loaded_ + "/" + std::to_string(log_lines_.size())) +
+                      "|" + log_search_ + char('0' + log_info_) + char('0' + log_warn_) + char('0' + log_error_);
+    if (key != shown_key) {
+        shown_key = key;
+        shown.clear();
+        times.clear();
+        if (live) {
+            for (const auto& l : ctl.console.Lines())
+                if (l.sev != Severity::Tool && SevShown(l.sev, log_info_, log_warn_, log_error_, false) && ContainsNoCase(l.text, log_search_))
+                    shown.push_back({l.text, l.sev}), times.push_back(FormatClock(l.wall_ms));
+        } else {
+            // absolute times for a file's lines: the server logs its wall clock at each (re)start
+            double base = -1;  // Unix seconds at log time 0
+            for (const auto& t : log_lines_) {
+                size_t wc = t.find("server: wall clock ");
+                if (wc != std::string::npos) base = std::atof(t.c_str() + wc + 19) - std::max(0.0, LogTime(t));
+                Severity sv = LineSeverity(t);
+                if (!SevShown(sv, log_info_, log_warn_, log_error_, false) || !ContainsNoCase(t, log_search_)) continue;
+                shown.push_back({t, sv});
+                double lt = LogTime(t);
+                times.push_back(base >= 0 && lt >= 0 ? FormatClock(int64_t((base + lt) * 1000)) : "--:--:--");
+            }
         }
     }
     if (copy) {
@@ -229,9 +247,12 @@ void App::PageLogs() {
         for (size_t i = 0; i < shown.size(); i++) all += times[i] + "  " + shown[i].first + "\n";
         ImGui::SetClipboardText(all.c_str());
     }
-    static std::vector<std::string> export_lines;  // what Export writes (the lines shown when it was chosen)
-    export_lines.clear();
-    for (size_t i = 0; i < shown.size(); i++) export_lines.push_back(times[i] + "  " + shown[i].first);
+    // what Export writes: the lines shown, with their times
+    static std::vector<std::string> export_lines;
+    if (export_lines.size() != shown.size() || (!shown.empty() && export_lines.back().size() != times.back().size() + 2 + shown.back().first.size())) {
+        export_lines.clear();
+        for (size_t i = 0; i < shown.size(); i++) export_lines.push_back(times[i] + "  " + shown[i].first);
+    }
     log_lines_export_ = &export_lines;
 
     ImGui::PushStyleColor(ImGuiCol_ChildBg, theme::kConsoleBg);

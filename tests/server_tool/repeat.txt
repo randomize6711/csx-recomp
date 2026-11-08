@@ -1,0 +1,43 @@
+# Five starts and stops in a row on one profile (the identity key kept, nothing left running between them).
+game GAME
+profile Repeat
+set map de_aztec
+set bots 3
+start
+wait_online 120
+wait_status bots == 3 30
+stop
+wait_offline 40
+expect_exit_code 0
+start
+wait_online 120
+wait_status bots == 3 30
+stop
+wait_offline 40
+expect_exit_code 0
+start
+wait_online 120
+wait_status bots == 3 30
+stop
+wait_offline 40
+expect_exit_code 0
+start
+wait_online 120
+wait_status bots == 3 30
+stop
+wait_offline 40
+expect_exit_code 0
+start
+wait_online 120
+wait_status bots == 3 30
+stop
+wait_offline 40
+expect_exit_code 0
+restart
+wait_online 120
+restart
+wait_line Server process
+wait_online 120
+expect_status map == de_aztec
+stop
+wait_offline 40

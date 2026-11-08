@@ -1,6 +1,11 @@
 # TODO (priority order)
 
 ## Now
+0. Dedicated server tool (docs/server_tool.md, branch server-tool), waiting for the user's play-test: interactive use on
+   the desktop (tray, file pickers, every page by hand); a Windows csx-server (POSIX parts of server_main.cpp, a
+   cmake/windows target, a relaunch that keeps the tool's pipes or a parent that outlives its relaunches); a Windows
+   package; internet hosting tested from another network; team balance and per-team bot settings if the server gains
+   them; the old web GUI (tools/csx_server_gui.py) retired once the tool is accepted.
 0. Autonomous pass N5..N11 leftovers (docs/autonomous_pass.md, each milestone's doc):
    - Ragdolls (N7): find the Xbox studio renderer's bone setup, vendor Jolt, a world mesh per map.
    - Free-for-all Deathmatch (N6C): the game's team checks for damage, frags and the team-killer kick.
