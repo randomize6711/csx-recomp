@@ -95,9 +95,10 @@ def audit_test():
             if held(x):
                 errors.append(f'{held(x)} holds 0x{x:X}, {what} (the process\'s)')
                 break
-    # 0x5BD8C4 (its list), the chunk vector's begin / last / end 0x5BD8CC..0x5BD8D8 (0x5BD8C8, the vector's empty
-    # allocator, is never read or written), 0x5BD8D8 (a second list), the pool's sizes and blocks 0x5517F8..0x551810
-    for lo, hi in ((0x5BD8C4, 0x5BD8C8), (0x5BD8CC, 0x5BD8E0), (0x5517F8, 0x551810)):
+    # the particle manager whole (docs 14.5): 0x5BD8C4 (its list), the chunk vector 0x5BD8C8..0x5BD8D8 (its allocator
+    # word, begin / last / end), 0x5BD8D8 (a second list head: 4 bytes, 0x1F9B60), the pool's sizes and blocks and its
+    # clock 0x5517F8..0x551810, its object, maximum, singleton and time 0x552CDC..0x552CEC, its grid 0x57F0A8
+    for lo, hi in ((0x5BD8C4, 0x5BD8DC), (0x5517F8, 0x551810), (0x552CDC, 0x552CEC), (0x57F0A8, 0x5BD8A8)):
         for x in range(lo, hi):
             if not held(x):
                 errors.append(f'0x{x:X} (the client game\'s pool object) is not in a player\'s regions')

@@ -1,6 +1,7 @@
 // tests/native_split_test.py builds and runs this: native split-screen's parts without the game (M2):
 // src/game/local_loopback.h, heap_owner.h, native_split_core.h and client_context_core.h's removal
 #include <cstdio>
+#include <cstring>
 #include <map>
 #include <string>
 #include <vector>
@@ -240,8 +241,10 @@ static void TwoPlayers() {
     s.Switch(0);
 }
 
-// the start-up values check (docs 13.8): what the process's start-up set for player 1 that a new player's own steps
-// left at the boot value; a link into the image fails, a plain value is reported, a heap pointer is the object check's
+// the start-up values check (docs 13.8, 14.6): what the process's start-up set for player 1 that a new player's own
+// steps left at the boot value; a link (a function, read-only data or a static object the code takes, its own regions)
+// fails, a number is reported, a heap pointer is the object check's
+static bool FakeFunction(uint32_t v) { return v == 0x18B7A0 || v == 0x1A1140; }
 static void StartupValues() {
     using namespace heapown;
     std::vector<Span> spans = {{0, 0x1001, 0x13}, {0x13, 0x2000, 0x20}};  // an odd start, as the real regions
@@ -249,6 +252,14 @@ static void StartupValues() {
     auto put = [](std::vector<uint8_t>& c, size_t off, uint32_t v) { std::memcpy(c.data() + off, &v, 4); };
     Blocks heap;
     heap.Allocated(0x900000, 0x40, kProcess, 0xAF8C4);
+    static const uint32_t taken[] = {0x32AFF4, 0x371970, 0x5BD8C8};  // sorted: addresses the code takes
+    ValueMap map;
+    map.function = FakeFunction;
+    map.taken = taken;
+    map.taken_count = 3;
+    std::vector<Span> regions = spans;
+    regions.push_back({0x33, 0x749D40, 0x88});  // cl's list heads (they point at cl itself)
+    map.regions = &regions;
     put(boot, 0x13 + 0x0, 0xC0DE);       // 0x2000: a vtable set by a static constructor: the same in both
     put(reference, 0x13 + 0x0, 0xC0DE);
     put(reference, 0x13 + 0x4, 0x371970);  // 0x2004: a static link (a cvar's next, a list head)
@@ -256,21 +267,68 @@ static void StartupValues() {
     put(reference, 0x13 + 0xC, 0x900010);  // 0x200C: a heap pointer (the object check's)
     put(reference, 0x13 + 0x10, 7);        // 0x2010: a value player 2's own steps set again
     put(reference, 0x3, 0x5BD8C8);         // 0x1004 (offset 3: the guest alignment): a link in the odd region
+    put(reference, 0x13 + 0x14, 0x2A0000); // 0x2014: a byte count in the image's range (run 5's false link): a number
+    put(reference, 0x13 + 0x18, 0x18B7A0); // 0x2018: a function entry (a callback)
+    put(reference, 0x13 + 0x1C, 0x749D44); // 0x201C: a list head pointing into its own regions
     std::map<uint32_t, uint32_t> mine = {{0x2010, 7}};
     auto read = [&](uint32_t va) { auto it = mine.find(va); return it == mine.end() ? 0u : it->second; };
-    std::vector<StartupGap> gaps = StartupGaps(boot, reference, spans, heap, read);
+    std::vector<StartupGap> gaps = StartupGaps(boot, reference, spans, heap, map, read);
     auto at = [&](uint32_t va) -> const StartupGap* { for (auto& g : gaps) if (g.va == va) return &g; return nullptr; };
-    Check(gaps.size() == 3, "three start-up values player 2 lacks (two links, one value)");
-    Check(at(0x2004) && at(0x2004)->link && at(0x1004) && at(0x1004)->link, "a static link it lacks is a link (fails)");
+    Check(gaps.size() == 6, "six start-up values player 2 lacks (four links, two numbers)");
+    Check(at(0x2004) && at(0x2004)->link && at(0x2004)->kind == ValueKind::StaticObject && at(0x1004) &&
+              at(0x1004)->link, "a static link it lacks is a link (fails)");
     Check(at(0x2008) && !at(0x2008)->link && at(0x2008)->reference == 0x3C, "a plain value it lacks is reported");
+    Check(at(0x2014) && !at(0x2014)->link && at(0x2014)->kind == ValueKind::Number,
+          "a count in the image's range names nothing: a number, not a link (run 5's statistics table)");
+    Check(at(0x2018) && at(0x2018)->link && at(0x2018)->kind == ValueKind::Function, "a function entry is a link");
+    Check(at(0x201C) && at(0x201C)->link && at(0x201C)->kind == ValueKind::Region, "a pointer into its regions is a link");
     Check(!at(0x200C), "a heap pointer is left to the object check");
     Check(!at(0x2000) && !at(0x2010), "the same at boot, or set again by its own steps: not a gap");
     mine[0x2004] = 0x371970;
     mine[0x1004] = 0x5BD8C8;
     mine[0x2008] = 0x3C;
-    Check(StartupGaps(boot, reference, spans, heap, read).empty(), "every value made again: no gap");
+    mine[0x2014] = 0x2A0000;
+    mine[0x2018] = 0x18B7A0;
+    mine[0x201C] = 0x749D44;
+    Check(StartupGaps(boot, reference, spans, heap, map, read).empty(), "every value made again: no gap");
     mine[0x2008] = 0x1E;  // its own, different value (not the boot one): its own, not a gap
-    Check(StartupGaps(boot, reference, spans, heap, read).empty(), "a different value of its own is not a gap");
+    Check(StartupGaps(boot, reference, spans, heap, map, read).empty(), "a different value of its own is not a gap");
+    // the classification itself
+    Check(Classify(0x32AFF4, map, heap) == ValueKind::ReadOnly, "a taken .rdata address: read-only data");
+    Check(Classify(0x32AFF8, map, heap) == ValueKind::Number, "an untaken .rdata address: a number");
+    Check(Classify(0x1A1141, map, heap) == ValueKind::Number, "inside a function, not its entry: a number");
+    Check(Classify(0x900020, map, heap) == ValueKind::Heap, "inside a heap block: the heap");
+    Check(Classify(0xFFFF, map, heap) == ValueKind::Number, "below the image: a number");
+    Check(Classify(0x371970, ValueMap{}, heap) == ValueKind::Number, "nothing known of the image: a number");
+}
+
+// the protected start-up state (docs 14.6): its bytes before a new player's steps; a changed run is found, a run
+// never crosses a range, unchanged state reports nothing
+static void ProtectedState() {
+    using namespace heapown;
+    std::map<uint32_t, uint8_t> mem;
+    auto read = [&](uint32_t va) { auto it = mem.find(va); return it == mem.end() ? uint8_t(0) : it->second; };
+    std::vector<Range> ranges = {{0x552C38, 4}, {0x552C40, 4}, {0x543AD0, 0x1A00}, {0x371178, 4}};
+    mem[0x552C40] = 1;     // the material tables' flag, set by player 1's start-up
+    mem[0x543AD0] = 'c';   // a table's first name
+    std::vector<uint8_t> before = Snapshot(ranges, read);
+    Check(before.size() == 4 + 4 + 0x1A00 + 4, "the snapshot holds every protected byte");
+    Check(Changed(ranges, before, read).empty(), "nothing changed: nothing reported");
+    mem[0x543AD0] = 0;     // the table cleared (rep stosd) and rebuilt by a new player's steps
+    mem[0x543AD1] = 0x41;
+    mem[0x543AD2] = 0x42;
+    mem[0x37117B] = 0x99;  // a cvar's name pointer changed
+    std::vector<Range> c = Changed(ranges, before, read);
+    Check(c.size() == 2, "two changed runs");
+    Check(c.size() == 2 && c[0].va == 0x543AD0 && c[0].size == 3, "the table's run: its address and length");
+    Check(c.size() == 2 && c[1].va == 0x37117B && c[1].size == 1, "the cvar link's byte");
+    // adjacent ranges: a run ends at its range's end
+    std::vector<Range> adj = {{0x1000, 2}, {0x1002, 2}};
+    std::vector<uint8_t> b2 = Snapshot(adj, read);
+    mem[0x1001] = 1;
+    mem[0x1002] = 1;
+    std::vector<Range> c2 = Changed(adj, b2, read);
+    Check(c2.size() == 2 && c2[0].va == 0x1001 && c2[1].va == 0x1002, "a run never crosses a range");
 }
 
 static void Lifecycle() {
@@ -395,6 +453,7 @@ int main() {
     Heap();
     TwoPlayers();
     StartupValues();
+    ProtectedState();
     ConnectionBuffers();
     Lifecycle();
     Contexts();

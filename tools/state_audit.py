@@ -18,7 +18,7 @@ Usage:
   python3 -I tools/state_audit.py classify          classes by reachability (build/state_audit/classes.json + summary)
   python3 -I tools/state_audit.py who ADDR [ADDR2]  the functions touching ADDR (or the range ADDR..ADDR2), by class
   python3 -I tools/state_audit.py calls FUNC        a function's callees and callers
-  python3 -I tools/state_audit.py regions           the per-player regions the policy below proposes (C++ entries)
+  python3 -I tools/state_audit.py regions           retired (docs 14): tools/region_model.py regions makes the list
 Static analysis only: indirect calls through registers are not followed except through the pointer tables above, so
 reachability is a lower bound; "unreached" means no static path from a root was found, not that it never runs.
 """
@@ -238,6 +238,7 @@ def classify(extra_client=(), extra_server=()):
 # files are linked in order: CL_* 0x1C000.., the view 0xB5000.., the client game's exports 0x18B000..), else shared
 # (the renderer's resources, sound, the network, the host, the Xbox libraries, the C runtime, the menus: M4)
 SWAP_CODE = [(0x1C000, 0x3A000, 'engine client'), (0xAC000, 0xB8000, 'engine view'), (0x18B000, 0x200000, 'client game')]
+# (retired rule; docs 14.4 corrects this note: 0x3A8A0..0x3A9C0 is the temporary-entity system, not the console's buffer)
 # 0x3A000.. is the console's command buffer (0x3A8A0..0x3A9C0: 0x424A3C, 0x4251A0/A4; Cbuf / Cmd follow at 0x3B000..):
 # shared by every player, not a player's (docs/native_splitscreen.md 13.1)
 # data shared by nature whatever writes it: never a player's
@@ -434,7 +435,10 @@ if __name__ == '__main__':
     elif cmd == 'who':
         who(int(sys.argv[2], 16), int(sys.argv[3], 16) if len(sys.argv) > 3 else None)
     elif cmd == 'regions':
-        regions()
+        # the rule below (a region from each referenced address to the next one; an address range of code taken for
+        # one subsystem) was retired after the fifth M2 run (docs/native_splitscreen.md 13.8, 14): it is kept for the
+        # record only
+        sys.exit('state_audit.py regions is retired: the regions come from tools/region_model.py regions (docs 14)')
     elif cmd == 'calls':
         calls(int(sys.argv[2], 16))
     else:

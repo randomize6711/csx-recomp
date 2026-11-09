@@ -599,7 +599,7 @@ again per player); every write (and every address taken, a possible write throug
 | CL_Init's userinfo keys 0x2BA3C..0x2BBA4 (Info_SetValueForKey on cls.userinfo 0x785148) | text | 3 per player | explicit step Userinfo: player 1's text, then the player's own name |
 | SV_SetMaxclients 0xA19E4 (from Host_InitLocal 0x5BE30) | cls.state = 1 | 3 per player | explicit step ClientState |
 | CL_Init's cvars, commands, file load 0x3F540 + parse 0xB0A30, the free of [0x551FF8], the front end 0xD7710 | shared state | 1 process-wide | not run again |
-| the console's command buffer 0x3A8A0..0x3A9C0 (0x424A3C, 0x4251A0/A4) | console | 1 process-wide | **was wrongly per player** (the engine client range ran into it): the range now ends at 0x3A000 |
+| ~~the console's command buffer~~ the temporary-entity system 0x3A8A0..0x3A9C0 (the pool 0x3AEF00, 250 x 0x790; its free / active heads 0x4251A0/A4) | client state | 3 per player | **corrected in 14.4**: not the console's (CL_TempEntInit, run by CL_ClearState on every connect; CL_TempEntAlloc 0x3A950 / 0x3A9C0); per player since 14 |
 | the HUD sprite registry 0x551870..0x55187C (0x22C50, 0x1CAC0) | registry | 2 shared resource | **its count was wrongly per player**: listed as shared data |
 | the view: 0xB1390, 0xB14B0 (0x3820D8..) | view state | 3 per player | also run in each player's own turns: redone per player |
 | the view: 0xB6E40 (zeroes 0x5E13A0.., 0x5E13E0 x 0x700 dwords), 0x1C5D0 (0x785794 = 0) | zeros | - | the boot image is already zero there |
@@ -752,3 +752,94 @@ memory statistics); (c) writes through rep stos / rep movs with an immediate edi
 tables, the studio table); (d) a structure can be cut (per player in part). What the explicit construction and its
 checks did: refused player 2 every time, before it connected, with nothing of player 1's freed or destroyed. A more
 conservative model is proposed in the completion report (not implemented: it needs approval).
+
+## 14. The conservative region model (2026-11-09; approved after the fifth run; static only, not run)
+
+The generated part of the region list (13.8's four blind spots) is replaced by an evidence model:
+`tools/region_model.py` (scan, objects, ownership, outputs) and `tools/region_evidence.py` (every reviewed object
+and function, each with its proof). `state_audit.py regions` is retired (it refuses to run); `state_audit.py
+build / classify / who / calls` remain (the call graph).
+
+### 14.1 The scan
+Every instruction of the recompiled code, with the width the generated C uses (X86_MEM8/16/32/64/F32/F64,
+X86_PTR(X86Xmm), x87 80-bit, the kernel thunks; 7 operands of 82 854 have no width) and the direction (an
+assignment to the macro is a write; read-modify-write counted both ways):
+- direct accesses and accesses through a register holding a constant in straight-line code (labels, jumps and calls
+  forget the scratch registers; callee-saved ones survive a call): exact;
+- `[reg*N+0xADDR]` / `[reg+0xADDR]` with the register unknown: *indexed*, the object's size unknown;
+- `rep stos` / `rep movs` (and single stos / movs) with edi / esi / ecx known: the exact range; with the count or the
+  target unknown: recorded as unresolved (36 static targets with an unknown count, 3 828 with an unknown target, not
+  attributed to any object);
+- an address taken (push / mov / lea of an immediate): *taken*, the object may be reached through a pointer;
+- constant stores (the initialisation-flag rule), switch jump tables and handler tables loaded and called (`mov eax,
+  [ecx*4+0x371D00] .. call eax`: the svc_ handlers), followed in the call graph.
+Known limit: an indexed displacement that is a structure offset of a register base (the XDK's `[esi+0x400720]`)
+looks like a static address; an object the evidence settles is not affected.
+
+### 14.2 Objects
+An object's extent is the union of its exact and block accesses, overlapping ones merged; touching ones are not
+joined and nothing is extended to the next referenced address. A whole object instead when the evidence gives it:
+a static cvar_t (20 bytes, 646 found by shape: a name, a default string of any length, "0" included, flags,
+next 0 or in .data), an evidence entry (a loop bound, an index mask, a rep count, a constructor, an allocation
+size), a hand-checked structure (client_context.cpp). An access cutting a whole object, or two evidence entries
+overlapping, is an error: the generator writes nothing while it has an error (fail closed).
+
+### 14.3 Ownership
+Functions are classed by static reach: S the server (SV_Frame, the game DLL's exports), P the process's start-up
+(main 0xBF470, CEngine::Load 0xAED30; direct calls only), I a player's steps (Initialize, HUD_Init; direct calls),
+F a player's frame (the client half of _Host_Frame, the client game's frame exports, the callbacks I registers, the
+engine API tables the client game calls through: cl_enginefunc_t 0x371610 and the tables its fields name), C the
+callbacks the start-up registers (console commands), B the static constructors (initializer tables
+0x36C8B0..0x36CD28), X the atexit destructors, H only through a hub, Z only through a reviewed shared subsystem (a
+player's reach stops at those functions), U unreached. An object is:
+- `player` only with its extent proven and every writer a player's code (or hubs, console commands, constructors,
+  destructors), not read by the server, its address not escaping, and, since the review, its entry in the evidence
+  table saying why each local client uses it on its own;
+- `process` (written only by the start-up: protected, 14.6), `immutable` (no writer after the boot image),
+  `registry` (a static cvar), `server`, `shared-mutable` (services, shared subsystems, hubs, scratch);
+- `unresolved` otherwise: shared (not swapped), listed in `docs/native_split_review.md`, never called safe.
+Rules: an initialisation flag (read, then a constant stored) and the tables the same function builds by a block
+write have one ownership (the fifth run's 0x552C40); two reviewed exceptions in NOT_GUARDS.
+
+### 14.4 The review
+The first scan left 1 019 unresolved objects. The GL dispatch table (678 of them) and the fifth run's cases were
+settled first; then two rounds of read-only review (seven reviewers' reports, scratch files, every claim with its
+instruction addresses; adjusted where marked DECISION): 127 unresolved clusters, then the 94 clusters the scan called
+per player only by reach. Results now: 445 evidence objects, 106 address entries, 108 reviewed functions. Corrected
+on the way: 0x3A8A0..0x3A9C0 is the temporary-entity system, not the console's buffer (13.1's table fixed).
+
+### 14.5 Decisions
+- The client weapon prediction (0x18E160, once per process under 0x5BDA60): its objects shared, m_rgAmmo
+  0x3A10E0 included (rewritten from the predicted state on every HUD_WeaponsPostThink). Per-player prediction
+  objects are later work.
+- The client game's particle manager is a player's as a whole (its object 0x552B8C made by each Initialize, its pool
+  0x5517F8, lists and chunk vector 0x5BD8C4..0x5BD8DC, grid 0x57F0A8 (256 000 bytes), 0x552CDC..0x552CEC).
+- The temporary entities are a player's (pool 0x3AEF00, 484 000 bytes; heads 0x4251A0; gTempEntFrame 0x5BDA5C).
+- Kept shared on purpose: the connection-failure countdown 0x377E4C (per player, its end would pause the process
+  through giActive), the renderer's transparent-object array 0x551EF0, the studio interface 0x548E80 (shared, not
+  protected: the fog reset 0x1CC5FF stores 0 in its first dword while playing).
+
+### 14.6 Start-up validation
+- A start-up value is classified (heap_owner.h Classify): a verified function entry (the recompiler's dispatch
+  table), read-only data or a static object the code takes (client_context_addresses.inc, 9 336 addresses), the
+  player's own regions, a heap block (the object check's), else a number. A missing link fails the player; a number
+  is reported. A count in the image's range (the fifth run's statistics) is a number.
+- The protected start-up state (client_context_protected.inc: 1 631 ranges, 29 133 bytes: process objects and the
+  static cvars' name and next fields) is snapshotted before a new player's steps and compared after: any change fails
+  the player ("changed protected start-up state"). Every other change of shared .data in those steps is reported.
+- Kept: inherited objects, missing objects, cross-player pointers, the destructor and free checks, the server write
+  guard. The scenario expects "protected changes 0".
+
+### 14.7 The result and what remains
+- 127 regions, 1 539 563 bytes a player (5 hand-checked structures, 16 guest tables, 106 generated: 78 from evidence
+  entries, 28 from exact accesses with a reviewed address entry); before: 139, 1 057 601. Larger by the temporary
+  entities and the particle grid (the copy cost is not optimised: M2).
+- Unresolved (shared, not swapped): the demo reader's 0x371918..0x371924 (no reader found), 0x551D9C (no reader
+  found), the client game's material list 0x380DA4 (and its list 0x57F090: one ownership; per player only if no
+  reader keeps its nodes across turns), cl_efrags 0x787EE0 (links into the shared world's leaves: neither copy works
+  when a second client parses static entities; needs a "first context only" rule in code).
+- Shared state an added player's code changes (behaviour, the M2 cleanup items): its signon runs R_NewMap 0x4F8D0
+  (clears the shared decals and particles, rebuilds the lightmaps), its connect reloads the map's XPR, water and
+  detail textures (0xC3E90), moves player 1's loading bar and plaque flags, resets the out-of-band transfer machine
+  0x4E50B0; its voice data feeds the one mixer; its force feedback goes to the one pad; its effects are drawn by
+  player 1; its gViewPort is a second viewport under the one VGUI root.

@@ -28,8 +28,9 @@ expect nolog native split: .* read a packet outside its turn
 expect nolog native split: (player [0-9]|the process) (frees|would free) block
 expect nolog native split: player [0-9] shares player 1's
 expect nolog \] \[error\] \[[^]]*\] native split:
-expect log native split: player 2 \("Player 2"\) built in context 1 from the boot image: of the [0-9]+ objects player 1.s initialisation made, [0-9]+ are its own, 0 missing, 0 not its own; start-up links lacking 0
+expect log native split: player 2 \("Player 2"\) built in context 1 from the boot image: of the [0-9]+ objects player 1.s initialisation made, [0-9]+ are its own, 0 missing, 0 not its own; start-up links lacking 0, values lacking [0-9]+ \(warned\); protected changes 0;
 expect nolog native split: player [0-9] lacks [0-9]+ start-up link
+expect nolog native split: player [0-9].s initialisation changed protected start-up state
 expect nolog native split: player [0-9].s initialisation failed
 expect nolog local server: starting
 expect nolog Host_Error
