@@ -17,6 +17,8 @@
 #include "game/client_context.h"
 
 #include <algorithm>
+#include <chrono>
+#include <cstring>
 #include <cstdlib>
 #include <string>
 #include <vector>
@@ -105,6 +107,99 @@ bool ClientContextSwitch(int k) { return Contexts().Switch(k); }
 
 }  // namespace csx
 
+namespace {
+
+// the diagnostic guard (CSX_CTX_GUARD=1; docs/native_splitscreen.md 10.5): the per-player regions copied before SV_Frame
+// and compared after it, so a server frame that writes into a player's client state is logged (region, offset, the
+// value before and after) instead of silently changing player 1's copy. Off by default: the frame as before.
+struct Guard {
+    bool on = false;
+    std::vector<uint8_t> before;
+    uint64_t frames = 0, dirty = 0;
+    double copy_ms = 0, compare_ms = 0;  // totals, for the averages logged
+    std::vector<int> reports;            // per region, writes reported so far
+    std::chrono::steady_clock::time_point last_summary{};
+};
+Guard& TheGuard() {
+    static Guard g = [] {
+        Guard x;
+        const char* v = std::getenv("CSX_CTX_GUARD");
+        x.on = v && *v == '1' && !csx::Dedicated();
+        return x;
+    }();
+    return g;
+}
+double Ms(std::chrono::steady_clock::time_point a, std::chrono::steady_clock::time_point b) {
+    return std::chrono::duration<double, std::milli>(b - a).count();
+}
+
+}  // namespace
+
+// [[hook]] at 0x5D3CD in _Host_Frame, before SV_Frame's call: the guard's copy of every per-player region
+void ClientContextsGuardBefore(X86Context&, uint8_t*) {
+    Guard& g = TheGuard();
+    if (!g.on) return;
+    const auto& regions = Contexts().Regions();
+    if (regions.empty()) return;
+    auto t0 = std::chrono::steady_clock::now();
+    g.before.resize(Contexts().Bytes());
+    size_t at = 0;
+    for (const ctx::Region& r : regions) {
+        std::memcpy(g.before.data() + at, Map(r.start), r.size);
+        at += r.size;
+    }
+    g.copy_ms += Ms(t0, std::chrono::steady_clock::now());
+}
+
+// [[hook]] at 0x5D3D2 in _Host_Frame, after SV_Frame: what the server frame wrote into a player's client state
+void ClientContextsGuardAfter(X86Context&, uint8_t*) {
+    Guard& g = TheGuard();
+    if (!g.on || g.before.empty()) return;
+    const auto& regions = Contexts().Regions();
+    auto t0 = std::chrono::steady_clock::now();
+    g.reports.resize(regions.size());
+    bool dirty = false;
+    size_t at = 0;
+    for (size_t i = 0; i < regions.size(); i++) {
+        const ctx::Region& r = regions[i];
+        const uint8_t* live = Map(r.start);
+        const uint8_t* old = g.before.data() + at;
+        at += r.size;
+        if (std::memcmp(live, old, r.size) == 0) continue;
+        dirty = true;
+        if (g.reports[i] >= 5) continue;
+        g.reports[i]++;
+        uint32_t off = 0;
+        while (off < r.size && live[off] == old[off]) off++;
+        uint32_t last = r.size;
+        while (last > off && live[last - 1] == old[last - 1]) last--;
+        uint32_t was = 0, now = 0;
+        std::memcpy(&was, old + (off & ~3u), std::min<uint32_t>(4, r.size - (off & ~3u)));
+        std::memcpy(&now, live + (off & ~3u), std::min<uint32_t>(4, r.size - (off & ~3u)));
+        LOGW("client context guard: the server frame wrote %s at 0x%08X (+0x%X, %u bytes changed in the span to +0x%X): "
+             "0x%08X -> 0x%08X",
+             r.what, r.start + off, off, last - off, last, was, now);
+    }
+    g.frames++;
+    g.dirty += dirty;
+    auto t1 = std::chrono::steady_clock::now();
+    g.compare_ms += Ms(t0, t1);
+    if (g.last_summary == std::chrono::steady_clock::time_point{} || t1 - g.last_summary > std::chrono::seconds(30)) {
+        g.last_summary = t1;
+        LOGI("client context guard: %llu server frames checked, %llu wrote client state; %zu bytes a check, copy %.3f ms "
+             "and compare %.3f ms on average",
+             (unsigned long long)g.frames, (unsigned long long)g.dirty, Contexts().Bytes(),
+             g.frames ? g.copy_ms / double(g.frames) : 0.0, g.frames ? g.compare_ms / double(g.frames) : 0.0);
+    }
+}
+
+// [[hook]] at 0x1CB29 in ClientDLL_HudVidInit (0x1CAC0), just before the client game's HUD_VidInit ([0x7D6CA8]): which
+// player's HUD is initialised (log only; M2 checks that every player initialises its own)
+void ClientContextsHudInit(X86Context&, uint8_t*) {
+    LOG_FIRST(8, "client context: the HUD's video initialisation for player %d (of %d)", Contexts().Active() + 1,
+              Contexts().Count());
+}
+
 // [[hook]] at 0x202C1E in the title's startup (0x202BC8), after the C runtime's static constructors (0x206E5B) and
 // before main (0xBF470): the per-player regions as a new context starts them (the client game's objects constructed,
 // nothing initialised by the engine yet)
@@ -112,8 +207,10 @@ void ClientContextsInitial(X86Context&, uint8_t*) {
     if (csx::Dedicated()) return;  // no client in a dedicated server
     Switcher& s = Contexts();
     if (s.Regions().empty()) return;
+    auto t0 = std::chrono::steady_clock::now();
     s.CaptureInitial();
-    LOGI("client context: %zu regions, %zu bytes a player; the initial state kept", s.Regions().size(), s.Bytes());
+    LOGI("client context: %zu regions, %zu bytes a player; the initial state kept (%.3f ms)%s", s.Regions().size(),
+         s.Bytes(), Ms(t0, std::chrono::steady_clock::now()), TheGuard().on ? "; the server write guard is on" : "");
 }
 
 // [[hook]] at 0x5D3C2 in _Host_Frame, after a player's CL_Move: the next player's turn (false: back to 0x5D3B5), or

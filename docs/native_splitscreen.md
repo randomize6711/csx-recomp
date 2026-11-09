@@ -307,3 +307,49 @@ per player instead of copying.
   client state, for the first runs of M2.
 - One smoke run with the initial-state snapshot hook (boot-time copy of 1 MB; it changes nothing else), needing
   the user's permission.
+
+### 10.5 Ownership of the players' objects (2026-11-09, static)
+
+- **The small client-range static objects** of 10.4, by their constructors: 0x553930, 0x5616D0, 0x561B88 and 0x5590A8
+  are the front end's (constructors 0xB9180, 0xF30F0, 0xFE250, 0xF7780: shared until M4's menus); 0x553ED8 the sound
+  system's (0x105340); 0x562148 and 0x5622F4 the server game's (0x114440, 0x1438D0); 0x5531A8 is never written after
+  its constructor (0xAE430: constant); 0x552F78 is the front end's settings (written by 0xDAD40..0xE4340), its tail
+  an identity matrix set once (0x73290). None is a player's.
+- **Heap objects** (every malloc 0x22D86A in client code whose result is stored at a fixed address, scanned): the
+  client entities (0x551890), the particle manager (0x552B8C), the VGUI viewport (0x552B7C), gHUD's own allocations
+  and the client game's 0x552BB4, 0x552C70, 0x552C9C, 0x552CA8, 0x552CBC, 0x552CE4 are kept in per-player regions:
+  each player gets its own from its own initialisation. Kept in shared memory, on purpose: the HUD sprite registry
+  (0x551870: 128 entries, allocated once if null, never freed; a second player's SPR_Load of the same names finds the
+  same entries: sprites load once), the client's user message list (0x5518AC: registered names and handlers; the
+  server's ids per connection), the VGUI root panels (0x552028 / 0x55202C, drawn by SCR_UpdateScreen; each player's
+  viewport is their child: M4), the file system (0x438C28), the message reading state (0x748404), the renderer's,
+  the host's and the server's objects.
+- **The initial state holds no heap pointer**: no static constructor of a per-player object reaches malloc except
+  through atexit's registration (0x22C31D), checked for 0x23CA90, 0x23EB60 (gHUD), 0x23ECA0 (g_VoiceStatus).
+- **Initialising a player** therefore allocates that player's objects only: its pointers start null, and the code
+  seen frees only what its own pointers hold (the client entities are even reallocated without a free when the
+  pointer is set: 0x2E303, a warning and a leak, never another player's block).
+- **Destroying a player**: RemoveLast drops the saved copy and frees nothing (its objects leak). M2 adds the client's
+  own shutdown run in that player's context, which frees through that player's pointers only.
+- **For M2** (registration that must happen once): the client game's HookUserMsg, console commands and cvars from a
+  second player's initialisation would register the same names again in the shared lists.
+
+### 10.6 The server write guard (2026-11-09)
+
+`CSX_CTX_GUARD=1` (off by default; the dedicated server never): hooks at 0x5D3CD and 0x5D3D2 copy every per-player
+region before SV_Frame and compare after it; a region the server frame changed is logged with its address, the span
+and the value before and after (five reports per region), and every 30 s a summary with the copy and compare times.
+With one player it checks that the server frame never writes the host player's client state; with several players
+(M2) it shows any server-phase write that would land in player 1's copy.
+
+### 10.7 Two local-player assumptions for M4
+
+Code that runs in the server's phase asks "who is the local player" and gets player 1, whatever the number of
+local players. Both must answer per player (category 3) before several local players are verified:
+1. **The session code's local player** (0xEA4E0 every frame from 0xE9C00; 0xECDA0, 0xEF610, 0xEE3A0 from the server
+   game's events 0x11F040, 0x124390, 0x13A9D0, 0x149130): INDEXENT(cl.playernum + 1)'s user id against the event's
+   player; the session object caches a value for the local player at +0xC7C. Needed: "is this any local player",
+   and the cached value per player.
+2. **A server player method reading the HUD** (0x11D930, reached through a vtable): reads gHUD + 0x1BC0 (0x563F90) for
+   every player and, when it is 0, stamps the player with gpGlobals->time (+0x208). Needed: the field's meaning, and
+   the value of the HUD of the player being processed when that player is local.

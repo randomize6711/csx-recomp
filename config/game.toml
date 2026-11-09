@@ -1101,6 +1101,18 @@ call = "ClientContextsMoveNext"
 on_false = 0x5D3B5
 
 [[hook]]
+at = 0x1CB29
+call = "ClientContextsHudInit"
+
+[[hook]]
+at = 0x5D3CD
+call = "ClientContextsGuardBefore"
+
+[[hook]]
+at = 0x5D3D2
+call = "ClientContextsGuardAfter"
+
+[[hook]]
 at = 0x5D54A
 call = "ClientContextsFrameNext"
 on_false = 0x5D3F0
