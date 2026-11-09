@@ -109,6 +109,7 @@ int ClientContextAdd() {
 bool ClientContextSwitch(int k) { return Contexts().Switch(k); }
 bool ClientContextRemove(int k) { return Contexts().Remove(k); }
 bool ClientContextHasInitial() { return Contexts().HasInitial(); }
+std::vector<uint8_t>& ClientContextInitial() { return Contexts().Initial(); }
 std::vector<uint8_t>& ClientContextSaved(int k) { return Contexts().Saved(k); }
 uint32_t ClientContextAddressOf(size_t offset) { return Contexts().AddressOf(offset); }
 long ClientContextOffsetOf(uint32_t va) { return Contexts().OffsetOf(va); }

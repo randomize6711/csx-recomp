@@ -23,13 +23,14 @@ constexpr int kProcess = -1;  // allocated outside every player's turn: the proc
 struct Block {
     uint32_t size = 0;
     int owner = kProcess;
+    uint64_t serial = 0;  // the allocation's number: a later block at the same address is a different object
 };
 
 class Blocks {
 public:
     void Allocated(uint32_t va, uint32_t size, int owner) {
         if (!va) return;
-        blocks_[va] = {size ? size : 1, owner};
+        blocks_[va] = {size ? size : 1, owner, ++serial_};
     }
     // the block freed; its owner, or kNone when the address was not a known block's start
     static constexpr int kNone = -2;
@@ -71,6 +72,7 @@ public:
 
 private:
     std::map<uint32_t, Block> blocks_;
+    uint64_t serial_ = 0;
 };
 
 // a free by player `freeing` (kProcess: outside the players' turns) of a block owned by `owner`: a problem when a
@@ -85,37 +87,54 @@ inline bool FreeIsForeign(int owner, int freeing) {
 }
 
 struct Cleared {
-    size_t offset;   // in the copy
-    uint32_t value;  // the pointer that was there
+    size_t offset;      // in the copy
+    uint32_t value;     // the pointer that was there
+    uint32_t block;     // the block it pointed into (its start)
+    uint64_t serial;    // that block's allocation then
 };
 
-// every aligned dword of the copy pointing into a known block, cleared; what was cleared (to restore the ones the new
-// player's initialisation leaves at 0). `base_of(offset)` gives the guest address of a byte of the copy (regions are
-// laid end to end in it), only to report it.
+// every aligned dword of the copy pointing into a block live now, cleared; what was cleared. Run on the initial state
+// when it is taken (the end of Host_Init), when its pointers are current: later, player 1's own code frees and reuses
+// blocks those pointers name (its map load, its connect), and a pointer to a block since freed or reused could no
+// longer be told from data (the M2 run of 2026-11-09: one pointer found at the add, 44 of player 1's blocks freed).
 inline std::vector<Cleared> Scrub(std::vector<uint8_t>& copy, const Blocks& blocks) {
     std::vector<Cleared> out;
     for (size_t off = 0; off + 4 <= copy.size(); off += 4) {
         uint32_t v;
         std::memcpy(&v, copy.data() + off, 4);
-        if (v < 0x10000 || !blocks.Holding(v)) continue;
-        out.push_back({off, v});
+        uint32_t start = v < 0x10000 ? 0 : blocks.Holding(v);
+        if (!start) continue;
+        out.push_back({off, v, start, blocks.At(start)->serial});
         std::memset(copy.data() + off, 0, 4);
     }
     return out;
 }
 
-// after the new player's initialisation: the cleared dwords it left at 0 get their value back (shared objects); the
-// count of those restored
-inline size_t RestoreUnreplaced(std::vector<uint8_t>& copy, const std::vector<Cleared>& cleared) {
+// whether a cleared pointer may be given back to a new player: its initialisation left it at 0 (it made no object of
+// its own there: a shared object) and the very allocation it named is still alive (not freed, not another block at
+// the same address since)
+inline bool Restorable(const Cleared& c, uint32_t now, const Blocks& blocks) {
+    if (now) return false;
+    const Block* b = blocks.At(c.block);
+    return b && b->serial == c.serial;
+}
+
+// after the new player's initialisation (a copy): the restorable ones get their value back; the count restored
+inline size_t RestoreUnreplaced(std::vector<uint8_t>& copy, const std::vector<Cleared>& cleared, const Blocks& blocks) {
     size_t n = 0;
     for (const Cleared& c : cleared) {
         uint32_t v;
         std::memcpy(&v, copy.data() + c.offset, 4);
-        if (v) continue;
+        if (!Restorable(c, v, blocks)) continue;
         std::memcpy(copy.data() + c.offset, &c.value, 4);
         n++;
     }
     return n;
 }
+
+// the safety net: a free by a player other than the first (in its initialisation or its turns) of a block that is not
+// its own is not done (logged): another player's object, or one of the process's initialisation that player 1's state
+// names, stays alive; at worst a leak, never a block freed under another player
+inline bool SkipFree(int owner, int freeing) { return freeing > 0 && FreeIsForeign(owner, freeing); }
 
 }  // namespace heapown

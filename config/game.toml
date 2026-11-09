@@ -1104,6 +1104,7 @@ call = "NativeSplitHeapCalloc"
 [[hook]]
 at = 0x22C609
 call = "NativeSplitHeapFree"
+on_true = "ret"
 
 [[hook]]
 at = 0x6CC70

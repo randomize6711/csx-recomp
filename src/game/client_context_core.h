@@ -54,6 +54,7 @@ public:
     // constructors and before the engine's first client initialisation: client_context.cpp)
     void CaptureInitial() { initial_ = Copy(); }
     bool HasInitial() const { return !initial_.empty(); }
+    std::vector<uint8_t>& Initial() { return initial_; }  // the state new contexts start from (scrubbed in place)
 
     // a new context; its index. Its state is the initial one when captured (its own initialisation then allocates its
     // own objects, never freeing the first player's), else a copy of the active one's live memory

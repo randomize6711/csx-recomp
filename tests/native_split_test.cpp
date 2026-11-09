@@ -128,9 +128,34 @@ static void Heap() {
     // the new player's initialisation replaces one with its own; the others it leaves are shared objects: back
     uint32_t own = 0x3000000;
     std::memcpy(copy.data(), &own, 4);
-    Check(RestoreUnreplaced(copy, cleared) == 2, "two restored");
+    Check(RestoreUnreplaced(copy, cleared, b) == 2, "two restored");
     std::memcpy(after, copy.data(), sizeof after);
     Check(after[0] == own && after[2] == 0x1000210 && after[6] == 0x10000FC, "its own kept, the shared ones back");
+    // the M2 run's case: the snapshot's pointers go stale (player 1's code frees and reuses their blocks before player 2
+    // is added): a freed block's pointer stays empty, and so does one whose address another allocation took since
+    {
+        Blocks h;
+        h.Allocated(0x5000000, 0x40, kProcess);  // a HUD list node
+        h.Allocated(0x5000100, 0x40, kProcess);  // the object at 0x552CA8
+        h.Allocated(0x5000200, 0x40, kProcess);  // a registered cvar
+        std::vector<uint8_t> snap(12);
+        uint32_t v[3] = {0x5000000, 0x5000100, 0x5000200};
+        std::memcpy(snap.data(), v, 12);
+        std::vector<Cleared> at_snapshot = Scrub(snap, h);  // when the snapshot is taken
+        Check(at_snapshot.size() == 3, "all three found while current");
+        h.Freed(0x5000000);                         // player 1 frees its node
+        h.Freed(0x5000100);                         // and its object...
+        h.Allocated(0x5000100, 0x80, kProcess);     // ...and the address is reused by an unrelated block
+        std::vector<uint8_t> player2 = snap;        // player 2's copy: all three cleared
+        Check(RestoreUnreplaced(player2, at_snapshot, h) == 1, "only the cvar still alive is given back");
+        uint32_t w[3];
+        std::memcpy(w, player2.data(), 12);
+        Check(w[0] == 0 && w[1] == 0 && w[2] == 0x5000200, "a freed block's pointer and a reused address stay empty");
+    }
+    // the safety net: player 2..4 never frees a block that is not its own
+    Check(SkipFree(kProcess, 1) && SkipFree(0, 1) && SkipFree(2, 1), "player 2: not the process's, not another's");
+    Check(!SkipFree(1, 1) && !SkipFree(kProcess, 0) && !SkipFree(1, kProcess) && !SkipFree(Blocks::kNone, 1),
+          "its own, player 1's own frees, frees outside the turns, unknown blocks: done");
     // frees: whose block, by whom
     Check(!FreeIsForeign(1, 1) && FreeIsForeign(0, 1) && FreeIsForeign(1, 0), "a player frees only its own");
     Check(FreeIsForeign(kProcess, 1) && !FreeIsForeign(kProcess, 0) && !FreeIsForeign(kProcess, kProcess),

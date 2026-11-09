@@ -93,7 +93,14 @@ heapown::Blocks g_blocks;
 nsplit::Players g_players;
 bool g_tracking = false;   // heap ownership tracked (native split-screen on, from the process's start)
 int g_init_owner = -1;     // the player whose initialisation is running (its allocations are its own), -1 none
-uint64_t g_foreign_frees = 0;
+uint64_t g_foreign_frees = 0, g_skipped_frees = 0;
+std::vector<heapown::Cleared> g_cleared;  // the heap pointers cleared from the initial state when it was taken
+// per player: packets its client sent to the server, the server sent to it, it read, the server read from it; packets
+// a client read outside its own turn (should never happen)
+uint64_t g_sent[nsplit::kMaxPlayers], g_to[nsplit::kMaxPlayers], g_read[nsplit::kMaxPlayers], g_server_read[nsplit::kMaxPlayers];
+uint64_t g_read_outside_turn = 0;
+std::chrono::steady_clock::time_point g_last_report{};
+constexpr uint32_t kClPlayernum = 0x771224;  // cl.playernum: the slot the server gave this client
 std::chrono::steady_clock::time_point g_joined_at{}, g_left_at{};
 
 // the player a context belongs to (players' slots and contexts are kept in step: slot k may have context < k after a
@@ -140,9 +147,8 @@ void AddPlayer(X86Context& ctx, int k) {
         csx::ClientContextRemove(context);
         return;
     }
-    // player 1's heap pointers out of the new copy, before anything of it runs
-    std::vector<uint8_t>& copy = csx::ClientContextSaved(context);
-    std::vector<heapown::Cleared> cleared = heapown::Scrub(copy, g_blocks);
+    // its copy is the initial state, scrubbed of player 1's heap pointers when it was taken (NativeSplitInitialTaken)
+    const std::vector<heapown::Cleared>& cleared = g_cleared;
     auto t0 = std::chrono::steady_clock::now();
 
     csx::ClientContextSwitch(context);
@@ -155,16 +161,20 @@ void AddPlayer(X86Context& ctx, int k) {
         kernel::CallGuest(ctx, kInfoSetValue, {kClsUserinfo, key, value, 0x100});
     }
     g_init_owner = -1;
-    // the cleared pointers the initialisation did not replace are shared objects: their values back
-    size_t restored = 0, replaced = 0;
+    // the cleared pointers the initialisation did not replace name shared objects: their values back, when the very
+    // allocation they named is still alive (not freed, not reused since the snapshot)
+    size_t restored = 0, replaced = 0, gone = 0;
     for (const heapown::Cleared& c : cleared) {
         uint32_t va = csx::ClientContextAddressOf(c.offset);
         if (!va) continue;
-        if (R32(va) == 0) {
+        uint32_t now = R32(va);
+        if (now) {
+            replaced++;
+        } else if (heapown::Restorable(c, now, g_blocks)) {
             W32(va, c.value);
             restored++;
         } else {
-            replaced++;
+            gone++;
         }
     }
     uint32_t state = R32(kClsState);
@@ -175,9 +185,11 @@ void AddPlayer(X86Context& ctx, int k) {
     csx::ClientContextSwitch(0);
     g_players.Initialised(k);
     double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
-    LOGI("native split: player %d (\"%s\") added in context %d: %zu heap pointers of player 1 cleared from its copy, "
-         "%zu replaced by its own initialisation, %zu kept shared; initialised in %.2f ms; it joins on its turn",
-         k + 1, name.c_str(), context, cleared.size(), replaced, restored, ms);
+    LOGI("native split: player %d (\"%s\") added in context %d: of the %zu heap pointers cleared from the initial state, "
+         "%zu replaced by its own initialisation, %zu kept shared, %zu left empty (their objects freed since); "
+         "initialised in %.2f ms; %llu frees of others' blocks skipped so far; it joins on its turn",
+         k + 1, name.c_str(), context, cleared.size(), replaced, restored, gone, ms,
+         (unsigned long long)g_skipped_frees);
 }
 
 // the server client whose loopback address names player k, 0 none
@@ -190,6 +202,39 @@ uint32_t ServerClientOf(int k) {
         if (used && R32(cl + 0x24) == kLoopback && R16(cl + 0x36) == loopnet::PortOf(k)) return cl;
     }
     return 0;
+}
+
+int SlotOf(uint32_t cl) {
+    uint32_t base = R32(kClients);
+    return cl && base ? int((cl - base) / kClientSize) : -1;
+}
+
+// a dword of player k's client state: live for the active player, else from its saved copy
+uint32_t PlayerDword(int k, uint32_t va) {
+    const nsplit::Player& p = g_players.At(k);
+    if (p.context == csx::ClientContextActive()) return R32(va);
+    long off = csx::ClientContextOffsetOf(va);
+    std::vector<uint8_t>& copy = csx::ClientContextSaved(p.context);
+    uint32_t v = 0;
+    if (off >= 0 && size_t(off) + 4 <= copy.size()) std::memcpy(&v, copy.data() + off, 4);
+    return v;
+}
+
+void Report() {
+    for (int k = 0; k < nsplit::kMaxPlayers; k++) {
+        const nsplit::Player& p = g_players.At(k);
+        if (p.state == nsplit::State::Empty) continue;
+        uint32_t cl = ServerClientOf(k);
+        LOGI("native split: player %d %s, context %d, client state %u, its cl.playernum %u; server slot %d (userid %u); "
+             "packets: sent %llu, read by the server %llu, to it %llu, read %llu",
+             k + 1, nsplit::Name(p.state), p.context, PlayerDword(k, kClsState), PlayerDword(k, kClPlayernum),
+             SlotOf(cl), cl ? R32(cl + 0x4BA4) : 0, (unsigned long long)g_sent[k], (unsigned long long)g_server_read[k],
+             (unsigned long long)g_to[k], (unsigned long long)g_read[k]);
+    }
+    LOGI("native split: %llu packets dropped by full channels, %llu read outside their player's turn, %llu foreign frees "
+         "(%llu skipped), %zu heap blocks tracked",
+         (unsigned long long)g_ch.Dropped(), (unsigned long long)g_read_outside_turn,
+         (unsigned long long)g_foreign_frees, (unsigned long long)g_skipped_frees, g_blocks.Count());
 }
 
 void RemovePlayer(X86Context& ctx, int k) {
@@ -233,8 +278,11 @@ bool NativeSplitOn() { return Wanted() >= 2; }
 // process's (player 1's state refers to it; another player must not free it)
 void NativeSplitInitialTaken() {
     g_blocks.OwnAll(heapown::kProcess);
-    LOGI("native split: %d local players asked; %zu heap blocks from the process's initialisation", Wanted(),
-         g_blocks.Count());
+    // the heap pointers out of the initial state now, while they are current (heap_owner.h Scrub)
+    g_cleared = heapown::Scrub(csx::ClientContextInitial(), g_blocks);
+    LOGI("native split: %d local players asked; %zu heap blocks from the process's initialisation; %zu heap pointers "
+         "cleared from the initial state",
+         Wanted(), g_blocks.Count(), g_cleared.size());
 }
 
 // client_context.cpp, after the last player's client turn: players added or removed between frames
@@ -251,14 +299,20 @@ void NativeSplitFrameEnd(X86Context& ctx) {
         if (int(st) == kClsActive) {
             g_players.Joined(k);
             g_joined_at = std::chrono::steady_clock::now();
-            LOGI("native split: player %d is in the match (its server slot %p)", k + 1,
-                 reinterpret_cast<void*>(uintptr_t(ServerClientOf(k))));
+            uint32_t cl = ServerClientOf(k);
+            LOGI("native split: player %d is in the match: server slot %d, userid %u, its cl.playernum %u (player 1's "
+                 "%u)", k + 1, SlotOf(cl), cl ? R32(cl + 0x4BA4) : 0, PlayerDword(k, kClPlayernum), R32(kClPlayernum));
         }
     }
     // player 1 in its match with the built-in server: the others added, one a frame
     if (R32(kSvActive) && int(R32(kClsState)) == kClsActive && g_players.Count() < Wanted() &&
         g_players.Initialising() < 0) {
         if (int k = g_players.FreeSlot(); k > 0) AddPlayer(ctx, k);
+    }
+    auto now_r = std::chrono::steady_clock::now();
+    if (g_players.Count() > 1 && now_r - g_last_report > std::chrono::seconds(10)) {
+        g_last_report = now_r;
+        Report();
     }
     // diagnostics: the last player leaves, and comes back
     if (double s = LeaveAfter(); s > 0) {
@@ -292,21 +346,28 @@ void NativeSplitHeapCalloc(X86Context& ctx, uint8_t*) {
     g_blocks.Allocated(ctx.eax, ctx.esi, OwnerNow());
 }
 
-// [[hook]] at 0x22C609, free's entry: the block at [esp+4]
-void NativeSplitHeapFree(X86Context& ctx, uint8_t*) {
-    if (!NativeSplitOn()) return;
+// [[hook]] at 0x22C609, free's entry: the block at [esp+4]; on_true "ret": a free by player 2..4 of a block that is not
+// its own is not done (heap_owner.h SkipFree), reported as an error every time
+bool NativeSplitHeapFree(X86Context& ctx, uint8_t*) {
+    if (!NativeSplitOn()) return false;
     uint32_t va = R32(ctx.esp + 4);
-    if (!va) return;
+    if (!va) return false;
     int freeing = OwnerNow();
-    int owner = g_blocks.Freed(va);
+    const heapown::Block* b = g_blocks.At(va);
+    int owner = b ? b->owner : heapown::Blocks::kNone;
     if (heapown::FreeIsForeign(owner, freeing)) {
         g_foreign_frees++;
-        if (GuardOn() || g_foreign_frees <= 5)
-            LOGE("native split: %s frees block 0x%08X of %s (return 0x%08X)",
-                 freeing >= 0 ? ("player " + std::to_string(freeing + 1)).c_str() : "the process", va,
-                 owner >= 0 ? ("player " + std::to_string(owner + 1)).c_str() : "the process's initialisation",
-                 R32(ctx.esp));
+        bool skip = heapown::SkipFree(owner, freeing);
+        g_skipped_frees += skip;
+        LOGE("native split: %s %s block 0x%08X of %s (return 0x%08X)",
+             freeing >= 0 ? ("player " + std::to_string(freeing + 1)).c_str() : "the process",
+             skip ? "would free (skipped: a leak, not a block freed under its owner)" : "frees", va,
+             owner >= 0 ? ("player " + std::to_string(owner + 1)).c_str() : "the process's initialisation",
+             R32(ctx.esp));
+        if (skip) return true;
     }
+    g_blocks.Freed(va);
+    return false;
 }
 
 // ---- the loopback ------------------------------------------------------------------------------------------------
@@ -322,11 +383,15 @@ bool NativeSplitSend(X86Context& ctx, uint8_t*) {
         int k = loopnet::PlayerOf(R16(ctx.esp + 0x1A));
         if (k < 0 || !g_ch.ToClient(k, data, len))
             LOG_FIRST(8, "native split: the server's loopback packet to port %u has no player", R16(ctx.esp + 0x1A));
+        else
+            g_to[k]++;
     } else {
         int k = csx::ClientContextActive();
         if (k != 0 && !csx::ClientContextInTurn())
             LOG_FIRST(8, "native split: player %d's client sent outside its turn", k + 1);
-        g_ch.ToServer(PlayerOfContext(k) >= 0 ? PlayerOfContext(k) : 0, data, len);
+        int player = PlayerOfContext(k) >= 0 ? PlayerOfContext(k) : 0;
+        g_ch.ToServer(player, data, len);
+        g_sent[player]++;
     }
     return true;
 }
@@ -340,9 +405,17 @@ bool NativeSplitGet(X86Context& ctx, uint8_t*) {
     bool got;
     if (ctx.ecx == 1) {
         got = g_ch.ServerGet(from, data);
+        if (got && from >= 0) g_server_read[from]++;
     } else {
         int k = PlayerOfContext(csx::ClientContextActive());
         got = k >= 0 && g_ch.ClientGet(k, data);
+        if (got) {
+            g_read[k]++;
+            if (k != 0 && !csx::ClientContextInTurn()) {
+                g_read_outside_turn++;
+                LOG_FIRST(8, "native split: player %d's client read a packet outside its turn", k + 1);
+            }
+        }
         from = 0;
     }
     ctx.eax = 0;
