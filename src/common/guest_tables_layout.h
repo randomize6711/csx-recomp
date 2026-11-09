@@ -33,6 +33,7 @@ constexpr Table kTables[] = {
     {"net_getspace_scratch", 0x700BC000u, 0x1u, 65536u, 1u},  // SZ_GetSpace's answer to a request larger than a whole overflowing buffer (it returned the buffer's start)
     {"net_launch", 0x700CD400u, 0x1u, 3072u, 1u},  // the launch data a client's reconnecting relaunch passes to the title's relaunch (0xBF0E0), as 0x5F750 builds it
     {"net_connect", 0x700CFF00u, 0x1u, 256u, 1u},  // the address `connect` uses when the typed one has no port (the PC port added)
+    {"native_split_delta_slots", 0x700D1FF0u, 0x4u, 4u, 4u},  // a registry slot per local player for svc_deltadescription: players 2..4 parse the server's delta descriptions into their own slot, never rebuilding the shared registry player 1's connect built
 };
 constexpr size_t kTableCount = sizeof(kTables) / sizeof(kTables[0]);
 
@@ -63,6 +64,7 @@ constexpr size_t k_net_transmit = 22;
 constexpr size_t k_net_getspace_scratch = 23;
 constexpr size_t k_net_launch = 24;
 constexpr size_t k_net_connect = 25;
+constexpr size_t k_native_split_delta_slots = 26;
 
 // tables that start with a text (a NUL-terminated string the recompiled code is pointed at)
 constexpr TableText kTexts[] = {

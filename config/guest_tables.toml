@@ -198,3 +198,12 @@ elem = 1
 count = 0x100
 align = 1
 what = "the address `connect` uses when the typed one has no port (the PC port added)"
+
+# --- native split-screen (M2 revision: src/game/native_split.cpp, docs/native_splitscreen.md 13) ---
+
+[[table]]
+name = "native_split_delta_slots"
+elem = 4
+count = 4
+align = 4
+what = "a registry slot per local player for svc_deltadescription: players 2..4 parse the server's delta descriptions into their own slot, never rebuilding the shared registry player 1's connect built"

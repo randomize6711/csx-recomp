@@ -237,7 +237,13 @@ def classify(extra_client=(), extra_server=()):
 # server's is one player's state when its writers are in these parts of the image (by address; the engine's source
 # files are linked in order: CL_* 0x1C000.., the view 0xB5000.., the client game's exports 0x18B000..), else shared
 # (the renderer's resources, sound, the network, the host, the Xbox libraries, the C runtime, the menus: M4)
-SWAP_CODE = [(0x1C000, 0x3B000, 'engine client'), (0xAC000, 0xB8000, 'engine view'), (0x18B000, 0x200000, 'client game')]
+SWAP_CODE = [(0x1C000, 0x3A000, 'engine client'), (0xAC000, 0xB8000, 'engine view'), (0x18B000, 0x200000, 'client game')]
+# 0x3A000.. is the console's command buffer (0x3A8A0..0x3A9C0: 0x424A3C, 0x4251A0/A4; Cbuf / Cmd follow at 0x3B000..):
+# shared by every player, not a player's (docs/native_splitscreen.md 13.1)
+# data shared by nature whatever writes it: never a player's
+SHARED_DATA = [
+    (0x551870, 0x10, 'the HUD sprite registry: its list (shared), size and count (ClientDLL_HudVidInit 0x1CAC0, 0x22C50)'),
+]
 # reviewed exceptions: objects whose every writer is one of these stay shared
 SHARED_WRITERS = {
     0xB01F0: 'light style values from the server\'s style strings (a..z), the same for every player',
@@ -274,6 +280,8 @@ def regions():
         if server or not client_w:
             continue
         ws = writers[a]
+        if any(lo <= a < lo + n for lo, n, _ in SHARED_DATA):
+            continue
         if ws and all(w in SHARED_WRITERS for w in ws):
             continue
         in_shared = [w for w in ws if any(lo <= w < hi for lo, hi, _ in SHARED_CODE)]

@@ -928,3 +928,8 @@ manual testing and approval; no optimization or complete regression until then.
   state the snapshot-and-scrub inference mishandled (alignment, destructors before frees, shared state rebuilt by each
   connect). Player 2 did connect in runs 2 and 3. Stopped for an architectural review (docs/native_splitscreen.md 12):
   recommended explicit per-player construction and a shared-once connect, not more inference.
+- M2 revision (B + C + D approved): static inventory of start-up and connect (docs 13); players built from the boot
+  image by explicit steps (CL_Init's per-player state, userinfo, Initialize, HUD_Init) and checked against player 1's
+  initialised state (fails on anything missing or inherited); the delta registry built once (players 2..4 parse into
+  their own slot); ownership by allocation site (shared registry / scratch / owned); the console buffer and the sprite
+  registry's count no longer per player; the scrub retired. Compiled; all unit tests pass (native_split_test 82).

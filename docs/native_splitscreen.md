@@ -581,3 +581,89 @@ context is made and what a second connect is allowed to rebuild:
 
 Retained from M2 as is: the loopback channels, the port in the address, the registration rules (cvars reused, the
 fatal Cmd_AddCommand skipped), the context switch, the turns in _Host_Frame, the leave path's server side.
+
+## 13. M2 revision: explicit construction, shared-once connect, ownership by kind (2026-11-09; compiled, not run)
+
+The user approved B + C + D of section 12. Static inventory first; no gameplay run yet.
+
+### 13.1 Start-up inventory (process initialisation against a player's regions)
+
+Method (tools/state_audit.py index): everything Host_Init (0x5D9E0) reaches by direct calls, plus the two client entry
+points it calls through cl_funcs (Initialize 0x18B7A0, HUD_Init 0x18B800); minus what those two reach (they are run
+again per player); every write (and every address taken, a possible write through it) into a per-player region.
+
+| Operation | Writes | Class | Handling |
+|---|---|---|---|
+| ClientDLL_Init 0x1C6F0 (cl_funcs 0x7D6CA0), Initialize's copy of the engine's functions (gEngfuncs 0x5430E8) | function tables | 1 process-wide | not in the per-player regions: shared (the M2 worry that the boot image lacks them was wrong) |
+| CL_Init 0x2BA10, 0x2C141..0x2C1A6 | cl list heads 0x749DC4/C8 = 0x749D44, 0x749E4C/50 = 0x749DCC; cls.datagram 0x783808..0x783818 (name 0x32AFF4, data 0x78381C, maxsize 4000); 0x785BA0/A4 = 0 | 3 per player | explicit step ClientState (the values are the player's own addresses or constants) |
+| CL_Init's userinfo keys 0x2BA3C..0x2BBA4 (Info_SetValueForKey on cls.userinfo 0x785148) | text | 3 per player | explicit step Userinfo: player 1's text, then the player's own name |
+| SV_SetMaxclients 0xA19E4 (from Host_InitLocal 0x5BE30) | cls.state = 1 | 3 per player | explicit step ClientState |
+| CL_Init's cvars, commands, file load 0x3F540 + parse 0xB0A30, the free of [0x551FF8], the front end 0xD7710 | shared state | 1 process-wide | not run again |
+| the console's command buffer 0x3A8A0..0x3A9C0 (0x424A3C, 0x4251A0/A4) | console | 1 process-wide | **was wrongly per player** (the engine client range ran into it): the range now ends at 0x3A000 |
+| the HUD sprite registry 0x551870..0x55187C (0x22C50, 0x1CAC0) | registry | 2 shared resource | **its count was wrongly per player**: listed as shared data |
+| the view: 0xB1390, 0xB14B0 (0x3820D8..) | view state | 3 per player | also run in each player's own turns: redone per player |
+| the view: 0xB6E40 (zeroes 0x5E13A0.., 0x5E13E0 x 0x700 dwords), 0x1C5D0 (0x785794 = 0) | zeros | - | the boot image is already zero there |
+| Netchan set-up of cls.netchan (0x698D0, &0x7812E8) | connection | 4 per connection | done by the connect (0x272D0) |
+| the client game's Initialize 0x18B7A0 (its particle manager 0x552B8C) and HUD_Init 0x18B800 (gHUD, the objects 0x552C70, 0x552C9C, 0x552CA8, 0x552BB4) | objects | 3 per player | explicit steps Initialize, HudInit; their registrations answered once (cvars: the registered one; Cmd_AddCommand skipped; commands and message hooks idempotent) |
+
+### 13.2 Explicit player construction (AddPlayer; native_split_core.h InitOrder)
+
+1. **BootImage**: the context from the boot image (taken at 0x202C1E, after the static constructors, before main: no
+   heap object exists then); its heap pointers counted: there must be none.
+2. **ClientState**: CL_Init's per-player writes and cls.state (13.1).
+3. **Userinfo**: player 1's userinfo text (plain text, no pointer), its own name.
+4. **Initialize**, 5. **HudInit**: in its own context, as the player's own initialisation.
+6. **Check** against player 1's regions at the end of Host_Init (taken at 0x5DD94 as a reference only): every heap
+   pointer there (an object player 1's initialisation made) must be, in the new player's state, its own object or a
+   shared registry's entry; one it lacks (a step missing) or one naming another's object (an inheritance) **fails the
+   initialisation**: its context is removed, its slot emptied, no player is added again this session, and the errors
+   say which address and which block.
+Nothing is copied from player 1 but the userinfo text; no pointer is restored. The scrub of section 11 is retired.
+
+### 13.3 The connect: shared-once and per-connection (the svc_ table at 0x371CF8, 56 entries)
+
+| Handlers | Class | Handling |
+|---|---|---|
+| svc_deltadescription 0x2FAE0 | 2 shared resource (the delta registry: the server's and every client's encoding) | built once: a player after the first, for a name already registered, parses into its own slot (guest table native_split_delta_slots; hook 0x2FBA4): it reads the message, the registry stays player 1's (run 3's errors) |
+| svc_serverinfo 0x30A90 (-> 0x2E780) | 4 per connection + 5 shared mutation | its cl_entities, HUD_VidInit: its own; the renderer's transparent-entity list (0x551EF4, realloc'd by every connect, 0x93180: rebuilt every frame) is **shared scratch**; Host_ClearMemory is not called while the server runs (CL_ClearState 0x28E6A: `if (!sv.active)`), so no shared cache is flushed by a second connect |
+| svc_resourcelist, svc_customization, svc_filetxferfailed, svc_resourcerequest | 4 per connection (cl's lists) + 2 shared (the model cache: Mod_ForName finds loaded models) | per player; model reloading by a second connect not seen in run 3 (to watch) |
+| svc_newusermsg | 2 shared registry (the ids are the server's, the same for all) | idempotent |
+| svc_packetentities, svc_deltapacketentities, svc_clientdata, svc_spawnbaseline, svc_setangle, svc_addangle, svc_lightstyle, svc_updateuserinfo, svc_pings, svc_setpause, svc_signonnum, svc_time, svc_version, svc_setview, svc_weaponanim, svc_crosshairangle, svc_choke, svc_centerprint, svc_intermission, svc_finale, svc_cutscene, svc_restore, svc_hltv, svc_director, svc_sendextrainfo | 4 per connection (cl, cls, the client game's data) | per player |
+| svc_event, svc_event_reliable, svc_temp_entity, svc_particle | 4 per connection (effects) + 5 shared mutation (the engine's particle list 0x6A8198, decals on the shared world) | effects per player; particles and decals made once per player: duplicates (cosmetic; M4 / M7) |
+| svc_sound, svc_spawnstaticsound, svc_stopsound, svc_soundfade, svc_roomtype, svc_cdtrack, svc_voiceinit, svc_voicedata | 5 shared mutation (one mixer) | player 2's dynamic sounds gated (M4: a policy) |
+| svc_decalname | 5 shared table (the decal names 0x742FCF) | idempotent (the same names) |
+| svc_newmovevars, svc_timescale | 5 shared mutation (engine movement variables, host timescale) | the same values for every client (the server's); to verify |
+| svc_print, svc_stufftext | 5 shared mutation (the console buffer) | **risk**: a stufftext for player 2 runs from the shared console buffer at the frame's start, in player 1's context (M4) |
+| svc_disconnect | 4 per connection, but CL_Disconnect calls Host_ShutdownServer | **risk**: a disconnect sent to player 2 (a kick) would end the server; the leave path forgets player 2's packets first (M4: a per-player disconnect) |
+
+### 13.4 Ownership by kind (heap_owner.h Kind; native_split.cpp kSiteRules)
+
+A block's kind comes from the code that allocated it (malloc's caller's return address, or calloc's): **shared
+registry** (cvar_t 0x1BF2A, user message 0x2C716, command 0x3C92A, sprite registry 0x1CB0D, delta descriptions
+0x2FB00..0x2FCB2 and their fields 0x44800..0x44A00), **shared scratch** (command arguments 0x3C70D / 0x3C7EE, cvar
+strings 0x42000..0x43000, the transparent-entity list 0x931A5, the cache manager 0xC8000..0xC9300), else **owned**: by
+the player whose turn or initialisation allocated it, else by the process (the server, the console, start-up). A shared
+kind is anyone's to free or destroy (the title's own code manages it that way); an owned block only its owner's. Before
+the four known destructive sites (0x1A7F7E, 0x1B667A, 0x1BAE4B, gHUD.Init 0x1A6A0A) the object's owner is checked and
+another player's is not destroyed (an error); a free of another's owned block by player 2..4 is not done (an error).
+Generation-aware identity kept (address, serial, size, site). A leaving player's objects are released by the title's
+own code in its context (client entities, the 0x552C70 / 0x552C9C objects by their deleting destructors, the 0x552CA8
+object, the HUD list, its delta slot); what it still owns is reported as a leak (an error, with the sites).
+
+### 13.5 What remains of the snapshot and scrub
+
+- **Retired**: the scrub and the restore of pointers (removed from heap_owner.h and native_split.cpp; in git history
+  at 3a42502); a player is never made from player 1's state.
+- **Kept, changed in role**: the boot image (M1's capture point 0x202C1E) is the state a player starts from; player 1's
+  state at the end of Host_Init (0x5DD94) is kept only as the reference of the check; HeapPointers (the census, which
+  changes nothing) verifies; the skip of a foreign free and the pre-destructor checks stay as assertions (errors).
+
+### 13.6 Risks before a run
+
+- The pre-destructor checks cover the four sites seen; other destructive paths of HUD_Init or the connect would show as
+  errors (a skipped free) rather than be prevented.
+- svc_stufftext and svc_disconnect for player 2 (13.3) are not per player yet.
+- Particles, decals and static sounds are made once per player (duplicates).
+- The leave path's release of objects (13.4) has never run; the particle manager's destructor is not identified (it
+  will show as a leak).
+- The two local-player assumptions of 10.7.
