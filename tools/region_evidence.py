@@ -145,7 +145,7 @@ REVIEWED = [
     (0x549770, 0x19, 'shared-mutable', 'scratch: 0x1F3BD0 writes the whole string byte by byte (0x1F3C86..0x1F3D2A, NUL at 0x549788; the digit at 0x549783 picked at 0x1F3D46..0x1F3D61), then passes it at once to the engine model loader (push 0x549770, call [ecx+0x0C] at 0x1F3D6E/0x1F3D73); rebuilt the same way at 0x1F40E8... Fully rewritten before each use [review 32]'),
     (0x551810, 0x1, 'shared-mutable', 'renderer: a texture-stage-setup flag set by 0x14380 (0x14419) after programming the D3D state cache 0x314A30..0x314A84 / 0x316FF0, cleared by 0x14430 (0x14515) and 0x14780 (0x147AE); also 0x197BD0 (BSPShader.vsh). One D3D device [review 32]'),
     (0x551814, 0x10, 'shared-mutable', 'renderer: the saved D3D textures of 4 stages: 0x15400 writes [esi+0x551814] with esi 0..0xC step 4 (0x154D8, 0x15527..0x1552D cmp esi,0x10), 0x15540 restores them with esi < 4 (0x159C6..0x159D9, call 0x306460) [review 32]'),
-    (0x551860, 0x4, 'shared-mutable', "the demo facility''s file handle: written by the demo console commands (appenddemo 0x1E2C0 at 0x1E70B, swapdemo 0x1E8E0, setdemoinfo 0x1EE20, removedemo 0x1F5B0, 0x20E30) and zeroed by CL_StopPlayback 0x20C70 (0x20CED) only when cls.demoplayback 0x785458 is set (0x20C7A). The added player plays no demo in M2. Would need a review if demos become per player [review 32]"),
+    (0x551860, 0x8, 'shared-mutable', 'the demo facility\'s directory: its entry count 0x551860 and its entries 0x551864 (stride 0x5C, 1E6E1), one object: the record command 0x210D0 clears both with Q_memset(0x551860, 0, 8) (0x213C4..0x213D0, the same at 0x2130D), stores the count 2 (0x213DA) and allocates 0xB8 bytes (0x213D5..0x213E4); written by the demo console commands (appenddemo 0x1E2C0 at 0x1E70B, swapdemo 0x1E8E0, setdemoinfo 0x1EE20, removedemo 0x1F5B0, 0x20E30) and by CL_StopPlayback 0x20C70 (0x20CED) only when cls.demoplayback 0x785458 is set (0x20C7A). The added player plays no demo in M2. Was two entries (the count shared, the pointer a player\'s): the block write found by the Q_memset scan joins them [review 32, 2/ut_32; docs 15]'),
     (0x551870, 0xC, 'shared-mutable', 'the sprite list (SPR_*): list pointer 0x551870, count 0x551874, current sprite 0x551878. SPR_Init 0x1CAC0 allocates 0x80 entries of 0xC (count 0x80 at 0x1CAFE, 0x600 bytes, rep stosd 0x180 at 0x1CB14..0x1CB1B) only if the list is null (0x1CADB..0x1CAEC); SPR_Load 0x22B20 finds or adds by name; SPR_Shutdown 0x22C50 frees (stride 0xC at 0x22CA2). A name-keyed cache of shared models; the current sprite is set by SPR_Set 0x22E40 for drawing, and only player 1 draws [review 32]'),
     (0x551890, 0x4, 'player', 'cl_entities: allocated by CL_ReallocateDynamicData 0x2E2E0 as cl.max_edicts (0x749D40, in cl) x 0x74C (0x2E31F..0x2E34D), freed by 0x2E2A0 (0x2E2B5) and CL_Disconnect 0x28F20 (0x2906C); read across the client code. Each client its own entity array, sized from its own cl [review 32]'),
     (0x5518AC, 0x4, 'shared-mutable', "head of the user-message list (nodes of 0x20: next at +0x18, handler at +0x1C, name at +8): HookUserMsg 0x2C690 returns the existing node for the same name and handler (0x2C6F7..0x2C702), else adds one (0x2C70F.., 0x2C790); svc_newusermsg 0x31010 sets the ids (0x2C4B6/0x2C4B8, new node 0x2C4CB..0x2C4EE); freed by 0x1CA40 (0x1CA90..0x1CAA2). The handlers are the one client DLL''s functions and the ids come from the one server: identical for every player [review 32]"),
@@ -446,7 +446,6 @@ REVIEWED_2 = [
     (0x551808, 0x8, 'player', 'particle manager clock: double. Set by 1F9F80@1FA103, accumulated by 1FAA40 (fadd/fst 1FAC5E/1FAC64), only these two access it. It belongs with the per-player particle manager (0x552B8C/0x552CE4, docs 10.4). Note: REVIEWED_FUNCTIONS marks the CMiniMem allocators 1F9B90.. as shared. That conflicts with the docs keeping 0x552CE4 per-player. Reconcile one way for the whole particleman. [review 2/ut_32]'),
     (0x551824, 0x8, 'shared-mutable', 'renderer: the water XPR texture handles from 152D0 ("waterplain.xpr", 1537E) and 551828; read by 15B58. D3D resources on the one device [review 2/ut_32]'),
     (0x55182C, 0x4, 'shared-mutable', 'renderer: 4EF00 (R_RenderView speeds, gl=1) stores (int)x mod 0x11 at 4EF9B (idiv ecx=0x11), read by 15A4D [review 2/ut_32]'),
-    (0x551864, 0x4, 'player', 'demo directory pointer (stride 0x5C x count [0x551860], 1E6E1). Written by the demo console commands (1E2C0/1E8E0/1EE20/1F5B0/20E30) and by CL_StopPlayback-type 20C70 (callers include CL_Disconnect 28F20). It goes with the demo flags in cls, which is per-player. It may hold a heap pointer: scrub. [review 2/ut_32]'),
     (0x551868, 0x8, 'player', 'demo playback state 551868/55186C: CL_ReadDemoMessage 22449/22940 (226A7, 22754, 227C9) under cls 0x785580 == 1. Same owner as cls [review 2/ut_32]'),
     (0x551884, 0x8, 'player', 'CL_ParsePacketEntities byte accounting: 242F0 adds (243F0) and keeps the maximum in 551888 (243F7); 23740 subtracts at 23752 before free 0x22C609 at 23758. It counts this client own entity allocations [review 2/ut_32]'),
     (0x551898, 0x8, 'player', 'CL_SendConnectPacket 29310@2936B: Sys_FloatTime of the connect attempt; write-only [review 2/ut_32]'),
@@ -687,3 +686,242 @@ AT[0x787EE0] = ('unresolved', 'cl_efrags (0x2800): its links go into the one sha
                               'allocation is not visible statically; per-player and shared copies both break when a '
                               'second client parses static entities (svc_spawnstatic). Needs the rule "made once by '
                               'the first context, the others skip" (a code change), not a region')
+
+# ---- docs 15 (2026-11-09): the pointer-argument scan's new objects, the shared-once rules, the six unresolved ----
+# The scan now follows a static address into the function it is passed to (region_model.pointer_summaries: a register
+# the callee never writes, or a cdecl argument) and through Q_memset / Q_memcpy / memcpy: objects reached only through
+# a pointer were "immutable" before. Decided here with their instructions; the six left unresolved by docs 14.7 settled
+# (with the code rules of native_split.cpp's shared-once hooks where they needed one).
+_KB = ('kbutton_t (12 bytes: down[2] +0/+4, state +8): KeyDown 0x18F820 reads and writes [esi], [esi+4], [esi+8] '
+       '(18F842..18F868), KeyUp 0x18F880 the same, CL_KeyState 0x18FF80 reads and writes [esi+8] (18FF80..18FFE8); ')
+REVIEWED_3 = [
+    # the client game's input buttons, reached only through esi (KeyDown / KeyUp / CL_KeyState): each player's input,
+    # as the other kbuttons of the second review (each player's +/- commands and its own CL_CreateMove)
+    *[(a, 0xC, 'player', _KB + f'esi = 0x{a:X} in its +/- handlers ({h}) and the {w}. A player\'s input state, as the '
+       f'kbuttons 0x543634.. of the second review [docs 15]')
+      for a, h, w in (
+          (0x5432D8, '0x18BFE0/0x18BFF0', 'camera think 0x18BA60 (cam_command)'),
+          (0x5432F4, '0x18C040/0x18C050', 'camera think 0x18BA60'),
+          (0x543300, '0x18C080/0x18C090', 'camera think 0x18BA60'),
+          (0x543314, '0x18C060/0x18C070', 'camera think 0x18BA60'),
+          (0x543340, '0x18C020/0x18C030', 'camera think 0x18BA60'),
+          (0x543350, '0x18C000/0x18C010', 'camera think 0x18BA60'),
+          (0x543640, '0x18F990/0x18F9A0', 'move 0x190150 (CL_KeyState at 0x190204)'),
+          (0x543670, '0x18F940/0x18F950', 'input code'),
+          (0x54367C, '0x18FD60/0x18FD70', 'move 0x190690'),
+          (0x5436A8, '0x18FAD0/0x18FAE0', 'move 0x18FFF0'),
+          (0x5436B4, '0x18F980/0x18FE70', 'move 0x190690'),
+          (0x5436E8, '0x18F960/0x18F970', 'move 0x190690'),
+          (0x5436F8, '0x18FC90/0x18FCA0', 'input code'),
+          (0x543724, '0x18F9B0/0x18F9C0', 'move 0x190150 (CL_KeyState at 0x190217)'),
+          (0x543730, '0x18FBB0/0x18FBC0', 'input code'),
+          (0x543740, '0x18F920/0x18F930', 'input code'),
+          (0x54374C, '0x18FB90/0x18FBA0', 'input code'),
+          (0x543768, '0x18FAB0/0x18FAC0', 'move 0x18FFF0'))],
+    # the particle manager's parts (DECISION docs 14.5: a player's as a whole; each player's Initialize makes its own)
+    (0x551798, 0x60, 'player', 'the particle manager\'s CMiniMem object: its init 0x1F8E40 (Initialize -> 0x18B710 -> '
+     '0x1F8E40) passes esi = 0x551798 (1F8E5C) to its constructor 0x1F92D0, which writes [esi+0x0]..[esi+0x5C] (the '
+     'pointer scan: 24 fields); the pool 0x5517F8.. follows it. A player\'s, with the particle manager (docs 14.5) '
+     '[docs 15]'),
+    (0x5BD8B4, 0x10, 'player', 'the particle manager\'s object at 0x5BD8B4: ecx = 0x5BD8B4 to 0x1F8CA0 in its init '
+     '0x1F8E40 (1F8E4F), its fields +4..+0xC written by 0x1F8F20 / 0x1F8FE0 and the atexit 0x240150; next to the lists '
+     '0x5BD8C4.. A player\'s, with the particle manager (docs 14.5) [docs 15]'),
+    # the client game's weather (rain / snow / splashes): reset with its grid 0x57F0A8 (a player's, docs 14.5)
+    (0x57EEF0, 0x1A0, 'player', 'the client game\'s weather object (sprites/rain.spr, snowflake, ripple, wsplash3: '
+     '0x1CCBA0): the weather reset 0x1CC5D0 (from Initialize\'s 0x18B970 and 0x1A5EE0) passes eax = 0x57EEF0 (1CC5D2) '
+     'to 0x1CCBA0, which writes its fields up to +0x19C (0x57F08C, decremented by 0x1CD2C0 at 1CD3DB), then clears '
+     'the splash grid 0x57F0A8.. (1CC63D..1CC680); the map poll 0x1AE430 resets it through 0x1CCD50 (esi, 1AE5FF); '
+     'stepped by each player\'s frame (0x1CD2C0, 0x1CDF60). Its grid is a player\'s (docs 14.5): so is the weather that '
+     'fills it, else player 2\'s frame steps player 1\'s rain. Extent: the union of its fields, +0 (0x1D38F0) to '
+     '+0x19C [docs 15]'),
+    # the material list: one for the process (native_split.cpp NativeSplitMaterials: loaded once per map name)
+    (0x380DA4, 0x4, 'shared-mutable', 'the material list\'s pointer: 0x57F090 at every turn boundary (set at 0x1DC1DF); '
+     'inside the load 0x1DC0C0 only, a temporary header (0x1DC12C). One list for the process, loaded once per map name '
+     'as the process (the hook at 0x1AE5FA, docs 15) [review D; docs 15]'),
+    (0x57F090, 0x14, 'shared-mutable', 'the material list\'s header: +0 count (at most 0x200, 0x1DB9F8), +8 head, +0xC '
+     'tail (written through edi in 0x1DBAC0, ebp in 0x1DB9F0); nodes 0x4C bytes (0x1DBA29), payload 0xEC (0x1DD381). '
+     'Its content comes from the map\'s files only (materials/czero.mat, materials/<map>.mat, the defaults, the BSP '
+     'textures: 0x1DC0C0), the same for every player; no reader keeps a node across frames (0x1DBB40 returns an index; '
+     '0x1DFA60 / 0x1F7BA0 copy by value). One for the process: loaded once per map name as the process (the hook at '
+     '0x1AE5FA, docs 15), its nodes the process\'s [review D; docs 15]'),
+    # the secure-module machine: one per process (an added player starts none: the hook at 0x2EDB3)
+    (0x4E50B0, 0x40, 'shared-mutable', 'the secure-module protocol\'s state (HL1 "secure server": ModuleS/ModuleC.dll '
+     'with the secure master): +0 record (B3442), +4 buffer, +8 state (0 idle, 1..6 the server\'s download, 7..9 a '
+     'client\'s validation), +0xC, +0x10 challenge, +0x14, +0x18 size, +0x1C retries, +0x20 offset, +0x28 timer '
+     '(double), +0x30..+0x3F the hash (Q_memcpy at B2503, MSG_ReadBuf at B2B97); 0x4E50F0.. is other code\'s (B3B20). '
+     'Driven by the server (A6FF0 from SV_Frame) and the clients (B24E0, 297D0), one machine: not a connection\'s, not '
+     'a player\'s. Dormant unless the server is secure (0x636DC8, set only at A738A). Only the session\'s host starts '
+     'a validation (native_split.cpp NativeSplitModuleValidation at 0x2EDB3: an added player\'s connect never resets '
+     'it) [review C; docs 15]'),
+    # the engine's block lists (X_AddBlockToListTail 0xC86F0: edi the list, [edi] / [edi+4])
+    (0x552324, 0x8, 'shared-mutable', 'a block list (head, tail) of the engine\'s allocator: X_AddBlockToListTail '
+     '0xC86F0 reads and writes [edi], [edi+4] (the pointer scan) with edi = 0x552324 from the command buffer 0x3B900, '
+     'Cmd_AddCommand 0x3C760, the model loaders 0x491F0 / 0x499B0 / 0x49AF0, the lightmaps\' polys (0x4B1F7); released '
+     'by level (0xC8B10). The process\'s allocator, used by everyone (kSiteRules: its blocks are shared scratch) '
+     '[docs 15]'),
+    (0x55232C, 0x8, 'shared-mutable', 'a block list (head, tail) of the engine\'s allocator (0xC86F0 [edi], [edi+4]; '
+     'the pool 0x55232C of 0xC9130: kSiteRules, shared scratch), from the server and the clients (0x43970, 0x43BA0, '
+     '0x668A0, 0xC89E0, 0xC8AA0). The process\'s allocator [docs 15]'),
+    # the network layer's lagged-packet lists (NET's fake lag: 0x6BF20 "fakeloss")
+    (0x448AE8, 0x8, 'shared-mutable', 'the client socket\'s lagged-packet list links (its sentinel 0x448AC8: +0x20 '
+     'next, +0x24 prev): NET_Init 0x6D530 links it to itself (6D69F..6D6A9); 0x6BC20 (ebx the sentinel) empties it from '
+     'the connect paths (0x272D0, 0x27AE0), the demo commands, Host_ShutdownServer and the packet reader 0x6BF20 '
+     '("fakeloss"; used only with fake lag set, 0x551E30). One network layer: the process\'s; empty without fake lag '
+     '[docs 15]'),
+    (0x448B10, 0x8, 'shared-mutable', 'the server socket\'s lagged-packet list links (sentinel 0x448AF0, +0x20 / '
+     '+0x24): NET_Init 0x6D530 (6D6AE..6D6B8), emptied by 0x6BC20 from Host_ShutdownServer, 0x6BF20, 0x6D710. The '
+     'process\'s network layer [docs 15]'),
+    # the look routine's filter (0x19E160: player 1's only in M2, NativeSplitLook skips it in another player's turn)
+    (0x5CBBA8, 0x38, 'shared-mutable', 'the look routine\'s input filters (esi = 0x5CBBA8 to 0xC8230 / 0xC8260 / '
+     '0xC82E0 at 19E2DE..19E334; fields to +0x34 by the pointer scan): the look routine 0x19E160 runs only in player '
+     '1\'s turn in M2 (native_split.cpp NativeSplitLook skips it for the others), so one copy is player 1\'s. Must be a '
+     'player\'s when added players read their own pads (M4) [docs 15]'),
+    # the renderer's / listener's view vectors (shared: one renderer, one listener; only player 1 draws and hears)
+    (0x6E7FE0, 0xC, 'shared-mutable', 'a view vector (3 floats, +0/+4/+8: read as such by 0x3B3F0, 0x865D0, 0x87EA0): '
+     'set by the renderer\'s frame setup through a pointer (0x4DC00 pushes it to AngleVectors at 4DE2B), normalised by '
+     '0x5D1E0 (1BA870 at 5D207) before the sound update 0x1045B0. One renderer and one listener (player 1\'s in M2); '
+     'per view in M3 [docs 15]'),
+    (0x6E8890, 0xC, 'shared-mutable', 'a view vector (3 floats) with 0x6E7FE0: set through 0x4DC00 (4DE42), read by '
+     'the renderer (0x4B620, 0x58D10, 0x86AD0) and 0x254B0, normalised by 0x5D1E0 (5D1EE, 5D227). One renderer and '
+     'listener [docs 15]'),
+    # vec3_origin: never changed
+    (0x551DFC, 0xC, 'immutable', 'vec3_origin (0, 0, 0 in the boot image), read by the server and the clients; its '
+     'only write is VectorNormalize 0x1BA870 called on it by 0x5D1E0 (5D23C), which stores nothing for a zero vector '
+     '(the length test 1BA89A..1BA89F); 0x103430 / 0x23770 take it as a source [docs 15]'),
+    # docs 14.7's six unresolved objects, settled
+    (0x371918, 0xC, 'shared-mutable', 'the fade-in, fade-out and hold time (+0x14, +0x18, +0x1C) of the engine\'s '
+     '"__DEMOMESSAGE__" title 0x371904 (its name +0x24, its text +0x28): written only by SetDemoMessage 0xB0E00 from '
+     'the demo reader 0x22940 (0x226C1) during demo playback; read through the pointer TextMessageGet 0xB0E40 returns '
+     '(0xB0E68) by the HUD message draw (0x1D2F74..). One demo facility (0x551860): an added player plays no demo and '
+     'only reads it [review D; docs 15]'),
+    (0x551D9C, 0x4, 'shared-mutable', 'a dead flag: written 0 by the client signon (0x2D3FF, after R_NewMap) and 1 / 0 '
+     'by Host_Noclip (0x5F2E1, 0x5F317); the address appears in the image at those three stores only (0x2D401, '
+     '0x5F2E3, 0x5F319), no reader through a base or a table. Nothing reads it: no effect on any player '
+     '[review D; docs 15]'),
+    (0x787EE0, 0x2800, 'shared-mutable', 'cl_efrags (640 x 16): its only writer CL_ClearState 0x28E60 always writes '
+     'the same content (cleared, rep stosd 0xA00 at 28EA4, then the fixed free-list links 28F00..28F17); its only '
+     'pointer, cl.free_efrags 0x778A6C (a player\'s, in cl), is read by that same loop only (28EF6, 28F12): no efrag is '
+     'ever taken (svc_spawnstatic\'s handler 0x1141E0 is a bare ret on Xbox, no other reader of 0x778A6C), so none is '
+     'linked into the world\'s leaves (R_StoreEfrags 0x4B4D0 walks lists only R_NewMap writes, cleared at 4F952). A '
+     'second client\'s clear rewrites identical bytes: shared and harmless; docs 14.7\'s "first context only" rule is '
+     'not needed [docs 15]'),
+]
+_new3 = [(lo, lo + n) for lo, n, _, _ in REVIEWED_3]
+
+
+def _inside3(a, n=1):
+    return any(lo <= a and a + max(n, 1) <= hi for lo, hi in _new3)
+
+
+OBJECTS = [e for e in OBJECTS if not _inside3(e[0], e[1] or 1)] + REVIEWED_3
+AT = {a: v for a, v in AT.items() if not _inside3(a)}
+# the client weapon prediction's static objects (the player 0x3A0AC0 and the weapons from 0x3A1378, stride 0x168),
+# reached through ebx / ecx by HUD_WeaponsPostThink 0x18E430 (the switch 0x18E45C: mov ebx, 0x3A1378 ...) and
+# HUD_InitClientWeapons 0x18E160 (once per process under 0x5BDA60): written through their vtables (not followed by the
+# scan). DECISION docs 14.5: one set for the process, rewritten from each player's predicted state in its own
+# HUD_WeaponsPostThink; per-player prediction objects are later work. Extents not proven (vtable objects): None
+for _a in (0x3A0AC0, 0x3A1378, 0x3A14E0, 0x3A1648, 0x3A17B8, 0x3A1920, 0x3A1A90, 0x3A1C00, 0x3A1D70, 0x3A1EE0,
+           0x3A2048, 0x3A21B0, 0x3A2318, 0x3A2478, 0x3A25E0, 0x3A2748, 0x3A28B0, 0x3A2A18, 0x3A2B80, 0x3A2D20,
+           0x3A2E90, 0x3A3000, 0x3A3170, 0x3A32E0, 0x3A3448, 0x3A35B8, 0x3A3720, 0x3A3890, 0x3A3A00, 0x3A3B70,
+           0x3A3CD8):
+    AT[_a] = ('shared-mutable', 'a client weapon prediction object (HUD_WeaponsPostThink 0x18E430 / HUD_InitClientWeapons '
+              '0x18E160; written through its vtable): one set for the process, rewritten from each player\'s predicted '
+              'state (DECISION docs 14.5) [docs 15]')
+AT[0x56D628] = ('shared-mutable', 'a trace result HUD_WeaponsPostThink passes to the engine\'s trace (push 0x56D628 at '
+                '0x18ECF0, call [edx+0x3C] at 0x18ED03, edx the engine\'s API [0x543238]): written by each call before '
+                'it is read, scratch [docs 15]')
+
+# docs 15: the review of the objects only taken by a player's code (batch 0): their writers through pointers
+REVIEWED_TAKEN_0 = [
+    (0x3711D8, 0x10, 'immutable', 'float4 shader constant (0.5,0.5,0.5,0.5 boot). 0x15BC0 (a renderer pass run from the decal code 0x50420/0x513C0) passes it in edx at 0x15CFE to 0x307C40 (D3D SetVertexShaderConstant: copies it into the push buffer and the shadow 0x317298+reg*16). The callee reads [edx]..[edx+0xC] (0x307C70..0x307C89) and never writes through edx. who.py shows no other access [review taken 0; docs 15]'),
+    (0x371208, 0x10, 'immutable', 'float4 shader constant (0.5,0.5,0,0). It goes from 0x15DF9 to 0x307C40, which only reads it: 16 bytes at 0x307C70..0x307C89. No other access [review taken 0; docs 15]'),
+    (0x371218, 0x10, 'immutable', 'float4 shader constant (0.2,0,0,0). It goes from 0x15E08 to 0x307C40, which only reads it: 16 bytes at 0x307C70..0x307C89. No other access [review taken 0; docs 15]'),
+    (0x3711E8, 0x10, 'immutable', 'float4 colour (0.1 x4). Pushed at 0x15E17 to 0x305180 with count eax=1 (0x15E1C). 0x305180 reads it with movups [eax] at 0x3051B4 (16 bytes); its summary (ps) is arg0 +0/16r and nothing written. The [ebp+0x08] stores at 0x305430 change only the stack slot. No other access [review taken 0; docs 15]'),
+    (0x3711F8, 0x10, 'immutable', 'float4 colour (0.3 x4). Pushed at 0x15E2D to 0x305180 (count 1, 0x15E28), which reads 16 bytes at 0x3051B4 and writes nothing through it. No other access [review taken 0; docs 15]'),
+    (0x3A98E8, None, 'shared-mutable', 'a vertex array the renderer fills before each draw (bss). 0x3A98F0 is the same array at +8, not a separate object. 0x15BC0 writes it through ecx=0x3A98F0 at 0x15E69/6F/75/7A/80 ([ecx-8]..[ecx+8], 0x14 bytes a vertex; stride add ecx,0x14 at 0x15E8F). The scan misses these writes. It then pushes the array at 0x15E9B to 0x308200 (D3D DrawVerticesUP(7, count, 0x3A98E8, stride 0x14)). The vertex count is the mesh field [esi+0x08] (0x15E88/0x15E96), which has no proven maximum, so no size. Renderer scratch: only player 1 draws [review taken 0; docs 15]'),
+    (0x371904, 0x2C, 'shared-mutable', 'tm_demomessage, a client_textmessage_t returned for __DEMOMESSAGE__ by TextMessageGet 0xB0E40 (0xB0E68). Its only writer is SetDemoMessage 0xB0E00: fadein/fadeout/holdtime +0x14/+0x18/+0x1C at 0xB0E29/2E/34, and the text copied into the buffer at [+0x28]=[0x37192C] (0xB0E0A..0xB0E1F). 0xB0E00 is called only by the demo reader 0x22940/0x22449. Extent: same type and stride as the 0x2C array below; +0x28 is read at 0xB0E0A. One demo per process, so one shared copy [review taken 0; docs 15]'),
+    (0x37A050, 0xB0, 'player', 'gNetworkTextMessage[4] (__NETMESSAGE__1..4), client_textmessage_t entries of 0x2C. TextMessageGet 0xB0E40 returns +0/+0x2C/+0x58/+0x84 (0xB0E84..0xB0ED8). The scan found no writer, but there is one: 0x38310, the TE_TEXTMESSAGE parser of CL_ParseTEnt 0x30D90, reading net_message/msg_readcount. It takes the channel with and 0x80000003 (0x38349), imul 0x2C (0x3835A), add 0x37A050 (0x38360), and writes +0x00..+0x28 through esi (0x383AB..0x38643). Extent: 4 x 0x2C. +0x28 points into the per-channel buffer 0x5E6460+ch*0x200 (0x3863A/0x38643), which is already player. Each local client parses its own server messages, and its HUD keeps and redraws the TextMessageGet pointer, so the two must have the same owner. As one copy, player 2 parse would overwrite player 1 HUD text [review taken 0; docs 15]'),
+    (0x37244C, 0x30, 'immutable', 'g_MetaDelta, a static delta_t (boot: fieldCount=7 at +4, pdd=0x372270 at +0x2C). CL_Parse_DeltaDescription 0x2FAE0 pushes it at 0x2FC20 as pFields to DELTA_ParseDelta 0x448F0, which reads [arg3+4] (0x44961/0x44965) and [arg3+0x2C] (0x44980/0x44984) and never writes through it. DELTA init 0x96980 passes it to 0x44230/0x44530 (ps: +4 read only) and reads 0x372450/0x372478 directly. who.py shows no write in 0x37244C..0x37247C. Extent from the +0x2C read [review taken 0; docs 15]'),
+    (0x3788F0, 0x60, 'immutable', 'a box-face corner-index table, 6 entries of 4 dwords. The taken address 0x3788F8 is [entry+8]. 0x74B30 walks edi from 0x3788F8 by 0x10 to 0x378958 (0x74C63, 0x74D83, cmp 0x74D89) and reads [edi-8],[edi-4],[edi],[edi+4] (0x74D10..0x74D2E). edi is callee-saved by 0x74A70 (push/pop edi at 0x74ABF/0x74B27), which takes its points in eax/esi (read only). No writes in 0x3788F0..0x378950 [review taken 0; docs 15]'),
+    (0x37A820, None, 'immutable', 'an {int id, ptr} table of 8-byte entries that ends at a zero ptr. The taken address 0x37A824 is [entry+4]. 0xCB810 (reached from the spectator HUD 0x1B4B40) only reads it: [0x37A824] at 0xCB810, cmp ecx,[eax-4] at 0xCB820, [eax+8] at 0xCB825, and it does not use the result (returns 1). No writer anywhere. The entry count is set only by the terminator, so no size [review taken 0; docs 15]'),
+    (0x380D54, 0x3C, 'immutable', 'five float3 team/HUD colours, 12 bytes each (0x380D54/60/6C/78/84), selected by team in 0x1D6720 (0x1D6737..0x1D674F). Readers read +0/+4/+8 by value: 0x1B431C/29/39 and 0x1A8BE7/EC. The scoreboard/status bar keeps them in [obj+0x238/0x23C] (0x1D84B5, 0x1D8902, 0x1D86A4) and reads only (0x1D8A04..0x1D8A44). The death notices keep them in rgDeathNoticeList +0x5C/+0x60 (0x1D6DD9, 0x1D6E5E) and read only (0x1D6A57/0x1D6A60, 0x1D6B14..0x1D6B1D). No write found on any of these paths [review taken 0; docs 15]'),
+    (0x384F78, 0x380, 'shared-mutable', 'the physical pad table, 4 controller ports of 0xE0 (loop 0x384F78..0x3852F8 step 0xE0 at 0xE1A80..0xE1AA7, entries chosen by imul 0xE0). The scan missed the writer. XInput poll 0xBDA30 is called with 0x384E70 (push at 0xC84DE) and loops 4 ports (0xBDA7B); per port it writes [esi-0xD4]=0x384F78 (0xBDAA1..0xBDAB9, XINPUT state copy) and the floats at [esi-0xC0]/[esi-0xBC] (0xBDB2D/0xBDB98 = 0x384F8C/90). Its caller 0xC84D0 is called from the Xbox UI and the frame (0x5D2E0, 0xC6F70, 0xC7330, 0xE9320...). Read by the pad-to-key bridge 0x19DFD0 (already shared) and by 0x19E160 (0x19E25A/0x19E573 pass &pad[port] to read-only 0x1B6DB0/0x1B6D30/0x1B6D70/0x1B6CF0). It holds every port, so it must stay one copy even when each player has its own pad: a per-player view is the port index 0x3852F8, not this table [review taken 0; docs 15]'),
+    (0x3855B8, 0x1B0A8, 'shared-mutable', 'engine voice channels, 5 x 0x5688 (loops end at 0x3A0660 at 0x101EA4/0x102652/0x1026B2, and 0x38AC08+5*0x5688=0x3A5CB0 at 0x101EE7). 0x38AC08 is field +0x5650 (the codec object) of entry 0, not a separate object. Writes the scan missed: m_iEntity=-1 at 0x101E98 (0x101E70), codec cleared at 0x101EDB after vcall [eax+8] (0x101EB0), and channel init 0x101D40 (ps: eax +0..+0x567C written), reached from Voice_AssignChannel 0x102620 (imul 0x5688 + 0x3855B8 at 0x10267C). Voice playback is sound, shared. Note: CL_ParseVoiceData 0x31B80 calls 0x1026A0/0x102620 (0x31C85/0x31C8F) from the packet parse, so player 2 parse would claim shared channels unless voice is off in its turn [review taken 0; docs 15]'),
+    (0x3A3ED4, 0x10, 'immutable', 'a 16-byte by-value argument (boot 1.0 x4, a colour/vector). 0x1B99C0/0x1B9E00/0x1BA000 pass it in ecx to 0xDC540/0xDC440, which copy [ecx]..[ecx+0xC] onto the stack (0xDC58E..0xDC5A0; 0xDC48C..0xDC49E) and do not write through ecx. No other access [review taken 0; docs 15]'),
+    (0x3A3F14, None, 'shared-mutable', 'a static vgui Image-like object (boot vptr 0x343BD4 -> 0x10BF40...; second vptr 0x344C2C at +0x18). Getter 0x1F68A0 returns it; 0x1DAB40 returns it to 0x1DB0A0/0x1DB110/0x1DB1F0, which store it as a panel image ([edi+0xCC]/[edi+0xD0] at 0x1DB0F1/0x1DB0F7, [esi+0xD0] at 0x1DB238). Its vtable methods write the object: 0x10BF40 +4/+8, 0x10C1E0 +0xC/+0x10 (reads +0x2C), 0x10C180 +0x1C..+0x20 (SetPos/SetSize/SetColor-like). They are reached only through vcalls, so a write is likely but not proven. Either way it is one process-wide VGUI resource drawn only by player 1. Size not proven (accessors use up to +0x2C) [review taken 0; docs 15]'),
+    (0x3A43A0, 0x19, 'immutable', 'RTTI TypeDescriptor .?AVPanel@vgui@@ (type_info vptr 0x3270C8, spare 0, name). Pushed only as Src/Target type to __RTDynamicCast 0x22F8A7 (0x10D3D2, 0x10D463; also 0x10D600/0x10D680). 0x22F8A7 and its helpers 0x22F50F/0x22F525/0x22F5B7/0x22F70B/0x22F598 have no non-stack store; the only one is the bad_cast constructor 0x22C404 writing a local exception. Extent 8 + NUL-terminated name (17) [review taken 0; docs 15]'),
+    (0x3A4640, 0x1E, 'immutable', 'RTTI TypeDescriptor .?AVTreeFolder@vgui@@. Pushed only to __RTDynamicCast 0x22F8A7 (0x10D3CD, 0x10D45E), which is read-only for it (see 0x3A43A0). Extent 8 + name (22) [review taken 0; docs 15]'),
+    (0x3A5318, 0x24, 'immutable', 'RTTI TypeDescriptor .?AVBorderLayoutInfo@vgui@@, the target type of dynamic_cast(child->GetLayoutInfo()) in 0x1FE350. Pushed at 0x1FE3AE/0x1FE4D3; the vcall [edx+0x158] in between is thiscall with no stack arguments, and the pushes are consumed by 0x22F8A7 (0x1FE3C2). Read-only. Extent 8 + name (28) [review taken 0; docs 15]'),
+    (0x3A533C, 0x1E, 'immutable', 'RTTI TypeDescriptor .?AVLayoutInfo@vgui@@, the source type in the same __RTDynamicCast calls (0x1FE3B3/0x1FE4D8 -> 0x22F8A7). Read-only. Extent 8 + name (22) [review taken 0; docs 15]'),
+    (0x3A4EB0, 0x100, 'immutable', 'a static D3D vertex-shader/attribute-format block, 16 slots of 16 bytes in the boot image. 0x196240 (a renderer pass called from the decal code 0x51900/0x51B69) passes it in ecx at 0x1963F8 to 0x307370. 0x307370 copies it (mov esi,ecx at 0x307372; ecx=0x40 dwords; rep movsd at 0x30738D) into the device shadow 0x31809C and never writes the source. Extent from the rep movsd count. No other access [review taken 0; docs 15]'),
+    (0x3AE680, 0x400, 'shared-mutable', 'the rcon command buffer (bss). Written by the console rcon command 0x2A280: copy of up to 0x3FF chars at 0x2A466..0x2A4A0 (dest eax=0x3AE680, 0x2A46B), terminator 0x3AEA7F at 0x2A4C2; it also stores the rcon address 0x3AEB88..98. Read when the challenge reply arrives, in 0x276C0 (from connectionless 0x277F0): [0x3AE680] at 0x276D2, pushed to sprintf at 0x27787. Console state, one per process. Only the client turn that gets the challenge reply sends it [review taken 0; docs 15]'),
+    (0x3AEE20, 0xC0, 'shared-mutable', 'the DispatchUserMsg data buffer (bss), scratch rewritten before each use. 0x2C510 reads the message size (fixed [esi+4] or a byte), rejects size>0xC0 (0x2C5AA), and fills the buffer with MSG_ReadBuf 0x3EA50 (push 0x3AEE20 at 0x2C573; memcpy 0x3DAA0 into [esp+8] at 0x3EA7E). The scan does not follow that write. The buffer is then handed at once to the user-message handler (push at 0x2C589, call eax at 0x2C593). Each dispatch writes it then consumes it in the same call [review taken 0; docs 15]'),
+    (0x42FBF8, 0x400, 'shared-mutable', 'the COM_ExplainDisconnection format buffer (bss), scratch rewritten before each use. 0x3DF70 calls _vsnprintf(0x42FBF8, 0x400, fmt, va) (push 0x400 / push 0x42FBF8 at 0x3DF7B/0x3DF80, call 0x22CDC6). It then copies at most 0xFF chars into gszDisconnectReason 0x5EF6A0 (0x3DFA1..0x3DFC1), sets 0x551F9C=1 and optionally Con_Printf. Nothing reads the buffer after the call returns. The reason 0x5EF6A0/0x551F9C is a separate object [review taken 0; docs 15]'),
+    (0x43A910, None, 'shared-mutable', 'decal clip vertex array 1, 0x1C a vertex (bss), renderer scratch rewritten before each use. 0x43A91C is field +0xC of vertex 0, not a separate object. 0x54800 (decal surface build, from 0x54BA0/0x54E60, which make 9 GL-table calls) writes [eax-0xC]..[eax+4] with eax=0x43A91C, stride 0x1C (0x54898..0x548BD, 0x548E5). Sutherland-Hodgman passes 0x54380 then ping-pong it with 0x43D3C0 (0x548FC..0x54936). Vertex count = surface poly count [ebp+0x08] (0x548EB), no proven maximum, so no size. Only player 1 draws [review taken 0; docs 15]'),
+]
+OBJECTS = [e for e in OBJECTS if not any(lo <= e[0] < lo + (n or 1) for lo, n, _, _ in REVIEWED_TAKEN_0)] + \
+    [e for e in REVIEWED_TAKEN_0 if e[1] is not None]
+for _lo, _n, _own, _why in REVIEWED_TAKEN_0:
+    for _a in [a for a in AT if _lo <= a < _lo + (_n or 1)]:
+        del AT[_a]
+    if _n is None:
+        AT[_lo] = (_own, _why)
+# fields of the unsized objects above, taken at their own addresses (the review: one object each)
+AT[0x37A824] = ('immutable', 'field +4 of the {id, ptr} table 0x37A820 (read only by 0xCB810) [review taken 0; docs 15]')
+AT[0x3A98F0] = ('shared-mutable', 'field +8 of the renderer\'s vertex array 0x3A98E8 (0x15BC0 writes it through ecx = '
+                '0x3A98F0, 0x15E69..0x15E80) [review taken 0; docs 15]')
+AT[0x43A91C] = ('shared-mutable', 'field +0xC of vertex 0 of the decal clip array 0x43A910 (0x54800 writes through eax = '
+                '0x43A91C, 0x54898..0x548BD) [review taken 0; docs 15]')
+
+# docs 15: the review of the objects only taken by a player's code (batch 1): their writers through pointers
+REVIEWED_TAKEN_1 = [
+    (0x43CD80, 0x640, 'shared-mutable', 'R_TextureAnimation 0x50180 random table, 20x20 dwords. Lazily filled when [0x43CD80]==0 (5018F/5019C): ebp=0x43CD80 (501A2), mov [ebp],edx (50227), add ebp,4, loop until cmp ebp,0x43D3C0 (50234), so 0x640 bytes. Read at 502C5 [eax*4+0x43CD80] with eax=(a%20)*20+(b%20) (5029B..502C2, max 399). The fill uses rand 0x7AA20. Renderer-only, filled once: one copy is fine. [review taken 1; docs 15]'),
+    (0x43D3C0, None, 'shared-mutable', 'clip-polygon ping-pong buffer B (buffer A is 0x43A910), vertices of 0x1C bytes. 0x54800 calls the clipper 0x54380 with ecx/edx alternating between 0x43D3C0 and 0x43A910 (548FC..54931). 0x54380 writes the destination ecx->edi (54453/54473/544B3/544D3, 7 dwords or 0x1C bytes per vertex). Renderer scratch rewritten before each use (chain 54800<-54BA0<-54E60, which makes 9 GL calls). The vertex count is a runtime value, so the size is not proven. [review taken 1; docs 15]'),
+    (0x448AC8, 0x28, 'shared-mutable', 'the NET layer lag-packet list sentinel for socket 0. Heads are indexed [sock*0x28+0x448AC8] (6C0AE/6C0B1, 6C0C1..6C0CD), so the stride is 0x28. Init 6D69F..6D6A9 writes +0x20/+0x24 (0x448AE8/0x448AEC) = self. The clear 0x6BC20 (ebx=head) writes [ebx+0x24]/[ebx+0x20] (6BC6E/6BC71); it is called from 5C9D0 (5CA1F), 272D0, 27AE0 (27B75), 21690/21C10 (21A05/21DC4) and 6BF20 (6BF70). Network layer: one copy. NOTE: all local clients share one client socket queue. [review taken 1; docs 15]'),
+    (0x448AF0, 0x28, 'shared-mutable', 'lag-packet list sentinel for socket 1 (index 1 of the same 0x28-stride array, 6C0B1). Init 6D6AE..6D6B8 (0x448B10/0x448B14). Cleared by 0x6BC20 with ebx=0x448AF0 (5CA29, 6BF7A, 6D738), which writes 6BC6E/6BC71. Network layer. [review taken 1; docs 15]'),
+    (0x6BA5C0, None, 'shared-mutable', 'the network thread critical section (analysis/netcode_engine.md: Enter/Leave via thunks 0x3210C0/0x3210C4). Pushed around list operations (5CA11/5CA16, 5CA43/5CA48, 219FA, 21A21, 2744E, 27B69, 6BBB5...); the kernel Enter/Leave write it. One process lock. The thunks do not prove its size. [review taken 1; docs 15]'),
+    (0x452340, 0x400, 'shared-mutable', 'net_graph text scratch. 0x6D7E0 calls _vsnprintf 0x22CDC6(0x452340, 0x400, fmt, args) (6D7EA/6D7EF/6D7F4; 22CDC6 is a string-FILE vsnprintf, flag 0x42 at 22CDE1), then passes it to 0x47060 (6D80E/6D82F). Callers 6DA10/6DFE0 ("%.1f fps", "%i ms"...). Rewritten before every use; drawing only. [review taken 1; docs 15]'),
+    (0x5257E0, 0x200, 'shared-mutable', 'wide-string scratch for text layout. B96A0/B9B20 check wcslen(src)<0x100 (B96E5/B9B84), then wcscpy 0x22D3B4 (a 2-byte copy loop 22D3BC..22D3C9) into 0x5257E0 (B96F0..B96FB, B9B8F..B9B9A). They split it in place at L"/" with wcschr 0x22DF6B and mov word [ebx],0 (B9726). At most 0x100 wchars = 0x200 bytes. Rewritten before every use. [review taken 1; docs 15]'),
+    (0x526AE8, None, 'shared-mutable', 'debug message buffer. sprintf 0x22C5B1(0x526AE8, 0x33AD24 "PROGRESS BAR: changed status text to %s", ...) at 282FE/28303, 2CE65, 2E7FF, 2EFC3, AD51B, C3FCC. who.py finds no reader. Write-only scratch, rewritten on every use. sprintf has no bound, so the size is unproven. [review taken 1; docs 15]'),
+    (0x549790, None, 'shared-mutable', 'the client-DLL material system name table, 0x40-byte entries, count 0x552CCC. Rebuilt by 1F6920: count=0 (1F6934), then strcpy into [count*0x40+0x549790] (1F69C4..1F69E2) and inc (1F69EA). There is no upper-bound check before the inc, so the extent is unproven. Searched by 1F68B0 (1F68C0..1F6903, stride 0x40) and 1DBFE0 (1DC037). Loaded by 1DC0C0 ("materials/%s.mat", mat_reload 1DBDB0; from 1AE430). Each load rebuilds it from the same files, so a shared copy has identical content. Must share ownership with the count 0x552CCC. [review taken 1; docs 15]'),
+    (0x551CD8, None, 'unresolved', 'the last center-print text, kept to suppress repeated vote messages. 0x55180 (center print; callers 1C5B0, 30A70, 31060, 31090) compares it with "A player cast a vote" (55190..5519A), then strncpy 0x22CA40(0x551CD8, msg, 0x7F) (551CB..551D3); only 55195 reads it. The time/pointer state 0x6CE280/0x6CE28C/0x551CC4/0x551CC8 is written alongside (551E3..5521E). At least 0x7F bytes; the full extent is not proven. Missing: the ownership of the center-print state as a whole. If it stays shared, an added player center print (from its own svc parse) is shown on player 1 screen. It must follow 0x551CC4..0x551CC8 and 0x6CE280/0x6CE28C. [review taken 1; docs 15]'),
+    (0x552F04, 0x10, 'immutable', 'BSS 16 bytes (a zero colour/rect), never written. Direct reads 1B9A86..1B9AA4 (0x552F04..0x552F10) and 1BA1C5..1BA1DE. Every taken use (1B9B9D, ..., 1BA63F) passes it as the 2nd stack argument of DC540/DC440. ps.py shows those only read +0..+C of it, by value (DC569..DC58B / DC468..DC489); ret 8. [review taken 1; docs 15]'),
+    (0x552F14, 0xC, 'immutable', 'vec3_origin (BSS zeros), never written. Read at 1A879A..1A87CC (+0,+4,+8). The gauss event 1E2730 passes it as the dir argument (1E2C9E, 1E2DBA, 1E2FCE, 1E313E) to [pEfxAPI+0xC8]. pEfxAPI is gEngfuncs+0x14C ([0x543234], copied from cl_enginefuncs 0x371610 by Initialize 18B7B2). The XBE gives efx table 0x371448, entry +0xC8 = 0x35D60 (R_TempSprite). 0x35D60 only reads that argument ([esp+0x10]: 35E3B..35E56 into tent+0x90). [review taken 1; docs 15]'),
+    (0x552F50, 0xC, 'shared-mutable', 'a std::map (detail textures). Constructed at boot 23C841 (BCD30 writes +4/+8), destroyed at exit 23F410 (13620 writes +8). Filled by 13C60 ("_detail.txt", "Detail texture file read failed"; from map load C3E90): head 0x552F54 read at 13CC4..13CFE, size written at 13CF6 mov [0x552F58],ebx, inserts via 14880/BCF00 (140CE). The player code 146C0/14750 only looks it up (147F0 reads ecx+4; 146DA/145A8 compare with the head). Renderer state loaded once per map. Fields +0..+8. [review taken 1; docs 15]'),
+    (0x553160, 0x40, 'shared-mutable', 'a 4x4 float matrix in renderer state. Written by 0x240344 (arg0 written +4..+0x38 per ps.py) from 4E030 (94073 call, push 0x553160 at 9406E; 4E030 makes 23 GL calls). Read by the D3D vertex-shader-constant upload 0x307CA0 with edx=0x553160, ecx=0x60 (15CB4..15CC0): movq [edx]..[edx+0x38] (307CB9..307CD4), so 0x40 bytes. One renderer. [review taken 1; docs 15]'),
+    (0x553920, 0xC, 'shared-mutable', 'a std::map keyed by font id (font cache: BC900 strings "_IdHudFont.xpr", "Korean"). Every use is mov ecx,0x553920; call BCD60 (map::operator[], reads +4). The scan misses its insert BCDD0 (edi=ecx, 0xBCDD5) -> C55E0, which writes [edi+8] size (C5674). Callers: 1C4D0, 47060, 552B0, BC900, BCB40, BCB80, BCBC0, BCD00, 1AEB20, 1D2D60, 1D88E0. Fields +4 head, +8 size. UI/font subsystem: one copy. [review taken 1; docs 15]'),
+    (0x5548E8, None, 'immutable', 'an empty string (BSS byte 0), never written. All 4 references load it and compare it inline as a strcmp at once: E53F3..E53FC, E5A63..E5A6C, EFDEE..EFDF7, 1BA078..1BA091 (mov dl,[esi]; cmp dl,[edi]). The address is never stored or passed on, so it does not escape. who.py has no write to 0x5548E8..0x5548F7. Only byte +0 is read in effect, so the size is left None. [review taken 1; docs 15]'),
+    (0x5693A4, 0x10, 'shared-mutable', 'a std::vector of 0x50-byte elements (rep movsd 0x14 dwords 199ABE..199AC8; index*0x50 at 19903D..1990D0). begin 0x5693A8 / end 0x5693AC are read at 1961B9/1961C0 and 1962AA/1962CA. Push-back 199000 (edi=0x5693A4, 19621A/196332) -> 199AA0(arg edi) writes [edi+4]/[edi+8]/[edi+0xC] (199C32..199C38, 199CD8, 199CFD); the scan missed these. Cleared at exit 240010/240022/24002C. Used by the world draw 196240 (2 GL calls; callers 51900/51B69) and 196160. Renderer list. Fields +4..+0xC. [review taken 1; docs 15]'),
+    (0x56D6DC, 0xC, 'shared-mutable', 'std::map<string,string>, controller-layout config file name -> file contents ("RStickRBut_custom.cfg"...). Boot ctor 23EC81 (1B6DF0 writes +4/+8), exit dtor 240100 (1B66D0). Filled from HUD_Init (18B800 -> 190690 -> 1B6850 -> 1B6710): push 0x56D6DC (1B67B8) -> 1B6E20 (ebp=arg) -> 1B6FC0 (ecx->edi) -> 1B7330, which writes [edi+8] (1B73C3); then value assign 12C30 (1B67D5). Read by 1B69F0 (1B6A77 find 1B6F10; exec "%s%s"). The keys are fixed and the contents come from the same files, so a second HUD_Init rewrites identical content. NOTE: if controller layouts are ever meant to differ per player, this cache must become per-player. [review taken 1; docs 15]'),
+    (0x5BD920, 0x40, 'shared-mutable', 'a 4x4 matrix, the product of 0x5BD8E0 (already reviewed as shared renderer scratch) and the projection. Written every particle update by D3DXMatrixMultiply 0x24073E(out=0x5BD920) at 1FA0E9/1FA0EE. 24073E writes through [ebp+8] with indexed stores, which the scan does not follow. Read by D3DXVec3Transform 0x240220 arg2 +0..+3C (1FAA89/1FAAA3) in the draw 1FAA40. Renderer scratch rewritten before use, same owner as 0x5BD8E0. [review taken 1; docs 15]'),
+    (0x5BDAB0, None, 'shared-mutable', 'a static return buffer. 1DF440 sprintf 0x22C5B1(0x5BDAB0, "{break%i"/"{bproof1"/"{shot%i") (1DF45A, 1DF479, 1DF49D) and returns it (1DF467/1DF486/1DF4AA). Decal-name scratch rewritten on every call; sprintf has no bound. [review taken 1; docs 15]'),
+    (0x5BDAD0, None, 'shared-mutable', 'a static return buffer. 1DAAF0 sprintf(0x5BDAD0, 0x364BE8, local) (1DAB1D/1DAB22), where local is "gfx/vgui/%s.tga"; it returns it (1DAB2E). Rewritten on every call; no bound. [review taken 1; docs 15]'),
+    (0x5BDCA0, None, 'shared-mutable', 'client-DLL debug print scratch. 18D520 vsprintf 0x22CE1C(0x5BDCA0, fmt, va) (18D52A/18D52F), then Con_Printf [0x543188]("cl: ") and Con_Printf(0x5BDCA0) (18D539, 18D53F/18D544). Rewritten on every use; no bound. [review taken 1; docs 15]'),
+    (0x5BEAB8, None, 'shared-mutable', 'material-error log scratch. 1DD1D0 vsprintf 0x22CE1C(0x5BEAB8, fmt, va) (1DD23A/1DD23F), then fprintf 0x22DF0D(file, "%s: %s", x, 0x5BEAB8) (1DD263..1DD26F) to "%s/materials/%s.error". Rewritten on every use; no bound. [review taken 1; docs 15]'),
+    (0x5BEEB8, None, 'shared-mutable', 'localisation token scratch in 1D8E80. After a "#" it copies alphanumeric chars to ecx=0x5BEEB8 (1D8EB7..1D8ED6, mov [ecx],al at 1D8ED2), NUL-terminates (1D8EDD), and passes it to [0x54314C] (1D8ED8/1D8EE0). Rewritten before each use; no length bound. [review taken 1; docs 15]'),
+    (0x5C3A44, None, 'immutable', 'not a reference. 2E9EE mov dword [esp+0x88],0x5C3A44 and 60057 mov dword [esp+0x90],0x5C3A44 store the string literal bytes 44 3A 5C 00 = "D:\\" into a stack path buffer (then rep stosd 0x40 at 2E9E2..2E9F9, strcat at 2EAA7..2EAC7). Nothing accesses 0x5C3A44 itself. [review taken 1; docs 15]'),
+    (0x5C9870, 0x400, 'shared-mutable', 'the client-DLL localisation output buffer. Each use is push 0x400; push 0x5C9870; call 0x1D8E80 (1A81A3..1A81B2, 1D7F9F/1D7FA4, 1D8F60/1D8F65, 1D9C0D/1D9C12, 1D9D94/1D9D99, 1DA7D9/1DA7DE, 1DA8E9/1DA8EE). 1D8E80 writes the out buffer through edi (1D8F01, 1D8F16, 1D8F1D, NUL 1D8F21), max 0x400. Consumers read it straight after (1A81B7; copy to 0x549350 at 1B55E0/1B55E6; 1D7FC0). Rewritten before each use. [review taken 1; docs 15]'),
+    (0x6A7A00, 0x798, 'shared-mutable', 'R_EntityParticles avelocities[162][3] floats. Lazily filled when [0x6A7A00]==0 (82F49..82F58): esi=0x6A7A00, fstp [esi-4] (82FC2), add esi,4, until cmp esi,0x6A8198 (82FB2), so 0x798 bytes. Read [ecx+0x6A7A00]/[ecx+0x6A7A04] with ecx step 0xC up to 0x798 (82FE2, 82FF6, 83065/83068). Random fill (rand 0x7AA20), once; visual only. [review taken 1; docs 15]'),
+    (0x6CE300, None, 'unresolved', 'wide string, radio message (second line, text part). Written by 55270 wcscpy 0x22D3B4(0x6CE300, localized) (5528B/55290), which also sets the time 0x551CD0 (5529B). 55270 is called from the client-DLL radio message handler 1D8DF0 ("%s (RADIO): %s", 1D9282). Read by the screen draw 55670 swprintf(local, 0x32FE24, 0x6CE420, 0x6CE300) (5567B..55696), from 55790 <- SCR_UpdateScreen 55E10. wcscpy has no bound, so the size is unproven. Missing: whether the HUD message state is per player. As one copy, an added player radio message shows on player 1 screen. Same owner as 0x6CE420 and 0x551CD0. [review taken 1; docs 15]'),
+    (0x6CE420, None, 'unresolved', 'wide string, radio message (second line, sender). Written by 55270 wcscpy(0x6CE420, ...) (55276/5527B); read by 55670 (55680). Same as 0x6CE300. [review taken 1; docs 15]'),
+    (0x6CE3E0, None, 'unresolved', 'wide string, radio message (first line, sender). Written by 55230 wcscpy(0x6CE3E0, ...) (55236/5523B), with the time 0x551CCC (5525B); 55230 is called from 1D8DF0 (1D924C). Drawn by 555A0 with edi=0x6CE3E0 -> text draw BCBC0 (555DE..555FA). Unbounded wcscpy. Ownership is open, as for 0x6CE300; same owner as 0x6CE460 and 0x551CCC. [review taken 1; docs 15]'),
+    (0x6CE460, None, 'unresolved', 'wide string, radio message (first line, text). Written by 55230 wcscpy(0x6CE460, ...) (5524B/55250); drawn by 555A0 (55644..5565D). Same as 0x6CE3E0. [review taken 1; docs 15]'),
+    (0x6E8840, 0x50, 'shared-mutable', 'the renderer view frustum[4], mplane_t of 0x14 bytes. Loops go esi=0x6E8840, add esi,0x14, until cmp esi,0x6E8890 (4C321..4C33D R_CullBox, 895C4..895EB); BoxOnPlaneSide 66AC0 reads +0..+0x11. Written by R_SetFrustum 4DAB0 (from R_RenderView 4EC60): push 0x6E8840 -> RotatePointAroundVector 4C0B0 writes arg1 through ebp=[esp+0xC0] (4C2DE, 4C2F9, 4C314); the scan does not follow that. Other uses: 4CBEE, 51A04, 8C222. One renderer; only player 1 draws. [review taken 1; docs 15]'),
+    (0x6E8920, None, 'shared-mutable', 'the needload field (+0x40) of mod_known[0]. mod_known is 0x6E88E0, max 0x264 models (reviewed 0x438C38: Mod_FindName cmp 0x264 at 48EAC). Mod_ClearAll 48E10 (from 5CC60): eax=0x6E8920, stride 0x188, count [0x551984]; it writes mov dword [eax],1 (48E2E) unless [eax+4]==2 or [eax]==3. One model cache shared by the server and the clients. Size None here because the object is a field of the 0x6E88E0 array: 0x264*0x188 if the whole array is taken. [review taken 1; docs 15]'),
+    (0x7481C0, 0x20, 'process', 'the exe version string ("1.0.1.4"). Written only by the start-up Sys_InitVersion 5D7B0: a copy loop of at most 0x1F chars (5D8FD..5D929, mov [eax],dl at 5D91A), _snprintf 0x22CB64(0x7481C0, 0x20, ...) (5D961..5D968), NUL at 0x7481DF (5D931, 5D970). Everyone else only passes it as a "%s" argument (21FEA/22081 fps.txt, 5D9A8, 5E9A5, 5EE48, 63500, 944E8). 0x20 bytes. [review taken 1; docs 15]'),
+    (0x78A6E0, None, 'shared-mutable', 'the client playermove_t. pmove [0x552C34]=0x78A6E0 right before PM code (25C28, 25EE2, 32ED7); the server uses 0x6524E0 (5E14D). PM_Init 74830(0x78A6E0) runs at start-up (5DC5B/5DC60); ClientMoveInit is called at 1C6B6/1C6BB. The engine writes it through the pmove pointer. Prior review: 0x25BF0 clears and refills it before every prediction, so it is scratch and nothing is kept between two predictions. Fields reach at least +0x22828 (CL_PushPMStates); the full size is not proven. [review taken 1; docs 15]'),
+]
+OBJECTS = [e for e in OBJECTS if not any(lo <= e[0] < lo + (n or 1) for lo, n, _, _ in REVIEWED_TAKEN_1)] + \
+    [e for e in REVIEWED_TAKEN_1 if e[1] is not None]
+for _lo, _n, _own, _why in REVIEWED_TAKEN_1:
+    for _a in [a for a in AT if _lo <= a < _lo + (_n or 1)]:
+        del AT[_a]
+    if _n is None:
+        AT[_lo] = (_own, _why)
+# the material name table's count goes with its table 0x549790 (one owner: a count and its array): both rebuilt only by
+# 0x1F6920, called only from the material list load 0x1DC0C0 (0x1DC163), which is shared-once (docs 15)
+OBJECTS = [e for e in OBJECTS if e[0] != 0x552CCC] + [
+    (0x552CCC, 0x4, 'shared-mutable', 'the material name table\'s count (0x549790, 0x40-byte entries): 0x1F6920 sets '
+     'it (1F6934) and increments it (1F69EA); 0x1F6920 is called only by the material list load 0x1DC0C0 (0x1DC163), '
+     'loaded once per map name as the process (docs 15); read by 0x1DBFE0, 0x1DC0C0, 0x1F68B0. Was a player\'s (second '
+     'review): it shares its table\'s ownership [docs 15]')]

@@ -137,4 +137,35 @@ inline Registration EngineCommandPolicy(bool another_players_init) {
     return another_players_init ? Registration::Skip : Registration::Register;
 }
 
+// ---- the session's lifecycle (docs 15) ---------------------------------------------------------------------------
+
+// the built-in server and its world are the session's, not a client's: they end only when the session's host leaves
+// (the local player who started the server: its window, menus and console start and end matches; player 1 in M2, the
+// only one with them). Another local player's client disconnecting (a kick, the server's disconnect message, a
+// stuffed "disconnect") leaves the server running for the others.
+struct Session {
+    int host = 0;  // the local player whose disconnect ends the match (the server's starter)
+    bool DisconnectEndsServer(int player) const { return player == host; }
+};
+
+// before the server shuts down (its world, hunk and models freed): the other local players removed first, the highest
+// slot first, so none is left pointing into a freed world. Only from the host's own context (the switcher's state is
+// the host's live one); in another player's turn nothing is removed (the caller reports it)
+inline std::array<int, kMaxPlayers> TeardownOrder(const Players& p, int host, int& n) {
+    std::array<int, kMaxPlayers> out{};
+    n = 0;
+    for (int k = kMaxPlayers - 1; k >= 0; k--) {
+        if (k == host) continue;
+        State s = p.At(k).state;
+        if (s == State::Connecting || s == State::Active) out[size_t(n++)] = k;
+    }
+    return out;
+}
+
+// the secure-module validation (0x4E50B0.., one machine for the process: the server's module download and every
+// client's validation share it; dormant unless the server is secure): only the session's host starts it. An added
+// player's server is this process, the same executable, so its own request would only reset the shared machine
+// (player 1's validation, or a server download in progress)
+inline bool StartsModuleValidation(const Session& s, int player) { return player == s.host; }
+
 }  // namespace nsplit

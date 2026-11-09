@@ -368,8 +368,13 @@ void RelaunchNotify(X86Context& ctx, uint8_t*) {
 // first is not a lost host (also when Host_ShutdownServer calls CL_Disconnect again inside it): true skips the
 // screen (0x290BA). A dedicated server has no client to lose its host: the map command's own CL_Disconnect
 // (0x5FD50) at its start would open the screen and never return.
+bool NativeSplitAddedPlayerActive();  // native_split.cpp: another local player than the session's host is acting
+
 bool ClDisconnectLostHost(X86Context& ctx, uint8_t*) {
     if (g_connecting || !g_reconnect.empty() || csx::Dedicated()) return true;
+    // native split-screen (docs 15): another local player's disconnect opens no screen (the window and its menus are
+    // the host's, and the screen's loop never returns)
+    if (NativeSplitAddedPlayerActive()) return true;
     // split-screen players 2..4 play only where player 1 does: their match over, their process ends (the compositor
     // starts them again for the next one)
     if (csx::SplitPlayer() > 1) {

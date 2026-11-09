@@ -843,3 +843,98 @@ on the way: 0x3A8A0..0x3A9C0 is the temporary-entity system, not the console's b
   detail textures (0xC3E90), moves player 1's loading bar and plaque flags, resets the out-of-band transfer machine
   0x4E50B0; its voice data feeds the one mixer; its force feedback goes to the one pad; its effects are drawn by
   player 1; its gViewPort is a second viewport under the one VGUI root.
+  (Corrected in 15: the texture reload and the loading bar were wrong; R_NewMap, the material list and the module
+  machine now have code rules.)
+
+## 15. Shared-once connect, the session's lifecycle, the pointer scan (2026-11-09; approved; static only, not run)
+
+Approved after 14: the first-player-only / shared-once rules for cl_efrags, the material list, the new-map, texture
+reload and file-transfer side effects. Static analysis, code, compilation and non-gameplay tests only: nothing run.
+
+### 15.1 What player 2's connect did to the shared world (four read-only reviews, every claim with its addresses)
+| Path | Finding | Rule |
+|---|---|---|
+| R_NewMap 0x4F8D0 (signon 0x2D3F4) | shared part: light styles, r_worldentity 0x6E8020 (0x74C, Q_memset), leaves, texture chains, R_ClearParticles 0x830F0, R_DecalInit 0x53020 (zeroes the decal pool under the surfaces' chains: cross-linked decals), GL_BuildLightmaps 0x529C0 (a second poly per surface, a leaked buffer), R_LoadSkys 0x57E50 (can delete player 1's sky), 0x486F0; per-player part: 0xB6770 (shake 0x5E32E0, cl.sf), cl_entities[0]+0x222 | once per map generation (cl.servercount 0x74A058, cl.worldmodel 0x778A68), as the process; the others: their own part only |
+| the signon's 0xC4770 "PieMenuUI" (0x2D3EF) | an unload: frees a UI bundle's D3D textures | once per generation, as the process |
+| the material list 0x1DC0C0 (HUD map poll 0x1AE5FA) | one list 0x57F090 (header 0x14; nodes 0x4C; from files only); player 2's first poll reloads it, freeing player 1's nodes (refused by the heap guard: a leak and errors) | once per map name, as the process; the player's own name copy and the weather reset still run |
+| the map texture reload 0xC3E90 | already keyed: returns at 0xC3F31 when the map name ([0x55209C]) is unchanged; player 2's connect to the same map reloads nothing, and sets no loading flag (0x6CE278, 0x6CE288, 0x5520A4 untouched) | none needed (14.7 was wrong) |
+| the secure-module machine 0x4E50B0..0x4E50F0 | one per process (the server's module download and every client's validation); dormant unless the server is secure (0x636DC8, A738A); a client's request (0x2EE42 -> B24E0) resets it | only the session's host starts a validation (0x2EDB3 -> 0x2EE5A for the others; the hash is read before, the message stays in step) |
+| cl_efrags 0x787EE0 | its only writer CL_ClearState 0x28E60 writes the same bytes every time; cl.free_efrags 0x778A6C is read by that loop only; svc_spawnstatic's handler 0x1141E0 is a bare ret: no efrag is ever linked | none needed: shared, harmless (14.7's "first context only" rule dropped) |
+| CL_Disconnect 0x28F20 | calls Host_ShutdownServer when sv.active (0x2902C), frees the shared transparent array 0x551EF4, opens the LostHost screen (0x290B5, whose loop never returns) | another player's disconnect: the server kept (0x29029 -> 0x29034), the array kept (0x29072 -> 0x29090), no screen (ClDisconnectLostHost) |
+| Host_ShutdownServer 0x5C9D0 | frees the world, its hunk, models and the game DLL's entities (Host_ClearMemory 0x5CC60) | the other local players removed first (TeardownOrder), the shared-once records forgotten |
+
+### 15.2 The code
+- `src/game/shared_once.h` (new, tested alone): `sharedonce::World`, per operation (WorldRenderer, SignonUi,
+  Materials) the generation it was built for. Begin: Run (the first for the generation), PerPlayerOnly, Inner (the
+  hook's own call of the original), Title (no generation to key: as the title). Finished(ok): a failed or unwound run
+  records nothing (the next caller builds it again; never a half-built world taken as built). Invalidate: the
+  world's end. Running: while a run is in progress OwnerNow() is the process, so its allocations and frees are the
+  process's (the heap guard then never ties the world to the player who happened to build it).
+- `native_split_core.h`: `Session` (the host: its disconnect ends the match; player 1 in M2, the only one with the
+  window, menus and console), `TeardownOrder` (the other connecting / active players, highest slot first; never an
+  initialising one), `StartsModuleValidation`.
+- `native_split.cpp` hooks (config/game.toml): NativeSplitNewMap 0x4F8D0 (on_true ret), NativeSplitSignonUi 0x2D3EA
+  (-> 0x2D3F4), NativeSplitMaterials 0x1AE5FA (-> 0x1AE5FF), NativeSplitModuleValidation 0x2EDB3 (-> 0x2EE5A),
+  NativeSplitDisconnectServer 0x29029 (-> 0x29034), NativeSplitDisconnectRenderer 0x29072 (-> 0x29090); the
+  Host_ShutdownServer hook 0x5C9D0 now tears the other players down (only from the host's context; in another
+  player's turn it refuses and logs an error); net_session.cpp's ClDisconnectLostHost skips the screen for another
+  player. The report line lists each operation's builds, players' parts, failures.
+- Without CSX_NATIVE_SPLIT every hook returns at once: single player and online play unchanged.
+
+### 15.3 The pointer scan (region_model.py)
+- Block helpers with known arguments (Q_memset 0x3DA50, Q_memcpy 0x3DAA0, memcpy 0x22BF00, cdecl pushes tracked):
+  their ranges as block writes / reads (r_worldentity 0x6E8020 was "immutable"; the demo directory 0x551860 / 0x551864
+  turned out one object: its two review entries joined, shared).
+- Pointer arguments (pointer_summaries): per function, the fields it accesses through a register it never writes (or
+  before its first write at the straight-line start) or a cdecl argument ([esp+N] with the pushes counted, [ebp+N] in
+  an ebp frame), through its callees to a fixed point; a displacement of 0x10000 or more is an index, not a field. A
+  caller passing a static address gets exact accesses ("exact-call", 7 441 of them).
+- An object no code writes but a player's code takes the address of is now unresolved ("address taken"), not
+  immutable: the callee may write through the pointer where the scan does not follow (vtables, stored pointers).
+- Found by it: 18 kbutton_t of the client game's input and camera (0x5432D8.., 0x543640..; only KeyDown 0x18F820,
+  KeyUp 0x18F880 and CL_KeyState 0x18FF80 touch them, through esi): they were shared, so player 2's +/- commands
+  and CL_CreateMove used player 1's buttons. Now a player's. Also a player's: the particle manager's CMiniMem
+  0x551798 (0x60) and object 0x5BD8B4 (0x10), the weather object 0x57EEF0 (0x1A0, with its grid), the server's module
+  hash 0x7493E0 (0x10), the HUD text messages gNetworkTextMessage 0x37A050 (4 x 0x2C, with their buffers 0x5E6460).
+- Reviewed (two more read-only reviews of the 70 address-taken objects, plus the weapon-prediction objects of 14.5):
+  shader constants, colour tables, RTTI descriptors, the {id, ptr} table: immutable; renderer / sound / console /
+  network / UI scratch and caches: shared; the exe version 0x7481C0: process. The material name table 0x549790 and
+  its count 0x552CCC (was a player's) share the material list's ownership.
+
+### 15.4 The six unresolved of 14.7
+| Object | Status | Evidence |
+|---|---|---|
+| cl_efrags 0x787EE0 (0x2800) | proven shared (harmless) | 15.1 |
+| the material list pointer 0x380DA4 and list 0x57F090 | proven shared: one list, once per map name, as the process (code rule) | 15.1 |
+| the demo title's times 0x371918..0x371924 | proven shared: fields +0x14..+0x1C of tm_demomessage 0x371904 (0x2C), written only by SetDemoMessage 0xB0E00 in demo playback | review D |
+| 0x551D9C | proven shared: a dead flag, written at 0x2D3FF / 0x5F2E1 / 0x5F317, the address in the image at those stores only | review D |
+| (the file-transfer machine 0x4E50B0.., an "unresolved risk" of 14.7) | proven shared per process (not per connection); only the host starts it (code rule) | review C |
+
+### 15.5 The result
+- 115 regions, 1 540 487 bytes a player (21 hand-checked, 94 generated); before: 127, 1 539 563. Protected start-up
+  state: 1 758 ranges, 29 641 bytes. Model: 0 errors.
+- Still unresolved (5, shared, not swapped; display only): the radio message lines 0x6CE300, 0x6CE420, 0x6CE3E0,
+  0x6CE460 and the last center-print text 0x551CD8 (unbounded wcscpy / strncpy: sizes not proven). Written by each
+  client's own message handling, drawn by the one screen in player 1's turn: player 2's radio and center-print
+  messages show on player 1's screen. They do not affect player 2's initialisation, connection or client updates
+  (no client code reads them back but the screen's draw and the vote-message filter 0x55195). Per view in M3, with
+  their timers 0x551CCC, 0x551CD0, 0x6CE280, 0x6CE28C and pointers 0x551CC4 / 0x551CC8.
+- Remaining risks (not proven by a run):
+  - the voice channels 0x3855B8 (5 x 0x5688) are one set; CL_ParseVoiceData 0x31B80 assigns them in each client's
+    parse (0x31C85 / 0x31C8F): with voice data arriving, player 2's parse would claim channels too (no voice source
+    exists in a local game with bots);
+  - player 1 leaving ends the session: the other players are removed first (nothing they use freed under them), but
+    the match does not continue for them (a host hand-over needs another owner of the window and menus: later);
+  - the server shutting down in another player's turn (a Host_Error there) is refused for the teardown and logged;
+  - a map change: whichever client reaches the new generation first builds it; until the other has its new
+    serverinfo, it runs one frame or more against the new world (as in the title's own reconnect);
+  - the scan's "address taken" also counts immediates that are not addresses (0x5C3A44 is the bytes "D:\\"):
+    conservative (unresolved, never a player's); 0x3A3F14 (a VGUI image) is shared on a likely, unproven write;
+  - 104 objects inside the hand-checked structures (cl, cls, ...) are written by shared code (a service writing a
+    player's structure through its pointer): listed, a player's with their structure.
+- Tests (no game): native_split_test 159 checks (SharedOnce: join without rebuild, exactly once, the per-player part,
+  generations, invalidation, failure and partial runs, title runs, the process's ownership of the world's blocks, a
+  player leaving; SessionLifecycle: disconnect policy, module validation, teardown order, no invalid transitions);
+  region_model_test 819 (pointer arguments, the block helpers, address-taken objects, the docs-15 objects); every
+  other non-gameplay suite passes. The 2-player scenario expects the world built once (player 1's signon) and player
+  2's part only.

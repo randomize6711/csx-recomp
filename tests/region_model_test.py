@@ -249,12 +249,111 @@ def synthetic():
         objs, _, _ = objects(c, CLS, evidence=[(D + 0xE00, 0x80, 'player', 'a loop bound of 32')])
         check(at(objs, D + 0xE7F).ownership == 'player' and at(objs, D + 0xE00).size() == 0x80,
               'an evidence entry gives the size and the ownership')
+        pointer_arguments()
     finally:
         EV.OBJECTS[:], fns, ng = saved
         EV.FUNCTIONS.clear()
         EV.FUNCTIONS.update(fns)
         EV.NOT_GUARDS.clear()
         EV.NOT_GUARDS.update(ng)
+
+
+def pointer_arguments():
+    """docs 15: a static address passed to a function: the fields the callee accesses through it (a register it never
+    writes, a cdecl argument, through a further callee), the block helpers' ranges, and an object only taken"""
+    G, G2, G3, G4, G5 = 0x18E000, 0x18E100, 0x18E200, 0x18E300, 0x18E400
+    c = Code()
+    # G: KeyDown-like, esi its argument (never written): reads [esi], writes [esi+8]
+    c.func(G)
+    c.ins(G, 'mov eax, [esi]', '{ uint32_t ea = (uint32_t)(ctx.esi); ctx.eax = (uint32_t)(X86_MEM32(ea)); }')
+    c.via(G + 2, 'esi', 8)
+    # G2: a cdecl argument: mov ecx, [esp+0x4]; mov [ecx+0x10], eax
+    c.func(G2)
+    c.ins(G2, 'mov ecx, [esp+0x04]', '{ uint32_t ea = (uint32_t)(ctx.esp + 0x4u); ctx.ecx = (uint32_t)(X86_MEM32(ea)); }')
+    c.via(G2 + 4, 'ecx', 0x10)
+    # G3: esi written first (not its argument): mov esi, 0x...; mov [esi+4], eax
+    c.func(G3)
+    c.const(G3, 'esi', 0x1234)
+    c.via(G3 + 5, 'esi', 4)
+    # G4: passes its esi on to G (a callee's callee), and indexes a table with ebx: [ebx+0x400720] is no field
+    c.func(G4)
+    c.call(G4, G)
+    c.ins(G4 + 5, 'mov [ebx+0x400720], eax', '{ uint32_t ea = (uint32_t)(ctx.ebx + 0x400720u); X86_MEM32(ea) = '
+                                             '(uint32_t)(ctx.eax); }')
+    # G5: esi written only after a label (a jump lands there): before it, at the straight-line start, esi is the
+    # argument; after the label not
+    c.func(G5)
+    c.via(G5, 'esi', 0xC)
+    c.label(G5 + 3)
+    c.via(G5 + 3, 'esi', 0x14)
+    c.const(G5 + 6, 'esi', 0x99)
+    # the callers, a player's frame
+    c.func(P1)
+    c.const(P1, 'esi', D + 0x2000)
+    c.call(P1 + 5, G)
+    c.push(P1 + 0x10, D + 0x2100)
+    c.call(P1 + 0x15, G2)
+    c.const(P1 + 0x20, 'esi', D + 0x2200)
+    c.call(P1 + 0x25, G3)
+    c.const(P1 + 0x30, 'esi', D + 0x2300)
+    c.const(P1 + 0x35, 'ebx', 0x10)
+    c.call(P1 + 0x3A, G4)
+    c.const(P1 + 0x40, 'esi', D + 0x2400)
+    c.call(P1 + 0x45, G5)
+    # block helpers: Q_memset (edx dst, ecx count), Q_memcpy (eax dst, ecx src, edx count), memcpy (cdecl)
+    c.const(P1 + 0x50, 'edx', D + 0x2500)
+    c.const(P1 + 0x55, 'ecx', 0x30)
+    c.call(P1 + 0x5A, 0x3DA50)
+    c.const(P1 + 0x60, 'eax', D + 0x2600)
+    c.const(P1 + 0x65, 'ecx', D + 0x2700)
+    c.const(P1 + 0x6A, 'edx', 0x10)
+    c.call(P1 + 0x6F, 0x3DAA0)
+    c.push(P1 + 0x75, 0x20)
+    c.push(P1 + 0x7A, D + 0x2900)
+    c.push(P1 + 0x7F, D + 0x2800)
+    c.call(P1 + 0x84, 0x22BF00)
+    c.label(P1 + 0x90)
+    c.const(P1 + 0x90, 'edx', D + 0x2A00)
+    c.call(P1 + 0x95, 0x3DA50)  # ecx unknown after the label: the count unknown
+    # an address only taken: by a player's code (unresolved), by the server's only (immutable)
+    c.push(P1 + 0xA0, D + 0x2B00)
+    c.call(P1 + 0xA5, 0x18E500)
+    c.func(SRV)
+    c.push(SRV, D + 0x2C00)
+    c.call(SRV + 5, 0x18E500)
+    cls = dict(CLS)
+    cls.update({G: 'F', G2: 'F', G3: 'F', G4: 'F', G5: 'F', 0x18E500: 'F'})
+    objs, errors, r = objects(c, cls)
+    acc = r['accesses']
+
+    def has(addr, kind, how, n=4):
+        return any(a[3] == addr and a[2] == kind and a[5] == how and a[4] == n for a in acc)
+    check(has(D + 0x2008, 'w', 'exact-call') and has(D + 0x2000, 'r', 'exact-call'),
+          'pointer argument: a register the callee never writes: its fields accessed at the caller\'s address')
+    check(has(D + 0x2110, 'w', 'exact-call'), 'pointer argument: a cdecl stack argument loaded from [esp+4]')
+    check(not any(D + 0x2200 <= a[3] < D + 0x2300 and a[5] == 'exact-call' for a in acc),
+          'pointer argument: a register the callee writes first is no argument (no false access)')
+    check(has(D + 0x2308, 'w', 'exact-call'), 'pointer argument: through a callee\'s callee')
+    check(not any(a[5] == 'exact-call' and a[3] >= 0x400720 and a[3] < 0x400800 for a in acc),
+          'pointer argument: a large displacement is an index, not a field')
+    check(has(D + 0x240C, 'w', 'exact-call') and not has(D + 0x2414, 'w', 'exact-call'),
+          'pointer argument: after a label a register written later in the function is not the argument')
+    check(has(D + 0x2500, 'w', 'block', 0x30), 'block helper: Q_memset with its destination and count known')
+    check(has(D + 0x2600, 'w', 'block', 0x10) and has(D + 0x2700, 'r', 'block', 0x10),
+          'block helper: Q_memcpy writes its destination and reads its source')
+    check(has(D + 0x2800, 'w', 'block', 0x20) and has(D + 0x2900, 'r', 'block', 0x20),
+          'block helper: memcpy\'s cdecl arguments from the pushes')
+    check(any(u[3] == D + 0x2A00 and 'count unknown (Q_memset)' in u[5] for u in r['unresolved_blocks']),
+          'block helper: a count not known is recorded unresolved, never guessed')
+    o = at(objs, D + 0x2008)
+    check(o and o.ownership == 'player' and o.size() == 4, 'pointer argument: a field written only by a player\'s call')
+    o = at(objs, D + 0x2000)
+    check(o and o.ownership == 'unresolved', 'pointer argument: the field only read, its address taken: unresolved')
+    o = at(objs, D + 0x2B00)
+    check(o and o.ownership == 'unresolved' and 'address taken' in o.issues,
+          'an object a player\'s code only takes the address of: unresolved, not immutable')
+    o = at(objs, D + 0x2C00)
+    check(o and o.ownership == 'immutable', 'an object only the server takes, never written: immutable')
 
 
 def real():
@@ -307,6 +406,20 @@ def real():
                 owners[x] = True
     loose = [a for a, n in regs if not all(owners.get(x) for x in range(a, a + n))]
     check(not loose, f'every region byte belongs to a per-player object ({[hex(a) for a in loose[:5]]})')
+    # docs 15: the shared-once objects stay shared; the pointer scan's per-player objects are a player's
+    for lo, hi, what in ((0x787EE0, 0x78A6E0, 'cl_efrags'), (0x380DA4, 0x380DA8, 'the material list pointer'),
+                         (0x57F090, 0x57F0A4, 'the material list'), (0x4E50B0, 0x4E50F0, 'the secure-module machine'),
+                         (0x552324, 0x552334, 'the allocator\'s block lists'), (0x6E8020, 0x6E876C, 'r_worldentity'),
+                         (0x448AE8, 0x448AF0, 'the lagged-packet list'), (0x551D9C, 0x551DA0, 'the dead flag'),
+                         (0x371918, 0x371924, 'the demo title\'s times')):
+        check(not any(held(x) for x in range(lo, hi)), f'{what} (0x{lo:X}..0x{hi:X}) is not a player\'s (docs 15)')
+    for lo, n, what in ((0x5432D8, 0xC, 'a camera kbutton'), (0x543640, 0xC, 'a kbutton'), (0x543768, 0xC, 'a kbutton'),
+                        (0x551798, 0x60, 'the particle manager\'s CMiniMem'), (0x5BD8B4, 0x10, 'the particle object'),
+                        (0x57EEF0, 0x1A0, 'the weather object'), (0x7493E0, 0x10, 'the server\'s module hash')):
+        check(all(held(x) for x in range(lo, lo + n)), f'{what} (0x{lo:X}+0x{n:X}) is a player\'s (docs 15)')
+    unresolved = sorted(o.lo for o in objs if o.ownership == 'unresolved')
+    listed = open(os.path.join(ROOT, 'docs', 'native_split_review.md')).read()
+    check(all(f'0x{a:X}' in listed for a in unresolved), 'every unresolved object is in the review list')
 
 
 def main():

@@ -10,6 +10,7 @@
 #include "game/heap_owner.h"
 #include "game/local_loopback.h"
 #include "game/native_split_core.h"
+#include "game/shared_once.h"
 
 static int failed = 0, checks = 0;
 static void Check(bool ok, const char* what) {
@@ -446,6 +447,204 @@ static void SwitchCost() {
                 regions.size(), s.Bytes(), ms, ms * 4);
 }
 
+// docs 15: the world's shared-once operations, a connection's and the session's lifecycle. A simulated client connect
+// drives sharedonce::World exactly as native_split.cpp's hooks do (Begin; Run: the whole operation as the process,
+// Finished; PerPlayerOnly: the player's own part; Inner / Title: as the title)
+namespace sim {
+struct Engine {
+    sharedonce::World world;
+    heapown::Blocks heap;
+    int builds = 0;                 // the shared part (lightmaps, decals, particles) built
+    int decal_pool_clears = 0;      // R_DecalInit: harmful on a world another player uses
+    int view_resets[nsplit::kMaxPlayers] = {};  // the per-player part (shake, fade, cl_entities[0])
+    int material_loads = 0;
+    std::string materials_of;       // the list's map
+    uint32_t next_block = 0x100000;
+    bool fail_next = false;         // the next shared run is cut short (its host call unwinds)
+    std::vector<uint32_t> shared_blocks;  // the world's allocations
+    // the owner a hook gives an allocation: a shared run's is the process's, else the acting player's
+    int Owner(int player) const { return world.Running() ? heapown::kProcess : player; }
+    // R_NewMap through the hook (0x4F8D0)
+    sharedonce::Action NewMap(int player, sharedonce::Generation g) {
+        sharedonce::Action a = world.Begin(sharedonce::Op::WorldRenderer, g);
+        switch (a) {
+        case sharedonce::Action::Run: {
+            struct Run {
+                Engine& e;
+                bool ok = false;
+                ~Run() { e.world.Finished(sharedonce::Op::WorldRenderer, ok); }
+            } run{*this};
+            // the hook's own call of R_NewMap: the hook again (Inner), then the whole function
+            if (world.Begin(sharedonce::Op::WorldRenderer, g) != sharedonce::Action::Inner) return a;
+            uint32_t b = next_block;
+            next_block += 0x100;
+            heap.Allocated(b, 0x100, Owner(player), 0x52AB3, heapown::Kind::Owned);  // a lightmap buffer
+            shared_blocks.push_back(b);
+            if (fail_next) {
+                fail_next = false;
+                return a;  // cut short: run.ok stays false
+            }
+            builds++;
+            decal_pool_clears++;
+            view_resets[player]++;
+            run.ok = true;
+            break;
+        }
+        case sharedonce::Action::PerPlayerOnly:
+            view_resets[player]++;
+            break;
+        case sharedonce::Action::Inner:
+        case sharedonce::Action::Title:
+            builds++;
+            decal_pool_clears++;
+            view_resets[player]++;
+            break;
+        }
+        return a;
+    }
+    // the HUD's map poll (0x1AE5FA): the material list by the map's name
+    sharedonce::Action Materials(int player, const std::string& map) {
+        sharedonce::Action a = world.Begin(sharedonce::Op::Materials, {0, 0, map});
+        if (a == sharedonce::Action::Run) {
+            uint32_t b = next_block;
+            next_block += 0x4C;
+            heap.Allocated(b, 0x4C, Owner(player), 0x1DBA29, heapown::Kind::Owned);
+            shared_blocks.push_back(b);
+            material_loads++;
+            materials_of = map;
+            world.Finished(sharedonce::Op::Materials, true);
+        } else if (a == sharedonce::Action::Title) {
+            material_loads++;
+        }
+        return a;
+    }
+};
+}  // namespace sim
+
+static void SharedOnce() {
+    using sharedonce::Action;
+    using sharedonce::Generation;
+    const Generation de_dust{7, 0x6E8900, ""}, de_dust_again{8, 0x6E8900, ""}, cs_office{9, 0x6E8A40, ""};
+    // player 1 connects: the world built once, as the process
+    sim::Engine e;
+    Check(e.NewMap(0, de_dust) == Action::Run, "shared once: the first client of a world builds it");
+    Check(e.builds == 1 && e.view_resets[0] == 1, "shared once: the build includes the first client's own part");
+    Check(!e.world.Running(), "shared once: no run left in progress");
+    // player 2 joins the same world: its own part only, nothing shared rebuilt
+    Check(e.NewMap(1, de_dust) == Action::PerPlayerOnly, "shared once: player 2 joining does not rebuild the world");
+    Check(e.builds == 1 && e.decal_pool_clears == 1, "shared once: player 1's decal pool not cleared by player 2");
+    Check(e.view_resets[1] == 1, "shared once: player 2's own part still runs (its view reset, its entity 0)");
+    Check(e.NewMap(2, de_dust) == Action::PerPlayerOnly && e.NewMap(3, de_dust) == Action::PerPlayerOnly &&
+              e.builds == 1 && e.view_resets[2] == 1 && e.view_resets[3] == 1,
+          "shared once: players 3 and 4 the same; built exactly once");
+    Check(e.world.Runs(sharedonce::Op::WorldRenderer) == 1 && e.world.Skipped(sharedonce::Op::WorldRenderer) == 3,
+          "shared once: counted: one build, three players' parts");
+    // the shared allocation is the process's: no player's free of it is the title's, none orphaned by a leave
+    Check(e.heap.At(e.shared_blocks[0]) && e.heap.At(e.shared_blocks[0])->owner == heapown::kProcess,
+          "shared once: a build's allocation is the process's, not the building player's");
+    auto orphaned = e.heap.Orphan(0);
+    Check(orphaned.first == 0, "shared once: player 1 leaving orphans nothing of the world");
+    Check(e.world.Done(sharedonce::Op::WorldRenderer, de_dust), "shared once: the world stays built when a player leaves");
+    // a new map generation (a restart of the same map: the spawn count moved; the same model pointer): built again
+    Check(e.NewMap(1, de_dust_again) == Action::Run && e.builds == 2,
+          "shared once: a new generation of the same map is built again (by whichever player gets there first)");
+    Check(e.NewMap(0, de_dust_again) == Action::PerPlayerOnly && e.builds == 2 && e.view_resets[0] == 2,
+          "shared once: player 1 coming second to the new generation does its own part only");
+    Check(e.NewMap(0, cs_office) == Action::Run && e.builds == 3, "shared once: a different map is built");
+    // the old generation is not taken as built once another one is
+    Check(!e.world.Done(sharedonce::Op::WorldRenderer, de_dust_again), "shared once: one generation at a time");
+    // the world's end (the server shut down): everything forgotten, built again for the next world
+    e.world.Invalidate();
+    Check(e.NewMap(0, cs_office) == Action::Run && e.builds == 4,
+          "shared once: after the server's shutdown the same generation is built again");
+    // a run cut short: not recorded; the next caller of the generation builds it (never a half-built world skipped)
+    e.world.Invalidate();
+    e.fail_next = true;
+    Check(e.NewMap(1, cs_office) == Action::Run && e.builds == 4, "shared once: a failed run builds nothing");
+    Check(!e.world.Running() && e.world.Failed(sharedonce::Op::WorldRenderer) == 1,
+          "shared once: a failed run is finished as failed (its in-progress state cleared)");
+    Check(!e.world.Done(sharedonce::Op::WorldRenderer, cs_office), "shared once: a failed run is not taken as built");
+    Check(e.NewMap(0, cs_office) == Action::Run && e.builds == 5, "shared once: after a failure the next caller builds");
+    // no generation (no world model): as the title, nothing recorded
+    Check(e.NewMap(0, Generation{3, 0, ""}) == Action::Title && !e.world.Running(),
+          "shared once: no world: run as the title, nothing recorded");
+    Check(e.world.Done(sharedonce::Op::WorldRenderer, cs_office), "shared once: a title run leaves the record alone");
+    // Finished without a run (an unpaired call) changes nothing
+    e.world.Finished(sharedonce::Op::WorldRenderer, true);
+    Check(e.world.Runs(sharedonce::Op::WorldRenderer) == 5 && e.builds == 6,
+          "shared once: an unpaired Finished counts nothing (five recorded builds and one title run so far)");
+    // the operations are independent: the signon's UI unload has its own record
+    sharedonce::World w;
+    Check(w.Begin(sharedonce::Op::WorldRenderer, de_dust) == Action::Run, "shared once: begin one operation");
+    Check(w.Begin(sharedonce::Op::SignonUi, de_dust) == Action::Run, "shared once: another runs alongside");
+    Check(w.Begin(sharedonce::Op::WorldRenderer, de_dust) == Action::Inner,
+          "shared once: its own call inside a run is the inner one (the title's function runs)");
+    w.Finished(sharedonce::Op::SignonUi, true);
+    Check(w.Running(), "shared once: still running while one operation is");
+    w.Finished(sharedonce::Op::WorldRenderer, true);
+    Check(!w.Running() && w.Begin(sharedonce::Op::SignonUi, de_dust) == Action::PerPlayerOnly,
+          "shared once: the UI unload done once for the generation");
+    // the material list (texture-reload ownership): by the map's name; a reload only for a different map
+    sim::Engine m;
+    Check(m.Materials(0, "de_dust") == Action::Run && m.material_loads == 1, "materials: the first poll loads the list");
+    Check(m.Materials(1, "de_dust") == Action::PerPlayerOnly && m.material_loads == 1,
+          "materials: player 2's first poll of the same map does not reload it");
+    Check(m.Materials(1, "cs_office") == Action::Run && m.material_loads == 2 && m.materials_of == "cs_office",
+          "materials: a different map is never skipped (player 2 first at the new map loads it)");
+    Check(m.Materials(0, "cs_office") == Action::PerPlayerOnly && m.material_loads == 2,
+          "materials: player 1 then finds it loaded");
+    Check(m.Materials(0, "de_dust") == Action::Run && m.material_loads == 3, "materials: back to the first map: loaded");
+    Check(m.Materials(0, "") == Action::Title && m.material_loads == 4, "materials: no name: as the title");
+    for (uint32_t b : m.shared_blocks)
+        Check(m.heap.At(b) && m.heap.At(b)->owner == heapown::kProcess, "materials: the list's nodes are the process's");
+    // a player's later free of the world's block is foreign (refused, as any player's own code freeing it); the
+    // process (a shared run, or outside the turns) may free any
+    Check(heapown::FreeIsForeign(heapown::kProcess, 1), "ownership: player 2 freeing the world's block is refused");
+    Check(!heapown::FreeIsForeign(0, heapown::kProcess), "ownership: a shared run may free player 1's old block");
+    Check(!heapown::FreeIsForeign(1, heapown::kProcess), "ownership: a shared run may free player 2's old block");
+}
+
+static void SessionLifecycle() {
+    nsplit::Session s;
+    // a second local client's disconnect never ends the server and world; the host's does
+    Check(!s.DisconnectEndsServer(1) && !s.DisconnectEndsServer(3), "session: an added player's disconnect keeps the server");
+    Check(s.DisconnectEndsServer(0), "session: the host's disconnect ends the match");
+    nsplit::Session other{2};
+    Check(other.DisconnectEndsServer(2) && !other.DisconnectEndsServer(0), "session: the host is explicit, not slot 0");
+    // the module validation: one machine, only the host starts it
+    Check(nsplit::StartsModuleValidation(s, 0) && !nsplit::StartsModuleValidation(s, 1),
+          "session: only the host starts the secure-module validation (the transfer machine is not reset by player 2)");
+    // the teardown before the world is freed: the other players, highest slot first, the host never
+    nsplit::Players p;
+    p.Begin(1, 1, "p2");
+    p.Initialised(1);
+    p.Joined(1);
+    p.Begin(2, 2, "p3");
+    p.Initialised(2);  // still connecting
+    p.Begin(3, 3, "p4");
+    p.InitFailed(3);   // failed its initialisation: nothing to remove
+    int n = 0;
+    auto order = nsplit::TeardownOrder(p, s.host, n);
+    Check(n == 2 && order[0] == 2 && order[1] == 1, "teardown: connecting and active players, highest slot first");
+    for (int i = 0; i < n; i++) Check(p.Leave(order[size_t(i)]) && p.Released(order[size_t(i)]), "teardown: each leaves");
+    order = nsplit::TeardownOrder(p, s.host, n);
+    Check(n == 0 && p.Count() == 1 && p.At(0).state == nsplit::State::Active, "teardown: only the host is left");
+    // no invalid transitions: a player is not removed twice, the host is never removed, an initialising one is not
+    Check(!p.Leave(1) && !p.Leave(0), "teardown: no second removal, never the host's slot");
+    p.Begin(1, 1, "p2");
+    Check(!p.Leave(1), "teardown: a player still initialising is not removed (its initialisation ends it)");
+    order = nsplit::TeardownOrder(p, s.host, n);
+    Check(n == 0, "teardown: an initialising player is not in the teardown");
+    Check(p.InitFailed(1) && p.Count() == 1, "teardown: a failed initialisation empties its slot");
+    // another host: player 1 is torn down like any other
+    nsplit::Players q;
+    q.Begin(1, 1, "p2");
+    q.Initialised(1);
+    q.Joined(1);
+    order = nsplit::TeardownOrder(q, 1, n);
+    Check(n == 1 && order[0] == 0, "teardown: with another host, player 1 is removed first");
+}
+
 int main() {
     SwitchCost();
     Loopback();
@@ -457,6 +656,8 @@ int main() {
     ConnectionBuffers();
     Lifecycle();
     Contexts();
+    SharedOnce();
+    SessionLifecycle();
     std::printf("%d checks, %d failed\n", checks, failed);
     return failed ? 1 : 0;
 }

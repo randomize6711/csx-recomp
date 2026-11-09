@@ -13,7 +13,8 @@ Reads the recompiler's output (build/gen/game/x86_recomp.*.cpp): every original 
               - indexed ([reg*4+0xADDR], [reg+0xADDR] with reg unknown): an access whose extent is not known: the
                 object at ADDR is unbounded until evidence gives its size;
               - block writes and copies (rep stos / rep movs, and single stos / movs) with edi / esi / ecx known: the
-                exact range; with any of them unknown: unresolved (recorded, never guessed);
+                exact range; with any of them unknown: unresolved (recorded, never guessed); the same for a call of a
+                block helper (BLOCK_HELPERS: Q_memset, Q_memcpy, memcpy) with its arguments known;
               - an address taken (push / mov reg / lea of 0xADDR): the object may be reached through a pointer;
   model     objects, ownership and the review list (build/region_model/model.json, review.md), and the generated
             region list src/game/client_context_regions.inc and the shared start-up state list
@@ -53,6 +54,14 @@ WRITE_RE = re.compile(r'X86_MEM(?:8|16|32|64|F32|F64)\(ea\)\s*=(?!=)|\*X86_PTR\(
 REGS = ('eax', 'ebx', 'ecx', 'edx', 'esi', 'edi', 'ebp', 'esp')
 WIDTH = {'8': 1, '16': 2, '32': 4, '64': 8, 'F32': 4, 'F64': 8, 'X86Xmm': 16, '80': 10, 'kernel': 4}
 CALLEE_SAVED = ('ebx', 'esi', 'edi', 'ebp')
+# block helpers whose arguments a caller gives as constants (their own stores go through registers: the scan cannot
+# see them inside): the destination, the source and the byte count, from registers or the cdecl stack (k: the k-th
+# argument pushed last-first, 0 the first argument)
+BLOCK_HELPERS = {
+    0x3DA50: ('Q_memset', ('reg', 'edx'), None, ('reg', 'ecx')),                  # edx dst, eax value, ecx count
+    0x3DAA0: ('Q_memcpy', ('reg', 'eax'), ('reg', 'ecx'), ('reg', 'edx')),        # eax dst, ecx src, edx count
+    0x22BF00: ('memcpy', ('arg', 0), ('arg', 1), ('arg', 2)),                     # the C runtime's memcpy / memmove
+}
 
 
 def in_static(a):
@@ -119,6 +128,175 @@ def instructions(sources=None):
             yield pend
 
 
+MAX_FIELD = 0x10000  # a field offset through a pointer argument (larger: the register is an index, not a pointer)
+PTR_REGS = ('eax', 'ebx', 'ecx', 'edx', 'esi', 'edi')
+ALL_WRITTEN = re.compile(r'\bx86_(?:trap|resume|priv|cpuid)\(ctx')
+
+
+def _written(mn, body):
+    """the registers an instruction writes (a call: the caller-saved ones, by the convention)"""
+    w = {r for r in REGS if re.search(r'ctx\.' + r + r'\s*=(?!=)', body)}
+    if mn == 'call' or 'x86_kernel(ctx' in body:
+        w |= {'eax', 'ecx', 'edx'}
+    if 'x86_rep_movs(ctx' in body or 'x86_rep_stos(ctx' in body:
+        w |= {'ecx', 'edi', 'esi'}
+    if ALL_WRITTEN.search(body):
+        w |= set(REGS)
+    return w
+
+
+def _access_kind(mn, k, body):
+    kind = 'w' if (k == 0 and WRITE_RE.search(body)) else 'r'
+    return 'r' if mn in ('cmp', 'test', 'push', 'call', 'jmp') else kind
+
+
+def _functions(sources):
+    fn, insns = None, []
+    for ins in instructions(sources):
+        if ins[0] != fn:
+            if insns:
+                yield fn, insns
+            fn, insns = ins[0], []
+        insns.append(ins)
+    if insns:
+        yield fn, insns
+
+
+def pointer_summaries(sources=None):
+    """per function: the fields it accesses through a pointer it is given, in a register (one it never writes, or
+    before its first write in the straight-line start) or as a cdecl stack argument (loaded from [esp+N] / [ebp+N]):
+    {function: {('reg', r) | ('arg', k): {(offset, width, kind)}}}, through the functions it calls with that pointer
+    too. A caller passing a static address there accesses those fields of the object (scan: 'exact-call')."""
+    direct, forwards = {}, {}
+    for fn, insns in _functions(sources):
+        if fn in BLOCK_HELPERS:
+            continue
+        written_any, first_write, first_label = set(), {}, len(insns)
+        for i, (_, at, mn, ops, body) in enumerate(insns):
+            if at is None:
+                first_label = min(first_label, i)
+                continue
+            for r in _written(mn, body):
+                written_any.add(r)
+                first_write.setdefault(r, i)
+        ebp_frame = len(insns) > 1 and insns[0][2:4] == ['push', 'ebp'] and insns[1][2:4] == ['mov', 'ebp, esp'] and \
+            not any(mn not in ('pop', 'leave') and 'ebp' in _written(mn, body)
+                    for _, at, mn, ops, body in insns[2:] if at is not None)
+        held = {}      # register -> (pointer id, offset): straight-line facts
+        pushed = []    # held pointers or None, pushed since the last call
+        delta = 0      # bytes pushed since the entry (the straight-line start only; None after)
+        summ, fw = defaultdict(set), []
+
+        def entry_reg(r, i):
+            return (r not in written_any) or (i < first_label and i < first_write.get(r, len(insns)))
+
+        def holder(r, i):
+            if r in held:
+                return held[r]
+            if r in PTR_REGS and entry_reg(r, i):
+                return (('reg', r), 0)
+            return None
+        for i, (_, at, mn, ops, body) in enumerate(insns):
+            if at is None:
+                held, pushed, delta = {}, [], None
+                continue
+            parts = [p.strip() for p in ops.split(',')] if ops else []
+            widths = [WIDTH[next(g for g in x if g)] for x in MACRO_RE.findall(body)]
+            w = widths[0] if widths else None
+            if mn != 'lea':
+                for k, p in enumerate(parts):
+                    for mem in MEM_RE.findall(p):
+                        pm = parse_mem(mem)
+                        if not pm or len(pm[0]) != 1 or pm[0][0][1] != 1 or w is None:
+                            continue
+                        r, disp = pm[0][0][0], pm[1]
+                        h = holder(r, i)
+                        if h is None or disp >= MAX_FIELD:
+                            continue
+                        kind = _access_kind(mn, k, body)
+                        summ[h[0]].add(((h[1] + disp) & 0xFFFFFFFF, w, kind))
+                        if kind == 'w' and mn not in ('mov', 'movss', 'movsd', 'movq', 'movd', 'movaps', 'movups',
+                                                      'fstp', 'fst', 'fistp', 'fist', 'pop') and not mn.startswith('set'):
+                            summ[h[0]].add(((h[1] + disp) & 0xFFFFFFFF, w, 'r'))
+            if mn == 'call' and re.fullmatch(r'0x[0-9A-Fa-f]+', ops):
+                g = int(ops, 16)
+                m = {('reg', r): holder(r, i) for r in PTR_REGS if holder(r, i)}
+                m.update({('arg', k): v for k, v in enumerate(reversed(pushed)) if v})
+                if m:
+                    fw.append((g, m))
+            # the new facts
+            wr = _written(mn, body)
+            new = None
+            dst = parts[0] if parts else ''
+            src = parts[1] if len(parts) > 1 else ''
+            if mn == 'mov' and dst in PTR_REGS and src in REGS:
+                new = holder(src, i)
+            elif mn == 'mov' and dst in PTR_REGS and MEM_RE.fullmatch(src):
+                pm = parse_mem(src[1:-1])
+                if pm and len(pm[0]) == 1 and pm[0][0][1] == 1:
+                    base, n = pm[0][0][0], pm[1]
+                    if base == 'esp' and delta is not None and n >= delta + 4 and (n - delta - 4) % 4 == 0:
+                        new = (('arg', (n - delta - 4) // 4), 0)
+                    elif base == 'ebp' and ebp_frame and 8 <= n < 0x100 and n % 4 == 0:
+                        new = (('arg', (n - 8) // 4), 0)
+            elif mn == 'lea' and dst in PTR_REGS and MEM_RE.fullmatch(src):
+                pm = parse_mem(src[1:-1])
+                if pm and len(pm[0]) == 1 and pm[0][0][1] == 1 and pm[1] < MAX_FIELD:
+                    h = holder(pm[0][0][0], i)
+                    new = (h[0], (h[1] + pm[1]) & 0xFFFFFFFF) if h else None
+            elif mn in ('add', 'sub') and dst in PTR_REGS and re.fullmatch(r'0x[0-9A-Fa-f]+', src):
+                h = holder(dst, i)
+                v = int(src, 16)
+                new = (h[0], (h[1] + (v if mn == 'add' else -v)) & 0xFFFFFFFF) if h and v < MAX_FIELD else None
+            if mn == 'push' and len(parts) == 1:
+                pushed.append(holder(parts[0], i) if parts[0] in PTR_REGS else None)
+                if delta is not None:
+                    delta += 4
+            elif mn == 'pop':
+                if pushed:
+                    pushed.pop()
+                if delta is not None:
+                    delta -= 4
+            elif mn == 'call':
+                pushed = []
+            elif dst == 'esp':
+                pushed = []
+                if mn in ('add', 'sub') and delta is not None and re.fullmatch(r'0x[0-9A-Fa-f]+', src):
+                    delta += int(src, 16) if mn == 'sub' else -int(src, 16)
+                else:
+                    delta = None
+            if mn.startswith('j') or mn.startswith('ret'):
+                held, delta = {}, None
+            for r in wr:
+                held.pop(r, None)
+            if new is not None and dst in PTR_REGS:
+                held[dst] = new
+            elif dst in PTR_REGS and dst in wr:
+                # written with something else: no longer the entry pointer here
+                held.pop(dst, None)
+        direct[fn] = summ
+        forwards[fn] = fw
+    # through the calls: a callee's fields at the caller's pointer (+ its offset); to a fixed point (capped)
+    full = {f: {k: set(v) for k, v in s.items()} for f, s in direct.items()}
+    for _ in range(8):
+        changed = False
+        for f, fw in forwards.items():
+            for g, m in fw:
+                for gid, fields in list(full.get(g, {}).items()):
+                    h = m.get(gid)
+                    if not h:
+                        continue
+                    tgt = full[f].setdefault(h[0], set())
+                    for off, w, kind in fields:
+                        x = ((h[1] + off) & 0xFFFFFFFF, w, kind)
+                        if x[0] < MAX_FIELD and x not in tgt and len(tgt) < 4096:
+                            tgt.add(x)
+                            changed = True
+        if not changed:
+            break
+    return {f: s for f, s in full.items() if s}
+
+
 def scan(sources=None, write=True):
     acc = []          # [function, at, kind, address, width, how]: kind r / w / a; how exact / indexed / block / taken
     unresolved_blocks = []  # block writes whose target or count is not known
@@ -127,12 +305,45 @@ def scan(sources=None, write=True):
     stores = []       # [function, at, address, value]: a constant stored (mov [0xADDR], imm)
     unsized = 0       # memory operands into static data whose width the C does not show
     consts = {}
+    pushed = []       # the values pushed since the last call (straight-line code): a constant, or None
+    summaries = pointer_summaries(sources)
+    via = 0           # accesses found through a callee's pointer argument
     for fn, at, mn, ops, body in instructions(sources):
         if at is None:  # a label: a jump lands here, registers unknown
             consts = {}
             loaded = {}
+            pushed = []
             continue
         parts = [p.strip() for p in ops.split(',')] if ops else []
+        # a block helper called with known arguments: its range written (and read), as a rep stos / movs's; with the
+        # destination in static data and the count unknown, unresolved
+        # a callee given a static address as a pointer argument: the fields it accesses there, exact
+        if mn == 'call' and re.fullmatch(r'0x[0-9A-Fa-f]+', ops) and int(ops, 16) in summaries:
+            for pid, fields in summaries[int(ops, 16)].items():
+                base = consts.get(pid[1]) if pid[0] == 'reg' else (
+                    pushed[-1 - pid[1]] if pid[1] < len(pushed) else None)
+                if base is None or not in_static(base):
+                    continue
+                for off, w, kind in sorted(fields):
+                    acc.append([fn, at, kind, (base + off) & 0xFFFFFFFF, w, 'exact-call'])
+                    via += 1
+        if mn == 'call' and re.fullmatch(r'0x[0-9A-Fa-f]+', ops) and int(ops, 16) in BLOCK_HELPERS:
+            name, *args = BLOCK_HELPERS[int(ops, 16)]
+            def value(arg):
+                if arg is None:
+                    return None
+                if arg[0] == 'reg':
+                    return consts.get(arg[1])
+                return pushed[-1 - arg[1]] if arg[1] < len(pushed) else None
+            dst, src, n = (value(a) for a in args)
+            for a, kind, given in ((dst, 'w', True), (src, 'r', args[1] is not None)):
+                if not given:
+                    continue
+                if a is not None and n is not None:
+                    if n and (in_static(a) or in_static(a + n - 1)):
+                        acc.append([fn, at, kind, a, n, 'block'])
+                elif a is not None and in_static(a):
+                    unresolved_blocks.append([fn, at, kind, a, None, 'count unknown (' + name + ')'])
         # block operations: rep stos / movs (the comment's mnemonic "rep", the operation its operand) and their
         # single forms (no operand: SSE's movsd has two)
         rep = mn in ('rep', 'repe', 'repz')
@@ -222,6 +433,12 @@ def scan(sources=None, write=True):
                 m = re.fullmatch(r'0x([0-9A-Fa-f]+)', p)
                 if m and in_static(int(m.group(1), 16)) and mn in ('push', 'mov'):
                     acc.append([fn, at, 'a', int(m.group(1), 16), None, 'taken'])
+        # the stack's pushed values (a helper's cdecl arguments)
+        if mn == 'push' and len(parts) == 1:
+            pv = parts[0]
+            pushed.append(int(pv, 16) if re.fullmatch(r'0x[0-9A-Fa-f]+', pv) else consts.get(pv) if pv in REGS else None)
+        elif mn in ('call', 'pop') or (mn in ('add', 'sub', 'mov', 'lea') and parts and parts[0] == 'esp'):
+            pushed = []
         # registers: constants through straight-line code
         dst = parts[0] if parts else ''
         if mn == 'mov' and dst in REGS and re.fullmatch(r'0x[0-9A-Fa-f]+', parts[1] if len(parts) > 1 else ''):
@@ -247,6 +464,7 @@ def scan(sources=None, write=True):
             consts = {r: v for r, v in consts.items() if r in CALLEE_SAVED}
         elif mn.startswith('j') or mn.startswith('ret') or mn.startswith('loop'):
             consts = {}
+            pushed = []
         else:
             # anything else writing a register (by the C: ctx.REG =, or a helper given the whole context)
             for r in list(consts):
@@ -261,7 +479,8 @@ def scan(sources=None, write=True):
     from collections import Counter
     print(f'{len(acc)} accesses to static data: ' +
           ', '.join(f'{n} {k}' for k, n in Counter(a[5] for a in acc).most_common()) +
-          f'; {len(unresolved_blocks)} block operations unresolved; {unsized} operands of unknown width')
+          f'; {len(unresolved_blocks)} block operations unresolved; {unsized} operands of unknown width; {via} through '
+          f'a callee\'s pointer argument')
 
 
 # ---- the function classes (from state_audit.py's call graph: direct calls and function pointers taken) ----
@@ -508,7 +727,7 @@ class Obj:
 def build_objects(acc, cvars, evidence, hand):
     """objects from the accesses' exact extents; the evidence's, the static cvars' and the hand-checked regions' extents
     taken whole; an anchor outside every proven extent makes an unbounded object"""
-    exact = [(a[3], a[3] + a[4]) for a in acc if a[5] in ('exact', 'exact-reg', 'block') and a[4] and
+    exact = [(a[3], a[3] + a[4]) for a in acc if a[5] in ('exact', 'exact-reg', 'exact-call', 'block') and a[4] and
              DATA_LO <= a[3] < DATA_HI]
     proven = [(lo, hi, 'access') for lo, hi in merge(exact)]
     whole = [(lo, lo + n, 'cvar') for lo, n, _ in cvars] + [(lo, lo + n, 'evidence') for lo, n, _, _ in evidence] + \
@@ -553,7 +772,7 @@ def build_objects(acc, cvars, evidence, hand):
     for a in acc:
         if not (DATA_LO <= a[3] < DATA_HI):
             continue
-        if a[5] in ('exact', 'exact-reg', 'block') and a[4]:
+        if a[5] in ('exact', 'exact-reg', 'exact-call', 'block') and a[4]:
             for b in range(a[3], a[3] + a[4]):
                 o = holder(b)
                 if o is not None and (not o.acc or o.acc[-1] is not a):
@@ -636,6 +855,16 @@ def classify_objects(objs, cls, icls):
             o.ownership, o.why = 'registry', 'a static cvar_t (the shared cvar list: its links never a player\'s)'
             continue
         if not writers:
+            # its address taken by a player's code: the callee may write it through the pointer where the pointer scan
+            # does not follow (a vtable call, a stored pointer, a loop): not proven constant (docs 15)
+            takers = {a[0] for a in o.acc if a[2] == 'a' and writer_role(a[1], icls) == 'player'}
+            if takers:
+                o.ownership = 'unresolved'
+                o.why = ('no write found, but a player\'s code takes its address (' +
+                         ', '.join(f'0x{f:X}' for f in sorted(takers)[:4]) +
+                         '): a write through the pointer the scan does not follow is not ruled out')
+                o.issues.append('address taken')
+                continue
             o.ownership, o.why = 'immutable', 'no code writes it (its boot value)'
             continue
         if 'player' not in roles:
@@ -694,7 +923,7 @@ def flag_conflicts(objs, stores, holder):
     reads = defaultdict(set)
     for o in objs:
         for a in o.acc:
-            if a[2] == 'r' and a[5] in ('exact', 'exact-reg'):
+            if a[2] == 'r' and a[5] in ('exact', 'exact-reg', 'exact-call'):
                 reads[a[0]].add(a[3])
     out = []
     for fn, at, ea, v in stores:

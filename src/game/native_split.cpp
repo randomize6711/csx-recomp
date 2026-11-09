@@ -47,6 +47,7 @@
 #include "game/native_split_core.h"
 #include "game/net_buffers.h"
 #include "game/net_engine.h"
+#include "game/shared_once.h"
 #include "kernel/kernel.h"
 
 namespace dispatch {
@@ -167,6 +168,8 @@ std::vector<heapown::Range> SharedDataRanges(const std::vector<heapown::Span>& s
 loopnet::Channels g_ch;
 heapown::Blocks g_blocks;
 nsplit::Players g_players;
+nsplit::Session g_session;   // the built-in server's host (docs 15): its disconnect ends the match
+sharedonce::World g_world;   // the world's shared-once operations, by map generation (the process's, docs 15)
 bool g_tracking = false;   // heap ownership tracked (native split-screen on, from the process's start)
 int g_init_owner = -1;     // the player whose initialisation is running (its allocations are its own), -1 none
 uint64_t g_foreign_frees = 0, g_skipped_frees = 0;
@@ -191,6 +194,7 @@ int PlayerOfContext(int context) {
 
 // whose allocation this is (a player's slot): the player initialising, the player whose turn it is, else the process
 int OwnerNow() {
+    if (g_world.Running()) return heapown::kProcess;  // a shared-once operation: the world's, whoever runs it
     if (g_init_owner > 0) return g_init_owner;
     if (csx::ClientContextInTurn()) {
         int k = PlayerOfContext(csx::ClientContextActive());
@@ -441,6 +445,10 @@ void Report() {
          "(%llu skipped), %zu heap blocks tracked",
          (unsigned long long)g_ch.Dropped(), (unsigned long long)g_read_outside_turn,
          (unsigned long long)g_foreign_frees, (unsigned long long)g_skipped_frees, g_blocks.Count());
+    for (sharedonce::Op op : {sharedonce::Op::WorldRenderer, sharedonce::Op::SignonUi, sharedonce::Op::Materials})
+        LOGI("native split: %s: built %llu, a player's part only %llu, failed %llu, as the title %llu",
+             sharedonce::Name(op), (unsigned long long)g_world.Runs(op), (unsigned long long)g_world.Skipped(op),
+             (unsigned long long)g_world.Failed(op), (unsigned long long)g_world.TitleRuns(op));
 }
 
 void RemovePlayer(X86Context& ctx, int k) {
@@ -774,9 +782,30 @@ bool NativeSplitReadPackets(X86Context& ctx, uint8_t*) {
     return loopnet::AddressesMatch(ctx.edx, R16(ctx.esi + 0x36), R16(kNetFrom + 0x12));
 }
 
-// [[hook]] at 0x5C9D0, Host_ShutdownServer's entry: the host's loopback channels emptied with the title's queues
-void NativeSplitShutdownServer(X86Context&, uint8_t*) {
-    if (NativeSplitOn()) g_ch.Clear();
+// [[hook]] at 0x5C9D0, Host_ShutdownServer's entry (it returns at once when sv.active is 0, 0x5C9DA): the end of the
+// session's world (docs 15). Its own CL_Disconnect, Host_ClearMemory and the hunk's release free the world, its models
+// and the game DLL's entities, so the other local players are removed first (their server slots dropped, their
+// objects released, their contexts removed: none left pointing into a freed world), the world's shared-once
+// operations forgotten (the next world builds them again), the host's loopback channels emptied with the title's
+// queues. The removal switches contexts: only from the host's context; in another player's turn it is refused and
+// reported (an error: that player's state then outlives the world)
+void NativeSplitShutdownServer(X86Context& ctx, uint8_t*) {
+    if (!NativeSplitOn()) return;
+    if (R32(kSvActive)) {
+        int n = 0;
+        auto order = nsplit::TeardownOrder(g_players, g_session.host, n);
+        int acting = PlayerOfContext(csx::ClientContextActive());
+        if (n && acting == g_session.host) {
+            for (int i = 0; i < n; i++) RemovePlayer(ctx, order[size_t(i)]);
+            LOGI("native split: the server shuts down: %d other local player%s removed first, the world's shared state "
+                 "forgotten", n, n == 1 ? "" : "s");
+        } else if (n) {
+            LOGE("native split: the server shuts down in player %d's turn: %d other local player%s not removed (only "
+                 "the host's context removes players)", acting + 1, n, n == 1 ? "" : "s");
+        }
+        g_world.Invalidate();
+    }
+    g_ch.Clear();
 }
 
 // ---- registrations during another player's initialisation ---------------------------------------------------------
@@ -816,3 +845,158 @@ bool NativeSplitPadKeys(X86Context&, uint8_t*) { return AddedPlayersTurn() && cs
 
 // [[hook]] at 0x100F10, S_StartDynamicSound's entry: on_true "ret" skips it
 bool NativeSplitSound(X86Context&, uint8_t*) { return AddedPlayersTurn() && csx::ClientContextInTurn(); }
+
+// ---- the world's shared-once operations (docs 15) ----------------------------------------------------------------
+// A client's connect builds world-wide state the title made once per map: here it is built once per map generation
+// (sharedonce::World), by whichever local player gets there first and as the process (its allocations and frees are
+// the process's, never tied to that player's lifetime); every other player of the generation does only its own part.
+
+namespace {
+constexpr uint32_t kClServercount = 0x74A058;  // cl.servercount (svc_serverinfo, 0x2E854)
+constexpr uint32_t kClWorldmodel = 0x778A68;   // cl.worldmodel (the signon, 0x2D3AE)
+constexpr uint32_t kNewMap = 0x4F8D0;          // R_NewMap
+constexpr uint32_t kViewReset = 0xB6770;       // R_NewMap's call of a player's own view reset: shake, cl.sf's fade
+constexpr uint32_t kWaterAmp = 0x3774D0;       // gl_wateramp's value (the cvar 0x3774C4 + 0xC), R_NewMap 0x4FA4D
+constexpr uint32_t kUiUnload = 0xC4770;        // the UI bundle unload (edx the bundle's name)
+constexpr uint32_t kPieMenuUi = 0x32C880;      // "PieMenuUI", the signon's edx (0x2D3EA)
+constexpr uint32_t kMaterialsLoad = 0x1DC0C0;  // the client game's material list load (no arguments)
+
+int ActingPlayer() {
+    int k = PlayerOfContext(csx::ClientContextActive());
+    return k >= 0 ? k : 0;
+}
+
+sharedonce::Generation WorldGeneration() { return {R32(kClServercount), R32(kClWorldmodel), ""}; }
+
+// a Run of a shared-once operation: finished with its result when it returns; cut short (unwound), a failure (the
+// next caller of the generation runs it again)
+struct SharedRun {
+    sharedonce::Op op;
+    bool ok = false;
+    explicit SharedRun(sharedonce::Op o) : op(o) {}
+    ~SharedRun() { g_world.Finished(op, ok); }
+};
+
+std::string GuestString(uint32_t va, size_t max) {
+    const char* s = static_cast<const char*>(kernel::HostPtr(va));
+    size_t n = 0;
+    while (n < max && s[n]) n++;
+    return std::string(s, n);
+}
+}  // namespace
+
+// [[hook]] at 0x4F8D0, R_NewMap's entry (cdecl, no arguments; the signon 0x2D3F4 its only caller), on_true "ret".
+// Its shared part (the light styles, r_worldentity 0x6E8020, the world's leaves and texture chains, the particles
+// 0x830F0, the decals 0x53020, the lightmaps 0x529C0, the skies 0x57E50, the stale textures 0x486F0) is the world's:
+// built once for the generation (the hook calls R_NewMap itself, as the process); a second client of the same world
+// would clear player 1's decal pool under the surfaces' decal chains, add a second poly per surface and leak the
+// lightmaps' buffers. Its per-player part (the view reset 0xB6770 and cl_entities[0]+0x222) runs for every client.
+bool NativeSplitNewMap(X86Context& ctx, uint8_t*) {
+    if (!NativeSplitOn()) return false;
+    sharedonce::Generation g = WorldGeneration();
+    switch (g_world.Begin(sharedonce::Op::WorldRenderer, g)) {
+    case sharedonce::Action::Inner:
+    case sharedonce::Action::Title:
+        return false;
+    case sharedonce::Action::PerPlayerOnly: {
+        kernel::CallGuest(ctx, kViewReset, {});
+        if (uint32_t ents = R32(kClientEntities)) W32(ents + 0x222, R32(kWaterAmp));
+        LOG_FIRST(4, "native split: player %d's R_NewMap: the world (spawn count %u) is built; its own part only",
+                  ActingPlayer() + 1, g.spawncount);
+        return true;
+    }
+    case sharedonce::Action::Run: {
+        SharedRun run(sharedonce::Op::WorldRenderer);
+        kernel::CallGuest(ctx, kNewMap, {});
+        run.ok = true;
+        LOGI("native split: the world (spawn count %u, model 0x%08X) built by R_NewMap in player %d's signon, as the "
+             "process", g.spawncount, g.world, ActingPlayer() + 1);
+        return true;
+    }
+    }
+    return false;
+}
+
+// [[hook]] at 0x2D3EA in the signon (0x2D350), before `mov edx, "PieMenuUI"; call 0xC4770` (an unload of that UI
+// bundle: its D3D textures freed, its buffer back to the pool 0x553ED0): on_true 0x2D3F4. Once for the generation,
+// as the process; a second client's would free textures the one UI may be using
+bool NativeSplitSignonUi(X86Context& ctx, uint8_t*) {
+    if (!NativeSplitOn()) return false;
+    switch (g_world.Begin(sharedonce::Op::SignonUi, WorldGeneration())) {
+    case sharedonce::Action::Inner:
+    case sharedonce::Action::Title:
+        return false;
+    case sharedonce::Action::PerPlayerOnly:
+        return true;
+    case sharedonce::Action::Run: {
+        SharedRun run(sharedonce::Op::SignonUi);
+        uint32_t edx = ctx.edx;
+        ctx.edx = kPieMenuUi;
+        kernel::CallGuest(ctx, kUiUnload, {});
+        ctx.edx = edx;
+        run.ok = true;
+        return true;
+    }
+    }
+    return false;
+}
+
+// [[hook]] at 0x1AE5FA in the HUD's map poll (0x1AE430, esi gHUD), the call of the material list load 0x1DC0C0 when
+// the level name differs from the player's gHUD+0x24 (edi, just copied): on_true 0x1AE5FF. The list (0x57F090, read
+// through 0x380DA4) is one for the process, its content from the map's files only: loaded once per map name, as the
+// process (its nodes the process's: no player's turn frees another's, none orphaned when a player leaves); the
+// player's own copy of the name and the weather reset 0x1CCD50 after it still run. The console's mat_reload
+// (0x1DBDB0) is not keyed: it reloads as the title does
+bool NativeSplitMaterials(X86Context& ctx, uint8_t*) {
+    if (!NativeSplitOn()) return false;
+    sharedonce::Generation g{0, 0, GuestString(ctx.edi, 64)};
+    switch (g_world.Begin(sharedonce::Op::Materials, g)) {
+    case sharedonce::Action::Inner:
+    case sharedonce::Action::Title:
+        return false;
+    case sharedonce::Action::PerPlayerOnly:
+        LOG_FIRST(4, "native split: player %d's map poll: the material list of %s is loaded; not again",
+                  ActingPlayer() + 1, g.name.c_str());
+        return true;
+    case sharedonce::Action::Run: {
+        SharedRun run(sharedonce::Op::Materials);
+        kernel::CallGuest(ctx, kMaterialsLoad, {});
+        run.ok = true;
+        LOGI("native split: the material list of %s loaded in player %d's turn, as the process", g.name.c_str(),
+             ActingPlayer() + 1);
+        return true;
+    }
+    }
+    return false;
+}
+
+// ---- a connection's and the session's lifecycle (docs 15) -------------------------------------------------------
+
+bool NativeSplitAddedPlayerActive() { return NativeSplitOn() && ActingPlayer() != g_session.host; }
+
+// [[hook]] at 0x2EDB3 in CL_ParseServerInfo (0x2E780): a secure server's hash differs from the client's own (always:
+// 0x43EB9C is never set) and the client would start the secure-module validation (its flag 0x5518A8 set, the
+// "!ModuleC.dll" request, B24E0's reset of the one shared machine 0x4E50B0 at 0x2EE42): on_true 0x2EE5A (the flag
+// cleared, "sendres", as an insecure server's client) for a player other than the session's host. The hash and the key
+// before it are read as before (the message stays in step)
+bool NativeSplitModuleValidation(X86Context&, uint8_t*) {
+    if (!NativeSplitOn() || nsplit::StartsModuleValidation(g_session, ActingPlayer())) return false;
+    LOG_FIRST(4, "native split: player %d starts no secure-module validation (the process's one machine stays the "
+                 "host's)", ActingPlayer() + 1);
+    return true;
+}
+
+// [[hook]] at 0x29029 in CL_Disconnect (0x28F20), `jz` past Host_ShutdownServer (0x2902C) when sv.active is 0: on_true
+// 0x29034 (the server kept) when the disconnecting client is not the session's host: another local player's
+// disconnect (a kick, svc_disconnect, a stuffed "disconnect") ends its own connection, never the server and world the
+// others are in
+bool NativeSplitDisconnectServer(X86Context&, uint8_t*) {
+    if (!NativeSplitOn() || !R32(kSvActive) || g_session.DisconnectEndsServer(ActingPlayer())) return false;
+    LOGI("native split: player %d's client disconnects: the built-in server keeps running", ActingPlayer() + 1);
+    return true;
+}
+
+// [[hook]] at 0x29072 in CL_Disconnect: the free of the renderer's transparent-entity array 0x551EF4 and its size
+// 0x551EF0 (one renderer: shared scratch, reallocated by every connect, 0x93180): on_true 0x29090 (kept) for another
+// local player than the host, whose disconnect would leave the host's renderer without it until its next connect
+bool NativeSplitDisconnectRenderer(X86Context&, uint8_t*) { return NativeSplitAddedPlayerActive(); }

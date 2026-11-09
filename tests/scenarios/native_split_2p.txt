@@ -32,6 +32,13 @@ expect log native split: player 2 \("Player 2"\) built in context 1 from the boo
 expect nolog native split: player [0-9] lacks [0-9]+ start-up link
 expect nolog native split: player [0-9].s initialisation changed protected start-up state
 expect nolog native split: player [0-9].s initialisation failed
+# docs 15: player 2's connect builds nothing shared again (the world, the UI unload, the material list once per map)
+expect log native split: the world \(spawn count [0-9]+, model 0x[0-9A-F]+\) built by R_NewMap in player 1's signon, as the process
+expect log native split: player 2's R_NewMap: the world \(spawn count [0-9]+\) is built; its own part only
+expect log native split: player 2's map poll: the material list of .* is loaded; not again
+expect nolog native split: the world \(spawn count [0-9]+, model 0x[0-9A-F]+\) built by R_NewMap in player 2's
+expect nolog native split: the material list of .* loaded in player 2's turn
+expect nolog native split: the server shuts down in player
 expect nolog local server: starting
 expect nolog Host_Error
 expect nolog guest trap
