@@ -8,24 +8,30 @@
 //
 // On:
 //   - the heap: every guest heap block's owner (the player whose turn or initialisation allocated it, else the
-//     process) is tracked (heap_owner.h), so a new player's copy can be scrubbed of player 1's heap pointers, and
-//     with CSX_CTX_GUARD=1 a free of another player's block is reported;
+//     process) and kind (from the code that allocated it, kSiteRules: a player's object, a shared registry, shared
+//     scratch) are tracked (heap_owner.h); a free or a destruction of another player's owned object is refused and
+//     logged as an error, before the destructor runs where the code is known (the pre-destructor checks below);
 //   - the loopback: NET_SendPacket (0x6CC70) and NET_GetLoopPacket (0x6BAF0) use the host's channels: the active
 //     player's client to the server, the server to the player its address's port names (the port is the player's
 //     slot; player 1's is 0, the address it always had); NET_CompareAdr (0x6B3C0) and SV_ReadPackets (0x9C722) compare
 //     a loopback address's port, so each local player is its own server client;
-//   - a player added (between frames, once player 1 is in its match): a context from the state taken at the end of
-//     Host_Init, scrubbed; the client game's Initialize (0x18B7A0) and HUD_Init (0x18B800) run in it, the
-//     registrations they repeat answered by the first player's (a cvar: the registered one; the engine's
-//     Cmd_AddCommand, fatal after host_initialized: skipped; commands and message hooks are already idempotent); its
-//     own userinfo name; then its client connects to the built-in server on its own turn (CL_CheckForResend:
-//     disconnected while the server is active);
+//   - a player added (between frames, once player 1 is in its match), by explicit steps (docs 13.2): a context from
+//     the boot image (no heap object in it: nothing of player 1's to inherit); in it, CL_Init's per-player state (the
+//     list heads and datagram buffer CL_Init sets, cls.state disconnected, player 1's userinfo text with its own name),
+//     then the client game's Initialize (0x18B7A0) and HUD_Init (0x18B800), the registrations they repeat answered by
+//     the first player's (a cvar: the registered one; the engine's Cmd_AddCommand, fatal after host_initialized:
+//     skipped; commands and message hooks are already idempotent); then checked against player 1's state at the end of
+//     Host_Init (every object player 1's initialisation made must be its own; nothing inherited); then its client
+//     connects to the built-in server on its own turn, the shared registries of the connect built once (the delta
+//     descriptions: a player after the first parses them into its own slot);
 //   - a player removed: its server slot dropped (SV_DropClient, not CL_Disconnect, which would shut the server down),
 //     its client entities freed, its packets forgotten, its context removed;
 //   - until M3 / M4: an added player draws nothing (SCR_UpdateScreen skipped in its turn), reads no pad or mouse (the
 //     look routine 0x19E160 and the pad keys 0x19DFD0 skipped in its turn) and starts no sound (0x100F10 skipped):
 //     the window, the controls and the speakers stay player 1's.
 #include <chrono>
+#include <cstdio>
+#include <map>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -33,6 +39,7 @@
 
 #include "core/log.h"
 #include "cpu/x86_context.h"
+#include "common/guest_tables_layout.h"
 #include "game/client_context.h"
 #include "game/heap_owner.h"
 #include "game/local_loopback.h"
@@ -64,42 +71,24 @@ constexpr uint32_t kEngineFunctions = 0x371610;   // the engine's cl_enginefunc_
 constexpr uint32_t kLoopback = 1;                 // netadrtype_t NA_LOOPBACK
 constexpr int kClsActive = 5, kClsDisconnected = 1;
 
-// the allocations that are shared by nature: a pointer to one of these, cleared from the initial state, is given back
-// to a new player its initialisation did not replace (heap_owner.h Restorable). Return addresses of their malloc calls.
-constexpr uint32_t kSharedSites[] = {
-    0x1BF2A,  // the client's pfnRegisterVariable (0x1BEF0): a registered cvar_t
-    0x2C716,  // HookUserMsg (0x2C690): the client's user message list entry
-    0x3C92A,  // the client's command registration (0x3C8C0): the command list entry
-    0x1CB0D,  // ClientDLL_HudVidInit (0x1CAC0): the HUD sprite registry (allocated once, never freed)
+// the kinds of allocations by the code that made them (heap_owner.h Kind; docs 13.4): a site is malloc's caller's
+// return address (or calloc's). Anything else is owned: by the player whose turn or initialisation allocated it, else
+// by the process.
+constexpr heapown::SiteRule kSiteRules[] = {
+    {0x1BF2A, 0x1BF2B, heapown::Kind::SharedRegistry, "a cvar_t the client's pfnRegisterVariable (0x1BEF0) registers"},
+    {0x2C716, 0x2C717, heapown::Kind::SharedRegistry, "a user message entry (HookUserMsg 0x2C690)"},
+    {0x3C92A, 0x3C92B, heapown::Kind::SharedRegistry, "a command entry (the client's command registration 0x3C8C0)"},
+    {0x1CB0D, 0x1CB0E, heapown::Kind::SharedRegistry, "the HUD sprite registry (ClientDLL_HudVidInit 0x1CAC0)"},
+    {0x2FB00, 0x2FCB2, heapown::Kind::SharedRegistry, "a delta description (svc_deltadescription 0x2FAE0)"},
+    {0x44800, 0x44A00, heapown::Kind::SharedRegistry, "a delta description's fields (0x448F0)"},
+    {0x3C70D, 0x3C70E, heapown::Kind::SharedScratch, "a command argument (Cmd_TokenizeString 0x3C620)"},
+    {0x3C7EE, 0x3C7EF, heapown::Kind::SharedScratch, "a command argument (Cmd_TokenizeString 0x3C620)"},
+    {0x42000, 0x43000, heapown::Kind::SharedScratch, "a cvar's value string (cvar.c)"},
+    {0x931A5, 0x931A6, heapown::Kind::SharedScratch, "the renderer's transparent-entity list (0x93180, every connect)"},
+    {0xC8000, 0xC9300, heapown::Kind::SharedScratch, "a cache manager entry (evicted by whoever allocates next)"},
 };
-bool SharedSite(uint32_t site) {
-    for (uint32_t x : kSharedSites)
-        if (x == site) return true;
-    return false;
-}
-
-// shared scratch: blocks any player's code frees in the course of the title's own work, whoever allocated them. Not
-// ownership violations: the command tokenizer frees the previous command's argument strings before it splits the next
-// (Cmd_TokenizeString 0x3C620, its allocations at 0x3C708 / 0x3C7E9), and a cvar's value string is replaced by the
-// next Cvar_Set (cvar.c's allocations, 0x42000..0x43000)
-bool SharedScratchSite(uint32_t site) {
-    return site == 0x3C70D || site == 0x3C7EE || (site >= 0x42000 && site < 0x43000);
-}
-
-// a player's own objects, which another player must never share: their pointers in the per-player regions (the HUD's
-// element list at gHUD + 0, the particle manager, the client game's objects of docs 10.5)
-struct Root {
-    uint32_t va;
-    const char* what;
-};
-constexpr Root kOwnRoots[] = {
-    {0x5623D0, "HUD element list (gHUD + 0)"},
-    {0x552B8C, "particle manager"},
-    {0x552C70, "client object 0x552C70 (vtable 0x35EB78)"},
-    {0x552CA8, "client object 0x552CA8"},
-    {0x552BB4, "client object 0x552BB4"},
-    {0x552C9C, "client object 0x552C9C"},
-};
+constexpr size_t kSiteRuleCount = sizeof(kSiteRules) / sizeof(kSiteRules[0]);
+heapown::Kind KindOf(uint32_t site) { return heapown::KindOfSite(site, kSiteRules, kSiteRuleCount); }
 
 int Wanted() {
     static const int n = [] {
@@ -131,7 +120,9 @@ nsplit::Players g_players;
 bool g_tracking = false;   // heap ownership tracked (native split-screen on, from the process's start)
 int g_init_owner = -1;     // the player whose initialisation is running (its allocations are its own), -1 none
 uint64_t g_foreign_frees = 0, g_skipped_frees = 0;
-std::vector<heapown::Cleared> g_cleared;  // the heap pointers cleared from the initial state when it was taken
+bool g_add_failed = false;  // a player's initialisation failed its checks: no further players added this session
+std::vector<uint8_t> g_reference;         // player 1's regions at the end of Host_Init (the check of a new player)
+std::vector<heapown::Pointer> g_reference_objects;  // the heap pointers in it: the objects a new player must have
 // per player: packets its client sent to the server, the server sent to it, it read, the server read from it; packets
 // a client read outside its own turn (should never happen)
 uint64_t g_sent[nsplit::kMaxPlayers], g_to[nsplit::kMaxPlayers], g_read[nsplit::kMaxPlayers], g_server_read[nsplit::kMaxPlayers];
@@ -172,9 +163,41 @@ struct GuestStrings {
     ~GuestStrings() { ctx.esp = esp; }
 };
 
+// the regions laid end to end, as a context's copy is (the switcher's order)
+std::vector<heapown::Span> Spans() {
+    std::vector<heapown::Span> spans;
+    size_t at = 0;
+    for (const ctx::Region& r : csx::ClientContextRegions()) {
+        spans.push_back({at, r.start, r.size});
+        at += r.size;
+    }
+    return spans;
+}
+
+// CL_Init's per-player state (0x2BA10, its writes at 0x2C141..0x2C1A6 and the userinfo keys 0x2BA3C..0x2BBA4; docs
+// 13.1): what the process's initialisation writes into a player's regions that no per-player function redoes. Every
+// value is an address inside the player's own regions or a constant, the same for every player.
+void ClientInitState() {
+    W32(0x749DC4, 0x749D44);  // two list heads of cl pointing at themselves (0x2C15E..0x2C168)
+    W32(0x749DC8, 0x749D44);
+    W32(0x749E4C, 0x749DCC);  // (0x2C14F..0x2C159)
+    W32(0x749E50, 0x749DCC);
+    W32(0x783808, 0x32AFF4);  // cls.datagram: its name, flags 0, data = its buffer 0x78381C, maxsize 4000, cursize 0
+    W16(0x78380C, 0);
+    W32(0x783810, 0x78381C);
+    W32(0x783814, 0xFA0);
+    W32(0x783818, 0);
+    W32(0x785BA0, 0);         // (0x2C1A0 / 0x2C1A6)
+    W32(0x785BA4, 0);
+    W32(kClsState, kClsDisconnected);  // SV_SetMaxclients (0xA19E4): a client that is not a dedicated server's
+}
+
 void AddPlayer(X86Context& ctx, int k) {
     std::string name = "Player " + std::to_string(k + 1);
-    int context = csx::ClientContextAdd();
+    // player 1's userinfo text (keys CL_Init set from the settings: plain text, no pointer), before switching
+    std::vector<uint8_t> userinfo(0x100);
+    std::memcpy(userinfo.data(), kernel::HostPtr(kClsUserinfo), userinfo.size());
+    int context = csx::ClientContextAdd();  // the boot image
     if (context <= 0) {
         LOGE("native split: no context for player %d (the region list failed its checks)", k + 1);
         return;
@@ -184,70 +207,79 @@ void AddPlayer(X86Context& ctx, int k) {
         csx::ClientContextRemove(context);
         return;
     }
-    // its copy is the initial state, scrubbed of player 1's heap pointers when it was taken (NativeSplitInitialTaken)
-    const std::vector<heapown::Cleared>& cleared = g_cleared;
+    std::vector<heapown::Span> spans = Spans();
+    size_t inherited = 0, own = 0, missing = 0, foreign = 0;
     auto t0 = std::chrono::steady_clock::now();
-
-    csx::ClientContextSwitch(context);
-    g_init_owner = k;
-    kernel::CallGuest(ctx, kClientInitialize, {kEngineFunctions, 7});
-    kernel::CallGuest(ctx, kHudInit, {});
-    {
-        GuestStrings gs(ctx);
-        uint32_t key = gs.Put("name"), value = gs.Put(name);
-        kernel::CallGuest(ctx, kInfoSetValue, {kClsUserinfo, key, value, 0x100});
-    }
-    g_init_owner = -1;
-    // the cleared pointers the initialisation did not replace name shared objects: their values back, when the very
-    // allocation they named is still alive (not freed, not reused since the snapshot)
-    size_t restored = 0, replaced = 0, gone = 0, left = 0;
-    for (const heapown::Cleared& c : cleared) {
-        uint32_t va = csx::ClientContextAddressOf(c.offset);
-        if (!va) continue;
-        uint32_t now = R32(va);
-        if (now) {
-            replaced++;
-        } else if (heapown::Restorable(c, now, g_blocks, SharedSite)) {
-            W32(va, c.value);
-            restored++;
-        } else if (heapown::StillAlive(c, g_blocks)) {
-            // alive but not of a shared kind: player 1's object; the new player has none there (yet)
-            left++;
-            LOG_FIRST(64, "native split: player %d: 0x%08X left empty (player 1's block 0x%08X, %u bytes, allocated at "
-                      "0x%08X: not a shared kind)", k + 1, va, c.block, c.size, c.site);
-        } else {
-            gone++;
+    for (nsplit::InitStep step : nsplit::InitOrder()) {
+        switch (step) {
+        case nsplit::InitStep::BootImage:
+            // the boot image holds no heap pointer: checked, not assumed
+            inherited = heapown::HeapPointers(csx::ClientContextSaved(context), spans, g_blocks).size();
+            if (inherited)
+                LOGE("native split: player %d's boot image holds %zu heap pointers (it must hold none)", k + 1, inherited);
+            csx::ClientContextSwitch(context);
+            g_init_owner = k;
+            break;
+        case nsplit::InitStep::ClientState:
+            ClientInitState();
+            break;
+        case nsplit::InitStep::Userinfo: {
+            std::memcpy(kernel::HostPtr(kClsUserinfo), userinfo.data(), userinfo.size());
+            GuestStrings gs(ctx);
+            uint32_t key = gs.Put("name"), value = gs.Put(name);
+            kernel::CallGuest(ctx, kInfoSetValue, {kClsUserinfo, key, value, 0x100});
+            break;
+        }
+        case nsplit::InitStep::Initialize:
+            kernel::CallGuest(ctx, kClientInitialize, {kEngineFunctions, 7});
+            break;
+        case nsplit::InitStep::HudInit:
+            kernel::CallGuest(ctx, kHudInit, {});
+            g_init_owner = -1;
+            break;
+        case nsplit::InitStep::Check:
+            // against player 1's state at the end of Host_Init: every object player 1's initialisation made (a heap
+            // pointer of its regions then) must be the new player's own, or a shared registry's entry; one it lacks,
+            // or one naming another's object, fails the initialisation (an initialisation step missing, an object
+            // shared)
+            for (const heapown::Pointer& p : g_reference_objects) {
+                uint32_t mine = R32(p.va);
+                const heapown::Block* b = mine ? g_blocks.At(g_blocks.Holding(mine)) : nullptr;
+                if (!mine) {
+                    missing++;
+                    LOGE("native split: player %d has no object at 0x%08X (player 1's initialisation made one: block "
+                         "0x%08X, %s)",
+                         k + 1, p.va, p.block,
+                         g_blocks.At(p.block) ? heapown::Name(g_blocks.At(p.block)->kind) : "freed since");
+                } else if (b && (b->kind != heapown::Kind::Owned || b->owner == k)) {
+                    own++;
+                } else {
+                    foreign++;
+                    LOGE("native split: player %d's 0x%08X names 0x%08X, not its own (owner %d, %s)", k + 1, p.va, mine,
+                         b ? b->owner : -2, b ? heapown::Name(b->kind) : "no known block");
+                }
+            }
+            break;
         }
     }
-    // the player's own objects: never player 1's
-    std::vector<uint8_t>& p1 = csx::ClientContextSaved(0);
-    int shared_roots = 0;
-    for (const Root& r : kOwnRoots) {
-        long off = csx::ClientContextOffsetOf(r.va);
-        uint32_t mine = R32(r.va), theirs = 0;
-        if (off >= 0 && size_t(off) + 4 <= p1.size()) std::memcpy(&theirs, p1.data() + off, 4);
-        if (mine && mine == theirs) {
-            shared_roots++;
-            LOGE("native split: player %d shares player 1's %s (0x%08X)", k + 1, r.what, mine);
-        } else {
-            LOGI("native split: player %d's %s: 0x%08X (player 1's 0x%08X)%s", k + 1, r.what, mine, theirs,
-                 mine ? "" : ", none yet");
-        }
-    }
-    uint32_t state = R32(kClsState);
-    if (state != kClsDisconnected) {
-        LOGW("native split: player %d's client state is %u after its initialisation, set to disconnected", k + 1, state);
-        W32(kClsState, kClsDisconnected);
+    if (inherited || missing || foreign) {
+        csx::ClientContextSwitch(0);
+        csx::ClientContextRemove(context);
+        g_players.InitFailed(k);
+        g_add_failed = true;
+        auto [n, bytes] = g_blocks.Orphan(k);
+        LOGE("native split: player %d's initialisation failed its checks (%zu inherited, %zu missing, %zu not its own): "
+             "not added; %zu of its objects (%zu bytes) left behind",
+             k + 1, inherited, missing, foreign, n, bytes);
+        return;
     }
     csx::ClientContextSwitch(0);
     g_players.Initialised(k);
     double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
-    LOGI("native split: player %d (\"%s\") added in context %d: of the %zu heap pointers cleared from the initial state, "
-         "%zu replaced by its own initialisation, %zu given back (shared kinds, alive), %zu left empty (player 1's, "
-         "not shared kinds), %zu left empty (freed since); %d of its own objects shared with player 1; initialised in "
-         "%.2f ms; %llu frees of others' blocks skipped so far; it joins on its turn",
-         k + 1, name.c_str(), context, cleared.size(), replaced, restored, left, gone, shared_roots, ms,
-         (unsigned long long)g_skipped_frees);
+    LOGI("native split: player %d (\"%s\") built in context %d from the boot image: of the %zu objects player 1's "
+         "initialisation made, %zu are its own, %zu missing, %zu not its own; initialised in %.2f ms; it joins on its "
+         "turn",
+         k + 1, name.c_str(), context, g_reference_objects.size(), own, missing, foreign, ms);
 }
 
 // the server client whose loopback address names player k, 0 none
@@ -308,57 +340,100 @@ void RemovePlayer(X86Context& ctx, int k) {
         kernel::CallGuest(ctx, kDropClient, {cl, 0, fmt, reason});
     }
     g_ch.Forget(k);
-    // its objects: the client entities it allocated at its connect (the rest leak: their destructors, M4/M8)
-    std::vector<uint8_t>& copy = csx::ClientContextSaved(p.context);
-    long off = csx::ClientContextOffsetOf(kClientEntities);
-    size_t freed = 0;
-    if (off >= 0 && size_t(off) + 4 <= copy.size()) {
-        uint32_t ents;
-        std::memcpy(&ents, copy.data() + off, 4);
-        if (ents && g_blocks.At(ents) && g_blocks.At(ents)->owner == k) {
-            g_init_owner = k;  // its own free
-            kernel::CallGuest(ctx, kFree, {ents});
-            g_init_owner = -1;
-            freed++;
+    // its objects, released by the title's own code in its own context, each checked to be its own first
+    csx::ClientContextSwitch(p.context);
+    g_init_owner = k;
+    size_t released = 0;
+    auto own = [&](uint32_t obj) {
+        const heapown::Block* b = obj ? g_blocks.At(obj) : nullptr;
+        return b && b->kind == heapown::Kind::Owned && b->owner == k;
+    };
+    if (uint32_t ents = R32(kClientEntities); own(ents)) {  // its client entities (0x2E2E0)
+        kernel::CallGuest(ctx, kFree, {ents});
+        W32(kClientEntities, 0);
+        released++;
+    }
+    for (uint32_t va : {0x552C70u, 0x552C9Cu}) {  // deleting destructors through the vtable (as 0x1A7F7E, 0x1B667A)
+        uint32_t obj = R32(va);
+        if (!own(obj)) continue;
+        uint32_t ecx = ctx.ecx;
+        ctx.ecx = obj;
+        kernel::CallGuest(ctx, R32(R32(obj)), {1});
+        ctx.ecx = ecx;
+        W32(va, 0);
+        released++;
+    }
+    if (uint32_t obj = R32(0x552CA8); own(obj)) {  // its destructor 0x1BAD90 (edi the object) and free, as 0x1BAE40
+        uint32_t edi = ctx.edi;
+        ctx.edi = obj;
+        kernel::CallGuest(ctx, 0x1BAD90, {});
+        ctx.edi = edi;
+        kernel::CallGuest(ctx, kFree, {obj});
+        W32(0x552CA8, 0);
+        released++;
+    }
+    for (uint32_t node = R32(0x5623D0); own(node);) {  // the HUD element list's nodes (as gHUD.Init 0x1A6A10)
+        uint32_t next = R32(node + 4);
+        kernel::CallGuest(ctx, kFree, {node});
+        released++;
+        node = next;
+    }
+    W32(0x5623D0, 0);
+    {  // its delta descriptions' slot (0x45670 frees a slot's description, esi the slot)
+        const guest_tables::Table& t = guest_tables::kTables[guest_tables::k_native_split_delta_slots];
+        uint32_t slot = t.va + uint32_t(k) * t.elem;
+        if (own(R32(slot))) {
+            uint32_t esi = ctx.esi;
+            ctx.esi = slot;
+            kernel::CallGuest(ctx, 0x45670, {});
+            ctx.esi = esi;
+            released++;
         }
     }
-    // what it still owns: not freed (their destructors are not run), handed to the process
+    g_init_owner = -1;
+    csx::ClientContextSwitch(0);
+    // what it still owns is a leak: an error, with where it was allocated
+    std::map<uint32_t, size_t> sites;
+    g_blocks.ForEach([&](uint32_t, const heapown::Block& b) {
+        if (b.kind == heapown::Kind::Owned && b.owner == k) sites[b.site]++;
+    });
     auto [leaked, leaked_bytes] = g_blocks.Orphan(k);
+    if (leaked) {
+        std::string where;
+        for (auto& [site, n] : sites) {
+            char item[32];
+            std::snprintf(item, sizeof item, " 0x%X x%zu", site, n);
+            where += item;
+        }
+        LOGE("native split: player %d left %zu objects (%zu bytes) unreleased, allocated at:%s", k + 1, leaked,
+             leaked_bytes, where.substr(0, 400).c_str());
+    }
     csx::ClientContextRemove(p.context);
     g_players.ContextRemoved(p.context);
     g_players.Released(k);
-    LOGI("native split: player %d left: its server slot dropped, %zu object freed (its client entities), %zu kept "
-         "(%zu bytes), its context removed",
-         k + 1, freed, leaked, leaked_bytes);
+    LOGI("native split: player %d left: its server slot dropped, %zu of its objects released, %zu left (%zu bytes), its "
+         "context removed",
+         k + 1, released, leaked, leaked_bytes);
 }
 
 }  // namespace
 
 bool NativeSplitOn() { return Wanted() >= 2; }
 
-// client_context.cpp, at the end of Host_Init when the initial state was taken: what the heap holds now is the
-// process's (player 1's state refers to it; another player must not free it)
-void NativeSplitInitialTaken() {
+// client_context.cpp, at the end of Host_Init: player 1's initialised regions, kept to check a new player's (the
+// objects its initialisation made: the heap pointers of that state); what the heap holds now is the process's
+void NativeSplitReference(const std::vector<uint8_t>& state) {
     g_blocks.OwnAll(heapown::kProcess);
-    // the heap pointers out of the initial state now, while they are current (heap_owner.h Scrub)
-    std::vector<heapown::Span> spans;
-    size_t at = 0;
-    for (const ctx::Region& r : csx::ClientContextRegions()) {  // the switcher's order (sorted by address)
-        spans.push_back({at, r.start, r.size});
-        at += r.size;
-    }
-    if (at != csx::ClientContextInitial().size())
-        LOGE("native split: the regions (%zu bytes) do not match the initial state (%zu)", at,
-             csx::ClientContextInitial().size());
-    g_cleared = heapown::Scrub(csx::ClientContextInitial(), spans, g_blocks);
-    LOGI("native split: %d local players asked; %zu heap blocks from the process's initialisation; %zu heap pointers "
-         "cleared from the initial state",
-         Wanted(), g_blocks.Count(), g_cleared.size());
+    g_reference = state;
+    g_reference_objects = heapown::HeapPointers(g_reference, Spans(), g_blocks);
+    LOGI("native split: %d local players asked; %zu heap blocks from the process's initialisation; player 1's "
+         "regions hold %zu heap pointers (each new player must have its own)",
+         Wanted(), g_blocks.Count(), g_reference_objects.size());
 }
 
 // client_context.cpp, after the last player's client turn: players added or removed between frames
 void NativeSplitFrameEnd(X86Context& ctx) {
-    if (!NativeSplitOn() || !csx::ClientContextHasInitial()) return;
+    if (!NativeSplitOn() || !csx::ClientContextHasInitial() || g_reference.empty()) return;
     // the players connecting: joined when their client is active
     for (int k = 1; k < nsplit::kMaxPlayers; k++) {
         const nsplit::Player& p = g_players.At(k);
@@ -376,7 +451,7 @@ void NativeSplitFrameEnd(X86Context& ctx) {
         }
     }
     // player 1 in its match with the built-in server: the others added, one a frame
-    if (R32(kSvActive) && int(R32(kClsState)) == kClsActive && g_players.Count() < Wanted() &&
+    if (!g_add_failed && R32(kSvActive) && int(R32(kClsState)) == kClsActive && g_players.Count() < Wanted() &&
         g_players.Initialising() < 0) {
         if (int k = g_players.FreeSlot(); k > 0) AddPlayer(ctx, k);
     }
@@ -411,13 +486,15 @@ void NativeSplitHeapAlloc(X86Context& ctx, uint8_t*) {
     // the allocating code: malloc's caller when the frame above is malloc's (0x22D83E returns to 0x22D879; malloc's own
     // return address then at [esp+0x14]), else whatever called 0x22D83E
     uint32_t up = R32(ctx.esp + 8);
-    g_blocks.Allocated(ctx.eax, R32(ctx.esp + 4), OwnerNow(), up == 0x22D879 ? R32(ctx.esp + 0x14) : up);
+    uint32_t site = up == 0x22D879 ? R32(ctx.esp + 0x14) : up;
+    g_blocks.Allocated(ctx.eax, R32(ctx.esp + 4), OwnerNow(), site, KindOf(site));
 }
 
 // [[hook]] at 0x235F2D in calloc (0x235EFA), after its HeapAlloc: the block in eax, its size in esi
 void NativeSplitHeapCalloc(X86Context& ctx, uint8_t*) {
     if (!NativeSplitOn()) return;
-    g_blocks.Allocated(ctx.eax, ctx.esi, OwnerNow(), R32(ctx.esp + 4));  // calloc's caller (only esi pushed above it)
+    uint32_t site = R32(ctx.esp + 4);  // calloc's caller (only esi pushed above it)
+    g_blocks.Allocated(ctx.eax, ctx.esi, OwnerNow(), site, KindOf(site));
 }
 
 // [[hook]] at 0x22C609, free's entry: the block at [esp+4]; on_true "ret": a free by player 2..4 of a block that is not
@@ -429,8 +506,7 @@ bool NativeSplitHeapFree(X86Context& ctx, uint8_t*) {
     int freeing = OwnerNow();
     const heapown::Block* b = g_blocks.At(va);
     int owner = b ? b->owner : heapown::Blocks::kNone;
-    if (b && SharedScratchSite(b->site)) owner = heapown::Blocks::kNone;  // shared scratch: anyone frees it
-    if (heapown::FreeIsForeign(owner, freeing)) {
+    if (b && heapown::FreeIsForeign(*b, freeing)) {
         g_foreign_frees++;
         bool skip = heapown::SkipFree(owner, freeing);
         g_skipped_frees += skip;
@@ -454,7 +530,7 @@ bool MayDestroyHere(uint32_t va, const char* what) {
     if (acting <= 0 || !va) return true;
     const heapown::Block* b = g_blocks.At(va);
     int owner = b ? b->owner : heapown::Blocks::kNone;
-    if (heapown::MayDestroy(owner, acting)) return true;
+    if (b ? heapown::MayDestroy(*b, acting) : heapown::MayDestroy(owner, acting)) return true;
     LOGE("native split: player %d would destroy %s 0x%08X of %s: not destroyed, the reference dropped", acting + 1, what,
          va, owner >= 0 ? ("player " + std::to_string(owner + 1)).c_str()
                         : owner == heapown::kProcess ? "the process's initialisation" : "no known allocation");
@@ -479,6 +555,24 @@ bool NativeSplitDestroy552CA8(X86Context& ctx, uint8_t*) {
 // [[hook]] at 0x1A6A0A in gHUD.Init (0x1A65A0), before it frees the HUD element list at gHUD + 0 (edi gHUD, eax the
 // first node): false (on_false 0x1A6A26, the list head cleared) when the list is not the acting player's
 bool NativeSplitDestroyHudList(X86Context& ctx, uint8_t*) { return MayDestroyHere(ctx.eax, "the HUD element list"); }
+
+// ---- the connect's shared registries, built once ------------------------------------------------------------------
+
+// [[hook]] at 0x2FBA4 in svc_deltadescription's handler (0x2FAE0), esi the shared registry slot for the description's
+// name (0x46070): when a player after the first receives a description already registered (player 1's connect built
+// the registry, the server sends every client the same), its handler gets that player's own slot
+// (native_split_delta_slots) instead: it reads the message exactly as before, but frees and rebuilds only that player's
+// slot, never the shared registry player 1's client and the server use
+void NativeSplitDeltaSlot(X86Context& ctx, uint8_t*) {
+    if (!NativeSplitOn()) return;
+    const guest_tables::Table& t = guest_tables::kTables[guest_tables::k_native_split_delta_slots];
+    int k = OwnerNow();
+    uint32_t slot = nsplit::DeltaSlot(ctx.esi, ctx.esi ? R32(ctx.esi) : 0, k, t.va, t.elem);
+    if (slot == ctx.esi) return;
+    ctx.esi = slot;
+    LOG_FIRST(4, "native split: player %d's delta description goes to its own slot 0x%08X, the shared registry kept",
+              k + 1, slot);
+}
 
 // ---- the loopback ------------------------------------------------------------------------------------------------
 

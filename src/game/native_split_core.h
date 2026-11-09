@@ -62,6 +62,12 @@ public:
         return true;
     }
     bool Initialised(int k) { return Step(k, State::Initialising, State::Connecting, true); }
+    // its initialisation failed its checks: the slot empty again (the caller removes its context), never connecting
+    bool InitFailed(int k) {
+        if (!Step(k, State::Initialising, State::Empty, true)) return false;
+        p_[size_t(k)] = {};
+        return true;
+    }
     bool Joined(int k) { return Step(k, State::Connecting, State::Active, false); }
     bool Leave(int k) {
         if (k <= 0 || k >= kMaxPlayers) return false;
@@ -97,6 +103,27 @@ private:
     std::array<Player, kMaxPlayers> p_{};
     int initialising_ = -1;
 };
+
+// a new player's initialisation, in order (native_split.cpp AddPlayer runs these; docs 13.2)
+enum class InitStep {
+    BootImage,      // its context from the boot image (no heap pointer: checked)
+    ClientState,    // CL_Init's per-player state (list heads, the datagram buffer, cls.state)
+    Userinfo,       // player 1's userinfo text, then its own name
+    Initialize,     // the client game's Initialize (gEngfuncs, its particle manager)
+    HudInit,        // the client game's HUD_Init (its HUD and objects; registrations answered by the first player's)
+    Check,          // against player 1's initialised state: every object its own or shared, none missing
+};
+inline std::array<InitStep, 6> InitOrder() {
+    return {InitStep::BootImage, InitStep::ClientState, InitStep::Userinfo, InitStep::Initialize, InitStep::HudInit,
+            InitStep::Check};
+}
+
+// svc_deltadescription's registry slot for a player: player 1 (and the first registration of a name) the shared slot;
+// a player after the first, once the name is registered, its own slot (it reads the message, the registry stays)
+inline uint32_t DeltaSlot(uint32_t shared_slot, uint32_t shared_value, int player, uint32_t own_slots, uint32_t elem) {
+    if (player <= 0 || !shared_slot || !shared_value) return shared_slot;
+    return own_slots + uint32_t(player) * elem;
+}
 
 // what the client's initialisation registers, while another player's initialisation runs (the first player's
 // registrations stand: the commands, cvars and message handlers map names to the same functions for every player)

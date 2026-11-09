@@ -228,23 +228,37 @@ void ClientContextsHudInit(X86Context&, uint8_t*) {
               Contexts().Count());
 }
 
-bool NativeSplitOn();               // native_split.cpp
-void NativeSplitInitialTaken();     // native_split.cpp: the heap blocks so far are the process's
+bool NativeSplitOn();                                     // native_split.cpp
+void NativeSplitReference(const std::vector<uint8_t>& state);  // native_split.cpp
 
-// [[hook]] at 0x5DD94 at the end of Host_Init (0x5D9E0), as it sets host_initialized (0x551D7C): the per-player regions
-// as a new context starts them: the process's initialisation done (the client game loaded and initialised, CL_Init
-// run, its tables filled), no connection yet. A new player's copy is then scrubbed of player 1's heap pointers and
-// its client initialised in its own context (native_split.cpp). Taken with native split-screen only (M2: the boot
-// state of M1 lacked the tables the process's initialisation fills).
+// [[hook]] at 0x202C1E in the title's startup (0x202BC8), after the C runtime's static constructors (0x206E5B) and
+// before main (0xBF470): the per-player regions as a new player's context starts them (the boot image: the client
+// game's static objects constructed, no heap object made, nothing initialised by the engine). With native
+// split-screen only. A new player is then built by explicit steps in its own context (native_split.cpp,
+// docs/native_splitscreen.md 13.2): it inherits nothing of player 1's.
 void ClientContextsInitial(X86Context&, uint8_t*) {
     if (csx::Dedicated() || !NativeSplitOn()) return;
     Switcher& s = Contexts();
     if (s.Regions().empty()) return;
     auto t0 = std::chrono::steady_clock::now();
     s.CaptureInitial();
-    LOGI("client context: %zu regions, %zu bytes a player; the initial state kept (%.3f ms)%s", s.Regions().size(),
+    LOGI("client context: %zu regions, %zu bytes a player; the boot image kept (%.3f ms)%s", s.Regions().size(),
          s.Bytes(), Ms(t0, std::chrono::steady_clock::now()), TheGuard().on ? "; the server write guard is on" : "");
-    NativeSplitInitialTaken();
+}
+
+// [[hook]] at 0x5DD94 at the end of Host_Init (0x5D9E0), as it sets host_initialized (0x551D7C): player 1's regions
+// once the process is initialised and before any connection, a reference only (native_split.cpp checks a new
+// player's initialised state against it: every object player 1's initialisation made must be the new player's own).
+// With native split-screen only.
+void ClientContextsReference(X86Context&, uint8_t*) {
+    if (csx::Dedicated() || !NativeSplitOn() || Contexts().Regions().empty()) return;
+    std::vector<uint8_t> state(Contexts().Bytes());
+    size_t at = 0;
+    for (const ctx::Region& r : Contexts().Regions()) {
+        std::memcpy(state.data() + at, Map(r.start), r.size);
+        at += r.size;
+    }
+    NativeSplitReference(state);
 }
 
 // [[hook]] at 0x5D3B5 and 0x5D3F0 in _Host_Frame: a player's turn starts (its CL_Move; its client half)

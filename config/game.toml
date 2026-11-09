@@ -1161,6 +1161,10 @@ call = "NativeSplitDestroyHudList"
 on_false = 0x1A6A26
 
 [[hook]]
+at = 0x2FBA4
+call = "NativeSplitDeltaSlot"
+
+[[hook]]
 at = 0x5D51B
 call = "NativeSplitScreen"
 on_false = 0x5D535
@@ -1181,8 +1185,12 @@ call = "NativeSplitSound"
 on_true = "ret"
 
 [[hook]]
-at = 0x5DD94
+at = 0x202C1E
 call = "ClientContextsInitial"
+
+[[hook]]
+at = 0x5DD94
+call = "ClientContextsReference"
 
 [[hook]]
 at = 0x5D3B5

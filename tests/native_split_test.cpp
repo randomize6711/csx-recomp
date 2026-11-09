@@ -115,74 +115,13 @@ static void Heap() {
     Check(b.Holding(0x1000000) == 0x1000000 && b.Holding(0x10000FF) == 0x1000000 && !b.Holding(0x1000100),
           "a block holds its bytes only");
     Check(b.Holding(0x1000230) == 0x1000200 && !b.Holding(0xFFFFFF), "the second block, nothing below");
-    // the scrub: a new player's copy loses player 1's heap pointers (inner ones too), keeps everything else
-    std::vector<uint8_t> copy(32, 0);
-    uint32_t vals[8] = {0x1000000, 7, 0x1000210, 0x2000000, 0x1000100, 0, 0x10000FC, 12};
-    std::memcpy(copy.data(), vals, sizeof vals);
-    std::vector<Cleared> cleared = Scrub(copy, Flat(copy.size()), b);
-    Check(cleared.size() == 3, "three heap pointers found (two block starts, one inside)");
-    uint32_t after[8];
-    std::memcpy(after, copy.data(), sizeof after);
-    Check(after[0] == 0 && after[2] == 0 && after[6] == 0 && after[1] == 7 && after[3] == 0x2000000 && after[4] == 0x1000100,
-          "cleared exactly those");
-    // the new player's initialisation replaces one with its own; the others it leaves are shared objects: back
-    uint32_t own = 0x3000000;
-    std::memcpy(copy.data(), &own, 4);
-    auto any = [](uint32_t) { return true; };
-    Check(RestoreUnreplaced(copy, cleared, b, any) == 2, "two restored");
-    std::memcpy(after, copy.data(), sizeof after);
-    Check(after[0] == own && after[2] == 0x1000210 && after[6] == 0x10000FC, "its own kept, the shared ones back");
-    // the M2 run's case: the snapshot's pointers go stale (player 1's code frees and reuses their blocks before player 2
-    // is added): a freed block's pointer stays empty, and so does one whose address another allocation took since
-    {
-        Blocks h;
-        h.Allocated(0x5000000, 0x40, kProcess);  // a HUD list node
-        h.Allocated(0x5000100, 0x40, kProcess);  // the object at 0x552CA8
-        h.Allocated(0x5000200, 0x40, kProcess);  // a registered cvar
-        std::vector<uint8_t> snap(12);
-        uint32_t v[3] = {0x5000000, 0x5000100, 0x5000200};
-        std::memcpy(snap.data(), v, 12);
-        std::vector<Cleared> at_snapshot = Scrub(snap, Flat(snap.size()), h);  // when the snapshot is taken
-        Check(at_snapshot.size() == 3, "all three found while current");
-        h.Freed(0x5000000);                         // player 1 frees its node
-        h.Freed(0x5000100);                         // and its object...
-        h.Allocated(0x5000100, 0x80, kProcess);     // ...and the address is reused by an unrelated block
-        std::vector<uint8_t> player2 = snap;        // player 2's copy: all three cleared
-        auto any = [](uint32_t) { return true; };
-        Check(RestoreUnreplaced(player2, at_snapshot, h, any) == 1, "only the cvar still alive is given back");
-        uint32_t w[3];
-        std::memcpy(w, player2.data(), 12);
-        Check(w[0] == 0 && w[1] == 0 && w[2] == 0x5000200, "a freed block's pointer and a reused address stay empty");
-    }
-    // only shared kinds are given back: a live block of player 1 that is not a registry entry or a cvar stays empty
-    {
-        Blocks h;
-        h.Allocated(0x6000000, 0x14, kProcess, 0x1BF2A);  // a registered cvar
-        h.Allocated(0x6000100, 0x440, kProcess, 0x1BAE6C);  // player 1's mutable object
-        std::vector<uint8_t> snap(8);
-        uint32_t v[2] = {0x6000000, 0x6000100};
-        std::memcpy(snap.data(), v, 8);
-        std::vector<Cleared> c = Scrub(snap, Flat(snap.size()), h);
-        Check(c.size() == 2 && c[0].site == 0x1BF2A && c[1].size == 0x440, "the cleared pointers keep size and site");
-        auto shared = [](uint32_t site) { return site == 0x1BF2A; };
-        std::vector<uint8_t> p2 = snap;
-        Check(RestoreUnreplaced(p2, c, h, shared) == 1, "only the cvar comes back");
-        uint32_t w[2];
-        std::memcpy(w, p2.data(), 8);
-        Check(w[0] == 0x6000000 && w[1] == 0, "player 1's mutable object is never shared");
-        // the same address, the same serial but another size or site is not the same allocation
-        Blocks g;
-        g.Allocated(0x7000000, 0x20, kProcess, 0x1BF2A);
-        std::vector<uint8_t> s2(4);
-        uint32_t x = 0x7000000;
-        std::memcpy(s2.data(), &x, 4);
-        std::vector<Cleared> c2 = Scrub(s2, Flat(s2.size()), g);
-        c2[0].size = 0x30;
-        Check(!StillAlive(c2[0], g), "a different size: not the same allocation");
-    }
-    // regions at odd addresses, laid end to end (the M2 run's case): a region of 3 bytes at 0x10001 shifts the next one
-    // in the copy; its pointer, aligned in guest memory at 0x20000, sits at copy offset 3. Read at the copy's alignment
-    // it would be missed; read at each region's guest alignment it is found.
+    // allocation identity: a later block at the same address is another allocation (serial, size, site)
+    uint64_t first = b.At(0x1000200)->serial;
+    b.Freed(0x1000200);
+    b.Allocated(0x1000200, 0x40, kProcess, 0x1234);
+    Check(b.At(0x1000200)->serial != first && b.At(0x1000200)->site == 0x1234, "a reused address: a new identity");
+
+    // the census (verification only: it changes nothing), at each region's guest alignment, never across its end
     {
         Blocks h;
         h.Allocated(0x8000000, 0x48, kProcess, 0x1A7F91);
@@ -190,54 +129,104 @@ static void Heap() {
         std::vector<uint8_t> copy(11, 0);
         uint32_t p = 0x8000000;
         std::memcpy(copy.data() + 3, &p, 4);
-        std::vector<Cleared> c = Scrub(copy, spans, h);
-        Check(c.size() == 1 && c[0].offset == 3, "a pointer after an odd-sized region is found");
-        uint32_t back;
-        std::memcpy(&back, copy.data() + 3, 4);
-        Check(back == 0, "and cleared");
-        // a region starting unaligned: its first aligned dword is read, not its start
-        std::vector<Span> odd = {{0, 0x30002, 10}};
+        std::vector<uint8_t> before = copy;
+        std::vector<Pointer> found = HeapPointers(copy, spans, h);
+        Check(found.size() == 1 && found[0].offset == 3 && found[0].va == 0x20000 && found[0].block == 0x8000000,
+              "a pointer after an odd-sized region found, at its guest address");
+        Check(copy == before, "the census changes nothing");
         std::vector<uint8_t> c3(10, 0);
-        std::memcpy(c3.data() + 2, &p, 4);  // guest 0x30004
-        Check(Scrub(c3, odd, h).size() == 1, "a region starting at an odd address: its aligned pointer found");
+        std::memcpy(c3.data() + 2, &p, 4);  // guest 0x30004 of a region starting at 0x30002
+        Check(HeapPointers(c3, {{0, 0x30002, 10}}, h).size() == 1, "a region starting at an odd address");
+        std::vector<uint8_t> c4(8, 0);
+        std::memcpy(c4.data() + 2, &p, 4);  // straddles the end of a 4-byte region
+        Check(HeapPointers(c4, {{0, 0x40000, 4}, {4, 0x50002, 4}}, h).empty(), "never across a region's end");
+        Check(HeapPointers(c4, {{6, 0x60000, 16}}, h).empty(), "never past the copy's end");
     }
-    // a region's bounds: a dword crossing its end is never read (it would be the next region's bytes), and spans past
-    // the copy's end are ignored
-    {
-        Blocks h;
-        h.Allocated(0x9000000, 0x10, kProcess);
-        std::vector<uint8_t> copy(8, 0);
-        uint32_t p = 0x9000000;
-        std::memcpy(copy.data() + 2, &p, 4);  // straddles the end of a 4-byte region at guest 0x40000 (copy 0..3)
-        std::vector<Span> spans = {{0, 0x40000, 4}, {4, 0x50002, 4}};
-        Check(Scrub(copy, spans, h).empty(), "a dword across a region's end is not read");
-        std::vector<Span> past = {{6, 0x60000, 16}};
-        Check(Scrub(copy, past, h).empty(), "a span past the copy's end is not read");
-    }
-    // before a destructor: another player never destroys an object that is not its own
-    Check(MayDestroy(1, 1) && MayDestroy(kProcess, 0) && MayDestroy(1, kProcess), "its own; player 1; the process");
-    Check(!MayDestroy(0, 1) && !MayDestroy(kProcess, 1) && !MayDestroy(Blocks::kNone, 1) && !MayDestroy(2, 1),
-          "player 2: not player 1's, the process's, an unknown block or player 3's");
-    // the safety net: player 2..4 never frees a block that is not its own
-    Check(SkipFree(kProcess, 1) && SkipFree(0, 1) && SkipFree(2, 1), "player 2: not the process's, not another's");
-    Check(!SkipFree(1, 1) && !SkipFree(kProcess, 0) && !SkipFree(1, kProcess) && !SkipFree(Blocks::kNone, 1),
-          "its own, player 1's own frees, frees outside the turns, unknown blocks: done");
-    // frees: whose block, by whom
-    Check(!FreeIsForeign(1, 1) && FreeIsForeign(0, 1) && FreeIsForeign(1, 0), "a player frees only its own");
-    Check(FreeIsForeign(kProcess, 1) && !FreeIsForeign(kProcess, 0) && !FreeIsForeign(kProcess, kProcess),
-          "the process's initialisation: freed by player 1 or the process only");
-    Check(!FreeIsForeign(Blocks::kNone, 1), "unknown blocks are not reported");
-    // outside the players' turns (the server frame, the console) a free is not attributed: a resource a player's turn
-    // loaded (a precached model) is freed by the server or a map change
-    Check(!FreeIsForeign(1, kProcess), "a free outside the turns is not reported");
+
+    // kinds by allocating code
+    const SiteRule rules[] = {{0x1BF2A, 0x1BF2B, Kind::SharedRegistry, "cvar"},
+                              {0x42000, 0x43000, Kind::SharedScratch, "cvar strings"}};
+    Check(KindOfSite(0x1BF2A, rules, 2) == Kind::SharedRegistry && KindOfSite(0x42500, rules, 2) == Kind::SharedScratch &&
+              KindOfSite(0x1A7F91, rules, 2) == Kind::Owned,
+          "kinds from the allocating code; anything else owned");
+    // frees and destructions, the kind weighed: shared kinds are anyone's, owned ones their owner's
+    Block scratch{0x20, 0, 1, 0x42500, Kind::SharedScratch}, mine{0x20, 1, 2, 0x1A7F91, Kind::Owned},
+        p1{0x20, 0, 3, 0x1A7F91, Kind::Owned}, process{0x20, kProcess, 4, 0x1A7F91, Kind::Owned};
+    Check(!FreeIsForeign(scratch, 1) && MayDestroy(scratch, 1), "shared scratch: player 2 frees player 1's (the title)");
+    Check(!FreeIsForeign(mine, 1) && MayDestroy(mine, 1), "player 2: its own");
+    Check(FreeIsForeign(p1, 1) && !MayDestroy(p1, 1), "player 2: never player 1's object");
+    Check(FreeIsForeign(process, 1) && !MayDestroy(process, 1), "player 2: never the process's object");
+    Check(!FreeIsForeign(p1, 0) && !FreeIsForeign(mine, kProcess), "player 1 and the process as the title");
+    Check(SkipFree(0, 1) && !SkipFree(1, 1) && !SkipFree(1, kProcess), "the skip: only a player after the first");
+    Check(MayDestroy(1, kProcess) && !MayDestroy(Blocks::kNone, 1), "an unknown block is not destroyed by player 2");
+    // a leaving player: its blocks counted and handed to the process
     b.Allocated(0x4000000, 0x20, 1);
     b.Allocated(0x4000100, 0x30, 1);
     b.Allocated(0x4000200, 0x10, 0);
     Check(b.Freed(0x4000200) == 0 && b.Freed(0x4000200) == Blocks::kNone, "freed once");
     auto [n, bytes] = b.Orphan(1);
     Check(n == 2 && bytes == 0x50 && b.At(0x4000000)->owner == kProcess, "a leaving player's blocks: counted, orphaned");
-    b.OwnAll(kProcess);
-    Check(b.At(0x1000000)->owner == kProcess, "the snapshot owns all");
+}
+
+// two players built on a synthetic memory as AddPlayer builds them: player 1 by "the process's initialisation" (its
+// objects the process's), player 2 from the boot image by its own steps; the reference check as AddPlayer makes it
+static std::vector<uint8_t> g_two(0x10000);
+static uint8_t* MapTwo(uint32_t va) { return g_two.data() + va; }
+static void TwoPlayers() {
+    using namespace heapown;
+    std::vector<ctx::Region> regions = {{0x1001, 0x13, "odd"}, {0x2000, 0x40, "objects"}};
+    ctx::Switcher<uint8_t* (*)(uint32_t)> s(regions, &MapTwo);
+    std::vector<Span> spans = {{0, 0x1001, 0x13}, {0x13, 0x2000, 0x40}};
+    Blocks heap;
+    auto put = [](uint32_t va, uint32_t v) { std::memcpy(g_two.data() + va, &v, 4); };
+    auto get = [](uint32_t va) { uint32_t v; std::memcpy(&v, g_two.data() + va, 4); return v; };
+    // boot: the static objects constructed, no heap object
+    put(0x2000, 0xC0DE);  // a vtable pointer (code, not heap)
+    s.CaptureInitial();
+    // the process's initialisation: player 1's objects, a registered cvar, its own state
+    heap.Allocated(0x900000, 0x48, kProcess, 0x1A7F91);   // the 0x552C70-like object
+    heap.Allocated(0x900100, 0x14, kProcess, 0x1BF2A, Kind::SharedRegistry);  // a cvar_t
+    put(0x2004, 0x900000);
+    put(0x2008, 0x900100);
+    put(0x1004, 0x1234);  // plain data
+    std::vector<uint8_t> reference(s.Bytes());
+    size_t at = 0;
+    for (const ctx::Region& r : regions) {
+        std::memcpy(reference.data() + at, g_two.data() + r.start, r.size);
+        at += r.size;
+    }
+    std::vector<Pointer> objects = HeapPointers(reference, spans, heap);
+    Check(objects.size() == 2, "player 1's initialisation made two objects in its regions");
+    // player 2: the boot image (no heap pointer), then its own steps
+    int c = s.Add();
+    Check(HeapPointers(s.Saved(c), spans, heap).empty(), "the boot image holds no heap pointer: nothing to inherit");
+    Check(s.Switch(c) && get(0x2000) == 0xC0DE && get(0x2004) == 0 && get(0x1004) == 0, "player 2 starts at the boot");
+    heap.Allocated(0x980000, 0x48, 1, 0x1A7F91);  // its own object (its initialisation, owner player 2)
+    put(0x2004, 0x980000);
+    put(0x2008, 0x900100);                         // the cvar registration answered with the registered one
+    auto check = [&](size_t& own, size_t& missing, size_t& foreign) {
+        own = missing = foreign = 0;
+        for (const Pointer& p : objects) {
+            uint32_t mine = get(p.va);
+            const Block* b = mine ? heap.At(heap.Holding(mine)) : nullptr;
+            if (!mine) missing++;
+            else if (b && (b->kind != Kind::Owned || b->owner == 1)) own++;
+            else foreign++;
+        }
+    };
+    size_t own, missing, foreign;
+    check(own, missing, foreign);
+    Check(own == 2 && missing == 0 && foreign == 0, "player 2: its own object and the shared cvar; nothing missing");
+    put(0x2004, 0);  // a step missing
+    check(own, missing, foreign);
+    Check(missing == 1, "a missing initialisation step fails the check");
+    put(0x2004, 0x900000);  // player 1's object (inherited)
+    check(own, missing, foreign);
+    Check(foreign == 1, "an inherited object of player 1 fails the check");
+    put(0x2004, 0x980000);
+    Check(s.Switch(0) && get(0x2004) == 0x900000 && get(0x1004) == 0x1234, "player 1's state untouched");
+    Check(s.Switch(c) && get(0x2004) == 0x980000, "player 2's own state kept");
+    s.Switch(0);
 }
 
 static void Lifecycle() {
@@ -261,12 +250,49 @@ static void Lifecycle() {
     Check(p.FreeSlot() == 1 && p.Begin(1, 2, "Player 2") && p.Initialised(1) && p.Joined(1), "player 2 back");
     Check(p.FreeSlot() == 3 && p.Begin(3, 3, "Player 4") && p.FreeSlot() == -1, "four players, full");
     Check(std::string(Name(State::Connecting)) == "connecting", "state names");
+    // a failed initialisation: the slot empty again, never connecting; a later attempt can take it
+    Players f;
+    Check(f.Begin(1, 1, "Player 2") && f.InitFailed(1) && f.At(1).state == State::Empty && f.Initialising() == -1,
+          "a failed initialisation leaves the slot empty");
+    Check(!f.InitFailed(1) && !f.Joined(1), "and nothing else follows from it");
+    // the initialisation's order: the boot image first, the client's state before its game code, the check last
+    auto order = InitOrder();
+    Check(order.front() == InitStep::BootImage && order.back() == InitStep::Check, "boot image first, check last");
+    auto pos = [&](InitStep x) { for (size_t i = 0; i < order.size(); i++) if (order[i] == x) return int(i); return -1; };
+    Check(pos(InitStep::ClientState) < pos(InitStep::Initialize) && pos(InitStep::Userinfo) < pos(InitStep::Initialize) &&
+              pos(InitStep::Initialize) < pos(InitStep::HudInit),
+          "client state and userinfo before Initialize, Initialize before HUD_Init");
+    // the connect's shared registry built once: player 1 and a first registration use the shared slot; a later player,
+    // once the name is registered, its own; reconnecting, the same own slot again (its previous description its own)
+    const uint32_t own = 0x700D1FF0, elem = 4;
+    Check(DeltaSlot(0x6000, 0x9000, 0, own, elem) == 0x6000, "player 1: the shared registry");
+    Check(DeltaSlot(0x6000, 0, 1, own, elem) == 0x6000, "a first registration of a name: the shared slot");
+    Check(DeltaSlot(0x6000, 0x9000, 1, own, elem) == own + 4 && DeltaSlot(0x6000, 0x9000, 3, own, elem) == own + 12,
+          "players 2 and 4: their own slots, the registry untouched");
+    Check(DeltaSlot(0x6000, 0x9000, 1, own, elem) == DeltaSlot(0x6000, 0x9000, 1, own, elem), "the same slot on a rejoin");
+    Check(DeltaSlot(0, 0, 1, own, elem) == 0, "no slot from the lookup: left as it is");
     // registrations: the game's own initialisation as the title; another player's reuses the first's
     Check(RegisterPolicy(false, true) == Registration::Register, "the game's own: registers");
     Check(RegisterPolicy(true, true) == Registration::ReuseExisting, "another player's: the existing one");
     Check(RegisterPolicy(true, false) == Registration::Register, "a name only it registers: new");
     Check(EngineCommandPolicy(true) == Registration::Skip && EngineCommandPolicy(false) == Registration::Register,
           "Cmd_AddCommand never again after the start");
+}
+
+// per-player connection buffers: cls.datagram's buffer is inside cls (the per-player region), at the same address for
+// every player; a switch keeps each player's bytes
+static std::vector<uint8_t> g_cls(0x2000);
+static uint8_t* MapCls(uint32_t va) { return g_cls.data() + va; }
+static void ConnectionBuffers() {
+    ctx::Switcher<uint8_t* (*)(uint32_t)> s({{0x1000, 0x400, "cls"}}, &MapCls);
+    s.CaptureInitial();
+    std::memset(g_cls.data() + 0x1100, 'A', 64);  // player 1's datagram
+    int c = s.Add();
+    Check(s.Switch(c) && g_cls[0x1100] == 0, "player 2's buffer starts empty");
+    std::memset(g_cls.data() + 0x1100, 'B', 64);
+    Check(s.Switch(0) && g_cls[0x1100] == 'A' && g_cls[0x113F] == 'A', "player 1's datagram kept");
+    Check(s.Switch(c) && g_cls[0x1100] == 'B', "player 2's kept");
+    s.Switch(0);
 }
 
 static std::vector<uint8_t> g_mem(0x4000);
@@ -323,6 +349,8 @@ int main() {
     Loopback();
     Exchange();
     Heap();
+    TwoPlayers();
+    ConnectionBuffers();
     Lifecycle();
     Contexts();
     std::printf("%d checks, %d failed\n", checks, failed);

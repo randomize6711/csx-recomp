@@ -1,13 +1,11 @@
-// Native split-screen's heap ownership (docs/native_splitscreen.md, M2): which local player allocated each guest heap
-// block, and the scrub of a new player's copy of the per-player regions. No game code: tested on its own by
+// Native split-screen's heap ownership (docs/native_splitscreen.md 13, the M2 revision): every guest heap block's
+// owner (the player whose turn or initialisation allocated it, else the process) and its kind (from the code that
+// allocated it: a player's object, a shared registry, shared scratch). No game code: tested on its own by
 // tests/native_split_test.py.
 //
-// A new player's regions start as player 1's right after the process's initialisation (the end of Host_Init), so they
-// hold player 1's heap pointers (the HUD's lists, the particle manager, ...). The client's own initialisation frees
-// what it finds there before allocating (gHUD.Init frees the list at gHUD + 0, 0x1BAE40 the object at 0x552CA8): run
-// as is, the new player would free player 1's objects. So every dword of the copy that points into a block allocated
-// during the process's initialisation is cleared first; the new player's initialisation then allocates its own. The
-// ones it does not replace are shared objects (a registered cvar, a registry) and get their value back afterwards.
+// Players are no longer made from a copy of player 1's state (the snapshot-and-scrub of the first M2 runs, retired:
+// docs 12): a new player starts from the boot image, which holds no heap pointer, and its own steps make its objects.
+// This file decides who may free or destroy what, and counts the heap pointers of a state (to verify a new player's).
 #pragma once
 
 #include <cstdint>
@@ -20,18 +18,48 @@ namespace heapown {
 
 constexpr int kProcess = -1;  // allocated outside every player's turn: the process's initialisation, the server
 
+// what kind of object a block is, from the code that allocated it
+enum class Kind {
+    Owned,           // a player's object (or the process's): freed or destroyed by its owner only
+    SharedRegistry,  // an entry of a registry every player uses (a cvar, a command, a user message, a delta
+                     // description): built once, never a player's
+    SharedScratch,   // shared working memory the title's own code frees and remakes whoever runs next (the command
+                     // tokenizer's arguments, cvar value strings, the transparent-entity list, cache entries)
+};
+inline const char* Name(Kind k) {
+    switch (k) {
+    case Kind::Owned: return "owned";
+    case Kind::SharedRegistry: return "shared registry";
+    case Kind::SharedScratch: return "shared scratch";
+    }
+    return "?";
+}
+
+// the kinds by allocating code: a site in [lo, hi) is of `kind`
+struct SiteRule {
+    uint32_t lo, hi;
+    Kind kind;
+    const char* what;
+};
+inline Kind KindOfSite(uint32_t site, const SiteRule* rules, size_t n) {
+    for (size_t i = 0; i < n; i++)
+        if (site >= rules[i].lo && site < rules[i].hi) return rules[i].kind;
+    return Kind::Owned;
+}
+
 struct Block {
     uint32_t size = 0;
     int owner = kProcess;
     uint64_t serial = 0;  // the allocation's number: a later block at the same address is a different object
-    uint32_t site = 0;    // the code that asked for it (the caller's return address), what kind of object it is
+    uint32_t site = 0;    // the code that asked for it (the caller's return address)
+    Kind kind = Kind::Owned;
 };
 
 class Blocks {
 public:
-    void Allocated(uint32_t va, uint32_t size, int owner, uint32_t site = 0) {
+    void Allocated(uint32_t va, uint32_t size, int owner, uint32_t site = 0, Kind kind = Kind::Owned) {
         if (!va) return;
-        blocks_[va] = {size ? size : 1, owner, ++serial_, site};
+        blocks_[va] = {size ? size : 1, owner, ++serial_, site, kind};
     }
     // the block freed; its owner, or kNone when the address was not a known block's start
     static constexpr int kNone = -2;
@@ -54,6 +82,10 @@ public:
         return it == blocks_.end() ? nullptr : &it->second;
     }
     size_t Count() const { return blocks_.size(); }
+    template <typename F>
+    void ForEach(F f) const {
+        for (const auto& [va, b] : blocks_) f(va, b);
+    }
     // every block's owner set to o (the snapshot: what the process allocated so far is the process's)
     void OwnAll(int o) {
         for (auto& [va, b] : blocks_) b.owner = o;
@@ -87,19 +119,15 @@ inline bool FreeIsForeign(int owner, int freeing) {
     return false;
 }
 
-struct Cleared {
-    size_t offset;      // in the copy
-    uint32_t value;     // the pointer that was there
-    uint32_t block;     // the block it pointed into (its start)
-    uint64_t serial;    // that block's allocation then
-    uint32_t size;      // and its size
-    uint32_t site;      // and the code that allocated it (the kind of object)
+// a heap pointer found in a state: where (offset in the copy, guest address), the block it names
+struct Pointer {
+    size_t offset;
+    uint32_t va;
+    uint32_t value;
+    uint32_t block;
+    uint64_t serial;
 };
 
-// every aligned dword of the copy pointing into a block live now, cleared; what was cleared. Run on the initial state
-// when it is taken (the end of Host_Init), when its pointers are current: later, player 1's own code frees and reuses
-// blocks those pointers name (its map load, its connect), and a pointer to a block since freed or reused could no
-// longer be told from data (the M2 run of 2026-11-09: one pointer found at the add, 44 of player 1's blocks freed).
 // a region of the copy: where its bytes are in the copy, and in guest memory
 struct Span {
     size_t offset;
@@ -107,24 +135,20 @@ struct Span {
     uint32_t size;
 };
 
-// The copy is the regions laid end to end, and regions start at any address (0x78A943, 0x742FCF, ...): a pointer is a
-// dword aligned in guest memory, not in the copy. So each region is read at its own guest alignment (the M2 run's
-// second cause: read at the copy's alignment after the first region of an odd size, the pointers of every later
-// region were seen split in two, and the scrub found one).
-inline std::vector<Cleared> Scrub(std::vector<uint8_t>& copy, const std::vector<Span>& spans, const Blocks& blocks) {
-    std::vector<Cleared> out;
+// every heap pointer of a state (the regions laid end to end), read at each region's own guest alignment (regions
+// start at any address: 0x78A943, 0x742FCF, ...) and never across a region's end. Changes nothing: it verifies.
+inline std::vector<Pointer> HeapPointers(const std::vector<uint8_t>& copy, const std::vector<Span>& spans,
+                                         const Blocks& blocks) {
+    std::vector<Pointer> out;
     for (const Span& sp : spans) {
-        uint32_t first = (sp.va + 3) & ~3u;  // the region's first guest-aligned dword
+        uint32_t first = (sp.va + 3) & ~3u;
         for (uint32_t va = first; va + 4 <= sp.va + sp.size; va += 4) {
             size_t off = sp.offset + (va - sp.va);
             if (off + 4 > copy.size()) break;
             uint32_t v;
             std::memcpy(&v, copy.data() + off, 4);
             uint32_t start = v < 0x10000 ? 0 : blocks.Holding(v);
-            if (!start) continue;
-            const Block* b = blocks.At(start);
-            out.push_back({off, v, start, b->serial, b->size, b->site});
-            std::memset(copy.data() + off, 0, 4);
+            if (start) out.push_back({off, va, v, start, blocks.At(start)->serial});
         }
     }
     return out;
@@ -133,40 +157,16 @@ inline std::vector<Cleared> Scrub(std::vector<uint8_t>& copy, const std::vector<
 // one span of a whole copy whose guest address is its offset (tests)
 inline std::vector<Span> Flat(size_t size, uint32_t va = 0) { return {{0, va, uint32_t(size)}}; }
 
-// whether the very allocation a cleared pointer named is still alive: the same address, the same allocation serial,
-// size and allocating code (not freed, not another block at the same address since)
-inline bool StillAlive(const Cleared& c, const Blocks& blocks) {
-    const Block* b = blocks.At(c.block);
-    return b && b->serial == c.serial && b->size == c.size && b->site == c.site;
-}
-
-// whether a cleared pointer may be given back to a new player: its initialisation left it at 0, the allocation is still
-// alive, and it is of a kind that is shared by nature (shared_site: a registered cvar, a registry's entry). Any other
-// object is not given back: a player's mutable object must be its own, made by its own initialisation.
-template <typename SharedSite>
-inline bool Restorable(const Cleared& c, uint32_t now, const Blocks& blocks, SharedSite shared_site) {
-    return !now && StillAlive(c, blocks) && shared_site(c.site);
-}
-
-// after the new player's initialisation (a copy): the restorable ones get their value back; the count restored
-template <typename SharedSite>
-inline size_t RestoreUnreplaced(std::vector<uint8_t>& copy, const std::vector<Cleared>& cleared, const Blocks& blocks,
-                                SharedSite shared_site) {
-    size_t n = 0;
-    for (const Cleared& c : cleared) {
-        uint32_t v;
-        std::memcpy(&v, copy.data() + c.offset, 4);
-        if (!Restorable(c, v, blocks, shared_site)) continue;
-        std::memcpy(copy.data() + c.offset, &c.value, 4);
-        n++;
-    }
-    return n;
-}
-
 // the safety net: a free by a player other than the first (in its initialisation or its turns) of a block that is not
 // its own is not done (logged): another player's object, or one of the process's initialisation that player 1's state
 // names, stays alive; at worst a leak, never a block freed under another player
 inline bool SkipFree(int owner, int freeing) { return freeing > 0 && FreeIsForeign(owner, freeing); }
+
+// a block's free or destruction, its kind weighed: the shared kinds are anyone's to free (the title's own code
+// manages them that way); an owned block follows FreeIsForeign / MayDestroy
+inline bool FreeIsForeign(const Block& b, int freeing) {
+    return b.kind == Kind::Owned && FreeIsForeign(b.owner, freeing);
+}
 
 // whether the object at `owner_of_object` may be destroyed by `acting` (a player in its initialisation or turn, or
 // kProcess): the check made before a destructor runs, not only before the free (a destructor that has run has already
@@ -175,5 +175,6 @@ inline bool MayDestroy(int owner_of_object, int acting) {
     if (acting <= 0) return true;                         // player 1 and the process act as the title
     return owner_of_object == acting;                     // another player: only its own objects
 }
+inline bool MayDestroy(const Block& b, int acting) { return b.kind != Kind::Owned || MayDestroy(b.owner, acting); }
 
 }  // namespace heapown
