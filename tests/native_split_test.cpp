@@ -128,7 +128,8 @@ static void Heap() {
     // the new player's initialisation replaces one with its own; the others it leaves are shared objects: back
     uint32_t own = 0x3000000;
     std::memcpy(copy.data(), &own, 4);
-    Check(RestoreUnreplaced(copy, cleared, b) == 2, "two restored");
+    auto any = [](uint32_t) { return true; };
+    Check(RestoreUnreplaced(copy, cleared, b, any) == 2, "two restored");
     std::memcpy(after, copy.data(), sizeof after);
     Check(after[0] == own && after[2] == 0x1000210 && after[6] == 0x10000FC, "its own kept, the shared ones back");
     // the M2 run's case: the snapshot's pointers go stale (player 1's code frees and reuses their blocks before player 2
@@ -147,10 +148,37 @@ static void Heap() {
         h.Freed(0x5000100);                         // and its object...
         h.Allocated(0x5000100, 0x80, kProcess);     // ...and the address is reused by an unrelated block
         std::vector<uint8_t> player2 = snap;        // player 2's copy: all three cleared
-        Check(RestoreUnreplaced(player2, at_snapshot, h) == 1, "only the cvar still alive is given back");
+        auto any = [](uint32_t) { return true; };
+        Check(RestoreUnreplaced(player2, at_snapshot, h, any) == 1, "only the cvar still alive is given back");
         uint32_t w[3];
         std::memcpy(w, player2.data(), 12);
         Check(w[0] == 0 && w[1] == 0 && w[2] == 0x5000200, "a freed block's pointer and a reused address stay empty");
+    }
+    // only shared kinds are given back: a live block of player 1 that is not a registry entry or a cvar stays empty
+    {
+        Blocks h;
+        h.Allocated(0x6000000, 0x14, kProcess, 0x1BF2A);  // a registered cvar
+        h.Allocated(0x6000100, 0x440, kProcess, 0x1BAE6C);  // player 1's mutable object
+        std::vector<uint8_t> snap(8);
+        uint32_t v[2] = {0x6000000, 0x6000100};
+        std::memcpy(snap.data(), v, 8);
+        std::vector<Cleared> c = Scrub(snap, h);
+        Check(c.size() == 2 && c[0].site == 0x1BF2A && c[1].size == 0x440, "the cleared pointers keep size and site");
+        auto shared = [](uint32_t site) { return site == 0x1BF2A; };
+        std::vector<uint8_t> p2 = snap;
+        Check(RestoreUnreplaced(p2, c, h, shared) == 1, "only the cvar comes back");
+        uint32_t w[2];
+        std::memcpy(w, p2.data(), 8);
+        Check(w[0] == 0x6000000 && w[1] == 0, "player 1's mutable object is never shared");
+        // the same address, the same serial but another size or site is not the same allocation
+        Blocks g;
+        g.Allocated(0x7000000, 0x20, kProcess, 0x1BF2A);
+        std::vector<uint8_t> s2(4);
+        uint32_t x = 0x7000000;
+        std::memcpy(s2.data(), &x, 4);
+        std::vector<Cleared> c2 = Scrub(s2, g);
+        c2[0].size = 0x30;
+        Check(!StillAlive(c2[0], g), "a different size: not the same allocation");
     }
     // the safety net: player 2..4 never frees a block that is not its own
     Check(SkipFree(kProcess, 1) && SkipFree(0, 1) && SkipFree(2, 1), "player 2: not the process's, not another's");

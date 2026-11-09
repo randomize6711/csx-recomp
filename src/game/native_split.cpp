@@ -64,6 +64,35 @@ constexpr uint32_t kEngineFunctions = 0x371610;   // the engine's cl_enginefunc_
 constexpr uint32_t kLoopback = 1;                 // netadrtype_t NA_LOOPBACK
 constexpr int kClsActive = 5, kClsDisconnected = 1;
 
+// the allocations that are shared by nature: a pointer to one of these, cleared from the initial state, is given back
+// to a new player its initialisation did not replace (heap_owner.h Restorable). Return addresses of their malloc calls.
+constexpr uint32_t kSharedSites[] = {
+    0x1BF2A,  // the client's pfnRegisterVariable (0x1BEF0): a registered cvar_t
+    0x2C716,  // HookUserMsg (0x2C690): the client's user message list entry
+    0x3C92A,  // the client's command registration (0x3C8C0): the command list entry
+    0x1CB0D,  // ClientDLL_HudVidInit (0x1CAC0): the HUD sprite registry (allocated once, never freed)
+};
+bool SharedSite(uint32_t site) {
+    for (uint32_t x : kSharedSites)
+        if (x == site) return true;
+    return false;
+}
+
+// a player's own objects, which another player must never share: their pointers in the per-player regions (the HUD's
+// element list at gHUD + 0, the particle manager, the client game's objects of docs 10.5)
+struct Root {
+    uint32_t va;
+    const char* what;
+};
+constexpr Root kOwnRoots[] = {
+    {0x5623D0, "HUD element list (gHUD + 0)"},
+    {0x552B8C, "particle manager"},
+    {0x552C70, "client object 0x552C70 (vtable 0x35EB78)"},
+    {0x552CA8, "client object 0x552CA8"},
+    {0x552BB4, "client object 0x552BB4"},
+    {0x552C9C, "client object 0x552C9C"},
+};
+
 int Wanted() {
     static const int n = [] {
         const char* v = std::getenv("CSX_NATIVE_SPLIT");
@@ -163,18 +192,38 @@ void AddPlayer(X86Context& ctx, int k) {
     g_init_owner = -1;
     // the cleared pointers the initialisation did not replace name shared objects: their values back, when the very
     // allocation they named is still alive (not freed, not reused since the snapshot)
-    size_t restored = 0, replaced = 0, gone = 0;
+    size_t restored = 0, replaced = 0, gone = 0, left = 0;
     for (const heapown::Cleared& c : cleared) {
         uint32_t va = csx::ClientContextAddressOf(c.offset);
         if (!va) continue;
         uint32_t now = R32(va);
         if (now) {
             replaced++;
-        } else if (heapown::Restorable(c, now, g_blocks)) {
+        } else if (heapown::Restorable(c, now, g_blocks, SharedSite)) {
             W32(va, c.value);
             restored++;
+        } else if (heapown::StillAlive(c, g_blocks)) {
+            // alive but not of a shared kind: player 1's object; the new player has none there (yet)
+            left++;
+            LOG_FIRST(64, "native split: player %d: 0x%08X left empty (player 1's block 0x%08X, %u bytes, allocated at "
+                      "0x%08X: not a shared kind)", k + 1, va, c.block, c.size, c.site);
         } else {
             gone++;
+        }
+    }
+    // the player's own objects: never player 1's
+    std::vector<uint8_t>& p1 = csx::ClientContextSaved(0);
+    int shared_roots = 0;
+    for (const Root& r : kOwnRoots) {
+        long off = csx::ClientContextOffsetOf(r.va);
+        uint32_t mine = R32(r.va), theirs = 0;
+        if (off >= 0 && size_t(off) + 4 <= p1.size()) std::memcpy(&theirs, p1.data() + off, 4);
+        if (mine && mine == theirs) {
+            shared_roots++;
+            LOGE("native split: player %d shares player 1's %s (0x%08X)", k + 1, r.what, mine);
+        } else {
+            LOGI("native split: player %d's %s: 0x%08X (player 1's 0x%08X)%s", k + 1, r.what, mine, theirs,
+                 mine ? "" : ", none yet");
         }
     }
     uint32_t state = R32(kClsState);
@@ -186,9 +235,10 @@ void AddPlayer(X86Context& ctx, int k) {
     g_players.Initialised(k);
     double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     LOGI("native split: player %d (\"%s\") added in context %d: of the %zu heap pointers cleared from the initial state, "
-         "%zu replaced by its own initialisation, %zu kept shared, %zu left empty (their objects freed since); "
-         "initialised in %.2f ms; %llu frees of others' blocks skipped so far; it joins on its turn",
-         k + 1, name.c_str(), context, cleared.size(), replaced, restored, gone, ms,
+         "%zu replaced by its own initialisation, %zu given back (shared kinds, alive), %zu left empty (player 1's, "
+         "not shared kinds), %zu left empty (freed since); %d of its own objects shared with player 1; initialised in "
+         "%.2f ms; %llu frees of others' blocks skipped so far; it joins on its turn",
+         k + 1, name.c_str(), context, cleared.size(), replaced, restored, left, gone, shared_roots, ms,
          (unsigned long long)g_skipped_frees);
 }
 
@@ -231,6 +281,10 @@ void Report() {
              SlotOf(cl), cl ? R32(cl + 0x4BA4) : 0, (unsigned long long)g_sent[k], (unsigned long long)g_server_read[k],
              (unsigned long long)g_to[k], (unsigned long long)g_read[k]);
     }
+    uint64_t switches = 0;
+    double switch_ms = csx::ClientContextSwitchMs(switches);
+    LOGI("native split: context switches %llu, %.4f ms each on average", (unsigned long long)switches,
+         switches ? switch_ms / double(switches) : 0.0);
     LOGI("native split: %llu packets dropped by full channels, %llu read outside their player's turn, %llu foreign frees "
          "(%llu skipped), %zu heap blocks tracked",
          (unsigned long long)g_ch.Dropped(), (unsigned long long)g_read_outside_turn,
@@ -337,13 +391,16 @@ void NativeSplitFrameEnd(X86Context& ctx) {
 // [esp+4]
 void NativeSplitHeapAlloc(X86Context& ctx, uint8_t*) {
     if (!NativeSplitOn()) return;
-    g_blocks.Allocated(ctx.eax, R32(ctx.esp + 4), OwnerNow());
+    // the allocating code: malloc's caller when the frame above is malloc's (0x22D83E returns to 0x22D879; malloc's own
+    // return address then at [esp+0x14]), else whatever called 0x22D83E
+    uint32_t up = R32(ctx.esp + 8);
+    g_blocks.Allocated(ctx.eax, R32(ctx.esp + 4), OwnerNow(), up == 0x22D879 ? R32(ctx.esp + 0x14) : up);
 }
 
 // [[hook]] at 0x235F2D in calloc (0x235EFA), after its HeapAlloc: the block in eax, its size in esi
 void NativeSplitHeapCalloc(X86Context& ctx, uint8_t*) {
     if (!NativeSplitOn()) return;
-    g_blocks.Allocated(ctx.eax, ctx.esi, OwnerNow());
+    g_blocks.Allocated(ctx.eax, ctx.esi, OwnerNow(), R32(ctx.esp + 4));  // calloc's caller (only esi pushed above it)
 }
 
 // [[hook]] at 0x22C609, free's entry: the block at [esp+4]; on_true "ret": a free by player 2..4 of a block that is not

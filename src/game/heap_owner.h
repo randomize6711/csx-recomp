@@ -24,13 +24,14 @@ struct Block {
     uint32_t size = 0;
     int owner = kProcess;
     uint64_t serial = 0;  // the allocation's number: a later block at the same address is a different object
+    uint32_t site = 0;    // the code that asked for it (the caller's return address), what kind of object it is
 };
 
 class Blocks {
 public:
-    void Allocated(uint32_t va, uint32_t size, int owner) {
+    void Allocated(uint32_t va, uint32_t size, int owner, uint32_t site = 0) {
         if (!va) return;
-        blocks_[va] = {size ? size : 1, owner, ++serial_};
+        blocks_[va] = {size ? size : 1, owner, ++serial_, site};
     }
     // the block freed; its owner, or kNone when the address was not a known block's start
     static constexpr int kNone = -2;
@@ -91,6 +92,8 @@ struct Cleared {
     uint32_t value;     // the pointer that was there
     uint32_t block;     // the block it pointed into (its start)
     uint64_t serial;    // that block's allocation then
+    uint32_t size;      // and its size
+    uint32_t site;      // and the code that allocated it (the kind of object)
 };
 
 // every aligned dword of the copy pointing into a block live now, cleared; what was cleared. Run on the initial state
@@ -104,28 +107,37 @@ inline std::vector<Cleared> Scrub(std::vector<uint8_t>& copy, const Blocks& bloc
         std::memcpy(&v, copy.data() + off, 4);
         uint32_t start = v < 0x10000 ? 0 : blocks.Holding(v);
         if (!start) continue;
-        out.push_back({off, v, start, blocks.At(start)->serial});
+        const Block* b = blocks.At(start);
+        out.push_back({off, v, start, b->serial, b->size, b->site});
         std::memset(copy.data() + off, 0, 4);
     }
     return out;
 }
 
-// whether a cleared pointer may be given back to a new player: its initialisation left it at 0 (it made no object of
-// its own there: a shared object) and the very allocation it named is still alive (not freed, not another block at
-// the same address since)
-inline bool Restorable(const Cleared& c, uint32_t now, const Blocks& blocks) {
-    if (now) return false;
+// whether the very allocation a cleared pointer named is still alive: the same address, the same allocation serial,
+// size and allocating code (not freed, not another block at the same address since)
+inline bool StillAlive(const Cleared& c, const Blocks& blocks) {
     const Block* b = blocks.At(c.block);
-    return b && b->serial == c.serial;
+    return b && b->serial == c.serial && b->size == c.size && b->site == c.site;
+}
+
+// whether a cleared pointer may be given back to a new player: its initialisation left it at 0, the allocation is still
+// alive, and it is of a kind that is shared by nature (shared_site: a registered cvar, a registry's entry). Any other
+// object is not given back: a player's mutable object must be its own, made by its own initialisation.
+template <typename SharedSite>
+inline bool Restorable(const Cleared& c, uint32_t now, const Blocks& blocks, SharedSite shared_site) {
+    return !now && StillAlive(c, blocks) && shared_site(c.site);
 }
 
 // after the new player's initialisation (a copy): the restorable ones get their value back; the count restored
-inline size_t RestoreUnreplaced(std::vector<uint8_t>& copy, const std::vector<Cleared>& cleared, const Blocks& blocks) {
+template <typename SharedSite>
+inline size_t RestoreUnreplaced(std::vector<uint8_t>& copy, const std::vector<Cleared>& cleared, const Blocks& blocks,
+                                SharedSite shared_site) {
     size_t n = 0;
     for (const Cleared& c : cleared) {
         uint32_t v;
         std::memcpy(&v, copy.data() + c.offset, 4);
-        if (!Restorable(c, v, blocks)) continue;
+        if (!Restorable(c, v, blocks, shared_site)) continue;
         std::memcpy(copy.data() + c.offset, &c.value, 4);
         n++;
     }

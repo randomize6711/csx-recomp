@@ -106,7 +106,24 @@ int ClientContextAdd() {
     return k;
 }
 
-bool ClientContextSwitch(int k) { return Contexts().Switch(k); }
+namespace {
+double g_switch_ms = 0;
+uint64_t g_switches = 0;
+// a switch, timed (the frame's turns and the players' additions all switch through here)
+bool TimedSwitch(int k) {
+    if (k == Contexts().Active()) return Contexts().Switch(k);
+    auto t0 = std::chrono::steady_clock::now();
+    bool ok = Contexts().Switch(k);
+    g_switch_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    g_switches++;
+    return ok;
+}
+}  // namespace
+bool ClientContextSwitch(int k) { return TimedSwitch(k); }
+double ClientContextSwitchMs(uint64_t& switches) {
+    switches = g_switches;
+    return g_switch_ms;
+}
 bool ClientContextRemove(int k) { return Contexts().Remove(k); }
 bool ClientContextHasInitial() { return Contexts().HasInitial(); }
 std::vector<uint8_t>& ClientContextInitial() { return Contexts().Initial(); }
@@ -242,8 +259,8 @@ bool ClientContextsMoveNext(X86Context&, uint8_t*) {
     LOG_FIRST(1, "client context: the players' input turns run (%d player%s)", s.Count(), s.Count() == 1 ? "" : "s");
     if (s.Count() > 1) {
         int next = ctx::NextTurn(s.Active(), s.Count());
-        if (next >= 0) return !s.Switch(next);
-        s.Switch(0);
+        if (next >= 0) return !csx::ClientContextSwitch(next);
+        csx::ClientContextSwitch(0);
     }
     g_in_turn = false;
     return true;
@@ -256,8 +273,8 @@ bool ClientContextsFrameNext(X86Context& ctx, uint8_t*) {
     LOG_FIRST(1, "client context: the players' client turns run (%d player%s)", s.Count(), s.Count() == 1 ? "" : "s");
     if (s.Count() > 1) {
         int next = ctx::NextTurn(s.Active(), s.Count());
-        if (next >= 0) return !s.Switch(next);
-        s.Switch(0);
+        if (next >= 0) return !csx::ClientContextSwitch(next);
+        csx::ClientContextSwitch(0);
     }
     g_in_turn = false;
     NativeSplitFrameEnd(ctx);  // players added or removed between frames (nothing without native split-screen)
