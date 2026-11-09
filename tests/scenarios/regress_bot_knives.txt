@@ -1,0 +1,25 @@
+# Bots: Knives Only (src/game/pc_menu.cpp ExtendBotKnives, the game's bot_knives_only): the title's Bot Configuration
+# rows only say what bots may buy, so with every gun No the bots still shot with the pistol each team spawns with (a
+# play-test, 2026-11-08: USP kills in a "knife only" match). With bot_knives_only 1 the bots fight with knives: a
+# restarted match of 16 bots on de_dust2, the player a spectator in the corner, and no bot kill with a gun.
+#   --env FPS=30 --launch tests/launch/de_dust2_bots16
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+wait draws>=150
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+count game:.World.triggered."Round_Start" 2
+pckey cmd bot_knives_only 1
+sleep 1
+pckey cmd sv_restart 1
+sleep 3
+mark
+sleep 150
+count game:.*<BOT><[A-Z]*>".killed.*with."knife" 3
+expect nonewlog game:.*<BOT><[A-Z]*>".killed.*with."(usp|glock18|deagle|p228|elite|fiveseven|m3|xm1014|mac10|tmp|mp5navy|ump45|p90|galil|famas|ak47|m4a1|sg552|aug|scout|awp|g3sg1|sg550|m249)"
+expect nolog guest trap

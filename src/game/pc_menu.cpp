@@ -1112,6 +1112,28 @@ std::string ExtendGameMode(const std::string& text) {
     return text.substr(0, end) + row + text.substr(end);
 }
 
+// Bot Configuration (the title's SuperLauncher_SinglePlayerMatchBotOptions): a last row, Knives Only, the game's own
+// bot_knives_only (the bots keep their knives out and use no gun). The title's rows say what bots may buy: with every
+// gun No they still fight with the pistol each team spawns with. The screen's Record / Restore (0xE1FB0 / 0xE2000)
+// copy each row's choice to 0x526D70 + 4 x row, up to the table's row count: the ninth row's 0x526D90 is used by
+// nothing else (the next data the game refers to is 0x526EC0).
+std::string ExtendBotKnives(const std::string& text) {
+    size_t screen = text.find("\nSuperLauncher_SinglePlayerMatchBotOptions\r\n");
+    size_t next = screen == std::string::npos ? screen : text.find("\nSuperLauncher_", screen + 1);
+    size_t end = next == std::string::npos ? next : text.rfind("\t}\r\n}\r\n", next);
+    if (end == std::string::npos || end < screen || text.find("\"+bot_allow_rogues 0\"", screen) > end) {
+        LOGW("pc menu: the Bot Configuration screen not as expected, no Knives Only row");
+        return text;
+    }
+    static const std::string help[2] = {"Bots use only their knives, never a gun, not even the",
+                                        "pistol they start with."};
+    std::string row = "\t\tRow\r\n\t\t{\r\n" + HelpTable(help, 2, "\t\t\t") +
+                      "\r\n\t\t\tCellFixed \"Knives Only\"\r\n\t\t\tCellList\r\n\t\t\t{\r\n"
+                      "\t\t\t\tListDefault \"No\"\t\t\"+bot_knives_only 0\"\r\n"
+                      "\t\t\t\tListOption \"Yes\"\t\t\"+bot_knives_only 1\"\r\n\t\t\t}\r\n\t\t}\r\n";
+    return text.substr(0, end) + row + text.substr(end);
+}
+
 std::string ExtendBotCount(const std::string& text) {
     size_t screen = text.find("\nSuperLauncher_SinglePlayerMatchOptions\r\n");
     size_t next = screen == std::string::npos ? screen : text.find("\nSuperLauncher_", screen + 1);
@@ -1135,7 +1157,7 @@ std::string ExtendBotCount(const std::string& text) {
     out.insert(h + help.size(), "\t\t\t\tRow\r\n\t\t\t\t{\r\n\t\t\t\t\tCellFixed \"" + std::to_string(kMaxBots) +
                                     " bots and you fill the game's " + std::to_string(slots::kMaxPlayers) +
                                     " player slots.\"\r\n\t\t\t\t}\r\n");
-    return ExtendGameMode(out);
+    return ExtendBotKnives(ExtendGameMode(out));
 }
 
 }  // namespace

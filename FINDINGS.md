@@ -3160,3 +3160,19 @@ current build (tests/scenarios/vk_spectator_scores.txt, de_dust2 without bots):
   entry and its score (checked: a CT bot that joined and left, then a CT win on time showed CT 1). Not covered: a
   client that joins after a team scored and emptied would show 0 for it (the placeholder before).
 - SpectatorScoresShown (a hook at 0x1B46BD) logs "spectator: scores CT n, T n" when the row changes, for tests.
+
+## Bots with every gun "No" still shot (2026-11-09)
+
+Play-test: a "knife only" match (Bot Configuration with Pistols .. Sniper Rifles all No) had bot kills with the USP.
+The title's rows are what bots may buy ("Choose whether bots may buy pistols."): bot_allow_* only limit buying, and
+each team's spawn pistol is given anyway. The game has bot_knives_only (a cvar in the XBE, as in the PC bots), which
+no screen set. Added as the Bot Configuration screen's last row, Knives Only (src/game/pc_menu.cpp
+ExtendBotKnives), as the user chose over making "every gun No" mean knives only.
+
+- The screen's Record / Restore (0xE1FB0 / 0xE2000) copy each row's choice to 0x526D70 + 4 x row for as many rows
+  as the table has, no bound: the ninth row writes 0x526D90, which nothing in the game refers to (only Record and
+  Restore index 0x526D70; the next data referred to is 0x526EC0).
+- SinglePlayerStartSession (0xE2270) takes the bot screen's commands with 0xDCD40(table, 1, 1), every row's choice,
+  when the match's rules are Custom (a preset's match ignores the screen, as before).
+- Test: regress_bot_knives (16 bots, bot_knives_only 1 and a restart: 17 bot kills, all with the knife, none with a
+  gun); the row shown and set on the screen (a window shot, by hand).

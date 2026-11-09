@@ -888,3 +888,8 @@ manual testing and approval; no optimization or complete regression until then.
   grid frame), drawn as on the console: not changed.
 - Tests: vk_spectator_scores (new: an empty match, the row shows CT 0, T 0), vk_spectator (now ends with the bots
   let loose while the player is dead: a CT win showed CT 1 over the zero). Both passed.
+
+## 2026-11-09: play-test feedback (split-screen, grenades, performance, knife-only bots, loading screens)
+
+- Bots: Knives Only, a new last row of Bot Configuration (FINDINGS.md "Bots with every gun "No" still shot"): the
+  title's rows only limit buying, so bots kept their spawn pistols. regress_bot_knives passed (17 knife kills, no gun).
