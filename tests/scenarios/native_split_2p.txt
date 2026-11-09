@@ -1,0 +1,29 @@
+# Native split-screen M2 (docs/native_splitscreen.md 11): two local players in this one process, clients of the
+# built-in listen server: player 1 the game's own (it joins a team), player 2 added by CSX_NATIVE_SPLIT=2 once player 1
+# is in its match, initialised in its own client context and connected on its own turn. de_dust2 with no bots, about
+# 2.5 minutes, the server write guard and every ownership report on (CSX_CTX_GUARD=1). Nothing is drawn for player 2 yet
+# (M3). The report lines ("native split: player N ...") give each player's server slot, userid, cl.playernum and the
+# packets both ways; the checks below are the hard ones.
+#   --env FPS=30 --env CSX_NATIVE_SPLIT=2 --env CSX_CTX_GUARD=1 --launch tests/launch/de_dust2_nobots
+# timeout: 300
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+wait draws>=150
+expect log native split: 2 local players asked
+expect log client context: [0-9]+ regions, [0-9]+ bytes a player; the initial state kept
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+wait log native split: player 2 \("Player 2"\) added in context 1
+wait log native split: player 2 is in the match
+sleep 100
+expect log native split: player 1 active, context 0, client state 5
+expect log native split: player 2 active, context 1, client state 5
+expect nolog native split: .* read a packet outside its turn
+expect nolog local server: starting
+expect nolog Host_Error
+expect nolog guest trap

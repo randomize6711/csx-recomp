@@ -460,3 +460,37 @@ of M2 has been run: no gameplay test without the user's permission.
 - A player's leave leaks its objects but the client entities until their destructors are run (M4 / M8).
 - A map change relaunches the whole process (the title's way): every context is rebuilt and the added players rejoin
   after player 1 is in (the environment keeps CSX_NATIVE_SPLIT).
+
+### 11.5 The M2 run (2026-11-09, permitted once): crashed; cause found; fixed, not re-run
+
+native_split_2p (CSX_NATIVE_SPLIT=2, CSX_CTX_GUARD=1, de_dust2 without bots, one headless process, the built-in
+server): **SIGSEGV at 5.8 s**, before player 2 connected.
+- What ran: the initial state at the end of Host_Init (0.18 s: 153 regions, 1 060 565 bytes, 17 323 heap blocks);
+  player 1 in its match (server slot 0, userid 1, client state 5, 33 packets sent and read by the server, 34 to it and
+  read); player 2 added at 2.15 s in context 1 (Initialize and HUD_Init ran, 1.65 ms; client state 1, waiting for its
+  turn). No packet read outside its turn, none dropped; no separate server.
+- **The ownership report**: player 2's initialisation freed 44 blocks of the process's initialisation (returns
+  0x1A6A1D x19: gHUD.Init's list; 0x1A7829 / 0x1A7849 / 0x1A7858 x18 and 0x1A7AF9: the destructor 0x1A7800 and the
+  deleting destructor 0x1A7AE0 of the object kept at 0x552C70 (vtable 0x35EB78, made by 0x1A7F70); 0x1BAE59: the object
+  at 0x552CA8; 0x3C658 x3 and 0x42172: engine strings). The scrub at the add had found **one** heap pointer.
+- **The crash** (core dump): in player 1's client update, 0x1A7650 <- 0x1A79E0 <- 0x1A7B80 <- 0x18B8A0 (a client
+  export) <- ClientDLL_UpdateClientData 0x1CBD0 <- _Host_Frame: player 1 walked the lists of the 0x552C70 object that
+  player 2's initialisation had freed.
+- **Why the scrub missed them**: it ran when player 2 was added, against the blocks alive then. Between the initial
+  state (0.18 s) and the add (2.15 s) player 1's own code had freed and remade objects those pointers named (its map
+  load, its connect: the 0x552C70 object among them), and the addresses were reused: the initial state's pointers no
+  longer named live blocks of theirs, so they were left, and player 2's initialisation freed what lived there now.
+
+The fix (separate commit):
+- **The scrub runs when the initial state is taken**, against the blocks alive then: every heap pointer leaves the
+  initial state at once (the copy every new player starts from), recorded with the block's allocation serial.
+- **A cleared pointer is given back only to the same allocation**: after the new player's initialisation, when it left
+  the pointer at 0 and that very block (address and serial) is still alive; a block freed or an address reused since
+  stays empty.
+- **The safety net**: a free by player 2..4 (in its initialisation or its turns) of a block that is not its own is not
+  done and is logged as an error every time: a leak at worst, never a block freed under its owner (player 1 or the
+  process). Frees of player 1 and outside the turns are unchanged.
+- Unit tests: the stale snapshot case (a freed node, a reused address, a live shared cvar) and the skip rule
+  (native_split_test: 62 checks).
+
+Not re-run: another gameplay test needs the user's permission.
