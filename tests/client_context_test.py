@@ -72,6 +72,26 @@ def audit_test():
                 only_server = all('server' in c and 'client' not in c for c in classes if c != 'unreached')
                 if only_server and any(c != 'unreached' for c in classes):
                     errors.append(f'{w} holds {addr}, touched only by the server: {classes}')
+    # docs/native_splitscreen.md 13.7 (the fourth M2 run's findings): no static cvar is a player's (its next link is
+    # the shared cvar list's); the application and video shell is the process's; the client game's pool object
+    # (0x5BD8C4..0x5BD8E0, its chunk vector included) is a player's whole, not in part
+    sys.path.insert(0, os.path.join(ROOT, 'tools'))
+    import state_audit
+    def held(x):
+        return next((w for a, n, w in regs if a <= x < a + n), None)
+    for lo, n, what in state_audit.static_cvars():
+        for x in range(lo, lo + n):
+            if held(x):
+                errors.append(f'{held(x)} holds 0x{x:X}, part of {what} (shared)')
+                break
+    for x, what in ((0x379FA8, 'the refresh rate'), (0x551FE8, 'the video-mode object'),
+                    (0x5EECA0, 'the display-mode list'), (0x5EF4E0, 'com_argv'), (0x6CE210, 'the window rectangle'),
+                    (0x553614, 'a system object made once'), (0x5518A4, 'a start-up flag')):
+        if held(x):
+            errors.append(f'{held(x)} holds 0x{x:X}, {what} (the process\'s)')
+    for x in (0x5BD8C4, 0x5BD8CC, 0x5BD8D0, 0x5BD8D4, 0x5BD8D8, 0x5517F8, 0x5517FC):
+        if not held(x):
+            errors.append(f'0x{x:X} (the client game\'s pool object) is not in a player\'s regions')
     total = sum(n for _, n, _ in regs)
     print(f'{len(regs)} regions, {total} bytes ({total / 1024:.1f} KB) per player')
     return '; '.join(errors)

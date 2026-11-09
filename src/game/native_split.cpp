@@ -538,7 +538,7 @@ bool NativeSplitHeapFree(X86Context& ctx, uint8_t*) {
 // ---- before a destructor: another player's object is never destroyed --------------------------------------------
 
 // whether the acting player (in its initialisation or turn) may destroy the object at va; logged (an error: the
-// scrub left another's pointer in its state) when not
+// player's state names another's object) when not
 bool MayDestroyHere(uint32_t va, const char* what) {
     int acting = OwnerNow();
     if (acting <= 0 || !va) return true;

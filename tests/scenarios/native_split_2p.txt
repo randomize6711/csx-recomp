@@ -5,7 +5,7 @@
 # (M3). The report lines ("native split: player N ...") give each player's server slot, userid, cl.playernum and the
 # packets both ways; the checks below are the hard ones.
 #   --env FPS=30 --env CSX_NATIVE_SPLIT=2 --env CSX_CTX_GUARD=1 --launch tests/launch/de_dust2_nobots
-# timeout: 300
+# timeout: 180
 wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
 wait draws>=150
 expect log native split: 2 local players asked

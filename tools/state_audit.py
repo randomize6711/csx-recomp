@@ -252,7 +252,81 @@ SHARED_WRITERS = {
     0xB5A00: 'gamma ramps (2 x 256) from the display settings',
     0x25BF0: "the client's playermove_t (0x78A6E0) and its physents, cleared and refilled before every prediction",
     0x25C4D: "the client's playermove_t (the same function's second entry)",
+    # the Xbox application and video shell in the engine view's range (docs/native_splitscreen.md 13.7): one window,
+    # one display, one command line for the process; written by main's start-up (0xBF470 -> 0xAD8A0), the video
+    # object's methods and the shutdown, never in a player's turn
+    0xAD8A0: 'the game shell (main 0xBF470 calls it): refresh rate 0x379FA8, start-up flags 0x5518A4 / 0x55194C, video',
+    0xAD250: 'the command line parsed into com_argv 0x5EF4E0 (100 entries) and com_argc 0x6CE0C8',
+    0xAE290: 'the video re-initialisation (0xAD250 again, the video-mode object)',
+    0xAE370: 'the system and video objects shut down (0x379FA4, 0x379FAC); 0x55194C cleared',
+    0xAF170: 'the window rectangle and centre from the video object 0x379FAC (0x6CE204, 0x6CE210..0x6CE220)',
+    0xAF1F0: 'a system object made once (flag 0x553614; 0x553618 / 0x55361C by the XDK call 0x30A510)',
+    0xAF870: 'the video-mode object 0x551FE8 released',
+    0xAF8B0: 'the video-mode object 0x551FE8 made (572 bytes, vtable 0x339E68, 640x480x16)',
+    0xAFD60: 'the display-mode list (0x551FEC..0x551FF4, the 512-byte text at 0x5EECA0; called by 0x491F0)',
+    0xB0033: 'the display-mode list (0xAFD60\'s entries)',
+    0xB004C: 'the display-mode list (0xAFD60\'s entries)',
+    0xB00C0: 'the display-mode list (called by 0x491F0)',
+    0xB00E9: 'the display-mode list (0xB00C0\'s entry)',
 }
+
+# the C++ runtime's atexit (0x22C31D): the functions registered with it are static destructors, run once at the
+# process's exit (0x240160 frees the client game's pool-chunk vector 0x5BD8C8 and zeroes it). They do not make data
+# shared: a region's writers are weighed without them (docs/native_splitscreen.md 13.7).
+ATEXIT = 0x22C31D
+ATEXIT_RE = re.compile(r'^\s*// [0-9A-F]{8} push 0x([0-9A-F]+)\s*$')
+
+
+def exit_destructors():
+    out = set()
+    files = sorted(f for f in os.listdir(GEN) if re.match(r'x86_recomp\.\d+\.cpp$', f))
+    for name in files:
+        prev = None
+        for line in open(os.path.join(GEN, name), encoding='utf-8', errors='replace'):
+            m = INSN_RE.match(line)
+            if not m:
+                continue
+            if m.group(2) == 'call' and prev and m.group(3).strip().lower() == f'0x{ATEXIT:08x}':
+                out.add(prev)
+            pm = ATEXIT_RE.match(line)
+            prev = int(pm.group(1), 16) if pm else None
+    return out
+
+
+# every static cvar_t of the image (char *name; char *string; int flags; float value; cvar_t *next: 20 bytes), found
+# by its shape in the XBE's data: the cvar list is a shared registry (its next links above all: a link swapped with a
+# player cuts every later cvar off the others' list), so no part of a static cvar is a player's
+def static_cvars():
+    d = open(os.path.join(ROOT, 'assets', 'default.xbe'), 'rb').read()
+    base = struct.unpack_from('<I', d, 0x104)[0]
+    nsec = struct.unpack_from('<I', d, 0x11C)[0]
+    sh = struct.unpack_from('<I', d, 0x120)[0] - base
+    secs = [struct.unpack_from('<IIIII', d, sh + i * 56)[1:5] for i in range(nsec)]
+
+    def raw(va, n):
+        for v, vs, ra, rs in secs:
+            if v <= va < v + vs:
+                return d[ra + va - v:ra + va - v + n] if va - v + n <= rs else bytes(n)
+        return None
+
+    def text(va):
+        b = raw(va, 40)
+        if not b:
+            return None
+        s = b.split(b'\0')[0]
+        return s.decode() if len(s) >= 2 and all(32 < c < 127 for c in s) else None
+    out = []
+    for v, vs, ra, rs in secs:
+        if not (DATA_LO <= v < DATA_HI):
+            continue
+        for a in range(v, v + min(vs, rs) - 20, 4):
+            n, s, f, _, _ = struct.unpack('<IIIfI', raw(a, 20))
+            nm = text(n)
+            st = text(s) if s else None
+            if nm and st is not None and f < 0x10000 and re.fullmatch(r'[a-z_][a-z0-9_]+', nm) and \
+                    re.fullmatch(r'[-0-9.a-zA-Z_ ]*', st):
+                out.append((a, 20, f'the static cvar {nm}'))
+    return out
 
 
 # code inside a swapped part whose data is shared: the Xbox renderer in the client game's range (the BSP world
@@ -271,6 +345,7 @@ def regions():
             if 'w' in k:
                 writers[int(r, 16)].add(int(f, 16))
     addrs = sorted(int(a, 16) for a in data)
+    exits = exit_destructors()
     out = []
     review = []
     for i, a in enumerate(addrs):
@@ -279,7 +354,9 @@ def regions():
         client_w = any('client' in c and 'w' in k for c, k in v.items())
         if server or not client_w:
             continue
-        ws = writers[a]
+        ws = writers[a] - exits
+        if writers[a] and not ws:
+            continue
         if any(lo <= a < lo + n for lo, n, _ in SHARED_DATA):
             continue
         if ws and all(w in SHARED_WRITERS for w in ws):
@@ -303,6 +380,7 @@ def regions():
     body = text[text.index('ClientContextRegions() {'):]
     body = body[:body.index('#include')]
     hand = [(int(a, 16), int(a, 16) + int(n, 16)) for a, n in re.findall(r'\{0x([0-9A-Fa-f]+), 0x([0-9A-Fa-f]+), "', body)]
+    hand += [(lo, lo + n) for lo, n, _ in static_cvars()]  # and against the static cvars (shared)
     clipped = []
     for a, e, part, ws in out:
         segs = [(a, e)]

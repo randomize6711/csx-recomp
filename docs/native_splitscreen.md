@@ -671,3 +671,44 @@ object, the HUD list, its delta slot); what it still owns is reported as a leak 
 - The leave path's release of objects (13.4) has never run; the particle manager's destructor is not identified (it
   will show as a leak).
 - The two local-player assumptions of 10.7.
+
+### 13.7 The fourth M2 run (2026-11-09, permitted once): player 2 refused by its own checks; causes found; fixed, not re-run
+
+native_split_2p on commit 3559246 (the revision: boot-image construction, shared-once delta, ownership by kind),
+one process, built-in server, CSX_NATIVE_SPLIT=2, CSX_CTX_GUARD=1, de_dust2 without bots, headless, hard timeout
+180 s: **FAIL (timeout waiting for player 2)**. No crash, no hang: the game ran its frames to the end.
+- Player 1: the boot image kept (151 regions, 1058617 bytes); at the reference 17323 process blocks, 133 heap pointers
+  in player 1's regions; the match loaded; the server write guard checked 4495 server frames, **0 wrote client
+  state** (copy 0.04 ms, compare 0.03 ms a frame).
+- Player 2 (2.11 s): context 1 added; its initialisation ran (Initialize, HUD_Init; one Cmd_AddCommand skipped as
+  designed) and then **failed its checks, as designed**: not added, slot never asked for, 171 of its blocks
+  (667482 bytes) left behind (logged). Three errors:
+  1. *missing 0x371970 (shared registry block):* 0x371960 is the static cvar `cl_fixtimerate`; a generated region
+     (0x37196C, 8 bytes: its value) ran on into its `next` link. The cvar list is sorted on insertion, so that link
+     named a cvar registered later: player 1's list link was swapped out with player 1. Cause: the generator ends a
+     region at the next address any code names, so it takes in bytes reached only through pointers. A second static
+     cvar (`arrowlt` 0x380D98, its value) was also in a region.
+  2. *missing 0x551FE8 (owned, 572 bytes, 0xAF8C4):* the video-mode object (vtable 0x339E68, 640x480x16), made by
+     main's own start-up (main 0xBF470 -> 0xAD8A0 -> 0xAF8B0) after the boot capture and before Host_Init: the
+     13.1 inventory covered Host_Init only. The "engine view" range 0xAC000..0xB8000 holds the Xbox application and
+     video shell too; 10 of its 21 generated regions had no writer in a player's turn: the refresh rate 0x379FA8,
+     the flags 0x5518A4 / 0x55194C, the video-mode object and its fields 0x551FD4..0x551FF8, a system object made
+     once 0x553614 / 0x55361C (0xAF1F0), the display-mode list 0x5EECA0 (512 bytes), com_argv 0x5EF4E0 (0xAD250),
+     the window rectangle 0x6CE204 / 0x6CE210 (0xAF170). All process state (one window, one display).
+  3. *a blocked free of a process block (0x1815DE):* std::vector<4-byte>'s grow (0x1814C0) freeing the old buffer of
+     the vector at 0x5BD8C8, the client game's pool-chunk list: the pool 0x1F9B90 (0x5517F8.., made by Initialize
+     0x18B7A0 -> 0x18B710 -> 0x1F9290 -> 0x1F8E40 -> 0x1F9EC0) is per player, its chunk vector was not: the
+     vector's static destructor 0x240160 (atexit, from 0x23F300) writes it and lies outside the client game's range,
+     so the generator left the vector shared while the pool around it (0x5BD8C4, 0x5BD8D8) was a player's.
+- Fixes (tools/state_audit.py; regenerated client_context_regions.inc: 130 -> 118 generated regions, 139 in all,
+  1057617 bytes a player): every static cvar_t (161, found by shape in the XBE) is clipped out of the regions;
+  the shell's 13 writers are reviewed shared writers (SHARED_WRITERS, each named); functions registered with atexit
+  (0x22C31D) do not count as a region's writers (the pool object 0x5BD8C4..0x5BD8E0 is now a player's whole).
+  tests/client_context_test.py checks all three (with the old list it reports the 12 entries).
+- The inventory now covers main's start-up as well: everything main reaches by direct calls (not through Host_Init,
+  _Host_Frame or the hubs) writes into the regions only the view 0x3820D8 (redone in each turn) and the addresses
+  of cl / cls already in 13.1.
+- What the failure confirmed: the explicit construction fails closed. Player 2 did not start from player 1's
+  pointers, nothing of player 1's was freed or destroyed (the one free was skipped and logged), player 1 played on.
+- Not verified (player 2 never connected): checks 3-9 of the run (slots, userids, packets per channel, the delta
+  slot, ownership in the turns); the leave path; frame timing with two players.
