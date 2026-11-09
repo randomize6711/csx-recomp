@@ -100,19 +100,38 @@ struct Cleared {
 // when it is taken (the end of Host_Init), when its pointers are current: later, player 1's own code frees and reuses
 // blocks those pointers name (its map load, its connect), and a pointer to a block since freed or reused could no
 // longer be told from data (the M2 run of 2026-11-09: one pointer found at the add, 44 of player 1's blocks freed).
-inline std::vector<Cleared> Scrub(std::vector<uint8_t>& copy, const Blocks& blocks) {
+// a region of the copy: where its bytes are in the copy, and in guest memory
+struct Span {
+    size_t offset;
+    uint32_t va;
+    uint32_t size;
+};
+
+// The copy is the regions laid end to end, and regions start at any address (0x78A943, 0x742FCF, ...): a pointer is a
+// dword aligned in guest memory, not in the copy. So each region is read at its own guest alignment (the M2 run's
+// second cause: read at the copy's alignment after the first region of an odd size, the pointers of every later
+// region were seen split in two, and the scrub found one).
+inline std::vector<Cleared> Scrub(std::vector<uint8_t>& copy, const std::vector<Span>& spans, const Blocks& blocks) {
     std::vector<Cleared> out;
-    for (size_t off = 0; off + 4 <= copy.size(); off += 4) {
-        uint32_t v;
-        std::memcpy(&v, copy.data() + off, 4);
-        uint32_t start = v < 0x10000 ? 0 : blocks.Holding(v);
-        if (!start) continue;
-        const Block* b = blocks.At(start);
-        out.push_back({off, v, start, b->serial, b->size, b->site});
-        std::memset(copy.data() + off, 0, 4);
+    for (const Span& sp : spans) {
+        uint32_t first = (sp.va + 3) & ~3u;  // the region's first guest-aligned dword
+        for (uint32_t va = first; va + 4 <= sp.va + sp.size; va += 4) {
+            size_t off = sp.offset + (va - sp.va);
+            if (off + 4 > copy.size()) break;
+            uint32_t v;
+            std::memcpy(&v, copy.data() + off, 4);
+            uint32_t start = v < 0x10000 ? 0 : blocks.Holding(v);
+            if (!start) continue;
+            const Block* b = blocks.At(start);
+            out.push_back({off, v, start, b->serial, b->size, b->site});
+            std::memset(copy.data() + off, 0, 4);
+        }
     }
     return out;
 }
+
+// one span of a whole copy whose guest address is its offset (tests)
+inline std::vector<Span> Flat(size_t size, uint32_t va = 0) { return {{0, va, uint32_t(size)}}; }
 
 // whether the very allocation a cleared pointer named is still alive: the same address, the same allocation serial,
 // size and allocating code (not freed, not another block at the same address since)

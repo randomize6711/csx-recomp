@@ -119,7 +119,7 @@ static void Heap() {
     std::vector<uint8_t> copy(32, 0);
     uint32_t vals[8] = {0x1000000, 7, 0x1000210, 0x2000000, 0x1000100, 0, 0x10000FC, 12};
     std::memcpy(copy.data(), vals, sizeof vals);
-    std::vector<Cleared> cleared = Scrub(copy, b);
+    std::vector<Cleared> cleared = Scrub(copy, Flat(copy.size()), b);
     Check(cleared.size() == 3, "three heap pointers found (two block starts, one inside)");
     uint32_t after[8];
     std::memcpy(after, copy.data(), sizeof after);
@@ -142,7 +142,7 @@ static void Heap() {
         std::vector<uint8_t> snap(12);
         uint32_t v[3] = {0x5000000, 0x5000100, 0x5000200};
         std::memcpy(snap.data(), v, 12);
-        std::vector<Cleared> at_snapshot = Scrub(snap, h);  // when the snapshot is taken
+        std::vector<Cleared> at_snapshot = Scrub(snap, Flat(snap.size()), h);  // when the snapshot is taken
         Check(at_snapshot.size() == 3, "all three found while current");
         h.Freed(0x5000000);                         // player 1 frees its node
         h.Freed(0x5000100);                         // and its object...
@@ -162,7 +162,7 @@ static void Heap() {
         std::vector<uint8_t> snap(8);
         uint32_t v[2] = {0x6000000, 0x6000100};
         std::memcpy(snap.data(), v, 8);
-        std::vector<Cleared> c = Scrub(snap, h);
+        std::vector<Cleared> c = Scrub(snap, Flat(snap.size()), h);
         Check(c.size() == 2 && c[0].site == 0x1BF2A && c[1].size == 0x440, "the cleared pointers keep size and site");
         auto shared = [](uint32_t site) { return site == 0x1BF2A; };
         std::vector<uint8_t> p2 = snap;
@@ -176,9 +176,30 @@ static void Heap() {
         std::vector<uint8_t> s2(4);
         uint32_t x = 0x7000000;
         std::memcpy(s2.data(), &x, 4);
-        std::vector<Cleared> c2 = Scrub(s2, g);
+        std::vector<Cleared> c2 = Scrub(s2, Flat(s2.size()), g);
         c2[0].size = 0x30;
         Check(!StillAlive(c2[0], g), "a different size: not the same allocation");
+    }
+    // regions at odd addresses, laid end to end (the M2 run's case): a region of 3 bytes at 0x10001 shifts the next one
+    // in the copy; its pointer, aligned in guest memory at 0x20000, sits at copy offset 3. Read at the copy's alignment
+    // it would be missed; read at each region's guest alignment it is found.
+    {
+        Blocks h;
+        h.Allocated(0x8000000, 0x48, kProcess, 0x1A7F91);
+        std::vector<Span> spans = {{0, 0x10001, 3}, {3, 0x20000, 8}};
+        std::vector<uint8_t> copy(11, 0);
+        uint32_t p = 0x8000000;
+        std::memcpy(copy.data() + 3, &p, 4);
+        std::vector<Cleared> c = Scrub(copy, spans, h);
+        Check(c.size() == 1 && c[0].offset == 3, "a pointer after an odd-sized region is found");
+        uint32_t back;
+        std::memcpy(&back, copy.data() + 3, 4);
+        Check(back == 0, "and cleared");
+        // a region starting unaligned: its first aligned dword is read, not its start
+        std::vector<Span> odd = {{0, 0x30002, 10}};
+        std::vector<uint8_t> c3(10, 0);
+        std::memcpy(c3.data() + 2, &p, 4);  // guest 0x30004
+        Check(Scrub(c3, odd, h).size() == 1, "a region starting at an odd address: its aligned pointer found");
     }
     // the safety net: player 2..4 never frees a block that is not its own
     Check(SkipFree(kProcess, 1) && SkipFree(0, 1) && SkipFree(2, 1), "player 2: not the process's, not another's");

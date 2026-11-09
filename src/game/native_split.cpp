@@ -333,7 +333,16 @@ bool NativeSplitOn() { return Wanted() >= 2; }
 void NativeSplitInitialTaken() {
     g_blocks.OwnAll(heapown::kProcess);
     // the heap pointers out of the initial state now, while they are current (heap_owner.h Scrub)
-    g_cleared = heapown::Scrub(csx::ClientContextInitial(), g_blocks);
+    std::vector<heapown::Span> spans;
+    size_t at = 0;
+    for (const ctx::Region& r : csx::ClientContextRegions()) {  // the switcher's order (sorted by address)
+        spans.push_back({at, r.start, r.size});
+        at += r.size;
+    }
+    if (at != csx::ClientContextInitial().size())
+        LOGE("native split: the regions (%zu bytes) do not match the initial state (%zu)", at,
+             csx::ClientContextInitial().size());
+    g_cleared = heapown::Scrub(csx::ClientContextInitial(), spans, g_blocks);
     LOGI("native split: %d local players asked; %zu heap blocks from the process's initialisation; %zu heap pointers "
          "cleared from the initial state",
          Wanted(), g_blocks.Count(), g_cleared.size());
