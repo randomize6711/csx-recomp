@@ -198,6 +198,8 @@ void LeaveSplitScreen() {
     }
 }
 
+void Sender(int kind, const std::string& text);
+
 void PrepareRelaunch(bool match) {
     if (g_alone && Player() == 1) return LeaveSplitScreen();
     float a = match ? g_match_aspect.load() : g_menu_aspect.load();
@@ -207,6 +209,8 @@ void PrepareRelaunch(bool match) {
     std::snprintf(text, sizeof text, "%.5f", double(a));
     setenv("CSX_DISPLAY_ASPECT", text, 1);
     LOGI("split: relaunching %s at aspect %s", match ? "into a match" : "to the menus", text);
+    // player 1: the compositor lays the match's viewports out now, before this relaunch's loading screen
+    if (match && Player() == 1) Sender(int(split::Msg::Match), "starting");
 }
 
 void Sender(int kind, const std::string& text) {

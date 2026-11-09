@@ -1,0 +1,87 @@
+# Starting a split-screen match from Instant Action (docs/splitscreen.md "Starting a match"; play-test 2026-11-08: "no
+# need for two loading screens"): player 1 alone, player 2 joins with START, Start Match. Before: player 1's front end
+# loading screen in the whole window, a black "PLAYER 2 JOINING..." frame, then the split layout with both loading
+# again; and player 1 booted the match at the window's 16:9 (its size not sent again when player 2 joined), so its view
+# was a 16:9 picture in the middle of its 32:9 viewport for the whole first map. Now player 1 says "starting" at Start
+# Match (and at its relaunch): the compositor lays the match out at once and hides player 1's picture until its
+# relaunched process draws; player 1 boots at its viewport's 3.57. Window shots t00..t23 and match, looked at by hand.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 720), with
+#   --env CSX_SPLIT_COMPOSITOR=1 --env CSX_SPLIT_PLAYERS=1 --env CSX_SPLIT_ZCACHE=$PWD/build/zcache
+# timeout: 400
+wait log split: player 1 started
+pad 1 attach
+wait log p1: open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+wait log p1: pc mouse: screen Initial_CreateProfile
+sleep 3
+key Space
+wait log p1: pc mouse: screen SuperLauncher_CreateProfile
+sleep 3
+key Space
+wait log p1: pc mouse: screen SuperLauncher_MainScreen
+sleep 3
+key Space
+wait log p1: pc mouse: screen SuperLauncher_PCInstantAction
+sleep 3
+pad 1 button start
+wait log split: party: player 2 joined
+sleep 3
+windowshot hub
+key Space
+windowshot t00
+sleep 0.25
+windowshot t01
+sleep 0.25
+windowshot t02
+sleep 0.25
+windowshot t03
+sleep 0.25
+windowshot t04
+sleep 0.25
+windowshot t05
+sleep 0.25
+windowshot t06
+sleep 0.25
+windowshot t07
+sleep 0.25
+windowshot t08
+sleep 0.25
+windowshot t09
+sleep 0.25
+windowshot t10
+sleep 0.25
+windowshot t11
+sleep 0.25
+windowshot t12
+sleep 0.25
+windowshot t13
+sleep 0.25
+windowshot t14
+sleep 0.25
+windowshot t15
+sleep 0.25
+windowshot t16
+sleep 0.25
+windowshot t17
+sleep 0.25
+windowshot t18
+sleep 0.25
+windowshot t19
+sleep 0.25
+windowshot t20
+sleep 0.25
+windowshot t21
+sleep 0.25
+windowshot t22
+sleep 0.25
+windowshot t23
+sleep 0.25
+wait log p1: game: "Player 2
+sleep 8
+windowshot match
+expect log split: player 1: starting
+expect log p1: split: relaunching into a match at aspect 3\.56
+expect log p1: pc wide: aspect auto \(3\.56
+expect nonewlog split: player 1's viewport 1152x648
+expect nolog guest trap

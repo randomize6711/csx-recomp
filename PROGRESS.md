@@ -893,3 +893,9 @@ manual testing and approval; no optimization or complete regression until then.
 
 - Bots: Knives Only, a new last row of Bot Configuration (FINDINGS.md "Bots with every gun "No" still shot"): the
   title's rows only limit buying, so bots kept their spawn pistols. regress_bot_knives passed (17 knife kills, no gun).
+- Split screen (the multi-process fallback): starting a match from Instant Action showed player 1's front end loading
+  screen in the whole window, a "PLAYER 2 JOINING..." frame, then both loading again; and player 1 booted the match
+  at the window's 16:9 (its size not sent again when player 2 joined), so its first map was a 16:9 picture inside its
+  32:9 viewport. Player 1 now says "starting" at Start Match and at its relaunch: the compositor lays the match out
+  at once and hides player 1's picture until its relaunched process draws; a join or leave sends player 1 its size.
+  vk_split_start (new) passed; vk_split_2 and vk_split_solo fail in the old menu route (TODO's stale list).

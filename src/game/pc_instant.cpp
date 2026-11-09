@@ -247,6 +247,9 @@ void PcInstantCommand(X86Context& ctx, const std::string& what) {
         HoldBots(PcPartyCount());
         LOGI("pc instant: start: %s, mode %d, bots %d, rules %d", PcMapListSelected().c_str(), Choice(kRowMode),
              PcBotCountAt(Choice(kRowBots)), Choice(kRowRules));
+        // split screen: the compositor lays the match out and hides this process's front end loading screen until
+        // the match's relaunch draws (src/linux/compositor.cpp "starting")
+        csx::SplitSend(csx::kSplitMatch, "starting");
         return csx::QueueEngineCommand("SinglePlayerStartSession\n");
     }
     if (what == "map") {

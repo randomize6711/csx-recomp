@@ -354,6 +354,15 @@ std::vector<Rect> Layout(int n, int w, int h, bool vertical, int gap) {
 }
 
 int g_configured = 1;      // local players asked for (--splitscreen N, the setup screen)
+// player 1 relaunches into a match (its "starting"): the match's layout at once, its loading screen in its own viewport
+// (not the whole window, then resized when the others start), until it is back in the menus
+bool g_match_starting = false;
+// and player 1's picture hidden (its viewport black) from its "starting" until its relaunched process says Hello: the
+// front end's own loading screen, drawn at the menus' aspect just before the relaunch, is not shown as a second one.
+// Ends anyway after kStartingHidden seconds (a start that never relaunched: an error box in the menus).
+double g_p1_hidden_until = 0;
+double Seconds();
+constexpr double kStartingHidden = 20.0;
 bool g_vertical = false;   // two players side by side
 bool g_new_swapchain = false;
 bool g_fullscreen = false;     // asked for (F11, Display Mode, a test): some compositors do not keep SDL's flag  // VSync changed: the swapchain made again (FIFO or MAILBOX)
@@ -444,7 +453,7 @@ void Relayout() {
     int ww = 0, wh = 0, pw = 0, ph = 0;
     SDL_GetWindowSize(g_win, &ww, &wh);
     SDL_GetWindowSizeInPixels(g_win, &pw, &ph);
-    int n = Active();
+    int n = g_match_starting ? std::max(Active(), SeatedCount()) : Active();
     auto logical = Layout(n, ww, wh, g_vertical, 2);
     auto pixels = Layout(n, pw, ph, g_vertical, std::max(2, 2 * pw / std::max(1, ww)));
     int k = 0;
@@ -684,7 +693,14 @@ void OnMatch(const std::string& text) {
          got >= 3 ? (std::string(key) + (got >= 4 ? std::strcmp(password, "-") ? " with a password" : " no password" : ""))
                         .c_str()
                   : "");
+    if (got >= 1 && !std::strcmp(kind, "starting")) {
+        g_match_starting = true;
+        g_p1_hidden_until = Seconds() + kStartingHidden;
+        Relayout();
+        return;
+    }
     if (got >= 1 && !std::strcmp(kind, "menu")) {
+        g_match_starting = false;
         g_match_line.clear();
         for (int i = 1; i < kMaxPlayers; i++) {
             End(g_players[size_t(i)], "player 1 is back in the menus");
@@ -844,6 +860,7 @@ void PartyJoin(SDL_JoystickID id) {
     LOGI("split: party: player %d joined (%s)", p.n, SDL_GetGamepadNameForID(id) ? SDL_GetGamepadNameForID(id) : "controller");
     PartyInput(p.n, "joined");
     SendState();
+    SendSize(g_players[0]);  // player 1's next match is in a layout with one more viewport: its boot aspect
 }
 
 // a member leaves the party (its panel's B, before a match): the members after it move up a place, its controller is
@@ -872,6 +889,7 @@ void PartyLeave(int n) {
     g_configured--;
     if (g_kbm > n && g_kbm > 1) g_kbm--;
     SendState();
+    SendSize(g_players[0]);  // and with one fewer
 }
 
 // ---- input --------------------------------------------------------------------------------------------------------------
@@ -1321,6 +1339,7 @@ void HandleMessage(Player& p, const split::Message& m) {
     size_t at = 0;
     switch (m.type) {
     case split::Msg::Hello:
+        if (p.n == 1) g_p1_hidden_until = 0;  // its relaunched process: its own frames from now
         DropImages(p);  // a relaunch: its images are new ones
         p.view = {};
         p.view_px = {};
@@ -1676,6 +1695,7 @@ void Composite() {
             p.ready = -1;
         }
         if (p.shown < 0 || p.view_px.w <= 0) continue;
+        if (p.n == 1 && g_p1_hidden_until > Seconds()) continue;  // starting a match: no front end loading screen
         VkImage src = p.images[size_t(p.shown)].image;
         Barrier(cb, src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_QUEUE_FAMILY_EXTERNAL,
                 g.qfamily, 0, VK_ACCESS_2_TRANSFER_READ_BIT);

@@ -12,7 +12,9 @@
 0. Tests left behind by the main menu redesign (2026-10-31; found 2026-11-08): 19 scenarios still walk the old main
    menu (Multiplayer as the fourth row, then the party screen) and now reach Extras instead: net_browse_address,
    _favorites, _join, _lan, _many, _master, net_party_private, net_party_lan, net_split_browse, net_split_listen,
-   vk_local_server_port, vk_party_alone, _join, _match, _rules, _pads, _numbers, vk_profile_settings, vk_split_3.
+   vk_local_server_port, vk_party_alone, _join, _match, _rules, _pads, _numbers, vk_profile_settings, vk_split_3
+   (and, found 2026-11-09: vk_split_2 reaches Options, vk_split_solo expects the old six-row main menu,
+   vk_prompts_legends; vk_split_start is the new route's split test).
    They need the new route (Multiplayer second, its hub: Server Browser, Host Game, Direct-IP / Code;
    docs/menus.md "Main menu") once the redesign is approved.
 0. Autonomous pass N5..N11 leftovers (docs/autonomous_pass.md, each milestone's doc):
