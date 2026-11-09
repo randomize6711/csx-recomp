@@ -367,3 +367,96 @@ about 2.5 minutes), on commit 352aab1: passed.
   0.031 ms per frame on average.
 - The match: the player joined (Terrorist), three rounds started, 17 kills; no trap, no engine error, no warning beyond
   the usual missing optional files.
+
+## 11. M2: two local clients in one process (2026-11-09; compiled, not run)
+
+Everything here is off unless `CSX_NATIVE_SPLIT=N` (2..4); off, the game runs the title's paths (the only always-on
+hooks compare loopback ports, all 0 then: tests/native_split_test.py checks that they agree with the title). Nothing
+of M2 has been run: no gameplay test without the user's permission.
+
+### 11.1 Prerequisites settled (static)
+
+- **cls's end, proved**: its last member is the 1 KB buffer at 0x78579C (copied whole at 0x29770), ending at
+  0x785B9C; after it come separate client globals and cl_visedicts[512] at 0x785BC0..0x7863C0 (filled at 0x1CA01,
+  its count 0x749D20 kept below 0x200). cls is 0x7812E0..0x785B9C (0x48BC bytes).
+- **Registrations** (what a second run of the client's initialisation would repeat):
+  - the client's pfnAddCommand (0x1BFD0 -> 0x3C8C0): a name already defined is ignored: idempotent;
+  - the client's pfnHookUserMsg (0x1C120 -> HookUserMsg 0x2C690): the same name with the same handler returns the
+    existing entry (0x2C6FB): idempotent;
+  - the client's pfnRegisterVariable (0x1BEF0): allocates a new cvar_t every time and registers it (0x422A0); a
+    name already registered is refused and the client keeps the unregistered copy, whose value nothing sets. While
+    another player's initialisation runs, the hook returns the registered cvar (Cvar_FindVar 0x41F20);
+  - the engine's Cmd_AddCommand (0x3C760) is Sys_Error (0xAC090, never returns) after host_initialized (0x551D7C):
+    while another player's initialisation runs, it is skipped.
+- **Process-wide against per-player initialisation**: Host_Init (0x5D9E0) loads the client (0x1C5D0: ClientDLL_Init
+  0x1C6F0 fills cl_funcs, the engine's own message hooks, the client's Initialize 0x18B7A0 which copies the engine's
+  functions to gEngfuncs 0x5430E8 and makes the particle manager), then CL_Init (0x2BA10: cls.userinfo keys, the
+  engine client's cvars and commands, then HUD_Init 0x18B800 via 0x1CB40); each connect then runs 0x2E780 (the client
+  state cleared, cl_entities allocated, HUD_VidInit). A player's state from the boot (M1) lacked the tables the
+  process's initialisation fills (cl_funcs, gEngfuncs: called through, they would be null): a new player now starts
+  from **player 1's regions at the end of Host_Init** (hook 0x5DD94), then runs only Initialize and HUD_Init in its
+  own context; the per-connect part runs on its own turn as for player 1.
+- **The danger in that copy, found in the code**: the copy holds player 1's heap pointers, and the initialisation
+  frees what it finds: gHUD.Init (0x1A65A0) frees every node of the list at gHUD + 0 (0x1A6A10..0x1A6A26), 0x1BAE40
+  frees the object at 0x552CA8 before making another. Hence the scrub (11.3).
+
+### 11.2 The local clients and the built-in server
+
+- **A local player** = a slot in native_split_core.h's Players (0..3; 0 is the game's own) + a client context
+  (client_context.cpp) + a loopback channel (local_loopback.h). Its life: initialising -> connecting -> active ->
+  leaving -> empty; a slot is reused when it rejoins.
+- **Connection**: the built-in listen server (a native split match never starts csx-server: LocalServerWanted is
+  false). The added player's client is disconnected (cls.state 1) while sv.active: on its own turn CL_CheckForResend
+  connects it to "localhost" with no challenge, as the title connects its own player (analysis/netcode_engine.md
+  2.1); SV_ConnectClient gives it its own slot (65 kept).
+- **Identity**: its own client context (cls, cl, the client game's state), its own userinfo name ("Player N",
+  Info_SetValueForKey 0x65760 on its cls.userinfo), its own server userid (g_userid, one per connect), and on the
+  loopback its own address: the port is its slot (player 1 keeps port 0, the address it always had).
+- **Packet routing**: NET_SendPacket (0x6CC70) for a loopback address goes into the host's channels: from a client,
+  tagged with the active player (a player's client only runs in its own turn: reported otherwise); from the server,
+  to the player its destination's port names. NET_GetLoopPacket (0x6BAF0) reads the server's inbox (net_from = the
+  loopback address with the sender's port) or the active player's inbox. Each inbox keeps the newest four packets of
+  each sender, as the title's rings. NET_CompareAdr (0x6B3CD) and SV_ReadPackets (0x9C722) compare a loopback
+  address's port, so the reconnect check of SV_ConnectClient (which would have given player 2 player 1's slot) and
+  the packet-to-client match keep the players apart. Host_ShutdownServer (0x5C9D0) empties the channels.
+- **The server frame** stays once per frame (SV_Frame between the players' input turns and their client halves); no
+  second world, no second bot simulation.
+- **Until M3 / M4** an added player's turn skips SCR_UpdateScreen (0x5D51B: nothing drawn over player 1's frame), the
+  look routine (0x19E160: no stick or mouse look) and the pad's keys (0x19DFD0), and S_StartDynamicSound (0x100F10).
+  Keyboard commands run from the console buffer at the frame's start, in player 1's context.
+
+### 11.3 Memory ownership
+
+- **Heap owners** (heap_owner.h; hooks at _heap_alloc's ret 0x22D83D, calloc's 0x235F2D, free 0x22C609): every block's
+  owner is the player whose turn or initialisation allocated it, else the process. At the snapshot all blocks so far
+  are the process's.
+- **The scrub**: before a new player's copy is first switched in, every aligned dword of it pointing into a known heap
+  block is cleared (and remembered); its initialisation then allocates its own objects and frees nothing of player
+  1's; afterwards each cleared dword it left at 0 gets its value back (a shared object: a registered cvar, a
+  registry) and is counted in the log line "N heap pointers of player 1 cleared, M replaced, K kept shared".
+- **Foreign frees**: a player freeing another player's block, or a player other than the first freeing a block of the
+  process's initialisation, is logged (five times, every time with CSX_CTX_GUARD=1). Frees outside the turns (the
+  server, the console, a map change) are not attributed.
+- **Leaving** (RemovePlayer; the diagnostic CSX_NATIVE_SPLIT_LEAVE_AFTER=S removes the last player S seconds after it
+  joined): its server slot dropped with SV_DropClient (0x5C600; never CL_Disconnect, which calls Host_ShutdownServer),
+  its loopback packets forgotten, its client entities freed (its own block, checked), its context removed (the later
+  ones renumbered), its slot emptied. Its other objects (the particle manager, the VGUI viewport, the HUD's lists) are
+  not freed: their destructors are not run; their blocks are counted ("N kept, B bytes") and handed to the process.
+  The shared map, textures, models, sounds and the server are never touched.
+- **Context switch**: 0.059 ms a switch measured on a synthetic 1 060 577-byte layout (tests/native_split_test.py),
+  about 0.24 ms a frame for two players.
+
+### 11.4 Not verified, and the risks before M3
+
+- **Nothing of M2 ran.** The second player's initialisation in its context, its auto-connect, the server accepting a
+  second loopback client, the host loopback, the scrub and the leave path need one supervised run (permission).
+- The scrub is a heuristic: a dword equal to a heap address by chance is cleared and restored (harmless); a pointer
+  stored unaligned, or inside a heap object reached from the regions, is not seen; realloc is not tracked.
+- HUD_Init run again may touch shared state not yet known (the VGUI root panel's children: a second viewport is
+  created at its HUD_VidInit and becomes the shared root's child: M4).
+- Only dynamic sounds are gated for the added player: static and ambient sounds its messages start may play twice.
+- The client effects are simulated per player (correct per player's view, at N times the cost).
+- The two local-player assumptions (10.7) still answer player 1.
+- A player's leave leaks its objects but the client entities until their destructors are run (M4 / M8).
+- A map change relaunches the whole process (the title's way): every context is rebuilt and the added players rejoin
+  after player 1 is in (the environment keeps CSX_NATIVE_SPLIT).

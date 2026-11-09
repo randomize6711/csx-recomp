@@ -13,5 +13,11 @@ int ClientContextCount();
 int ClientContextActive();
 int ClientContextAdd();             // a new player's context (a copy of the active one's state); its index
 bool ClientContextSwitch(int k);    // player k's state made the live memory
+bool ClientContextRemove(int k);    // context k dropped (not 0, not active); later ones move down an index
+bool ClientContextInTurn();         // inside a player's turn of _Host_Frame (its CL_Move, or its client half)
+bool ClientContextHasInitial();     // the state a new context starts from was taken (native split-screen only)
+std::vector<uint8_t>& ClientContextSaved(int k);  // context k's saved copy (not the active one's: stale)
+uint32_t ClientContextAddressOf(size_t offset);   // a copy's byte's guest address
+long ClientContextOffsetOf(uint32_t va);          // a guest address's offset in a copy, -1 outside the regions
 
 }  // namespace csx

@@ -918,3 +918,9 @@ manual testing and approval; no optimization or complete regression until then.
   memory; no per-player constructor allocates); the server write guard (CSX_CTX_GUARD); the two local-player
   assumptions for M4 documented. Solo run with the guard (permitted once): passed, 3 440 server frames checked, no
   server write into client state, 1 MB copied in 0.041 ms.
+- M2 (two local clients in one process; compiled, not run): CSX_NATIVE_SPLIT=N adds players 2..N as logical clients
+  of the built-in listen server, each in its own context and loopback channel (local_loopback.h, native_split.cpp);
+  registrations a second initialisation would repeat answered by the first (cvars) or skipped (the fatal
+  Cmd_AddCommand); a new player starts from player 1's state at the end of Host_Init with player 1's heap pointers
+  scrubbed (heap_owner.h); leaving drops only that player's server slot; cls's end proved (0x785B9C). Unit tests:
+  native_split_test (57 checks) and all others pass.

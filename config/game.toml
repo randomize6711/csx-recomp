@@ -1091,9 +1091,85 @@ call = "ScoreRowNext"
 
 # native split-screen (src/game/client_context.cpp, docs/native_splitscreen.md M1): _Host_Frame's turns per local
 # player; with one player (every game today) both continue
+# native split-screen's local players (src/game/native_split.cpp, docs/native_splitscreen.md M2): off unless
+# CSX_NATIVE_SPLIT=2..4; the address hooks compare loopback ports, all 0 without it
 [[hook]]
-at = 0x202C1E
+at = 0x22D83D
+call = "NativeSplitHeapAlloc"
+
+[[hook]]
+at = 0x235F2D
+call = "NativeSplitHeapCalloc"
+
+[[hook]]
+at = 0x22C609
+call = "NativeSplitHeapFree"
+
+[[hook]]
+at = 0x6CC70
+call = "NativeSplitSend"
+on_true = "ret"
+
+[[hook]]
+at = 0x6BAF0
+call = "NativeSplitGet"
+on_true = "ret"
+
+[[hook]]
+at = 0x6B3CD
+call = "NativeSplitCompareAdr"
+on_false = 0x6B41E
+
+[[hook]]
+at = 0x9C722
+call = "NativeSplitReadPackets"
+on_false = 0x9C823
+
+[[hook]]
+at = 0x5C9D0
+call = "NativeSplitShutdownServer"
+
+[[hook]]
+at = 0x1BEF0
+call = "NativeSplitRegisterVariable"
+on_true = "ret"
+
+[[hook]]
+at = 0x3C760
+call = "NativeSplitAddCommand"
+on_true = "ret"
+
+[[hook]]
+at = 0x5D51B
+call = "NativeSplitScreen"
+on_false = 0x5D535
+
+[[hook]]
+at = 0x19E160
+call = "NativeSplitLook"
+on_true = "ret"
+
+[[hook]]
+at = 0x19DFD0
+call = "NativeSplitPadKeys"
+on_true = "ret"
+
+[[hook]]
+at = 0x100F10
+call = "NativeSplitSound"
+on_true = "ret"
+
+[[hook]]
+at = 0x5DD94
 call = "ClientContextsInitial"
+
+[[hook]]
+at = 0x5D3B5
+call = "ClientContextsTurnBegin"
+
+[[hook]]
+at = 0x5D3F0
+call = "ClientContextsTurnBegin"
 
 [[hook]]
 at = 0x5D3C2

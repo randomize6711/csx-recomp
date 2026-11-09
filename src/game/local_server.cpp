@@ -15,6 +15,8 @@
 // KEY", in the environment the relaunch keeps.
 #include "game/local_server.h"
 
+bool NativeSplitOn();  // native_split.cpp
+
 #include <cerrno>
 #include <chrono>
 #include <cstdio>
@@ -133,6 +135,11 @@ bool LocalServerWanted() {
     return false;  // Linux first: the Windows port starts its process when it is approved
 #else
     if (Dedicated() || SplitPlayer() > 1) return false;
+    // native split-screen (native_split.cpp): every local player is a client of the game's own (listen) server
+    if (NativeSplitOn()) {
+        LOG_FIRST(1, "local server: not used: native split-screen runs the match in the game's own server");
+        return false;
+    }
     const char* e = std::getenv("CSX_SERVER_PROCESS");
     bool want = e && *e ? *e == '1' : pc::Get("server_process", "1") == "1";
     if (want && pc::Get("net_identity", "1") != "1") {

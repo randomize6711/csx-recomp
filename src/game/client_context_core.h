@@ -69,6 +69,24 @@ public:
         return true;
     }
 
+    // context k removed (not 0, not the active one); the contexts after it move down one index
+    bool Remove(int k) {
+        if (k <= 0 || k >= Count() || k == active_) return false;
+        saved_.erase(saved_.begin() + k);
+        if (active_ > k) active_--;
+        return true;
+    }
+
+    // the offset in a copy of a guest address, -1 when it is in no region
+    long OffsetOf(uint32_t va) const {
+        size_t at = 0;
+        for (const Region& r : regions_) {
+            if (va >= r.start && va - r.start < r.size) return long(at + (va - r.start));
+            at += r.size;
+        }
+        return -1;
+    }
+
     // player k's state made the live memory: the active one's saved, k's copied in
     bool Switch(int k) {
         if (k < 0 || k >= Count()) return false;
@@ -89,6 +107,17 @@ public:
     }
 
     uint64_t Switches() const { return switches_; }
+
+    // context k's saved copy (the regions end to end); the active one's is stale until it is switched out
+    std::vector<uint8_t>& Saved(int k) { return saved_[size_t(k)]; }
+    // the guest address of a byte of a copy, 0 past the end
+    uint32_t AddressOf(size_t offset) const {
+        for (const Region& r : regions_) {
+            if (offset < r.size) return r.start + uint32_t(offset);
+            offset -= r.size;
+        }
+        return 0;
+    }
 
 private:
     std::vector<uint8_t> Copy() const {

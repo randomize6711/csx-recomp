@@ -36,6 +36,8 @@ uint8_t* Map(uint32_t va) { return static_cast<uint8_t*>(kernel::HostPtr(va)); }
 
 using Switcher = ctx::Switcher<uint8_t* (*)(uint32_t)>;
 
+bool g_in_turn = false;  // between a turn's start (0x5D3B5, 0x5D3F0) and the end of the last player's turn
+
 Switcher& Contexts() {
     static Switcher s(csx::ClientContextRegions(), &Map);
     return s;
@@ -65,10 +67,11 @@ std::vector<ctx::Region> ClientContextRegions() {
         // client_state_t cl (P: CL_ClearState's rep stosl of 0xDC22 dwords at 0x28E37)
         {0x749D40, 0x37088, "cl"},
         // client_static_t cls: from cls.state (0x7812E0, its first field; &cls is Netchan_Setup's connection status at
-        // 0x21973 / 0x21D46 / 0x27402, P) to its last referenced fields 0x785B9C..0x785BCC (CL_* code 0x26290, 0x27CE0,
-        // 0x285F0, P); the 1 KB buffer at 0x78579C (copied whole at 0x29770) inside. The end is the last field seen,
-        // not a proved sizeof (I). cls.state is also read by the server's code: player 1's, as for cl.
-        {0x7812E0, 0x48F0, "cls"},
+        // 0x21973 / 0x21D46 / 0x27402, P) to the end of its last member, the 1 KB buffer at 0x78579C (copied whole at
+        // 0x29770, P), at 0x785B9C. After it: separate client globals (0x785B9C..0x785BAC, in the generated list) and
+        // cl_visedicts[512] at 0x785BC0..0x7863C0 (filled at 0x1CA01 with its count 0x749D20 < 0x200, P: rebuilt every
+        // frame). cls.state is also read by the server's code: player 1's, as for cl.
+        {0x7812E0, 0x48BC, "cls"},
     // the rest, from the audit's policy (generated; each entry names its writers)
 #include "game/client_context_regions.inc"
     };
@@ -104,6 +107,13 @@ int ClientContextAdd() {
 }
 
 bool ClientContextSwitch(int k) { return Contexts().Switch(k); }
+bool ClientContextRemove(int k) { return Contexts().Remove(k); }
+bool ClientContextHasInitial() { return Contexts().HasInitial(); }
+std::vector<uint8_t>& ClientContextSaved(int k) { return Contexts().Saved(k); }
+uint32_t ClientContextAddressOf(size_t offset) { return Contexts().AddressOf(offset); }
+long ClientContextOffsetOf(uint32_t va) { return Contexts().OffsetOf(va); }
+
+bool ClientContextInTurn() { return g_in_turn; }
 
 }  // namespace csx
 
@@ -200,39 +210,55 @@ void ClientContextsHudInit(X86Context&, uint8_t*) {
               Contexts().Count());
 }
 
-// [[hook]] at 0x202C1E in the title's startup (0x202BC8), after the C runtime's static constructors (0x206E5B) and
-// before main (0xBF470): the per-player regions as a new context starts them (the client game's objects constructed,
-// nothing initialised by the engine yet)
+bool NativeSplitOn();               // native_split.cpp
+void NativeSplitInitialTaken();     // native_split.cpp: the heap blocks so far are the process's
+
+// [[hook]] at 0x5DD94 at the end of Host_Init (0x5D9E0), as it sets host_initialized (0x551D7C): the per-player regions
+// as a new context starts them: the process's initialisation done (the client game loaded and initialised, CL_Init
+// run, its tables filled), no connection yet. A new player's copy is then scrubbed of player 1's heap pointers and
+// its client initialised in its own context (native_split.cpp). Taken with native split-screen only (M2: the boot
+// state of M1 lacked the tables the process's initialisation fills).
 void ClientContextsInitial(X86Context&, uint8_t*) {
-    if (csx::Dedicated()) return;  // no client in a dedicated server
+    if (csx::Dedicated() || !NativeSplitOn()) return;
     Switcher& s = Contexts();
     if (s.Regions().empty()) return;
     auto t0 = std::chrono::steady_clock::now();
     s.CaptureInitial();
     LOGI("client context: %zu regions, %zu bytes a player; the initial state kept (%.3f ms)%s", s.Regions().size(),
          s.Bytes(), Ms(t0, std::chrono::steady_clock::now()), TheGuard().on ? "; the server write guard is on" : "");
+    NativeSplitInitialTaken();
 }
+
+// [[hook]] at 0x5D3B5 and 0x5D3F0 in _Host_Frame: a player's turn starts (its CL_Move; its client half)
+void ClientContextsTurnBegin(X86Context&, uint8_t*) { g_in_turn = true; }
+
+void NativeSplitFrameEnd(X86Context& ctx);  // native_split.cpp
 
 // [[hook]] at 0x5D3C2 in _Host_Frame, after a player's CL_Move: the next player's turn (false: back to 0x5D3B5), or
 // player 0 again and on to SV_Frame (true)
 bool ClientContextsMoveNext(X86Context&, uint8_t*) {
     Switcher& s = Contexts();
     LOG_FIRST(1, "client context: the players' input turns run (%d player%s)", s.Count(), s.Count() == 1 ? "" : "s");
-    if (s.Count() == 1) return true;
-    int next = ctx::NextTurn(s.Active(), s.Count());
-    if (next >= 0) return !s.Switch(next);
-    s.Switch(0);
+    if (s.Count() > 1) {
+        int next = ctx::NextTurn(s.Active(), s.Count());
+        if (next >= 0) return !s.Switch(next);
+        s.Switch(0);
+    }
+    g_in_turn = false;
     return true;
 }
 
 // [[hook]] at 0x5D54A in _Host_Frame, after a player's client half: the next player's turn (false: back to 0x5D3F0),
 // or player 0 again and on to the frame's end (true)
-bool ClientContextsFrameNext(X86Context&, uint8_t*) {
+bool ClientContextsFrameNext(X86Context& ctx, uint8_t*) {
     Switcher& s = Contexts();
     LOG_FIRST(1, "client context: the players' client turns run (%d player%s)", s.Count(), s.Count() == 1 ? "" : "s");
-    if (s.Count() == 1) return true;
-    int next = ctx::NextTurn(s.Active(), s.Count());
-    if (next >= 0) return !s.Switch(next);
-    s.Switch(0);
+    if (s.Count() > 1) {
+        int next = ctx::NextTurn(s.Active(), s.Count());
+        if (next >= 0) return !s.Switch(next);
+        s.Switch(0);
+    }
+    g_in_turn = false;
+    NativeSplitFrameEnd(ctx);  // players added or removed between frames (nothing without native split-screen)
     return true;
 }
