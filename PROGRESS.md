@@ -924,3 +924,7 @@ manual testing and approval; no optimization or complete regression until then.
   Cmd_AddCommand); a new player starts from player 1's state at the end of Host_Init with player 1's heap pointers
   scrubbed (heap_owner.h); leaving drops only that player's server slot; cls's end proved (0x785B9C). Unit tests:
   native_split_test (57 checks) and all others pass.
+- M2 runtime validation: three permitted two-player runs failed (a crash, then two hangs); each found a new class of
+  state the snapshot-and-scrub inference mishandled (alignment, destructors before frees, shared state rebuilt by each
+  connect). Player 2 did connect in runs 2 and 3. Stopped for an architectural review (docs/native_splitscreen.md 12):
+  recommended explicit per-player construction and a shared-once connect, not more inference.

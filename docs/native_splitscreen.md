@@ -520,3 +520,64 @@ The fix (separate commit): the scrub reads each region at its own guest alignmen
 builds the spans from the region list, and logs an error if they do not add up to the initial state's size. Unit
 tests with an odd-sized region before a pointer and a region starting at an odd address (native_split_test: 69
 checks). Not re-run: another gameplay test needs the user's permission.
+
+### 11.7 The third M2 run (2026-11-09, permitted once): hung; stopped for an architectural review
+
+native_split_2p on commit 3a42502 (scrub at guest alignment, pre-destructor checks, shared scratch): **the log stops
+at 3.17 s, timeout at 300 s (a hang), with cross-player frees reported**.
+- What worked: the scrub cleared **133** heap pointers from the initial state (1 before the fix); player 2's own
+  initialisation replaced 131 with its own objects, gave 1 shared registration back and left 1 of player 1's objects
+  empty (0x551FE8, 572 bytes, allocated at 0xAF8C4); its HUD list, particle manager and the four client objects were
+  its own; **no pre-destructor check fired** (its initialisation no longer reached player 1's objects); player 2
+  connected ("Player 2<2>... entered the game" at 3.07 s); player 1: server slot 0, userid 1.
+- What failed: during player 2's initialisation 2 frees of process blocks (a cvar string allocated outside the range
+  classed as cvar scratch; 0x1815DE); during its **connect** (in its own turn), frees of blocks player 1 had allocated
+  during *its* connect: the delta descriptions' registry (the svc handler 0x2FAE0 frees and rebuilds it, 0x45670;
+  dozens), the client buffer at 0x551EF4 (0x2E2A0, from the connect 0x2E780), a front end block (0xC8B10). Every one
+  was skipped and logged as an error; the game then hung after 3.17 s (no core: a hang).
+- Context switches: 2 at the add, 0.27 ms each (the first, cold copy); the players never reached their turns together.
+
+## 12. Architectural review of the snapshot and pointer scrub (2026-11-09, after three failed runs)
+
+### 12.1 What the runs showed
+
+Each run met a new kind of state that inferring ownership from raw memory got wrong:
+1. Pointers missed (the copy's alignment), so player 2's initialisation freed player 1's objects (run 1, a crash).
+2. A blocked free is too late: the destructor had already emptied player 1's lists and reset its vtable (run 2, a hang).
+3. Shared engine state rebuilt by **every** client's connect (the delta descriptions' registry, a front end block)
+   and engine buffers that both the server's and the client's code use (0x551EF4: written by the connect 0x2E2A0 and
+   by 0x93180) are not a player's and not cleanly the process's either: attributed by "whose turn allocated it", they
+   look like player 1's, and player 2's connect rebuilding them looks like an ownership violation (run 3, a hang).
+
+The common cause: the approach copies player 1's whole initialised state and then tries to find, by scanning raw
+memory and by attributing allocations to turns, what in it is player 1's. The title was written for one client:
+much of its "client" state is in fact global engine state that a second client's code path rebuilds. Every run so far
+found a category the inference did not cover; the next run would likely find another.
+
+### 12.2 Options
+
+| Option | How | For | Against |
+|---|---|---|---|
+| A. Continue the snapshot and scrub | add each new category as found (more shared sites, more pre-destructor checks) | small steps; the parts that work stay | open-ended; each category needs a run to find; the safety nets turn errors into leaks or half-destroyed objects |
+| B. Explicit per-player construction | player 2's regions start from the boot image (no heap pointers to inherit, nothing to scrub); the tables the process's initialisation fills and that are the same for every player (cl_funcs, gEngfuncs, the client game's other constant tables) leave the per-player set or are copied explicitly (only values in the code range); player 2 then runs an explicit list of per-player initialisation steps (the client's Initialize, HUD_Init, the per-player part of CL_Init) with registrations once | no inherited objects at all; what a player has is what its own steps made; checkable statically (every per-player region written by process initialisation must be either constant-shared or in a step) | needs the inventory of process-initialisation writes into per-player regions; a step missed leaves zeros (fails loudly, not silently) |
+| C. Shared-once connect | the connect handlers that rebuild process-wide state (delta descriptions, resource and precache registration, model and sprite loading, front end) run for the first client only; the others reuse it; buffers like 0x551EF4 become per player or once | removes run 3's failure class at its source; also the N1 rule (shared resources loaded once) made explicit | needs the list of connect-time handlers and which state each rebuilds (static, svc handler table) |
+| D. Ownership by allocation site | each allocation site classified statically (per-player object, shared registry, scratch) instead of by turn; the frees and destructions checked against the class | diagnostics that mean what they say (no "player 1's" delta registry) | only diagnostics: fixes nothing by itself |
+| E. Virtualise fixed-address globals | the recompiler rewrites client code's accesses to per-player globals as base + offset, one bank per player (no copies) | no copying; switching is a base change | stored absolute pointers into per-player statics (the HUD list's nodes point at gHUD's members) would need rebasing; a compiler-level change across the client code; much larger risk now |
+
+### 12.3 Recommendation
+
+**B + C, with D for the diagnostics; not E now; stop extending A.** The single process, the shared world and the built-in
+server stay; the client contexts (copy-swap, which the runs did not fault) stay; what changes is how a player's
+context is made and what a second connect is allowed to rebuild:
+1. **Construction (B)**: from the boot image, with an explicit per-player initialisation list; the process's constant
+   tables shared. Static inventory first: every write into a per-player region reachable from Host_Init, classed
+   constant-shared / per-player step / unknown (the unknowns reviewed before any run).
+2. **Connect (C)**: an inventory of the connect-time handlers (the svc_ handlers and CL_ParseServerInfo's calls) and
+   of the state each rebuilds; process-wide state built by the first client only; per-player connect state (cl_entities,
+   0x551EF0/0x551EF4 if per player) made per player.
+3. **Diagnostics (D)**: allocation sites classed statically; the existing pre-destructor checks and the skipped frees
+   stay as assertions that fail a test.
+4. Only then one supervised run (permission).
+
+Retained from M2 as is: the loopback channels, the port in the address, the registration rules (cvars reused, the
+fatal Cmd_AddCommand skipped), the context switch, the turns in _Host_Frame, the leave path's server side.
