@@ -899,3 +899,13 @@ manual testing and approval; no optimization or complete regression until then.
   32:9 viewport. Player 1 now says "starting" at Start Match and at its relaunch: the compositor lays the match out
   at once and hides player 1's picture until its relaunched process draws; a join or leave sends player 1 its size.
   vk_split_start (new) passed; vk_split_2 and vk_split_solo fail in the old menu route (TODO's stale list).
+
+## 2026-11-09: native split-screen M0 and M1 (start), branch native-split
+
+- The user chose console-style split-screen in one game process with the title's own listen server
+  (docs/native_splitscreen.md; the multi-process compositor stays as the fallback until verified by hand).
+- M0: the audit (why one player per process: every client state at a fixed address; the N1 texture-table blocker is
+  a reconnect, not several clients on one loaded map), subsystems classified, dependency map, tools/state_audit.py.
+- M1 (start): client contexts (src/game/client_context*), _Host_Frame's per-player turns (hooks 0x5D3C2, 0x5D54A;
+  no-ops with one player), the first 232 KB of per-player regions. Compiled (harness, window, server); unit tests
+  all pass (tests/client_context_test.py new); no game run (the user's rule: none without permission).

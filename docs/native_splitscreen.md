@@ -204,3 +204,27 @@ From the play-test's logs (build/play/logs/split_001.log, 2 players, 60 bots, 38
 3. A unit test (non-gameplay): the region list does not overlap the server's data or the shared resources the tool
    classifies, and the switch round-trips memory exactly (on a synthetic guest memory).
 Single-player behaviour is unchanged in M1 (one context, no copies).
+
+## 10. M1 progress (2026-11-09)
+
+Built (compiled; not run: no gameplay test without the user's permission):
+- `src/game/client_context_core.h`: the regions and the switch (copy the active player's regions out, the next
+  player's in), testable on its own; `src/game/client_context.{h,cpp}`: the game's contexts and the region list.
+- `_Host_Frame`'s turns: hooks at 0x5D3C2 (each player's CL_Move before SV_Frame; on_false 0x5D3B5) and 0x5D54A
+  (each player's client half; on_false 0x5D3F0). The recompiler emits them as backward gotos in sub_0005D2E0. With
+  one context both return true at once: no copy, no jump, the frame as before.
+- First regions (232 KB a player, each proved from its clearing or loop code): predicted_players, g_PlayerInfoList,
+  g_TeamInfo, g_PlayerExtraInfo, DM_PlayerState, cl. Inside cl the server's code reads cl.maxclients, cl.playernum
+  and two frame fields (a listen server reading its own player's state): it runs while player 0 is active, so it reads
+  the host player's values, as before.
+- `tests/client_context_test.py`: the switch on a synthetic memory (21 checks), and the region list against the
+  audit (no region holds data only the server's code touches).
+
+Still to do in M1:
+- the remaining per-player state: `cls` (its extent: 0x7812E0.. with netchan, signon, userinfo; fields to pin), the
+  client game's other globals (gHUD 0x5623D0 and its elements, input buttons, the view, the client effects), the
+  renderer's per-view state (r_refdef 0x6E7A20..), and the largest candidates of the audit (a 256 000-byte grid at
+  0x57F0A8..0x5BD8A8 cleared by the client's effects code 0x1CC5D0: rebuilt each frame or kept, to decide);
+- for each, persistent (switched) or scratch (shared, set before every use): the copy cost per switch is the sum of
+  the switched regions;
+- the heap objects the regions point to (cl_entities, VGUI, HUD lists): each context's own (M2's initialisation).

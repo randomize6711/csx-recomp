@@ -1089,6 +1089,18 @@ on_false = 0x1B9979
 at = 0x1B9979
 call = "ScoreRowNext"
 
+# native split-screen (src/game/client_context.cpp, docs/native_splitscreen.md M1): _Host_Frame's turns per local
+# player; with one player (every game today) both continue
+[[hook]]
+at = 0x5D3C2
+call = "ClientContextsMoveNext"
+on_false = 0x5D3B5
+
+[[hook]]
+at = 0x5D54A
+call = "ClientContextsFrameNext"
+on_false = 0x5D3F0
+
 [[hook]]
 at = 0x1B4593
 call = "SpectatorScoresZero"
