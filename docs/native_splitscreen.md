@@ -293,7 +293,9 @@ player 1's heap pointers, and the second player's initialisation could free play
 sprite list deletes the old one).
 
 **Copy cost**: two copies of 1 036 KB per switch; two players switch four times a frame (two turns each in the input
-loop and the client loop): about 8 MB copied a frame, roughly 1-2 ms on this machine (I, not measured). The largest
+loop and the client loop). Measured in the M1 solo run (the guard copies the same regions each frame): 0.041 ms to copy
+1 060 577 bytes (about 26 GB/s), so a switch is about 0.08 ms and two players about 0.33 ms a frame; the switch itself
+is measured once M2 has a second context. The first copy at boot took 0.47 ms (cold pages). The largest
 parts are page-aligned tables (cl.frames' player states, the voice heads, the particle grid): M7 maps their pages
 per player instead of copying.
 
@@ -353,3 +355,15 @@ local players. Both must answer per player (category 3) before several local pla
 2. **A server player method reading the HUD** (0x11D930, reached through a vtable): reads gHUD + 0x1BC0 (0x563F90) for
    every player and, when it is 0, stamps the player with gpGlobals->time (+0x208). Needed: the field's meaning, and
    the value of the HUD of the player being processed when that player is local.
+
+### 10.8 M1 solo run (2026-11-09, the second one the user permitted)
+
+ctx_solo_smoke with the server write guard on (CSX_CTX_GUARD=1, CSX_SERVER_PROCESS=0, de_dust2, 16 bots, headless,
+about 2.5 minutes), on commit 352aab1: passed.
+- The initial state: 152 regions, 1 060 577 bytes a player, captured at boot in 0.47 ms.
+- Both turn hooks ran from the first frame with one player; the HUD's video initialisation ran once, in player 1's
+  context.
+- The guard: 3 440 server frames checked, **none wrote the player's client state**; copy 0.041 ms and compare
+  0.031 ms per frame on average.
+- The match: the player joined (Terrorist), three rounds started, 17 kills; no trap, no engine error, no warning beyond
+  the usual missing optional files.

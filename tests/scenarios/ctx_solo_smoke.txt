@@ -1,10 +1,12 @@
 # Native split-screen M1 (docs/native_splitscreen.md section 10): one player, the built-in (listen) server, the client
 # context hooks in _Host_Frame (src/game/client_context.cpp) with one context: both turns run (their first-time log
 # lines) and change nothing: the map loads, the player joins, rounds start, the bots fight, no trap, no engine error,
-# no separate local server. About 2.5 minutes.
-#   --env FPS=30 --env CSX_SERVER_PROCESS=0 --launch tests/launch/de_dust2_bots16
+# no separate local server. About 2.5 minutes. With the server write guard (CSX_CTX_GUARD=1, docs 10.6) its summary
+# lines report the server frames checked and any write into the player's client state.
+#   --env FPS=30 --env CSX_SERVER_PROCESS=0 --env CSX_CTX_GUARD=1 --launch tests/launch/de_dust2_bots16
 wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
 wait draws>=150
+expect log client context: [0-9]+ regions, [0-9]+ bytes a player; the initial state kept
 expect log client context: the players' client turns run \(1 player\)
 expect log client context: the players' input turns run \(1 player\)
 sleep 10
@@ -23,3 +25,5 @@ expect nolog local server: starting
 expect nolog Host_Error
 expect nolog guest trap
 expect nolog client context: player
+expect log client context: the HUD's video initialisation for player 1 \(of 1\)
+expect log client context guard: [0-9]+ server frames checked

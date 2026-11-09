@@ -914,3 +914,7 @@ manual testing and approval; no optimization or complete regression until then.
   player method reading gHUD + 0x1BC0); the particle grid is persistent (per player); the region list is now 1 036 KB
   a player (cl, cls, gHUD, g_VoiceStatus, the client's guest tables, the audit's policy); a new player's context
   starts from a boot-time initial state (hook 0x202C1E). Compiled, unit tests pass; not run since the snapshot hook.
+- M1 completed: the small static objects and the heap objects' ownership checked (no per-player object only in shared
+  memory; no per-player constructor allocates); the server write guard (CSX_CTX_GUARD); the two local-player
+  assumptions for M4 documented. Solo run with the guard (permitted once): passed, 3 440 server frames checked, no
+  server write into client state, 1 MB copied in 0.041 ms.
