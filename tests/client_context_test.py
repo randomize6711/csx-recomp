@@ -30,10 +30,22 @@ def core_test():
 
 
 def regions():
+    """client_context.cpp's hand-checked entries plus the generated client_context_regions.inc, sorted"""
     text = open(os.path.join(ROOT, 'src', 'game', 'client_context.cpp'), encoding='utf-8').read()
     body = text[text.index('ClientContextRegions() {'):]
     body = body[:body.index('};')]
-    return [(int(a, 16), int(n, 16), w) for a, n, w in re.findall(r'\{0x([0-9A-Fa-f]+), 0x([0-9A-Fa-f]+), "([^"]+)"\}', body)]
+    body += open(os.path.join(ROOT, 'src', 'game', 'client_context_regions.inc'), encoding='utf-8').read()
+    found = [(int(a, 16), int(n, 16), w) for a, n, w in re.findall(r'\{0x([0-9A-Fa-f]+), 0x([0-9A-Fa-f]+), "([^"]+)"\}', body)]
+    # the guest tables it names (guest_tables::k_NAME), from the generated layout
+    loop = text[text.index('for (size_t k : {'):]
+    loop = loop[:loop.index('})')]
+    layout = open(os.path.join(ROOT, 'src', 'common', 'guest_tables_layout.h'), encoding='utf-8').read()
+    for name in re.findall(r'guest_tables::k_(\w+)', loop):
+        m = re.search(r'\{"' + name + r'", 0x([0-9A-F]+)u, 0x([0-9A-F]+)u, (\d+)u', layout)
+        if not m:
+            raise SystemExit(f'guest table {name} not in the layout')
+        found.append((int(m.group(1), 16), int(m.group(2), 16) * int(m.group(3)), name))
+    return sorted(found)
 
 
 def audit_test():

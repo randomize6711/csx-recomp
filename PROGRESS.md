@@ -909,3 +909,8 @@ manual testing and approval; no optimization or complete regression until then.
 - M1 (start): client contexts (src/game/client_context*), _Host_Frame's per-player turns (hooks 0x5D3C2, 0x5D54A;
   no-ops with one player), the first 232 KB of per-player regions. Compiled (harness, window, server); unit tests
   all pass (tests/client_context_test.py new); no game run (the user's rule: none without permission).
+- M1 continued: the solo smoke test (ctx_solo_smoke, run once with the user's permission) passed; the server's reads
+  of client memory audited (two need per-player answers later: the session's "local player" by cl.playernum, and a
+  player method reading gHUD + 0x1BC0); the particle grid is persistent (per player); the region list is now 1 036 KB
+  a player (cl, cls, gHUD, g_VoiceStatus, the client's guest tables, the audit's policy); a new player's context
+  starts from a boot-time initial state (hook 0x202C1E). Compiled, unit tests pass; not run since the snapshot hook.

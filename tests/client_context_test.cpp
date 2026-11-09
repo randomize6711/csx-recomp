@@ -70,6 +70,18 @@ int main() {
     Check(s.Switch(0) && s.RemoveLast() && s.Count() == 1, "the last one removed");
     Check(s.Add() == 1 && s.Switch(1) && Holds(0x1000, 0x40, 10), "a new one copies the active player's state");
 
+    // a new context from the initial state (taken at boot), not from the active player's
+    Switcher<uint8_t* (*)(uint32_t)> b(regions, &Map);
+    Fill(0x1000, 0x40, 5);
+    Fill(0x2000, 0x100, 6);
+    Fill(0x3001, 0x3, 7);
+    b.CaptureInitial();
+    Check(b.HasInitial(), "initial state kept");
+    Fill(0x1000, 0x40, 80);  // player 1 initialised and playing
+    Check(b.Add() == 1 && b.Switch(1), "a second player");
+    Check(Holds(0x1000, 0x40, 5) && Holds(0x2000, 0x100, 6) && Holds(0x3001, 0x3, 7), "it starts from the initial state");
+    Check(b.Switch(0) && Holds(0x1000, 0x40, 80), "player 1's own state untouched");
+
     std::printf("%d checks, %d failed\n", checks, failed);
     return failed ? 1 : 0;
 }

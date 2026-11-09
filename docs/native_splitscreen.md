@@ -241,6 +241,8 @@ the players' turns run while player 0 is active, so a read there sees player 1's
 | cl.intermission 0x74A27C (P: SCR_UpdateScreen tests == 1) | SCR_UpdateScreen 0x55E10 (inside each player's turn: its own), the front end / session 0xC8330, 0xE6260, 0xE9240, 0xE9C00 (frame start), 0xEC4D0 | correct: intermission is sent to every client at once, so every context holds the same value |
 | cl.playernum 0x771224 | the session code: 0xEA4E0 (from 0xE9C00, every frame, outside the turns) and 0xEA380; 0xECDA0, 0xEF610 and 0xEE3A0, called from the server's game code (0x11F040, 0x124390, 0x13A9D0, 0x149130) when `gpGlobals` (0x527CE8) exists, i.e. with any server: "is this player the local player" = INDEXENT(cl.playernum + 1)'s user id (pfn 0x527BC0, 0x527C64) against the event's player; on a match the session object caches a value at +0xC7C (P) | **not sufficient**: only player 1 is ever "the local player". With several local players the check must consider every context's player number, and the session's local-player value (+0xC7C, and what reads it) must be per player. To do with the session code's per-player state (M4/M5); category 3 |
 
+| gHUD + 0x1BC0 (0x563F90) | 0x11D930, a server-side player method (reached through a vtable, no direct caller): when the field is 0 it stamps the player with gpGlobals->time (+0x208) (P) | **not sufficient**: for every player the server consults player 1's HUD. The field's meaning and a per-player answer: M4 (category 3) |
+
 General rule from this: code outside the players' turns that asks "who is the local player" gets player 1. Each such
 place must be found and made per player or "any local player". Planned guard (M2): in a diagnostic mode the per-player
 regions are write-protected while the server frame runs, so a server-phase write into client state is caught and
@@ -258,3 +260,50 @@ those particles (writes their velocity at +0x80 and +0x3C). So a slice lives as 
 visibility rules intend). Cost: 256 000 bytes per switch, 63 whole pages: the first candidate for M7's page remapping.
 0x1CC5D0 runs from the client exports 0x18B970 and 0x1A5EE0 (initialisation), so each player's context gets its grid
 cleared by its own initialisation in M2.
+
+### 10.3 The region list (2026-11-09)
+
+One player's regions, 1 036 KB in 152 entries (tests/client_context_test.py prints the total):
+- **Hand-checked whole structures** (src/game/client_context.cpp, each with its evidence): `cl` (225 KB), `cls`
+  (0x7812E0..0x785BD0, the end being its last referenced field), `gHUD` with its embedded HUD elements
+  (0x5623D0..0x569398, bounded by the next statically constructed object), `g_VoiceStatus` (0x56D6E8..0x576C78),
+  `g_TeamInfo`.
+- **The client's per-player arrays in the guest tables** (0x70000000+): the 65 player slots moved them out of `.data`
+  (cl.frames' player states 261 KB, cl.players, predicted_players, the studio player cache, the HUD's player tables,
+  the voice status arrays including the speaker icon entities 123 KB, ...). Their old `.data` places are unused. Taken
+  from the generated layout by name, so they follow config/guest_tables.toml.
+- **The audit's policy** (tools/state_audit.py `regions`, written to src/game/client_context_regions.inc): data
+  written only by the engine client (0x1C000..0x3B000), the engine view (0xAC000..0xB8000) and the client game
+  (0x18B000..0x200000), never touched by the server's code, clipped against the hand-checked entries; minus the
+  reviewed shared exceptions: the light style table (0xB01F0), the gamma ramps (0xB56A0, 0xB5A00), the client's
+  playermove_t and physents (0x25BF0: rebuilt before every prediction), and the Xbox model / BSP world renderer's
+  data (code 0x195000..0x19B000: the world recorded once, its push buffer at 0x552C04).
+- **Kept shared on purpose**: `g_StudioRenderer` (0x5693D0: state set per draw, and it may hold the handles of
+  vertex programs loaded once into the 136 program slots; a second player's own initialisation would load them
+  again); the renderer's per-view scratch (`r_refdef` 0x6E7A20.., recomputed from ref_params each view); the front
+  end's objects (0x5590A8, the screen stack 0x5523D4: M4); the active pad 0x3852F8 (the host sets it per player in
+  M4); the sound system; the server game's static objects (0x554208, 0x556E18, touched by the server's code).
+- **The audit's blind spot**: it sees absolute addresses only. A static object's members reached through `this`
+  are covered only by a hand-checked entry for the whole object (as gHUD, g_VoiceStatus); the C runtime's
+  initializer table (0x36C8B0..0x36CD0C, 278 initializers, 66 objects constructed) lists every such object.
+
+**A new player's context starts from the initial state** taken at boot (hook 0x202C1E, after the C runtime's static
+constructors, before `main` 0xBF470; not in the dedicated server), not from a copy of player 1's: a copy would hold
+player 1's heap pointers, and the second player's initialisation could free player 1's objects (a HUD reloading its
+sprite list deletes the old one).
+
+**Copy cost**: two copies of 1 036 KB per switch; two players switch four times a frame (two turns each in the input
+loop and the client loop): about 8 MB copied a frame, roughly 1-2 ms on this machine (I, not measured). The largest
+parts are page-aligned tables (cl.frames' player states, the voice heads, the particle grid): M7 maps their pages
+per player instead of copying.
+
+### 10.4 M1: what is left
+
+- Static objects in the client game range not yet decided (0x552F78..0x553ED8, 0x5616D0, 0x561B88, 0x562148,
+  0x5622F4; a few hundred bytes to 2 KB each): each object's class and owner.
+- The heap objects reached from per-player regions (VGUI viewport, HUD lists, particle manager, cl_entities): created
+  by each player's own initialisation (M2), checked to never be freed by another player's.
+- A diagnostic write guard (mprotect of the per-player regions during the server frame) to catch server writes into
+  client state, for the first runs of M2.
+- One smoke run with the initial-state snapshot hook (boot-time copy of 1 MB; it changes nothing else), needing
+  the user's permission.

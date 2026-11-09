@@ -50,16 +50,15 @@ public:
     int Count() const { return int(saved_.size()); }
     int Active() const { return active_; }
 
-    // a new context, its state a copy of the active one's live memory now (the caller then makes it its own: the
-    // client's initialisation for that player); its index
+    // the regions' contents now, kept as the state a new context starts from (taken at boot after the static
+    // constructors and before the engine's first client initialisation: client_context.cpp)
+    void CaptureInitial() { initial_ = Copy(); }
+    bool HasInitial() const { return !initial_.empty(); }
+
+    // a new context; its index. Its state is the initial one when captured (its own initialisation then allocates its
+    // own objects, never freeing the first player's), else a copy of the active one's live memory
     int Add() {
-        std::vector<uint8_t> copy(total_);
-        size_t at = 0;
-        for (const Region& r : regions_) {
-            std::memcpy(copy.data() + at, map_(r.start), r.size);
-            at += r.size;
-        }
-        saved_.push_back(std::move(copy));
+        saved_.push_back(HasInitial() ? initial_ : Copy());
         return Count() - 1;
     }
 
@@ -92,10 +91,21 @@ public:
     uint64_t Switches() const { return switches_; }
 
 private:
+    std::vector<uint8_t> Copy() const {
+        std::vector<uint8_t> copy(total_);
+        size_t at = 0;
+        for (const Region& r : regions_) {
+            std::memcpy(copy.data() + at, map_(r.start), r.size);
+            at += r.size;
+        }
+        return copy;
+    }
+
     std::vector<Region> regions_;
     MapFn map_;
     size_t total_ = 0;
     std::vector<std::vector<uint8_t>> saved_;  // per context; the active one's is stale until it is switched out
+    std::vector<uint8_t> initial_;             // the state a new context starts from (empty: a copy of the active one)
     int active_ = 0;
     uint64_t switches_ = 0;
 };
