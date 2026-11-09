@@ -149,6 +149,16 @@ static void Heap() {
     Check(KindOfSite(0x1BF2A, rules, 2) == Kind::SharedRegistry && KindOfSite(0x42500, rules, 2) == Kind::SharedScratch &&
               KindOfSite(0x1A7F91, rules, 2) == Kind::Owned,
           "kinds from the allocating code; anything else owned");
+    // a block made through an allocation helper takes its caller's site and kind
+    {
+        Blocks h;
+        h.Allocated(0xA000000, 0x20, 1, 0xC8EB6, Kind::Owned);  // malloc's caller: the helper
+        Check(h.Reattribute(0xA000000, 0x42150, KindOfSite(0x42150, rules, 2)) &&
+                  h.At(0xA000000)->kind == Kind::SharedScratch && h.At(0xA000000)->site == 0x42150 &&
+                  h.At(0xA000000)->owner == 1,
+              "a cvar string through the general allocator: shared scratch, its owner kept");
+        Check(!h.Reattribute(0xA000004, 0x1, Kind::Owned), "not a block's start: nothing changed");
+    }
     // frees and destructions, the kind weighed: shared kinds are anyone's, owned ones their owner's
     Block scratch{0x20, 0, 1, 0x42500, Kind::SharedScratch}, mine{0x20, 1, 2, 0x1A7F91, Kind::Owned},
         p1{0x20, 0, 3, 0x1A7F91, Kind::Owned}, process{0x20, kProcess, 4, 0x1A7F91, Kind::Owned};

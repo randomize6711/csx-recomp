@@ -641,12 +641,16 @@ Nothing is copied from player 1 but the userinfo text; no pointer is restored. T
 A block's kind comes from the code that allocated it (malloc's caller's return address, or calloc's): **shared
 registry** (cvar_t 0x1BF2A, user message 0x2C716, command 0x3C92A, sprite registry 0x1CB0D, delta descriptions
 0x2FB00..0x2FCB2 and their fields 0x44800..0x44A00), **shared scratch** (command arguments 0x3C70D / 0x3C7EE, cvar
-strings 0x42000..0x43000, the transparent-entity list 0x931A5, the cache manager 0xC8000..0xC9300), else **owned**: by
+strings 0x42000..0x43000, the transparent-entity list 0x931A5, the memory pools' entries 0xC8F30 and 0xC9130, released
+by level by whoever runs), else **owned**: by
 the player whose turn or initialisation allocated it, else by the process (the server, the console, start-up). A shared
 kind is anyone's to free or destroy (the title's own code manages it that way); an owned block only its owner's. Before
 the four known destructive sites (0x1A7F7E, 0x1B667A, 0x1BAE4B, gHUD.Init 0x1A6A0A) the object's owner is checked and
 another player's is not destroyed (an error); a free of another's owned block by player 2..4 is not done (an error).
-Generation-aware identity kept (address, serial, size, site). A leaving player's objects are released by the title's
+Generation-aware identity kept (address, serial, size, site). The engine's general allocators 0xC8E90 (zeroed: the
+cvar strings, the file loader, the client's), 0xC9170 and 0xC91A0 are helpers: a hook at their ret gives the block
+its helper's caller's site and kind (an allocation's kind is what asked for it); a first version classed the whole
+0xC8000..0xC9300 range as shared, which would have hidden most of the engine's ownership errors. A leaving player's objects are released by the title's
 own code in its context (client entities, the 0x552C70 / 0x552C9C objects by their deleting destructors, the 0x552CA8
 object, the HUD list, its delta slot); what it still owns is reported as a leak (an error, with the sites).
 

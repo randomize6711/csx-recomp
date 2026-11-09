@@ -1098,6 +1098,18 @@ at = 0x22D83D
 call = "NativeSplitHeapAlloc"
 
 [[hook]]
+at = 0xC8ED1
+call = "NativeSplitAllocWrapperRet"
+
+[[hook]]
+at = 0xC9195
+call = "NativeSplitAllocWrapperRet"
+
+[[hook]]
+at = 0xC91CC
+call = "NativeSplitAllocWrapperRet"
+
+[[hook]]
 at = 0x235F2D
 call = "NativeSplitHeapCalloc"
 

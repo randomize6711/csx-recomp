@@ -85,7 +85,10 @@ constexpr heapown::SiteRule kSiteRules[] = {
     {0x3C7EE, 0x3C7EF, heapown::Kind::SharedScratch, "a command argument (Cmd_TokenizeString 0x3C620)"},
     {0x42000, 0x43000, heapown::Kind::SharedScratch, "a cvar's value string (cvar.c)"},
     {0x931A5, 0x931A6, heapown::Kind::SharedScratch, "the renderer's transparent-entity list (0x93180, every connect)"},
-    {0xC8000, 0xC9300, heapown::Kind::SharedScratch, "a cache manager entry (evicted by whoever allocates next)"},
+    {0xC8F30, 0xC8FA0, heapown::Kind::SharedScratch, "a memory pool's entry (0xC8F30; pools 0x55231C / 0x552324 are "
+                                                       "released by level, 0xC8B10, by whoever runs: the loading)"},
+    {0xC9130, 0xC9170, heapown::Kind::SharedScratch, "a memory pool's entry with its 16-byte header (0xC9130, pool "
+                                                       "0x55232C; the caller gets the block + 0x10)"},
 };
 constexpr size_t kSiteRuleCount = sizeof(kSiteRules) / sizeof(kSiteRules[0]);
 heapown::Kind KindOf(uint32_t site) { return heapown::KindOfSite(site, kSiteRules, kSiteRuleCount); }
@@ -488,6 +491,17 @@ void NativeSplitHeapAlloc(X86Context& ctx, uint8_t*) {
     uint32_t up = R32(ctx.esp + 8);
     uint32_t site = up == 0x22D879 ? R32(ctx.esp + 0x14) : up;
     g_blocks.Allocated(ctx.eax, R32(ctx.esp + 4), OwnerNow(), site, KindOf(site));
+}
+
+// [[hook]] at the ret of the engine's general allocators 0xC8E90 (zeroed, 0xC8ED1), 0xC9170 (0xC9195), 0xC91A0
+// (0xC91CC): the block in eax (mov eax, edx), [esp] their caller. (0xC9130 is a pool's: it returns the block + 0x10
+// and its entries are classed by kSiteRules.) malloc's caller is the wrapper for every block
+// they make (the file loader's, the cvars', the client's, the server's), so the block's site and kind are its
+// caller's instead: an allocation's kind is what asked for it, not the helper in between.
+void NativeSplitAllocWrapperRet(X86Context& ctx, uint8_t*) {
+    if (!NativeSplitOn() || !ctx.eax) return;
+    uint32_t site = R32(ctx.esp);
+    g_blocks.Reattribute(ctx.eax, site, KindOf(site));
 }
 
 // [[hook]] at 0x235F2D in calloc (0x235EFA), after its HeapAlloc: the block in eax, its size in esi

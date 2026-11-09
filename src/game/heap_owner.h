@@ -82,6 +82,14 @@ public:
         return it == blocks_.end() ? nullptr : &it->second;
     }
     size_t Count() const { return blocks_.size(); }
+    // a block made through an allocation helper: its site and kind are the helper's caller's (false: not a block start)
+    bool Reattribute(uint32_t va, uint32_t site, Kind kind) {
+        auto it = blocks_.find(va);
+        if (it == blocks_.end()) return false;
+        it->second.site = site;
+        it->second.kind = kind;
+        return true;
+    }
     template <typename F>
     void ForEach(F f) const {
         for (const auto& [va, b] : blocks_) f(va, b);
