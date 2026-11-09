@@ -100,7 +100,7 @@ change.
 | Decals | world surfaces' decal chains, one decal pool (I); infodecals from the map text (FINDINGS "Decals", P) | 3 | applied once: decal messages handled by one context only |
 | The recorded world, lightmaps | push buffer recorded at load (0x552C04, P); lightmaps rebuilt by the PC dynamic light code (src/game/pc_dlights.cpp) | 3 | recorded once, replayed per view with that view's camera; dynamic lightmap rebuild once per frame from the union of the contexts' lights (later) |
 | Models, sprites, textures, sounds (resources) | `Mod_ForName` cache shared by server and client (I); GL texture table (1500 records, P); the sound cache | 1 / 3 | shared; to check (R) that a second context's precache finds everything loaded and uploads nothing; the reconnect case (N1) must never happen to one context alone |
-| Network connection | one client socket and endpoint (src/game/net_engine.cpp `g_ep[0]`); loopback with exactly two sides (0x440C00, P) | 2 (PC transport) / 4 (loopback) | each context its own PC transport endpoint and identity to the server (as players 2-4 have today in their own processes); the loopback would need N sides and a client index in its address (SV_ReadPackets matches a loopback address by type only, P) |
+| Network connection | loopback with exactly two sides (0x440C00, P); the PC transport's one client endpoint (src/game/net_engine.cpp `g_ep[0]`) | 3 | the loopback extended to a channel pair per context, the context's index in the address, the server's match on it (section 5); the PC transport is not used between local players |
 | Map change, connect, disconnect | the title relaunches the whole process for every map change (P); a reconnect in one process is the N1 blocker | 3 | all contexts leave and rejoin together (one relaunch); never one context alone |
 | Audio | XACT with one 3D listener (0x3038A0, P); sounds started from server messages in each client (`S_StartDynamicSound` 0x100F10, P) | 4 | one mixer for all: sounds started once (one context's messages, or deduplicated), positioned for the nearest listener or mixed per listener; the multi-process gain 1/sqrt(N) as a first step |
 | Menus: Xbox UI screens (buy, team select, pause, scoreboard, spectator) | one screen stack 0x5523D4 (P), screen objects on the heap | 4 | a stack per context (swapped pointer plus each context's own screen objects) and per-player focus; the front end stays player 1's |
@@ -111,23 +111,26 @@ change.
 | Threads | game thread, audio, timers (P) | 3 | context switches only on the game thread, at points where no other thread reads per-player data (the audio thread reads the mixer: shared) |
 | Front end, profiles, guest identities | player 1's front end; profiles and guest names in pc_settings / the party code (src/game/pc_instant.cpp, pc_join*) | 1 | reused: Instant Action's party (START to join) decides the contexts |
 
-## 5. Where the server runs
+## 5. Where the server runs: decided (the user, 2026-11-09)
 
-Two options satisfy "one game process for all local players and one authoritative world":
+**The title's own listen server, inside the one game process** (console-style split-screen: no csx-server process,
+no second executable, no network between the local players). The local players are logical clients of that server:
 
-- **A. The separate local server (as solo play today since N4.7).** The game process holds the N client contexts,
-  each with its own PC transport endpoint to csx-server, exactly as players 2-4 connect today. Nothing new on the
-  server or the protocol. The world is simulated once (in csx-server) and loaded once more in the game for rendering.
-  Its 30 Hz tick, which does not hold with 60 bots (24-28 ticks, 55-65 ms frames, docs/splitscreen.md 17.4), is the
-  main cause found so far of the split-screen lag the user reported (section 7), and stays to be solved separately.
-- **B. The title's listen server in the game process.** The server runs every frame (118-171 Hz in 17.4) with the bots'
-  bursts in the players' frames (31-32 ms at 64 bots). The first context joins over the loopback as today; the others
-  over the PC transport to the same process (as LAN players join a listen server) or a loopback with N sides
-  (category 4).
+- **Transport: the engine's loopback, extended to one channel per local player.** Today it has exactly two sides
+  (`loopbacks[2]` at 0x440C00, stride 0x3F38; NET_SendLoopPacket 0x6BBA0, P), and SV_ReadPackets matches a loopback
+  address by type alone (0x9C6F2..0x9C77B, P), so two loopback clients would be one. The extension: a channel pair
+  per context, the context's index carried in the loopback address (its port field), the server's match on type and
+  index. Each context is a client slot like any other (65 slots kept).
+- **Timing.** The listen server simulates once per rendered frame, as the title always did (118-171 times a second
+  measured on PC, docs/splitscreen.md 17.4), where the separate local server ticks at 30 Hz. Native split-screen
+  therefore returns to the title's own timing; no rate is changed beyond that. Measured cost to keep in mind: with
+  61-64 bots the bots' bursts become the players' frame spikes (99% frame interval 31-32 ms); 0-16 bots, no
+  difference. Evaluated in M7 without changing gameplay.
+- **Unchanged**: solo play keeps its Match Server setting (separate by default); online play, the dedicated server and
+  65 slots are not touched. The multi-process split-screen stays as the fallback until the user has verified the
+  native one by hand.
 
-Recommendation: build M1-M4 on **A** (nothing in the server or protocol changes, and solo play already works this
-way); keep B possible (the contexts do not depend on where the server is). The tick question is evaluated on its own
-(section 7), as the brief asks.
+(The alternative considered in M0, the contexts joining the separate local server, is not used.)
 
 ## 6. Dependency map
 
@@ -138,7 +141,7 @@ way); keep B possible (the contexts do not depend on where the server is). The t
       |-- client half of _Host_Frame wrapped in "for each context"
       |
  M2  second context connects ------------------------------------------------+
-      |-- per-context network endpoint and identity (net_engine g_ep per context)  |
+      |-- the loopback with a channel per context (section 5)                     |
       |-- per-context initialisation (client game init, VGUI viewport, HUD)       |
       |      registration once (commands, message hooks)          [cat. 3]       |
       |-- shared resources: a second precache uploads nothing      [cat. 3, R]   |
