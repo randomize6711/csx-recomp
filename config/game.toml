@@ -1141,6 +1141,26 @@ call = "NativeSplitAddCommand"
 on_true = "ret"
 
 [[hook]]
+at = 0x1A7F7E
+call = "NativeSplitDestroy552C70"
+on_false = 0x1A7F84
+
+[[hook]]
+at = 0x1B667A
+call = "NativeSplitDestroy552C9C"
+on_false = 0x1B6680
+
+[[hook]]
+at = 0x1BAE4B
+call = "NativeSplitDestroy552CA8"
+on_false = 0x1BAE67
+
+[[hook]]
+at = 0x1A6A0A
+call = "NativeSplitDestroyHudList"
+on_false = 0x1A6A26
+
+[[hook]]
 at = 0x5D51B
 call = "NativeSplitScreen"
 on_false = 0x5D535

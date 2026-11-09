@@ -168,4 +168,12 @@ inline size_t RestoreUnreplaced(std::vector<uint8_t>& copy, const std::vector<Cl
 // names, stays alive; at worst a leak, never a block freed under another player
 inline bool SkipFree(int owner, int freeing) { return freeing > 0 && FreeIsForeign(owner, freeing); }
 
+// whether the object at `owner_of_object` may be destroyed by `acting` (a player in its initialisation or turn, or
+// kProcess): the check made before a destructor runs, not only before the free (a destructor that has run has already
+// changed the object, whatever happens to its memory)
+inline bool MayDestroy(int owner_of_object, int acting) {
+    if (acting <= 0) return true;                         // player 1 and the process act as the title
+    return owner_of_object == acting;                     // another player: only its own objects
+}
+
 }  // namespace heapown

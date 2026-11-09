@@ -78,6 +78,14 @@ bool SharedSite(uint32_t site) {
     return false;
 }
 
+// shared scratch: blocks any player's code frees in the course of the title's own work, whoever allocated them. Not
+// ownership violations: the command tokenizer frees the previous command's argument strings before it splits the next
+// (Cmd_TokenizeString 0x3C620, its allocations at 0x3C708 / 0x3C7E9), and a cvar's value string is replaced by the
+// next Cvar_Set (cvar.c's allocations, 0x42000..0x43000)
+bool SharedScratchSite(uint32_t site) {
+    return site == 0x3C70D || site == 0x3C7EE || (site >= 0x42000 && site < 0x43000);
+}
+
 // a player's own objects, which another player must never share: their pointers in the per-player regions (the HUD's
 // element list at gHUD + 0, the particle manager, the client game's objects of docs 10.5)
 struct Root {
@@ -421,6 +429,7 @@ bool NativeSplitHeapFree(X86Context& ctx, uint8_t*) {
     int freeing = OwnerNow();
     const heapown::Block* b = g_blocks.At(va);
     int owner = b ? b->owner : heapown::Blocks::kNone;
+    if (b && SharedScratchSite(b->site)) owner = heapown::Blocks::kNone;  // shared scratch: anyone frees it
     if (heapown::FreeIsForeign(owner, freeing)) {
         g_foreign_frees++;
         bool skip = heapown::SkipFree(owner, freeing);
@@ -435,6 +444,41 @@ bool NativeSplitHeapFree(X86Context& ctx, uint8_t*) {
     g_blocks.Freed(va);
     return false;
 }
+
+// ---- before a destructor: another player's object is never destroyed --------------------------------------------
+
+// whether the acting player (in its initialisation or turn) may destroy the object at va; logged (an error: the
+// scrub left another's pointer in its state) when not
+bool MayDestroyHere(uint32_t va, const char* what) {
+    int acting = OwnerNow();
+    if (acting <= 0 || !va) return true;
+    const heapown::Block* b = g_blocks.At(va);
+    int owner = b ? b->owner : heapown::Blocks::kNone;
+    if (heapown::MayDestroy(owner, acting)) return true;
+    LOGE("native split: player %d would destroy %s 0x%08X of %s: not destroyed, the reference dropped", acting + 1, what,
+         va, owner >= 0 ? ("player " + std::to_string(owner + 1)).c_str()
+                        : owner == heapown::kProcess ? "the process's initialisation" : "no known allocation");
+    return false;
+}
+
+// [[hook]] at 0x1A7F7E in 0x1A7F70 (`delete [0x552C70]`, ecx the object): false (on_false 0x1A7F84, the pointer then
+// cleared) when it is not the acting player's
+bool NativeSplitDestroy552C70(X86Context& ctx, uint8_t*) { return MayDestroyHere(ctx.ecx, "the client object 0x552C70"); }
+
+// [[hook]] at 0x1B667A in 0x1B6670 (`delete [0x552C9C]`, ecx the object): false (on_false 0x1B6680, cleared)
+bool NativeSplitDestroy552C9C(X86Context& ctx, uint8_t*) { return MayDestroyHere(ctx.ecx, "the client object 0x552C9C"); }
+
+// [[hook]] at 0x1BAE4B in 0x1BAE40 (the object at 0x552CA8: its destructor 0x1BAD90 and free, esi the object): false
+// (on_false 0x1BAE67, past the push / pop around them) with the pointer cleared here
+bool NativeSplitDestroy552CA8(X86Context& ctx, uint8_t*) {
+    if (MayDestroyHere(ctx.esi, "the client object 0x552CA8")) return true;
+    W32(0x552CA8, 0);
+    return false;
+}
+
+// [[hook]] at 0x1A6A0A in gHUD.Init (0x1A65A0), before it frees the HUD element list at gHUD + 0 (edi gHUD, eax the
+// first node): false (on_false 0x1A6A26, the list head cleared) when the list is not the acting player's
+bool NativeSplitDestroyHudList(X86Context& ctx, uint8_t*) { return MayDestroyHere(ctx.eax, "the HUD element list"); }
 
 // ---- the loopback ------------------------------------------------------------------------------------------------
 

@@ -201,6 +201,23 @@ static void Heap() {
         std::memcpy(c3.data() + 2, &p, 4);  // guest 0x30004
         Check(Scrub(c3, odd, h).size() == 1, "a region starting at an odd address: its aligned pointer found");
     }
+    // a region's bounds: a dword crossing its end is never read (it would be the next region's bytes), and spans past
+    // the copy's end are ignored
+    {
+        Blocks h;
+        h.Allocated(0x9000000, 0x10, kProcess);
+        std::vector<uint8_t> copy(8, 0);
+        uint32_t p = 0x9000000;
+        std::memcpy(copy.data() + 2, &p, 4);  // straddles the end of a 4-byte region at guest 0x40000 (copy 0..3)
+        std::vector<Span> spans = {{0, 0x40000, 4}, {4, 0x50002, 4}};
+        Check(Scrub(copy, spans, h).empty(), "a dword across a region's end is not read");
+        std::vector<Span> past = {{6, 0x60000, 16}};
+        Check(Scrub(copy, past, h).empty(), "a span past the copy's end is not read");
+    }
+    // before a destructor: another player never destroys an object that is not its own
+    Check(MayDestroy(1, 1) && MayDestroy(kProcess, 0) && MayDestroy(1, kProcess), "its own; player 1; the process");
+    Check(!MayDestroy(0, 1) && !MayDestroy(kProcess, 1) && !MayDestroy(Blocks::kNone, 1) && !MayDestroy(2, 1),
+          "player 2: not player 1's, the process's, an unknown block or player 3's");
     // the safety net: player 2..4 never frees a block that is not its own
     Check(SkipFree(kProcess, 1) && SkipFree(0, 1) && SkipFree(2, 1), "player 2: not the process's, not another's");
     Check(!SkipFree(1, 1) && !SkipFree(kProcess, 0) && !SkipFree(1, kProcess) && !SkipFree(Blocks::kNone, 1),
