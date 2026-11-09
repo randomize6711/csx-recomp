@@ -84,14 +84,24 @@ def audit_test():
             if held(x):
                 errors.append(f'{held(x)} holds 0x{x:X}, part of {what} (shared)')
                 break
-    for x, what in ((0x379FA8, 'the refresh rate'), (0x551FE8, 'the video-mode object'),
-                    (0x5EECA0, 'the display-mode list'), (0x5EF4E0, 'com_argv'), (0x6CE210, 'the window rectangle'),
-                    (0x553614, 'a system object made once'), (0x5518A4, 'a start-up flag')):
-        if held(x):
-            errors.append(f'{held(x)} holds 0x{x:X}, {what} (the process\'s)')
-    for x in (0x5BD8C4, 0x5BD8CC, 0x5BD8D0, 0x5BD8D4, 0x5BD8D8, 0x5517F8, 0x5517FC):
-        if not held(x):
-            errors.append(f'0x{x:X} (the client game\'s pool object) is not in a player\'s regions')
+    for lo, hi, what in ((0x379FA8, 0x379FAC, 'the refresh rate'), (0x379FA4, 0x379FB0, 'the system and video objects'),
+                         (0x5518A4, 0x5518A8, 'a start-up flag'), (0x55194C, 0x551958, 'the shutdown flags'),
+                         (0x551928, 0x55192C, 'the cvar list head (cvar_vars)'),
+                         (0x551FD4, 0x551FF8, 'the video-mode object and the display settings'),
+                         (0x553614, 0x553620, 'a system object made once'),
+                         (0x5EECA0, 0x5EEEA0, 'the display-mode list'), (0x5EF4E0, 0x5EF670, 'com_argv'),
+                         (0x6CE0C8, 0x6CE0CC, 'com_argc'), (0x6CE204, 0x6CE224, 'the window rectangle and centre')):
+        for x in range(lo, hi):
+            if held(x):
+                errors.append(f'{held(x)} holds 0x{x:X}, {what} (the process\'s)')
+                break
+    # 0x5BD8C4 (its list), the chunk vector's begin / last / end 0x5BD8CC..0x5BD8D8 (0x5BD8C8, the vector's empty
+    # allocator, is never read or written), 0x5BD8D8 (a second list), the pool's sizes and blocks 0x5517F8..0x551810
+    for lo, hi in ((0x5BD8C4, 0x5BD8C8), (0x5BD8CC, 0x5BD8E0), (0x5517F8, 0x551810)):
+        for x in range(lo, hi):
+            if not held(x):
+                errors.append(f'0x{x:X} (the client game\'s pool object) is not in a player\'s regions')
+                break
     total = sum(n for _, n, _ in regs)
     print(f'{len(regs)} regions, {total} bytes ({total / 1024:.1f} KB) per player')
     return '; '.join(errors)

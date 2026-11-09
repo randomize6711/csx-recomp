@@ -162,6 +162,42 @@ inline std::vector<Pointer> HeapPointers(const std::vector<uint8_t>& copy, const
     return out;
 }
 
+// a start-up value a new player lacks (docs/native_splitscreen.md 13.8): a word of the regions that the process's
+// start-up changed for player 1 (the reference differs from the boot image) and that the new player's own steps left
+// at its boot value. The title's code set it once, for the process: either it is shared state wrongly in a player's
+// regions, or an initialisation step the new player lacks. A link (the reference value an address of the image, code
+// or static data: a list head, a static object's pointer) is a failure; any other value is reported (the view's state,
+// redone in every turn, is one).
+struct StartupGap {
+    uint32_t va;
+    uint32_t reference, boot;
+    bool link;
+};
+constexpr uint32_t kImageLo = 0x10000, kImageHi = 0x7D6F20;  // the XBE's code and data
+inline bool IsImageAddress(uint32_t v) { return v >= kImageLo && v < kImageHi; }
+
+// boot and reference are copies (the regions end to end); mine(va) reads the new player's word at a guest address;
+// heap pointers are left to the object check (HeapPointers)
+template <typename Read>
+std::vector<StartupGap> StartupGaps(const std::vector<uint8_t>& boot, const std::vector<uint8_t>& reference,
+                                    const std::vector<Span>& spans, const Blocks& blocks, Read mine) {
+    std::vector<StartupGap> out;
+    for (const Span& sp : spans) {
+        uint32_t first = (sp.va + 3) & ~3u;
+        for (uint32_t va = first; va + 4 <= sp.va + sp.size; va += 4) {
+            size_t off = sp.offset + (va - sp.va);
+            if (off + 4 > boot.size() || off + 4 > reference.size()) break;
+            uint32_t b, r;
+            std::memcpy(&b, boot.data() + off, 4);
+            std::memcpy(&r, reference.data() + off, 4);
+            if (b == r || uint32_t(mine(va)) != b) continue;
+            if (r >= 0x10000 && blocks.Holding(r)) continue;  // a heap object: the object check's
+            out.push_back({va, r, b, IsImageAddress(r)});
+        }
+    }
+    return out;
+}
+
 // one span of a whole copy whose guest address is its offset (tests)
 inline std::vector<Span> Flat(size_t size, uint32_t va = 0) { return {{0, va, uint32_t(size)}}; }
 

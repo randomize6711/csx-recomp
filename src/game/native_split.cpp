@@ -211,7 +211,7 @@ void AddPlayer(X86Context& ctx, int k) {
         return;
     }
     std::vector<heapown::Span> spans = Spans();
-    size_t inherited = 0, own = 0, missing = 0, foreign = 0;
+    size_t inherited = 0, own = 0, missing = 0, foreign = 0, unlinked = 0, values = 0;
     auto t0 = std::chrono::steady_clock::now();
     for (nsplit::InitStep step : nsplit::InitOrder()) {
         switch (step) {
@@ -262,27 +262,58 @@ void AddPlayer(X86Context& ctx, int k) {
                          b ? b->owner : -2, b ? heapown::Name(b->kind) : "no known block");
                 }
             }
+            // the start-up values (docs 13.8): what the process's start-up set in player 1's regions that this
+            // player's own steps left at the boot value. A link into the image fails (a list head, a static object's
+            // pointer: shared state in a player's regions, or a step it lacks); a plain value is reported, by run
+            {
+                std::vector<heapown::StartupGap> gaps = heapown::StartupGaps(
+                    csx::ClientContextInitial(), g_reference, spans, g_blocks, [](uint32_t va) { return R32(va); });
+                std::vector<ctx::Region> regions = csx::ClientContextRegions();
+                auto region_of = [&](uint32_t va) -> const char* {
+                    for (const ctx::Region& r : regions)
+                        if (va >= r.start && va < r.start + r.size) return r.what;
+                    return "?";
+                };
+                for (size_t i = 0; i < gaps.size();) {
+                    size_t j = i + 1;
+                    while (j < gaps.size() && gaps[j].va == gaps[j - 1].va + 4 && gaps[j].link == gaps[i].link &&
+                           region_of(gaps[j].va) == region_of(gaps[i].va))
+                        j++;
+                    if (gaps[i].link) {
+                        unlinked += j - i;
+                        LOGE("native split: player %d lacks %zu start-up link(s) at 0x%08X.. (player 1's 0x%08X, boot "
+                             "0x%08X; %s)",
+                             k + 1, j - i, gaps[i].va, gaps[i].reference, gaps[i].boot, region_of(gaps[i].va));
+                    } else {
+                        values += j - i;
+                        LOGW("native split: player %d lacks %zu start-up value(s) at 0x%08X.. (player 1's 0x%08X, "
+                             "boot 0x%08X; %s)",
+                             k + 1, j - i, gaps[i].va, gaps[i].reference, gaps[i].boot, region_of(gaps[i].va));
+                    }
+                    i = j;
+                }
+            }
             break;
         }
     }
-    if (inherited || missing || foreign) {
+    if (inherited || missing || foreign || unlinked) {
         csx::ClientContextSwitch(0);
         csx::ClientContextRemove(context);
         g_players.InitFailed(k);
         g_add_failed = true;
         auto [n, bytes] = g_blocks.Orphan(k);
-        LOGE("native split: player %d's initialisation failed its checks (%zu inherited, %zu missing, %zu not its own): "
-             "not added; %zu of its objects (%zu bytes) left behind",
-             k + 1, inherited, missing, foreign, n, bytes);
+        LOGE("native split: player %d's initialisation failed its checks (%zu inherited, %zu missing, %zu not its own, "
+             "%zu start-up links lacking): not added; %zu of its objects (%zu bytes) left behind",
+             k + 1, inherited, missing, foreign, unlinked, n, bytes);
         return;
     }
     csx::ClientContextSwitch(0);
     g_players.Initialised(k);
     double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     LOGI("native split: player %d (\"%s\") built in context %d from the boot image: of the %zu objects player 1's "
-         "initialisation made, %zu are its own, %zu missing, %zu not its own; initialised in %.2f ms; it joins on its "
-         "turn",
-         k + 1, name.c_str(), context, g_reference_objects.size(), own, missing, foreign, ms);
+         "initialisation made, %zu are its own, %zu missing, %zu not its own; start-up links lacking %zu, values "
+         "lacking %zu (warned); initialised in %.2f ms; it joins on its turn",
+         k + 1, name.c_str(), context, g_reference_objects.size(), own, missing, foreign, unlinked, values, ms);
 }
 
 // the server client whose loopback address names player k, 0 none

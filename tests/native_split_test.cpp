@@ -1,6 +1,7 @@
 // tests/native_split_test.py builds and runs this: native split-screen's parts without the game (M2):
 // src/game/local_loopback.h, heap_owner.h, native_split_core.h and client_context_core.h's removal
 #include <cstdio>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -239,6 +240,39 @@ static void TwoPlayers() {
     s.Switch(0);
 }
 
+// the start-up values check (docs 13.8): what the process's start-up set for player 1 that a new player's own steps
+// left at the boot value; a link into the image fails, a plain value is reported, a heap pointer is the object check's
+static void StartupValues() {
+    using namespace heapown;
+    std::vector<Span> spans = {{0, 0x1001, 0x13}, {0x13, 0x2000, 0x20}};  // an odd start, as the real regions
+    std::vector<uint8_t> boot(0x33), reference(0x33);
+    auto put = [](std::vector<uint8_t>& c, size_t off, uint32_t v) { std::memcpy(c.data() + off, &v, 4); };
+    Blocks heap;
+    heap.Allocated(0x900000, 0x40, kProcess, 0xAF8C4);
+    put(boot, 0x13 + 0x0, 0xC0DE);       // 0x2000: a vtable set by a static constructor: the same in both
+    put(reference, 0x13 + 0x0, 0xC0DE);
+    put(reference, 0x13 + 0x4, 0x371970);  // 0x2004: a static link (a cvar's next, a list head)
+    put(reference, 0x13 + 0x8, 0x3C);      // 0x2008: a value (the refresh rate)
+    put(reference, 0x13 + 0xC, 0x900010);  // 0x200C: a heap pointer (the object check's)
+    put(reference, 0x13 + 0x10, 7);        // 0x2010: a value player 2's own steps set again
+    put(reference, 0x3, 0x5BD8C8);         // 0x1004 (offset 3: the guest alignment): a link in the odd region
+    std::map<uint32_t, uint32_t> mine = {{0x2010, 7}};
+    auto read = [&](uint32_t va) { auto it = mine.find(va); return it == mine.end() ? 0u : it->second; };
+    std::vector<StartupGap> gaps = StartupGaps(boot, reference, spans, heap, read);
+    auto at = [&](uint32_t va) -> const StartupGap* { for (auto& g : gaps) if (g.va == va) return &g; return nullptr; };
+    Check(gaps.size() == 3, "three start-up values player 2 lacks (two links, one value)");
+    Check(at(0x2004) && at(0x2004)->link && at(0x1004) && at(0x1004)->link, "a static link it lacks is a link (fails)");
+    Check(at(0x2008) && !at(0x2008)->link && at(0x2008)->reference == 0x3C, "a plain value it lacks is reported");
+    Check(!at(0x200C), "a heap pointer is left to the object check");
+    Check(!at(0x2000) && !at(0x2010), "the same at boot, or set again by its own steps: not a gap");
+    mine[0x2004] = 0x371970;
+    mine[0x1004] = 0x5BD8C8;
+    mine[0x2008] = 0x3C;
+    Check(StartupGaps(boot, reference, spans, heap, read).empty(), "every value made again: no gap");
+    mine[0x2008] = 0x1E;  // its own, different value (not the boot one): its own, not a gap
+    Check(StartupGaps(boot, reference, spans, heap, read).empty(), "a different value of its own is not a gap");
+}
+
 static void Lifecycle() {
     using namespace nsplit;
     Players p;
@@ -360,6 +394,7 @@ int main() {
     Exchange();
     Heap();
     TwoPlayers();
+    StartupValues();
     ConnectionBuffers();
     Lifecycle();
     Contexts();
