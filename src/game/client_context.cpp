@@ -79,6 +79,7 @@ bool ClientContextSwitch(int k) { return Contexts().Switch(k); }
 // player 0 again and on to SV_Frame (true)
 bool ClientContextsMoveNext(X86Context&, uint8_t*) {
     Switcher& s = Contexts();
+    LOG_FIRST(1, "client context: the players' input turns run (%d player%s)", s.Count(), s.Count() == 1 ? "" : "s");
     if (s.Count() == 1) return true;
     int next = ctx::NextTurn(s.Active(), s.Count());
     if (next >= 0) return !s.Switch(next);
@@ -90,6 +91,7 @@ bool ClientContextsMoveNext(X86Context&, uint8_t*) {
 // or player 0 again and on to the frame's end (true)
 bool ClientContextsFrameNext(X86Context&, uint8_t*) {
     Switcher& s = Contexts();
+    LOG_FIRST(1, "client context: the players' client turns run (%d player%s)", s.Count(), s.Count() == 1 ? "" : "s");
     if (s.Count() == 1) return true;
     int next = ctx::NextTurn(s.Active(), s.Count());
     if (next >= 0) return !s.Switch(next);
