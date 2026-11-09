@@ -73,6 +73,7 @@ constexpr uint32_t kDropClient = 0x5C600;         // SV_DropClient (cdecl client
 constexpr uint32_t kFree = 0x22C609;              // the C runtime's free (cdecl)
 constexpr uint32_t kClientInitialize = 0x18B7A0;  // the client game's Initialize (cdecl engine functions, version)
 constexpr uint32_t kHudInit = 0x18B800;           // the client game's HUD_Init
+constexpr uint32_t kTempEntInit = 0x3A8A0;        // CL_TempEntInit: the tempent pool cleared and its free list linked
 constexpr uint32_t kEngineFunctions = 0x371610;   // the engine's cl_enginefunc_t table, as Host_Init hands it (0x1C69F)
 constexpr uint32_t kLoopback = 1;                 // netadrtype_t NA_LOOPBACK
 constexpr int kClsActive = 5, kClsDisconnected = 1;
@@ -281,6 +282,10 @@ void AddPlayer(X86Context& ctx, int k) {
             break;
         case nsplit::InitStep::ClientState:
             ClientInitState();
+            // the tempent pool's free list (0x3AEF00, 250 TEMPENTITY, a player's region): player 1's start-up linked it
+            // through CL_ClearState (0x28EE1), which the new player first runs at its own svc_serverinfo; the start-up
+            // check needs it now (the sixth run, docs 15.6). A leaf writing only the pool (tests/region_model_test.py)
+            kernel::CallGuest(ctx, kTempEntInit, {});
             break;
         case nsplit::InitStep::Userinfo: {
             std::memcpy(kernel::HostPtr(kClsUserinfo), userinfo.data(), userinfo.size());

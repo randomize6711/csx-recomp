@@ -107,7 +107,7 @@ private:
 // a new player's initialisation, in order (native_split.cpp AddPlayer runs these; docs 13.2)
 enum class InitStep {
     BootImage,      // its context from the boot image (no heap pointer: checked)
-    ClientState,    // CL_Init's per-player state (list heads, the datagram buffer, cls.state)
+    ClientState,    // CL_Init's per-player state (list heads, the datagram buffer, cls.state), the tempent free list
     Userinfo,       // player 1's userinfo text, then its own name
     Initialize,     // the client game's Initialize (gEngfuncs, its particle manager)
     HudInit,        // the client game's HUD_Init (its HUD and objects; registrations answered by the first player's)

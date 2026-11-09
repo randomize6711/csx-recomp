@@ -938,3 +938,34 @@ reload and file-transfer side effects. Static analysis, code, compilation and no
   region_model_test 819 (pointer arguments, the block helpers, address-taken objects, the docs-15 objects); every
   other non-gameplay suite passes. The 2-player scenario expects the world built once (player 1's signon) and player
   2's part only.
+
+### 15.6 The sixth M2 run (2026-11-09, permitted once): player 2 refused by its checks; causes found; not re-run
+
+native_split_2p at c1c7544 (one process, the built-in server, CSX_NATIVE_SPLIT=2, CSX_CTX_GUARD=1, de_dust2 without
+bots, headless, 180 s): **FAIL (timeout)**: player 2 refused at 2.19 s by its start-up checks, before it connected;
+no crash, no hang, no Host_Error, no guest trap, nothing freed or destroyed. Player 1 and the server ran on to the end
+(30.0 movement commands/s, 5340 renderer frames; the guard: 4498 server frames checked, 0 wrote client state, copy
+0.09 ms and compare 0.05 ms a check). The world was built once, in player 1's signon (spawn count 1, model
+0x006E9520), and the material list once, in player 1's turn.
+
+1. **The executable was stale** (the run's own first line: "127 regions, 1539563 bytes", ff5a75e's model, not the
+   115 of c1c7544). sdk/harness/build.sh rebuilt a host object only when its source or a `*.h` was newer; the
+   generated tables (`client_context_regions.inc`, `client_context_protected.inc`) are `*.inc`, so their
+   regeneration left client_context.o and native_split.o as compiled before it. Fixed:
+   patches/sdk/0046-harness-rebuilds-on-included-tables.patch (`*.inc` counted as headers; the harness, window and
+   server builds all use the script). After it every executable holds the current tables (a region string only the
+   current model has: present; one only ff5a75e's has: absent).
+2. **250 start-up links lacking: the tempent pool** (0x3AEF00, 250 TEMPENTITY of 0x790, a player's region in both
+   models): the free list's links (0x3AEF2C + 0x790 n). Player 1's start-up linked them through CL_ClearState
+   (0x28EE1 -> CL_TempEntInit 0x3A8A0); a new player's steps did not, and its own CL_ClearState comes only at its
+   svc_serverinfo. Not a sharing error: a step it lacked. Fixed: the ClientState step calls CL_TempEntInit (a leaf;
+   every write in a player's region: region_model_test). The whole CL_ClearState is not run (it frees blocks and
+   calls connect-time code).
+3. **2 protected changes: 0x5C9640 and 0x5C9660** (in the protected state of both models). FC870 (a timer, called by
+   the client game 0x1A616A.. and the server game 0x144D78) sets, under a function-local static's guard bit
+   0x5C9660, the reciprocal of the performance-counter frequency at 0x5C9640 (FC8C6), once per process; nothing had
+   called it before player 2's initialisation. A lazy once-per-process constant, the same for any caller: the
+   check is right about the model (a process object written after start-up), the model's "start-up state" is wrong
+   for it. **Not changed** (an ownership decision): the options are in the completion report.
+4. Not seen because of 1-3: whether the 115-region model's tables pass the checks; player 2's connect, slots and
+   userids; the shared-once connect's hooks in player 2's turn.

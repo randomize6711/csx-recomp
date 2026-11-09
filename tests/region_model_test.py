@@ -417,6 +417,15 @@ def real():
                         (0x551798, 0x60, 'the particle manager\'s CMiniMem'), (0x5BD8B4, 0x10, 'the particle object'),
                         (0x57EEF0, 0x1A0, 'the weather object'), (0x7493E0, 0x10, 'the server\'s module hash')):
         check(all(held(x) for x in range(lo, lo + n)), f'{what} (0x{lo:X}+0x{n:X}) is a player\'s (docs 15)')
+    # the tempent pool's free list (CL_TempEntInit 0x3A8A0, run as a new player's own step, docs 15.6): a leaf whose
+    # every write (its rep stosd, the stores, the link loop 0x3AEF2C..0x424A3C by 0x790) is in a player's region
+    acc = json.load(open(os.path.join(M.OUT, 'accesses.json')))['accesses']
+    writes = [a for a in acc if a[0] == 0x3A8A0 and a[2] == 'w']
+    check(len(writes) == 4 and all(all(held(x) for x in range(a[3], a[3] + a[4])) for a in writes),
+          f'CL_TempEntInit writes only a player\'s region ({len(writes)} writes)')
+    check(all(held(x) for x in range(0x3AEF2C, 0x424A3C + 4, 0x790)), 'its link loop is in a player\'s region')
+    body = [mn for fn, at_, mn, ops, _ in M.instructions() if fn == 0x3A8A0]
+    check(body and 'call' not in body and body[-1] == 'ret', f'CL_TempEntInit calls nothing ({len(body)} instructions)')
     unresolved = sorted(o.lo for o in objs if o.ownership == 'unresolved')
     listed = open(os.path.join(ROOT, 'docs', 'native_split_review.md')).read()
     check(all(f'0x{a:X}' in listed for a in unresolved), 'every unresolved object is in the review list')

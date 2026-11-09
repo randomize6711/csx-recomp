@@ -1,0 +1,15 @@
+--- a/harness/build.sh
++++ b/harness/build.sh
+@@ -38,8 +38,10 @@
+ SRC="$SRC $(ls "$H"/*.cpp) ${EXTRA[*]}"
+ for x in "${EXCL[@]}"; do SRC=$(echo $SRC | tr ' ' '\n' | grep -Ev -- "$x"); done
+ 
+-# host objects, keyed by the flags; rebuilt when the source or any header of the repo, harness or image is newer
++# host objects, keyed by the flags; rebuilt when the source or any header of the repo, harness or image is newer.
++# The generated tables a source includes (*.inc: the client context's regions, its protected state) count as headers:
++# without them a regenerated table left the objects that include it stale
+ stamp=$(echo "$HOST" | md5sum | cut -c1-8)
+-newest=$(find "$RT" "$REPO/src" "$H" "$GEN/image_symbols.h" -name '*.h' -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2)
++newest=$(find "$RT" "$REPO/src" "$H" "$GEN/image_symbols.h" \( -name '*.h' -o -name '*.inc' \) -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2)
+ objs=()
+ for f in $SRC; do
