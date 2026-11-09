@@ -494,3 +494,29 @@ The fix (separate commit):
   (native_split_test: 62 checks).
 
 Not re-run: another gameplay test needs the user's permission.
+
+### 11.6 The second M2 run (2026-11-09, permitted once): hung; the scrub's real cause found; fixed, not re-run
+
+native_split_2p on commit 8620a80 (the snapshot-time scrub, the shared-kind restore, the skip of foreign frees, the
+independence check; same configuration): **no frame drawn past the loading, the log stops at 3.17 s, timeout at
+300 s** (a hang, no crash).
+- What ran: the initial state at 0.165 s (153 regions, 17 323 blocks, **1 heap pointer cleared**); player 1 in its
+  match; player 2 added at 2.14 s; **player 2 connected**: `"Player 2<2><4294967295><>" entered the game` at 3.07 s
+  (its own HUD video initialisation at 2.47 s); its own objects all differed from player 1's (the independence check:
+  HUD list 0x01FFE3E0 against 0x00D702C0, particle manager 0x02033D50 against 0x00C52170, the 0x552C70 object
+  0x0200EF60 against 0x00EF8C60, ...).
+- **The ownership report, a failure**: player 2's initialisation tried to free player 1's blocks (the same 44 places as
+  the first run); every free was skipped and logged as an error, as designed. But the destructors had already run on
+  player 1's objects (0x1A7800 empties their lists and resets their vtable to the base class 0x35EB80; gHUD.Init
+  unlinked player 1's HUD list): player 1 kept destroyed objects, and the game hung. The skipped frees did not make it
+  safe, and the test was right to count them as failures.
+- **The cause of both runs**: the scrub read the copy in steps of 4 from offset 0. The copy is the regions laid end to
+  end, and regions start at any address (0x78A943, 0x742FCF, ...): after the first region whose size is not a
+  multiple of 4, every later region's pointers were read across two dwords and never recognised. Hence one pointer
+  cleared in both runs, player 1's pointers (gHUD + 0 = 0x00D702C0, 0x552C70 = 0x00EF8C60) left in player 2's
+  copy, and player 2's initialisation destroying player 1's objects. The unit tests had only aligned layouts.
+
+The fix (separate commit): the scrub reads each region at its own guest alignment (heap_owner.h Span); the game
+builds the spans from the region list, and logs an error if they do not add up to the initial state's size. Unit
+tests with an odd-sized region before a pointer and a region starting at an odd address (native_split_test: 69
+checks). Not re-run: another gameplay test needs the user's permission.
