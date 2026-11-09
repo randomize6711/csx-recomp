@@ -228,3 +228,33 @@ Still to do in M1:
 - for each, persistent (switched) or scratch (shared, set before every use): the copy cost per switch is the sum of
   the switched regions;
 - the heap objects the regions point to (cl_entities, VGUI, HUD lists): each context's own (M2's initialisation).
+
+### 10.1 The server's reads of client memory, audited (2026-11-09, static)
+
+Every reader of the client addresses the audit found touched by server-reached code. The server and everything outside
+the players' turns run while player 0 is active, so a read there sees player 1's value.
+
+| Field | Readers | Verdict with several local players |
+|---|---|---|
+| cl.maxclients 0x778A5C | 0x95CF0, 0x96280: `maxclients = sv.active ? svs.maxclients (0x636CE8) : cl.maxclients` (P); shared 0x1C150, 0x42580 | correct: the built-in server is always active in native split-screen, so the server's own count is used; every context holds the same value anyway |
+| cl.time 0x74A290 | 0x24A90, a client particle allocator (a free list at 0x6A8198, the particle stamped with cl.time; P), reached from the server only through the player movement code's particle callback, which PM_Init (0x74830, DLL_FUNCTIONS entry at 0x37BE3C) hands to the shared movement code (P); the movement code uses it for its debug drawing (pm_showclip, I); also 0x698D0, 0x6A2C0 | correct for play; if the server's movement ever drew it, the particle would land in player 1's list only. To guard in M2 (a server-phase write to a per-player region is logged, below) |
+| cl.intermission 0x74A27C (P: SCR_UpdateScreen tests == 1) | SCR_UpdateScreen 0x55E10 (inside each player's turn: its own), the front end / session 0xC8330, 0xE6260, 0xE9240, 0xE9C00 (frame start), 0xEC4D0 | correct: intermission is sent to every client at once, so every context holds the same value |
+| cl.playernum 0x771224 | the session code: 0xEA4E0 (from 0xE9C00, every frame, outside the turns) and 0xEA380; 0xECDA0, 0xEF610 and 0xEE3A0, called from the server's game code (0x11F040, 0x124390, 0x13A9D0, 0x149130) when `gpGlobals` (0x527CE8) exists, i.e. with any server: "is this player the local player" = INDEXENT(cl.playernum + 1)'s user id (pfn 0x527BC0, 0x527C64) against the event's player; on a match the session object caches a value at +0xC7C (P) | **not sufficient**: only player 1 is ever "the local player". With several local players the check must consider every context's player number, and the session's local-player value (+0xC7C, and what reads it) must be per player. To do with the session code's per-player state (M4/M5); category 3 |
+
+General rule from this: code outside the players' turns that asks "who is the local player" gets player 1. Each such
+place must be found and made per player or "any local player". Planned guard (M2): in a diagnostic mode the per-player
+regions are write-protected while the server frame runs, so a server-phase write into client state is caught and
+logged rather than silently landing in player 1's copy.
+
+### 10.2 The 256 KB particle grid: persistent (2026-11-09, static)
+
+0x57F0A8..0x5BD8A8 is a [40][40][40] array of pointers (P: 0x1CC5D0 clears it with rows of 0x1900 and steps of 0xA0;
+0x1CC350 clears one 40 x 40 slice). 0x1DE6B0 creates an effect: picks a slice (index x 0x1900), clears it, and fills
+its cells with particles allocated from the particle manager (object at *0x552B8C, its allocate method [+0x20] of
+0x140 bytes). 0x1DECB0, later and from another call (both from 0x1F5CA0), walks the same slice's cells and pushes
+those particles (writes their velocity at +0x80 and +0x3C). So a slice lives as long as its effect, across frames:
+**persistent**. Its pointers lead into the particle manager's memory, so the grid belongs with the manager: per player
+(each player's client simulates the effects its own server messages start, which is also what the server's
+visibility rules intend). Cost: 256 000 bytes per switch, 63 whole pages: the first candidate for M7's page remapping.
+0x1CC5D0 runs from the client exports 0x18B970 and 0x1A5EE0 (initialisation), so each player's context gets its grid
+cleared by its own initialisation in M2.
