@@ -309,20 +309,22 @@ def static_cvars():
                 return d[ra + va - v:ra + va - v + n] if va - v + n <= rs else bytes(n)
         return None
 
-    def text(va):
+    def text(va, least):  # printable text of at least `least` characters at va, else None
         b = raw(va, 40)
         if not b:
             return None
         s = b.split(b'\0')[0]
-        return s.decode() if len(s) >= 2 and all(32 < c < 127 for c in s) else None
+        return s.decode() if len(s) >= least and all(32 <= c < 127 for c in s) else None
     out = []
     for v, vs, ra, rs in secs:
         if not (DATA_LO <= v < DATA_HI):
             continue
         for a in range(v, v + min(vs, rs) - 20, 4):
-            n, s, f, _, _ = struct.unpack('<IIIfI', raw(a, 20))
-            nm = text(n)
-            st = text(s) if s else None
+            n, s, f, _, nx = struct.unpack('<IIIfI', raw(a, 20))
+            if nx and not (DATA_LO <= nx < DATA_HI):  # next: unlinked at boot, or another static cvar
+                continue
+            nm = text(n, 2)   # a name: an identifier of two characters or more
+            st = text(s, 0) if s else None  # its default string: any text, "0" and "" too
             if nm and st is not None and f < 0x10000 and re.fullmatch(r'[a-z_][a-z0-9_]+', nm) and \
                     re.fullmatch(r'[-0-9.a-zA-Z_ ]*', st):
                 out.append((a, 20, f'the static cvar {nm}'))

@@ -701,7 +701,7 @@ one process, built-in server, CSX_NATIVE_SPLIT=2, CSX_CTX_GUARD=1, de_dust2 with
      vector's static destructor 0x240160 (atexit, from 0x23F300) writes it and lies outside the client game's range,
      so the generator left the vector shared while the pool around it (0x5BD8C4, 0x5BD8D8) was a player's.
 - Fixes (tools/state_audit.py; regenerated client_context_regions.inc: 130 -> 118 generated regions, 139 in all,
-  1057617 bytes a player): every static cvar_t (161, found by shape in the XBE) is clipped out of the regions;
+  1057617 bytes a player): every static cvar_t (646, found by shape in the XBE) is clipped out of the regions;
   the shell's 13 writers are reviewed shared writers (SHARED_WRITERS, each named); functions registered with atexit
   (0x22C31D) do not count as a region's writers (the pool object 0x5BD8C4..0x5BD8E0 is now a player's whole).
   tests/client_context_test.py checks all three (with the old list it reports the 12 entries).
@@ -712,3 +712,43 @@ one process, built-in server, CSX_NATIVE_SPLIT=2, CSX_CTX_GUARD=1, de_dust2 with
   pointers, nothing of player 1's was freed or destroyed (the one free was skipped and logged), player 1 played on.
 - Not verified (player 2 never connected): checks 3-9 of the run (slots, userids, packets per channel, the delta
   slot, ownership in the turns); the leave path; frame timing with two players.
+
+### 13.8 The fifth M2 run (2026-11-09, permitted once): player 2 refused by the start-up values check; review of the region model
+
+Before the run (8b01d2f): the start-up values check added to a new player's initialisation (heapown::StartupGaps):
+a word the process's start-up set in player 1's regions (the reference differs from the boot image) that the new
+player's own steps left at its boot value; a value in the image's address range ("a link") fails the add, any other
+value is warned. Region-policy tests over the shell's, the cvar list head's (cvar_vars 0x551928) and the pool
+object's whole ranges. Region-boundary review: no static link in the regions' initialised data; two address-taken
+objects cut by a region edge, both benign (a cl loop ending inside cl; g_TeamInfo, hand-checked); 11971 bytes in 52
+generated regions that no direct access justifies (a region runs to the next address any code names).
+
+The run (native_split_2p, one process, built-in server, CSX_NATIVE_SPLIT=2, CSX_CTX_GUARD=1, de_dust2 without bots,
+headless, 180 s): **FAIL, player 2 refused at 2.14 s** (no crash, no hang; player 1 played on; the guard clean). The
+three findings of 13.7 are gone (0 missing, 0 inherited, 0 not its own, no blocked free); 7 start-up links lacking,
+in three places, plus value warnings:
+1. 0x37A158 (player 1: 0x37A108): the `next` link of the static cvar v_dark (0x37A148). The cvar scan of 13.7
+   required two characters of a cvar's default string, so it missed every cvar whose default is "0" / "1": it
+   found 161 of **646**. (Its `arrowlt` was a false match: a key-name table, now rejected by `next`.) Fixed: a
+   default string is any text; `next` is 0 or a .data address. Now no cvar is in a region (v_dark, v_iyaw_cycle
+   left them).
+2. 0x3820D8..0x3820F8 (player 1: 0x31C000, 0x33B0DC; values 5, 0xCE): not view state (13.1 was wrong): 0x3820D0 is
+   an array of 3 x 0xE28 bytes of memory statistics (0xB1390 from the allocation wrappers 0xB17C0 / 0xB1850 counts
+   allocations, bytes, the peak): the process's. The "links" are byte counts that happen to fall in the image's
+   range. The region (0x28 bytes) cut a 0x2A78-byte table.
+3. 0x548E80 (player 1: 0xC91A0): the first entry of the client's IEngineStudio, the engine's studio API (0x2D dwords,
+   0x548E80..0x548F34) that HUD_GetStudioModelInterface (0x193BF0) copies with rep movsd at the client's load (the
+   process's start-up, through a pointer). The region 0x548E58+0x2C ended 4 bytes into it: player 2 had a zero
+   first entry (Mem_Calloc) and the rest shared. The check caught a call through 0.
+4. warned: 0x552C40 = 1, the done-flag of a lazy initialisation (0x1A1140, from the client's 0x18B6C0 and the engine
+   0x5E0A0) that clears and fills two tables, 0x543AD0 (6656 bytes) and 0x5454D0 (512): the flag per player, the
+   tables shared (written only by rep stosd through an immediate edi, which the index records as an address taken,
+   not a write). Player 2's first call would rebuild player 1's tables in player 2's turn.
+
+Review of the generator (the third run in a row whose failure is the regions'): its rules are local and each run met a
+case they do not cover: (a) a region runs on to the next address any code names (the cvar links; the studio table);
+(b) the code's address range stands for its subsystem (the "engine view" range holds the application shell and the
+memory statistics); (c) writes through rep stos / rep movs with an immediate edi are not seen (the lazily built
+tables, the studio table); (d) a structure can be cut (per player in part). What the explicit construction and its
+checks did: refused player 2 every time, before it connected, with nothing of player 1's freed or destroyed. A more
+conservative model is proposed in the completion report (not implemented: it needs approval).
