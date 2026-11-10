@@ -1093,3 +1093,31 @@ region_model_test (865: the layout, the nine fields equal to the evidence, the m
 constants not reclassified, the address's takers, the lock facts, realloc's heap calls and the hooks, the file
 system's vtable stores), escape_review_test (23: the blind spot on synthetic code, the walk, the real review's pool and
 file-system entries, no table changed).
+
+### 15.9 The review's two remaining protected candidates (2026-11-10; static; protections kept)
+
+Both are written once per process, before any player is added; their protection stays (no field reclassified, no
+exemption), and a change in a player's steps still fails it.
+
+- **0x552F3C, +4 / +8** (constructor 0x23C810 -> 0x12C20; a `std::deque` of the loading overlay's objects: +4 the map,
+  +8 its size, +0xC the offset, +0x10 the size). Only the overlay 0xC2AC0 pushes (0x12AE0: a 0x6C0-byte object ->
+  push_back 0x12EC0, which grows the map through 0x131C0) and it pops on both its exits (jmp 0x12B20; the pop resets
+  the offset when the deque is empty, 0x12B65). So the deque holds at most one entry and the map grows only on the
+  first push ever (0 -> 8 entries); every later push fits. The first overlay is the process's (the map load 0xC3E90
+  of player 1's match, before a player can be added); 0xC2AC0 is reached from a player's code only through the
+  engine's API (0x4E810 -> 0x4E5D0 -> 0x48880 -> 0xC2FE0) or a hub. The model's label ("written by 0x23C810,
+  0x23F3C0") misses the one-time growth, but the protection is right for a player's steps.
+- **0x553868, +0x70..+0x7C** (constructor 0x23CD40 -> 0xB9180; the HUD font's object, +0x70.. its resource bundle,
+  loaded by 0xB9420 through 0xC7580). Written only by the font load 0xBC900 (ecx 0x553868). It sets the shared flag
+  0x552049 to 1 where its paths join (0xBCB16, nothing else writes or clears it), and every caller tests the flag
+  first except the start-up's once-only system object 0xAF1F0. The engine's text API 0x1C4D0, which a player's HUD
+  code can call, loads the font only while the flag is 0. So the font is loaded once per process, by the start-up or
+  the menus, long before a player is added.
+- **Uncertain** (documented, not assumed away): "before a player is added" is a runtime order, not a static proof. If
+  the first overlay or the first font load ever happened inside a new player's steps, the check would fail the player
+  (fail closed), as the timer once did (15.6). The seventh run's player 2 ran its whole initialisation with neither
+  object changed. The font object's address is also stored in the font cache 0x553920 (0xBCAB0, 0xBCACC); its
+  readers were not found to write it, but they are reached through pointers.
+
+Tests: region_model_test (878: the font load's writer and flag, its guards, the overlay's push / pop pairing, the
+offset reset, nothing else pushing, the protected fields still protected).

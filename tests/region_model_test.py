@@ -454,6 +454,7 @@ def real():
     check(len(th) == 1 and th[0].get('at') == 0xFC8CC and th[0].get('on_true') == 0xFC954 and 'on_false' not in th[0],
           'the hook: at 0xFC8CC, on_true 0xFC954, otherwise the title\'s path')
     pool_facts(acc, prot, hooks)
+    once_objects(prot)
     unresolved = sorted(o.lo for o in objs if o.ownership == 'unresolved')
     listed = open(os.path.join(ROOT, 'docs', 'native_split_review.md')).read()
     check(all(f'0x{a:X}' in listed for a in unresolved), 'every unresolved object is in the review list')
@@ -538,6 +539,47 @@ def pool_facts(acc, prot, hooks):
     check(sorted([k['Nodes'], k['NodesAlloc'], k['Root'], k['Count'], k['Free'], k['Next'], k['Strings'],
                   k['StringsAlloc'], k['StringsSize']]) == [lo - POOL for lo, _, _, _ in EV.REVIEWED_POOL] and
           k['Pool'] == POOL, 'intern_pool.h names the evidence\'s fields')
+
+
+def once_objects(prot):
+    """docs 15.9: the escape review's two remaining protected candidates are written once per process, before any
+    player: their protection stays (a change in a player's steps still fails it)"""
+    seqs = {}
+    for fn, at_, mn, ops, _ in M.instructions():
+        seqs.setdefault(fn, []).append((at_, mn, ops))
+    # 0x553868 (the HUD font's object): +0x70..+0x7C written by B9420 only from the font load BC900 (ecx 0x553868)
+    bc = [(a, mn, ops) for a, mn, ops in seqs[0xBC900] if a]
+    check(('mov', 'ecx, 0x553868') in [(mn, ops) for _, mn, ops in bc] and
+          any(mn == 'call' and ops == '0x000B9420' for _, mn, ops in bc), 'the font load passes 0x553868 to 0xB9420')
+    check(any(a == 0xBCB16 and mn == 'mov' and ops == 'byte ptr [0x00552049], 0x01' for a, mn, ops in bc),
+          'the font load sets the shared loaded flag 0x552049 (at the join of its paths)')
+    sets = [(fn, a) for fn, seq in seqs.items() for a, mn, ops in seq if a and '[0x00552049]' in ops and
+            mn == 'mov' and ops.startswith('byte ptr')]
+    check(sets == [(0xBC900, 0xBCB16)], f'nothing else writes the flag, nothing clears it ({sets})')
+    unguarded = []
+    for fn, seq in seqs.items():
+        for i, (a, mn, ops) in enumerate(seq):
+            if a and mn == 'call' and ops == '0x000BC900':
+                pre = [x for x in seq[max(0, i - 8):i] if x[0]]
+                if not (any('[0x00552049]' in o for _, _, o in pre) and any(m == 'jnz' for _, m, _ in pre)):
+                    unguarded.append(fn)
+    check(unguarded == [0xAF1F0], f'every font load is guarded by the flag but the start-up\'s once-only system '
+                                  f'object 0xAF1F0 ({[hex(f) for f in unguarded]})')
+    for lo in (0x5538D8, 0x5538DC, 0x5538E0, 0x5538E4):
+        check(any(a <= lo < a + m for a, m in prot), f'0x{lo:X} (the font\'s bundle) stays protected')
+    # 0x552F3C (the loading overlays' deque): its map +4 / +8 grow only on the first push ever: 0xC2AC0 pushes one
+    # (0x12AE0 -> push_back 0x12EC0) and pops it on both exits (jmp 0x12B20); the pop resets the offset when empty
+    c2 = [(a, mn, ops) for a, mn, ops in seqs[0xC2AC0] if a and 0xC2AC0 <= a < 0xC2BC0]
+    check(any(mn == 'call' and ops == '0x00012AE0' for _, mn, ops in c2) and
+          [ops for _, mn, ops in c2 if mn == 'jmp' and ops == '0x00012B20'] == ['0x00012B20'] * 2,
+          'the overlay pushes once and pops on both exits')
+    pushers = sorted({fn for fn, seq in seqs.items() for a, mn, ops in seq if a and mn == 'call' and
+                      ops in ('0x00012AE0', '0x00012EC0')})
+    check(pushers == [0x12AE0, 0xC2AC0], f'nothing else pushes ({[hex(f) for f in pushers]})')
+    pop = {a: (mn, ops) for a, mn, ops in seqs[0xC2AC0] if a and 0x12B20 <= a < 0x12B8A}
+    check(pop.get(0x12B65) == ('mov', 'dword ptr [0x00552F48], 0x00'), 'the pop resets the offset when empty')
+    for lo in (0x552F40, 0x552F44):
+        check(any(a <= lo < a + m for a, m in prot), f'0x{lo:X} (the deque\'s map) stays protected')
 
 
 def main():
