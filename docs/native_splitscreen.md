@@ -1194,3 +1194,111 @@ Command routing (0x3BB50 runs the shared console buffer once, in player 1's cont
 withheld front-end commands); a kick or disconnect of an added player (RemovePlayer exists, used only by the
 diagnostics); a leaving player's cleanup (rollback releasing still off by default); the voice channels; player 1
 leaving (it ends the session: the host); the lock of 0x114C10 (15.8).
+
+### 15.12 M2 lifecycle hardening (2026-11-10; static analysis, code and non-gameplay tests only; not run)
+
+After the ninth run (native_split_2p at df7df64: PASS, 44 steps; both players active, slots 0 / 1, user IDs 1 / 2).
+Pure rules in src/game/native_split_lifecycle.h and native_split_core.h (tests/native_split_lifecycle_test.py),
+the game side in native_split.cpp and client_context.cpp, the facts they rest on in tests/native_split_turns_test.py.
+
+**1. The console's lines.** The title has one command buffer, cmd_text 0x748660 (a sizebuf_t; its data a process heap
+block of 0x4000 bytes, Cbuf_Init 0x3B900; cmd_wait 0x748640): appended by Cbuf_AddText 0x3B970 (edi the text),
+prepended by Cbuf_InsertText 0x3B9D0 (eax) and 0x3BA80 (a stack argument, wrapped in newlines; the exec command's),
+run by Cbuf_Execute 0x3BB50 line by line through Cmd_ExecuteString 0x3CA10: once a frame at 0x5D3AB, before the
+turns, so in player 1's context; and at once by the callers that add and run a line (0x127960, 0x1A5B80, 0x1B69F0,
+0x5BC40, 0x65ED0, 0xAED30, the exec command). Nothing else touches the buffer (checked against the generated code).
+A line a player's client adds in its turn (svc_stufftext, its client game's commands, its menus' "!" lines) ran in
+player 1's context: a stuffed "disconnect" for player 2 would have ended player 1's connection.
+
+Routing (RouteText), by where a line is added: in the shared front end's or the voice channels' scope, the shared
+buffer (the process's, also while a player's lines run: put with the shared lines kept aside); while a player's lines
+run, with them; in the built-in server's frame (0x5D3CD..0x5D3D2, the guard's hooks) the shared buffer; in a player's
+turn (player 1 too) or a new player's initialisation, that player's own queue (on_true "ret" at the three entries);
+otherwise (the console, the menus' own frame, the host) the shared buffer. Each player's queue runs at the start of
+its own input turn (0x5D3B5: where the title's prelude runs the buffer; for an added player between its activation
+check and its CL_UpdateClientData, the title's order), by the title's own Cbuf_Execute with the player's lines put in
+the title's buffer for the run and the shared lines put back after (also through a longjmp's unwinding); a "wait"
+leaves the rest for its next turn, as the title's. Cbuf_Execute called in a player's turn (a line added and run at
+once) runs that player's queue (on_true "ret" at 0x3BB50, before pc_keys.cpp's PcKeysFrame, which now feeds the PC
+keyboard and console only to the process's run). The shared buffer still runs once a frame: no line runs twice, none
+in another player's context. Queues have the title's bound (0x4000: an addition that would fill it is refused, as
+"Cbuf_AddText: overflow"); a leaving player's lines are dropped.
+
+Front-end commands (0xCA6F0, the strings at its 104 call sites): "xbui ..." lines (open, back, swap, silentOpen a
+shared screen) and "!" lines, console lines for the player ("!slot1", "!impulse 101", "!slot2; wait x11; xbui open
+TeamSelect_CT", "!enterLive"). In another player's turn than the driver's, a "!" line now goes on (to that player's
+queue: its slot and impulse commands are its own); a plain xbui line is still withheld. The "xbui" command itself
+(0xD7450, registered at 0xD772E) is gated as the other shared front-end routines: as the title outside the turns, run
+as the process (in the front end's scope) in the driver's turn, not run in another player's (its "!" lines' xbui
+parts). The driver model is unchanged.
+
+**2. Disconnects and kicks.** The paths (static): CL_Disconnect 0x28F20 (the disconnect command 0x290D0 then calls
+Host_ShutdownServer 0x5C9D0 itself), Host_EndGame 0x5BC40 (Host_ShutdownServer, CL_Disconnect, a longjmp), Host_Error
+0x5BD30, the svc_disconnect handler 0x30910 (Host_EndGame "Server disconnected": the client's side of a kick or a
+drop, SV_DropClient's message), a gamedir mismatch 0x2E3A0. CL_Disconnect's shared side effects: the sound system's
+stop-everything 0x106380 on the one sound object 0x553ED8, the renderer's transparent-entity array 0x551EF4, the
+LostHost screen 0xE9320 (its own loop never returns), the file system's "ExitGame" marker (vtable +0x98, also called
+with "Map_Common" and by the serverinfo: a marker, left), scr_downloading = -1 and sys_timescale = 1 (defaults, left);
+its own: its netchan's "dropclient" (the server drops its slot), cls.state 1, CL_ClearState, its cl_entities.
+
+Decisions (ShutdownDecision; Host_ShutdownServer's entry hook now on_true "ret", and 0x29029): outside the turns the
+shutdown goes on (the process's: the other players removed first, as before); in a player's turn while another plays,
+refused (that client leaves alone); player 1's turn alone, the title's; the last player playing when it is not player
+1, deferred: the session ends at the frame's end from player 1's context (EndSession: the players removed, then
+Host_ShutdownServer as the process). While another plays, a leaving client also keeps the sound system's sounds
+(0x28F4F, on_true 0x28F54), the renderer's array and opens no LostHost screen (an added player never does).
+
+**The longjmp.** Host_EndGame and Host_Error end with a longjmp to _Host_Frame's or Host_Frame's setjmp (0x6CE000 /
+0x6CE060); the return sites 0x5D2F1 / 0x5D5ED are not continuations of the recompiled code, so x86_icall finds no
+function there: a guest trap, for the title alone as for split-screen (not this work's to change). svc_disconnect is
+therefore intercepted before it (0x30932, the Host_EndGame call, on_true 0x30937 whose `add esp, 0xC` balances it): for
+a player whose leaving keeps the shared parts, its own CL_Disconnect instead, in its turn. A kick of player 2 thus
+ends only player 2's connection. Host_Error in a player's turn (a parse error) still traps. Hooks after both setjmp
+sites (0x5D2F4, 0x5D5F0) make player 1's context live again if a frame is ever cut short in another's turn; they do
+nothing until those sites become continuations.
+
+**Detection.** Between frames (NativeSplitFrameEnd, player 1's context, outside the turns) each playing client's
+cls.state is watched (ClientWatch): back to disconnected (1) after it was connecting or more, it has left (kicked, its
+disconnect, a connect that failed or timed out); an added player is then removed, player 1 departs (only while
+another plays). The same for two to four players; with one player left the title's own behaviour.
+
+**3. Cleanup** (CleanupOrder; RemovePlayer). Its server slot dropped (only while the server runs), its channels
+emptied, its console lines dropped, the shared front end and the session's host handed over, then the plan: every
+block of its own that someone else names (the image's .data with player 1's live regions, every other context's saved
+copy, another owner's block; followed through its kept blocks: heap_owner.h PlanRollback) is kept, and a free of one
+of them by its destructors is skipped and logged. Then the title's own destructors in its own context, each root
+checked first (ReleaseCheck: its own, the owned kind, named by nobody else): its cl_entities, 0x552C70 / 0x552C9C
+(deleting destructors), 0x552CA8 (0x1BAD90 and free), the HUD element list's nodes, its delta slot. A block already
+freed is not in the map: never freed twice. What it still owns is reported with its sites (a leak, an error) and
+never freed under another (rollback releasing stays off: it cannot see a pointer the host or the kernel keeps). What
+leaving players leave behind is bounded (LeakBudget, 8 MB): past it no player joins again this session. A refused
+initialisation as before (its plan reported, nothing freed, no further player); one cut short by a longjmp through its
+steps makes player 1's context live again and fails the player (fail closed).
+
+**4. Player 1 leaving.** Its client disconnecting in its own turn (a "!"/console disconnect run as its own line)
+while another plays: the shutdown refused, its sounds, the renderer and the screen kept; between frames it departs
+(State::Departed): its context stays the switcher's first (the window's; the process's console buffer runs there,
+outside the turns), the shared front end and the session's host go to the lowest player playing, nobody is renumbered
+(slots and user IDs as they were). Its objects are the process's (its initialisation's) or its turns': kept with its
+context. While it is away no player is added (players are added from player 1's match). When the last player leaves,
+the session ends as the process (EndSession) and player 1 is the title's own player again. A disconnect made outside
+the turns (the host's menus' own frame, the console) is the process's: it ends the session, as before.
+
+**5. The voice channels** (static): one set of 5 at 0x3855B8 (0x5688 each: the speaker's entity +0, a codec object
++0x5650 = 0x38AC08 released through its vtable), touched only by the voice module (0x101E70 clear, Voice_Idle 0x101FD0,
+the channel 0x102620 / 0x1026A0, the data 0x102760); the codecs released only by 0x101EB0 (Voice_Idle, Host_Shutdown
+0x5DDA0). Voice_Idle ran in every player's client half (0x5D46C) and every player's parse fed the same channels (the
+server sends each client the speakers' data): twice the timeouts, the same speaker's data added twice, codecs owned by
+whichever player's turn made them (freed under the channels when it left). Now (VoiceDecide): in context 0's turn
+(the one window's and mixer's, as the players' sounds until M4) run in a voice scope of their own, as the process (the
+codecs the process's, no player's lifetime); in another context's turn not run (no channel, -1; the parse has read the
+data, the message stays in step); outside the turns as the title's. A leaving player owns no channel.
+
+Tests: native_split_lifecycle_test (95: the routing matrix, the queues and their bound, each player's lines once in
+its own context and the process's and server's once a frame for one, two and four players; the shutdown decisions;
+player 1's departure, the hand-over, no renumbering; the client watch; sessions: player 2 leaving, player 1 leaving
+then player 2 (the session ends once), four players leaving in turn, repeated joins and leaves bounded, a partial
+initialisation, a kick; the cleanup order, the release rule and the plan over a heap; the voice decision and
+lifetime); native_split_turns_test (98: the facts above against the generated code, every hook and skip target).
+Scenarios for the next runs: native_split_2p (now also the routing's report), native_split_2p_leave (player 2 leaves
+by its own disconnect and joins again, repeatedly), native_split_2p_p1_leaves (player 1 departs, player 2 plays on).

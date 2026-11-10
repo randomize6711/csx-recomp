@@ -595,6 +595,14 @@ call = "PcWeaponSlotFromHeld"
 at = 0x2AEDB
 call = "PcMoveMsec"
 
+# Native split-screen's console lines (src/game/native_split.cpp, docs/native_splitscreen.md 15.12): Cbuf_Execute
+# called in a local player's turn runs that player's own queued lines (on_true "ret": never the shared buffer in its
+# context). Before PcKeysFrame (which feeds the PC keys only to the process's run)
+[[hook]]
+at = 0x3BB50
+call = "NativeSplitCbufExecute"
+on_true = "ret"
+
 # PC keys as engine keys (src/game/pc_keys.cpp): Cbuf_Execute (0x3BB50: cmd_text size 0x748670 read at 0x3BB5C, each
 # line to Cmd_ExecuteString 0x3CA10 at 0x3BC73), called every frame; the hook at its entry hands queued key events to
 # Key_Event (0x66510: keydown[] 0x6CAFE0, keybindings[] 0x6CABE0) and text to Cbuf_AddText (0x3B970, text in edi)
@@ -1150,6 +1158,7 @@ on_false = 0x9C823
 [[hook]]
 at = 0x5C9D0
 call = "NativeSplitShutdownServer"
+on_true = "ret"
 
 [[hook]]
 at = 0x1BEF0
@@ -1827,3 +1836,67 @@ call = "LogGameSound"
 [[hook]]
 at = 0x1011C0
 call = "LogGameStaticSound"
+
+# ---- native split-screen's lifecycle (src/game/native_split.cpp, docs/native_splitscreen.md 15.12) ----------------
+# the console's lines by where they are added: Cbuf_AddText (edi), Cbuf_InsertText (eax), the newline-wrapped insert
+# (cdecl): on_true "ret" when a local player's own (its queue, run in its own turn)
+[[hook]]
+at = 0x3B970
+call = "NativeSplitCbufAdd"
+on_true = "ret"
+
+[[hook]]
+at = 0x3B9D0
+call = "NativeSplitCbufInsert"
+on_true = "ret"
+
+[[hook]]
+at = 0x3BA80
+call = "NativeSplitCbufInsertLine"
+on_true = "ret"
+
+# the "xbui" console command (registered at 0xD772E): the shared front end's, run as the process by its driver only
+[[hook]]
+at = 0xD7450
+call = "NativeSplitUiXbui"
+on_true = "ret"
+
+# CL_Disconnect's call of the sound system's stop-everything (0x106380, ebx 0x553ED8): kept when another plays
+[[hook]]
+at = 0x28F4F
+call = "NativeSplitDisconnectSound"
+on_true = 0x28F54
+
+# the voice channels (0x3855B8, 5 x 0x5688): Voice_Idle, the speaker's channel, its data: the process's, in context 0's
+# turn only
+[[hook]]
+at = 0x101FD0
+call = "NativeSplitVoiceIdle"
+on_true = "ret"
+
+[[hook]]
+at = 0x102620
+call = "NativeSplitVoiceAssign"
+on_true = "ret"
+
+[[hook]]
+at = 0x102760
+call = "NativeSplitVoiceData"
+on_true = "ret"
+
+# after the setjmp of _Host_Frame (0x6CE000) and Host_Frame (0x6CE060): a frame cut short (eax not 0) in another
+# player's turn makes player 1's context live again (src/game/client_context.cpp)
+[[hook]]
+at = 0x5D2F4
+call = "ClientContextsAbortLanding"
+
+[[hook]]
+at = 0x5D5F0
+call = "ClientContextsAbortLanding"
+
+# the client's svc_disconnect (0x30910), its call of Host_EndGame: a local player kicked or dropped while another plays
+# disconnects alone (on_true 0x30937: the caller's own `add esp, 0xC` then)
+[[hook]]
+at = 0x30932
+call = "NativeSplitServerDisconnected"
+on_true = 0x30937

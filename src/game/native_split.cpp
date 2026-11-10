@@ -33,6 +33,7 @@
 #include <chrono>
 #include <cstdio>
 #include <map>
+#include <set>
 #include <cstdlib>
 #include <cstring>
 #include <initializer_list>
@@ -47,6 +48,7 @@
 #include "game/intern_pool.h"
 #include "game/local_loopback.h"
 #include "game/native_split_core.h"
+#include "game/native_split_lifecycle.h"
 #include "game/net_buffers.h"
 #include "game/net_engine.h"
 #include "game/shared_once.h"
@@ -85,6 +87,14 @@ constexpr uint32_t kActivationCheck = 0x269A0;    // cls.state 3 / 4 with the si
 constexpr uint32_t kUpdateClientData = 0x1CC10;   // CL_UpdateClientData (HUD_UpdateClientData; state 5 only)
 constexpr uint32_t kClsSignon = 0x784800;         // cls.signon
 constexpr uint32_t kScoreboardRows = 0x1B9820;    // the scoreboard's rows into the shared "Scoreboard" screen (stdcall)
+// the console's command buffer (docs 15.12): cmd_text, a sizebuf_t (+4 flags, +8 data, +0xC maxsize, +0x10 cursize)
+constexpr uint32_t kCmdFlags = 0x748664, kCmdData = 0x748668, kCmdMax = 0x74866C, kCmdSize = 0x748670;
+constexpr uint32_t kCbufExecute = 0x3BB50;        // Cbuf_Execute
+constexpr uint32_t kShutdownServer = 0x5C9D0;     // Host_ShutdownServer (cdecl crash)
+constexpr uint32_t kXbuiCommand = 0xD7450;        // the "xbui" console command (Cmd_AddCommand at 0xD772E)
+constexpr uint32_t kVoiceIdle = 0x101FD0;         // Voice_Idle (cdecl frametime; 0x5D46C in a player's client half)
+constexpr uint32_t kVoiceAssign = 0x102620;       // a voice channel for the speaker in edi (-1 none)
+constexpr uint32_t kVoiceData = 0x102760;         // a voice channel's data added (cdecl channel, data, length)
 constexpr uint32_t kLoopback = 1;                 // netadrtype_t NA_LOOPBACK
 constexpr int kClsActive = 5, kClsDisconnected = 1;
 
@@ -124,6 +134,26 @@ bool GuardOn() {
         return v && *v == '1';
     }();
     return on;
+}
+// every shared change a new player's initialisation makes listed (CSX_NATIVE_SPLIT_CHANGES=1; else the first 16), for
+// tools/shared_changes.py's classification (docs 15.12)
+bool ChangesAll() {
+    static const bool on = [] {
+        const char* v = std::getenv("CSX_NATIVE_SPLIT_CHANGES");
+        return v && *v == '1';
+    }();
+    return on;
+}
+// diagnostics: which player leaves after CSX_NATIVE_SPLIT_LEAVE_AFTER seconds: 0 (unset) the last added one, removed
+// by the process; N (1..4) player N, through its own "disconnect" console line run in its own turn (the real path:
+// its CL_Disconnect, then its removal between frames; player 1 departs, the others play on)
+int LeaveWho() {
+    static const int n = [] {
+        const char* v = std::getenv("CSX_NATIVE_SPLIT_LEAVE_PLAYER");
+        int x = v ? std::atoi(v) : 0;
+        return x >= 1 && x <= nsplit::kMaxPlayers ? x : 0;
+    }();
+    return n;
 }
 // diagnostics: remove the last added player after this many seconds in the match, add one again after as many more
 double LeaveAfter() {
@@ -208,13 +238,41 @@ bool g_add_failed = false;  // a player's initialisation failed its checks: no f
 // player's block refused in the scope, the front end's element code reached in another player's turn
 nsplit::SharedUiOwner g_ui;
 int g_ui_scope = 0;
-enum UiGate { kUiRows, kUiText, kUiMenu, kUiClose, kUiCommand, kUiGates };
+enum UiGate { kUiRows, kUiText, kUiMenu, kUiClose, kUiCommand, kUiXbui, kUiGates };
 constexpr const char* kUiGateName[kUiGates] = {"scoreboard rows (0x1B9820)", "element texts (0xD96A0)",
                                                  "menu opens (0xCAB40)", "screen closes (0xCA0B0)",
-                                                 "front-end commands (0xCA6F0)"};
+                                                 "front-end commands (0xCA6F0)", "xbui commands (0xD7450)"};
 uint64_t g_ui_shared[kUiGates] = {}, g_ui_withheld[kUiGates] = {};
 uint64_t g_ui_scope_kept = 0, g_ui_elements_in_turn = 0;
 uint64_t g_preludes[nsplit::kMaxPlayers] = {};  // per player: its activation check run in its own turn
+// the console's lines (docs 15.12): each player's own queue; the player whose queue runs (its lines in the title's
+// buffer meanwhile, the shared buffer's kept aside: g_swap), -1 none; lines routed by origin; queue runs per player
+nsplit::CommandQueues g_cmds;
+int g_cmd_running = -1;
+struct CbufSwap;
+CbufSwap* g_swap = nullptr;
+uint64_t g_cmd_routed[nsplit::kOrigins] = {}, g_cmd_runs[nsplit::kMaxPlayers] = {}, g_cmd_dropped = 0;
+// the players' clients watched between frames (a kick, a disconnect, a failed connect), the frames cut short in a
+// player's turn, the shutdowns refused or deferred in a turn, player 1's departures, the session's end deferred to
+// the frame's end; what leaving players left behind
+nsplit::ClientWatch g_watch[nsplit::kMaxPlayers];
+uint64_t g_aborts = 0, g_refused_shutdowns = 0, g_departures = 0;
+bool g_end_session = false;
+nsplit::LeakBudget g_leaks;
+// a leaving player's cleanup: its blocks another names (shared data, another context, another owner's block), never
+// freed by its destructors (the free skipped and logged); how many such frees were refused
+std::set<uint32_t> g_release_keep;
+bool g_releasing = false;
+uint64_t g_release_kept = 0;
+// the voice channels' scope (as the process; docs 15.12): its depth; run in it, not run in another context's turn
+int g_voice_scope = 0;
+uint64_t g_voice_shared = 0, g_voice_withheld = 0;
+// a scope's depth kept right when a longjmp (Host_EndGame / Host_Error) unwinds the host frames through it
+struct Depth {
+    int& d;
+    explicit Depth(int& x) : d(x) { d++; }
+    ~Depth() { d--; }
+};
 nsplit::Once g_timer_once = nsplit::Once::Pending;  // the timer's one-time block (docs 15.7): players only once done
 bool g_timer_block_only = false;                    // the process's call of the timer: its guarded block, then return
 std::vector<uint8_t> g_reference;         // player 1's regions at the end of Host_Init (the check of a new player)
@@ -239,7 +297,7 @@ int PlayerOfContext(int context) {
 int OwnerNow() {
     // the shared front end's maintenance and the world's shared-once operations: the process's (docs 15.10, 15)
     bool in_turn = csx::ClientContextInTurn();
-    int r = nsplit::AllocationOwner(g_ui_scope > 0, g_world.Running(), g_init_owner, in_turn,
+    int r = nsplit::AllocationOwner(g_ui_scope > 0 || g_voice_scope > 0, g_world.Running(), g_init_owner, in_turn,
                                     in_turn ? PlayerOfContext(csx::ClientContextActive()) : -1);
     return r >= 0 ? r : heapown::kProcess;
 }
@@ -350,6 +408,23 @@ void AddPlayer(X86Context& ctx, int k) {
         csx::ClientContextRemove(context);
         return;
     }
+    // a step cut short (a Sys_Error or Host_Error's longjmp unwinding through the guest call): player 1's context made
+    // live again, the player's initialisation failed (fail closed: no further player this session); what it made is
+    // left behind (reported by the next report as its blocks, never freed: the step's state is not known)
+    struct Unwound {
+        int k, context;
+        ~Unwound() {
+            if (!std::uncaught_exceptions() || g_players.At(k).state != nsplit::State::Initialising) return;
+            g_init_owner = -1;
+            csx::ClientContextSwitch(0);
+            csx::ClientContextRemove(context);
+            g_players.InitFailed(k);
+            g_add_failed = true;
+            auto [n, bytes] = g_blocks.Orphan(k);
+            LOGE("native split: player %d's initialisation was cut short (a longjmp through its steps): not added, its "
+                 "context removed; %zu of its objects (%zu bytes) left behind", k + 1, n, bytes);
+        }
+    } unwound{k, context};
     std::vector<heapown::Span> spans = Spans();
     size_t inherited = 0, own = 0, missing = 0, foreign = 0, unlinked = 0, values = 0, corrupted = 0;
     std::vector<heapown::Range> protect = ProtectedRanges(), shared = SharedDataRanges(spans);
@@ -483,7 +558,7 @@ void AddPlayer(X86Context& ctx, int k) {
                     LOGW("native split: player %d's initialisation changed %zu shared byte(s) in %zu run(s) outside "
                          "the protected state (reported, not failed)",
                          k + 1, bytes, changes.size());
-                for (size_t i = 0; i < changes.size() && i < 16; i++)
+                for (size_t i = 0; i < changes.size() && (i < 16 || ChangesAll()); i++)
                     LOGW("native split:   shared change at 0x%08X (%u byte(s))", changes[i].va, changes[i].size);
             }
             break;
@@ -574,28 +649,101 @@ void Report() {
         if (g_players.At(k).state != nsplit::State::Empty)
             LOGI("native split: player %d's activation check and client data update ran in its own turn %llu times",
                  k + 1, (unsigned long long)g_preludes[k]);
+    {
+        std::string runs;
+        for (int k = 0; k < nsplit::kMaxPlayers; k++) {
+            if (g_players.At(k).state == nsplit::State::Empty) continue;
+            char item[96];
+            std::snprintf(item, sizeof item, "%splayer %d %llu (%zu bytes waiting, %llu refused full)", runs.empty() ? "" : ", ",
+                          k + 1, (unsigned long long)g_cmd_runs[k], g_cmds.Size(k), (unsigned long long)g_cmds.Overflows(k));
+            runs += item;
+        }
+        LOGI("native split: console lines routed: %llu the process's, %llu the server's, %llu a player's own, %llu the "
+             "shared front end's; players' own runs: %s; %llu bytes dropped with leaving players",
+             (unsigned long long)g_cmd_routed[int(nsplit::Origin::Process)],
+             (unsigned long long)g_cmd_routed[int(nsplit::Origin::Server)],
+             (unsigned long long)g_cmd_routed[int(nsplit::Origin::Player)],
+             (unsigned long long)g_cmd_routed[int(nsplit::Origin::FrontEnd)], runs.c_str(),
+             (unsigned long long)g_cmd_dropped);
+    }
+    LOGI("native split: the lifecycle: %llu frames cut short in a player's turn, %llu server shutdowns refused in a "
+         "player's turn, %llu departures of player 1, %d leaves (%zu bytes left behind, the bound %zu); the voice channels "
+         "run as the process %llu times, withheld in another context's turn %llu; cleanup frees of a named block kept %llu",
+         (unsigned long long)g_aborts, (unsigned long long)g_refused_shutdowns, (unsigned long long)g_departures,
+         g_leaks.leaves, g_leaks.left_behind, g_leaks.limit, (unsigned long long)g_voice_shared,
+         (unsigned long long)g_voice_withheld, (unsigned long long)g_release_kept);
     for (sharedonce::Op op : {sharedonce::Op::WorldRenderer, sharedonce::Op::SignonUi, sharedonce::Op::Materials})
         LOGI("native split: %s: built %llu, a player's part only %llu, failed %llu, as the title %llu",
              sharedonce::Name(op), (unsigned long long)g_world.Runs(op), (unsigned long long)g_world.Skipped(op),
              (unsigned long long)g_world.Failed(op), (unsigned long long)g_world.TitleRuns(op));
 }
 
+// what of player k's own blocks someone else names (heap_owner.h PlanRollback): the shared data (the image's .data with
+// player 1's live regions: called from player 1's context), every other context's saved copy, another owner's block;
+// followed through its own blocks. Those its cleanup must not free (its destructors' frees of them are skipped)
+std::set<uint32_t> NamedElsewhere(int k, int context, size_t& released_bytes, size_t& kept_bytes) {
+    constexpr uint32_t kDataLo = 0x36C8A0, kDataHi = 0x7D6F20;
+    std::vector<heapown::Span> spans = Spans();
+    heapown::RollbackPlan plan = heapown::PlanRollback(
+        g_blocks, k,
+        [&](auto f) {
+            for (uint32_t va = kDataLo; va + 4 <= kDataHi; va += 4) f(va, R32(va));
+            for (int c = 1; c < csx::ClientContextCount(); c++) {
+                if (c == context || c == csx::ClientContextActive()) continue;
+                const std::vector<uint8_t>& copy = csx::ClientContextSaved(c);
+                for (const heapown::Span& sp : spans)
+                    for (uint32_t o = 0; o + 4 <= sp.size && sp.offset + o + 4 <= copy.size(); o += 4) {
+                        uint32_t v;
+                        std::memcpy(&v, copy.data() + sp.offset + o, 4);
+                        f(sp.va + o, v);
+                    }
+            }
+        },
+        [](uint32_t va) { return R32(va); });
+    std::set<uint32_t> keep;
+    kept_bytes = 0;
+    for (const heapown::RollbackItem& r : plan.keep) {
+        keep.insert(r.va);
+        kept_bytes += r.size;
+    }
+    released_bytes = plan.ReleaseBytes();
+    return keep;
+}
+
 void RemovePlayer(X86Context& ctx, int k) {
     const nsplit::Player p = g_players.At(k);
     if (!g_players.Leave(k)) return;
-    if (uint32_t cl = ServerClientOf(k)) {
+    // docs 15.12 (native_split_lifecycle.h CleanupOrder): nothing reaches it any more first
+    if (uint32_t cl = R32(kSvActive) ? ServerClientOf(k) : 0) {
         GuestStrings gs(ctx);
         uint32_t fmt = gs.Put("%s"), reason = gs.Put("left the split-screen game");
         kernel::CallGuest(ctx, kDropClient, {cl, 0, fmt, reason});
     }
     g_ch.Forget(k);
+    if (size_t n = g_cmds.Drop(k)) {
+        g_cmd_dropped += n;
+        LOGI("native split: player %d's %zu bytes of console lines dropped (never run in another context)", k + 1, n);
+    }
+    if (int was = g_ui.driver; g_ui.Left(k, g_players) != was)
+        LOGI("native split: the shared front end is driven by player %d now (player %d leaves)", g_ui.driver + 1, k + 1);
+    g_session.host = nsplit::SessionHost(g_players);
+    // what of its own another names, from player 1's context (before its own is made live)
+    size_t plan_free = 0, plan_kept = 0;
+    g_release_keep = NamedElsewhere(k, p.context, plan_free, plan_kept);
+    LOGI("native split: player %d's cleanup: %zu of its blocks (%zu bytes) named by another (kept), %zu bytes named by "
+         "nobody else", k + 1, g_release_keep.size(), plan_kept, plan_free);
     // its objects, released by the title's own code in its own context, each checked to be its own first
     csx::ClientContextSwitch(p.context);
     g_init_owner = k;
+    g_releasing = true;
     size_t released = 0;
     auto own = [&](uint32_t obj) {
         const heapown::Block* b = obj ? g_blocks.At(obj) : nullptr;
-        return b && b->kind == heapown::Kind::Owned && b->owner == k;
+        nsplit::Release r = nsplit::ReleaseCheck(b != nullptr, b ? b->owner : heapown::Blocks::kNone,
+                                                 b && b->kind == heapown::Kind::Owned, k, g_release_keep.count(obj) > 0);
+        if (r != nsplit::Release::Release && r != nsplit::Release::None)
+            LOGI("native split: player %d's object 0x%08X %s", k + 1, obj, nsplit::Name(r));
+        return r == nsplit::Release::Release;
     };
     if (uint32_t ents = R32(kClientEntities); own(ents)) {  // its client entities (0x2E2E0)
         kernel::CallGuest(ctx, kFree, {ents});
@@ -639,6 +787,8 @@ void RemovePlayer(X86Context& ctx, int k) {
             released++;
         }
     }
+    g_releasing = false;
+    g_release_keep.clear();
     g_init_owner = -1;
     csx::ClientContextSwitch(0);
     // what it still owns is a leak: an error, with where it was allocated
@@ -659,12 +809,62 @@ void RemovePlayer(X86Context& ctx, int k) {
     }
     csx::ClientContextRemove(p.context);
     g_players.ContextRemoved(p.context);
-    if (int was = g_ui.driver; g_ui.Left(k, g_players) != was)
-        LOGI("native split: the shared front end is driven by player %d now (player %d left)", g_ui.driver + 1, k + 1);
     g_players.Released(k);
+    g_watch[k] = {};
+    g_leaks.Left(leaked_bytes);
     LOGI("native split: player %d left: its server slot dropped, %zu of its objects released, %zu left (%zu bytes), its "
-         "context removed",
-         k + 1, released, leaked, leaked_bytes);
+         "context removed; left behind by leaving players so far %zu bytes in %d leave(s)",
+         k + 1, released, leaked, leaked_bytes, g_leaks.left_behind, g_leaks.leaves);
+    if (!g_leaks.MayJoin() && !g_add_failed) {
+        g_add_failed = true;
+        LOGE("native split: leaving players have left %zu bytes behind (the bound %zu): no player joins again this "
+             "session", g_leaks.left_behind, g_leaks.limit);
+    }
+    // player 1 departed and nobody plays any more: the session ends between frames (as the process)
+    if (g_players.At(0).state == nsplit::State::Departed && g_players.Playing() == 0) g_end_session = true;
+}
+
+// player 1's client left while another plays (docs 15.12): it departs, its context kept (the switcher's first: the
+// window's, the process's console runs there); the server, the world and the process's systems stay; the shared front
+// end and the session's host go to the lowest player still playing; no slot or identity renumbered. Its objects are
+// the process's (its initialisation's) or its turns': none released (its context stays)
+void DepartPlayer1() {
+    if (!g_players.Depart0()) return;
+    g_departures++;
+    g_watch[0] = {};
+    if (size_t n = g_cmds.Drop(0)) g_cmd_dropped += n;
+    g_ui.Left(0, g_players);
+    g_session.host = nsplit::SessionHost(g_players);
+    size_t n = 0, bytes = 0;
+    g_blocks.ForEach([&](uint32_t, const heapown::Block& b) {
+        if (b.owner == 0) {
+            n++;
+            bytes += b.size;
+        }
+    });
+    LOGI("native split: player 1 left the match (its client disconnected): the built-in server and the world stay for %d "
+         "other player(s); the shared front end is driven by player %d, the session's host is player %d; its context "
+         "kept, %zu of its turns' objects (%zu bytes) kept with it",
+         g_players.Playing(), g_ui.driver + 1, g_session.host + 1, n, bytes);
+}
+
+// the session ended by the last player playing, not player 1 (nsplit::Shutdown::Defer): between frames, in player 1's
+// context, as the process: the players removed, then the server shut down as the title's (its CL_Disconnect in player
+// 1's context, its world freed with nobody's context in it); player 1 the title's own player again
+void EndSession(X86Context& ctx) {
+    g_end_session = false;
+    for (int k = nsplit::kMaxPlayers - 1; k > 0; k--) {
+        nsplit::State s = g_players.At(k).state;
+        if (s == nsplit::State::Connecting || s == nsplit::State::Active) RemovePlayer(ctx, k);
+    }
+    bool active = R32(kSvActive) != 0;
+    if (active) kernel::CallGuest(ctx, kShutdownServer, {0});
+    g_players.Return0();
+    g_session.host = 0;
+    g_ui.driver = 0;
+    g_watch[0] = {};
+    LOGI("native split: the session ended (its last player left): %s; player 1 is the title's own player again",
+         active ? "the built-in server shut down as the process, from player 1's context" : "no server was running");
 }
 
 }  // namespace
@@ -705,6 +905,21 @@ void NativeSplitReference(X86Context& ctx, const std::vector<uint8_t>& state) {
 // client_context.cpp, after the last player's client turn: players added or removed between frames
 void NativeSplitFrameEnd(X86Context& ctx) {
     if (!NativeSplitOn() || !csx::ClientContextHasInitial() || g_reference.empty()) return;
+    // the clients that left since the last frame (a kick, the server's disconnect, their own disconnect, a connect that
+    // failed): removed here, from player 1's context, outside the turns (docs 15.12). Player 1's departs only while
+    // another plays (alone, it is the title's own: its menus)
+    for (int k = 0; k < nsplit::kMaxPlayers; k++) {
+        nsplit::State s = g_players.At(k).state;
+        if (s != nsplit::State::Connecting && s != nsplit::State::Active) continue;
+        if (!g_watch[k].Dropped(PlayerDword(k, kClsState))) continue;
+        if (k == 0) {
+            if (nsplit::OthersRemain(g_players, 0)) DepartPlayer1();
+            continue;
+        }
+        LOGI("native split: player %d's client left the match (cls.state %u): removed", k + 1, PlayerDword(k, kClsState));
+        RemovePlayer(ctx, k);
+    }
+    if (g_end_session) EndSession(ctx);
     // the players connecting: joined when their client is active
     for (int k = 1; k < nsplit::kMaxPlayers; k++) {
         const nsplit::Player& p = g_players.At(k);
@@ -722,7 +937,7 @@ void NativeSplitFrameEnd(X86Context& ctx) {
         }
     }
     // player 1 in its match with the built-in server: the others added, one a frame
-    if (!g_add_failed && nsplit::MayAddPlayers(g_timer_once) && R32(kSvActive) &&
+    if (!g_add_failed && g_leaks.MayJoin() && nsplit::MayAddPlayers(g_timer_once) && R32(kSvActive) &&
         int(R32(kClsState)) == kClsActive && g_players.Count() < Wanted() && g_players.Initialising() < 0) {
         if (int k = g_players.FreeSlot(); k > 0) AddPlayer(ctx, k);
     }
@@ -742,7 +957,13 @@ void NativeSplitFrameEnd(X86Context& ctx) {
             }
         if (last > 0 && g_joined_at != std::chrono::steady_clock::time_point{} &&
             now - g_joined_at > std::chrono::duration<double>(s)) {
-            RemovePlayer(ctx, last);
+            if (int who = LeaveWho() - 1; who >= 0) {
+                // its own "disconnect", run in its own turn (the real path)
+                if (g_cmds.Add(who, "disconnect\n"))
+                    LOGI("native split: player %d leaves (diagnostics): its own \"disconnect\" queued", who + 1);
+            } else {
+                RemovePlayer(ctx, last);
+            }
             g_joined_at = {};
         }
     }
@@ -812,7 +1033,14 @@ bool NativeSplitHeapFree(X86Context& ctx, uint8_t*) {
     int freeing = OwnerNow();
     const heapown::Block* b = g_blocks.At(va);
     int owner = b ? b->owner : heapown::Blocks::kNone;
-    if (g_ui_scope && b && b->kind == heapown::Kind::Owned && heapown::SkipFreeInSharedScope(owner)) {
+    // a leaving player's cleanup: its own block that another names is not freed by its destructors (docs 15.12)
+    if (g_releasing && b && g_release_keep.count(va)) {
+        g_release_kept++;
+        LOG_FIRST(16, "native split: player %d's cleanup keeps block 0x%08X (%u bytes, site 0x%08X): named by another "
+                      "(return 0x%08X)", owner + 1, va, b->size, b->site, R32(ctx.esp));
+        return true;
+    }
+    if ((g_ui_scope || g_voice_scope) && b && b->kind == heapown::Kind::Owned && heapown::SkipFreeInSharedScope(owner)) {
         g_ui_scope_kept++;
         g_foreign_frees++;
         g_skipped_frees++;
@@ -966,29 +1194,47 @@ bool NativeSplitReadPackets(X86Context& ctx, uint8_t*) {
 }
 
 // [[hook]] at 0x5C9D0, Host_ShutdownServer's entry (it returns at once when sv.active is 0, 0x5C9DA): the end of the
-// session's world (docs 15). Its own CL_Disconnect, Host_ClearMemory and the hunk's release free the world, its models
-// and the game DLL's entities, so the other local players are removed first (their server slots dropped, their
-// objects released, their contexts removed: none left pointing into a freed world), the world's shared-once
-// operations forgotten (the next world builds them again), the host's loopback channels emptied with the title's
-// queues. The removal switches contexts: only from the host's context; in another player's turn it is refused and
-// reported (an error: that player's state then outlives the world)
-void NativeSplitShutdownServer(X86Context& ctx, uint8_t*) {
-    if (!NativeSplitOn()) return;
+// session's world (docs 15), decided by where it is asked (native_split_core.h ShutdownDecision, docs 15.12). On
+// (false: it runs): outside the players' turns, or in player 1's turn alone. Its own CL_Disconnect, Host_ClearMemory
+// and the hunk's release free the world, its models and the game DLL's entities, so the other local players are
+// removed first (their server slots dropped, their objects released, their contexts removed: none left pointing into
+// a freed world), the world's shared-once operations forgotten, the host's loopback channels emptied with the title's
+// queues; player 1, if it had departed, the title's own player again. The removal switches contexts: only from player
+// 1's context (the switcher's first). on_true "ret": in a player's turn while another plays, refused (that player's
+// client leaves alone: the disconnect command, Host_EndGame or Host_Error in its turn); in the last player's turn when
+// it is not player 1, deferred to the frame's end (EndSession, from player 1's context)
+bool NativeSplitShutdownServer(X86Context& ctx, uint8_t*) {
+    if (!NativeSplitOn()) return false;
     if (R32(kSvActive)) {
+        bool in_turn = csx::ClientContextInTurn();
+        int acting = in_turn ? PlayerOfContext(csx::ClientContextActive()) : -1;
+        nsplit::Shutdown d = nsplit::ShutdownDecision(in_turn, acting, g_players);
+        if (d != nsplit::Shutdown::Proceed) {
+            g_refused_shutdowns += d == nsplit::Shutdown::Refuse;
+            if (d == nsplit::Shutdown::Defer) g_end_session = true;
+            LOGI("native split: player %d's turn asks the built-in server to shut down (return 0x%08X): %s (%d local "
+                 "player(s) playing)", acting + 1, R32(ctx.esp), nsplit::Name(d), g_players.Playing());
+            return true;
+        }
         int n = 0;
-        auto order = nsplit::TeardownOrder(g_players, g_session.host, n);
-        int acting = PlayerOfContext(csx::ClientContextActive());
-        if (n && acting == g_session.host) {
+        auto order = nsplit::TeardownOrder(g_players, 0, n);
+        if (n && csx::ClientContextActive() == 0) {
             for (int i = 0; i < n; i++) RemovePlayer(ctx, order[size_t(i)]);
             LOGI("native split: the server shuts down: %d other local player%s removed first, the world's shared state "
                  "forgotten", n, n == 1 ? "" : "s");
         } else if (n) {
             LOGE("native split: the server shuts down in player %d's turn: %d other local player%s not removed (only "
-                 "the host's context removes players)", acting + 1, n, n == 1 ? "" : "s");
+                 "player 1's context removes players)", PlayerOfContext(csx::ClientContextActive()) + 1, n,
+                 n == 1 ? "" : "s");
         }
         g_world.Invalidate();
+        g_end_session = false;
+        if (g_players.Return0()) LOGI("native split: player 1 is the title's own player again (the session ends)");
+        g_session.host = 0;
+        g_ui.driver = 0;
     }
     g_ch.Clear();
+    return false;
 }
 
 // ---- registrations during another player's initialisation ---------------------------------------------------------
@@ -1020,11 +1266,16 @@ bool NativeSplitAddCommand(X86Context& ctx, uint8_t*) {
 // 1's, _Host_Frame's per-player prelude, which the title runs before the turns (0x5D3A6 / 0x5D3B0) and so only in
 // player 1's context (native_split_core.h PreludeInTurn): the activation check 0x269A0, then CL_UpdateClientData
 // 0x1CC10, the real functions in this player's context, their own conditions unchanged (nothing is set here)
+void RunPlayerLines(X86Context& ctx, int k);
+
 void NativeSplitTurnPrelude(X86Context& ctx) {
     if (!NativeSplitOn()) return;
     int c = csx::ClientContextActive();
-    if (!nsplit::PreludeInTurn(c)) return;
     int k = PlayerOfContext(c);
+    if (!nsplit::PreludeInTurn(c)) {
+        RunPlayerLines(ctx, k);  // player 1: its own console lines (docs 15.12); the title's prelude already ran
+        return;
+    }
     uint32_t before = R32(kClsState), signon = R32(kClsSignon);
     kernel::CallGuest(ctx, kActivationCheck, {});
     uint32_t after = R32(kClsState);
@@ -1034,6 +1285,7 @@ void NativeSplitTurnPrelude(X86Context& ctx) {
     if (after != nsplit::Activation(before, signon))
         LOGE("native split: player %d's activation check gave client state %u, its rule %u (from %u, signon %u)", k + 1,
              after, nsplit::Activation(before, signon), before, signon);
+    RunPlayerLines(ctx, k);  // its own console lines, where the title's prelude runs the buffer (0x5D3AB)
     kernel::CallGuest(ctx, kUpdateClientData, {});
     if (k >= 0) g_preludes[k]++;
 }
@@ -1060,9 +1312,10 @@ static bool SharedUiGate(X86Context& ctx, UiGate gate, uint32_t fn, std::initial
         case nsplit::SharedUi::AsShared:
             break;
     }
-    g_ui_scope++;
-    ctx.eax = kernel::CallGuest(ctx, fn, args.begin(), args.size());
-    g_ui_scope--;
+    {
+        Depth scope(g_ui_scope);  // kept right through a longjmp's unwinding
+        ctx.eax = kernel::CallGuest(ctx, fn, args.begin(), args.size());
+    }
     g_ui_shared[gate]++;
     return true;
 }
@@ -1096,9 +1349,11 @@ bool NativeSplitUiCommand(X86Context& ctx, uint8_t*) {
     nsplit::SharedUi d = g_ui.Decide(csx::ClientContextInTurn(), k);
     if (d == nsplit::SharedUi::AsShared) g_ui_shared[kUiCommand]++;
     if (d != nsplit::SharedUi::Withheld) return false;
-    g_ui_withheld[kUiCommand]++;
     char text[96] = "";
     if (ctx.edx) std::snprintf(text, sizeof text, "%s", static_cast<const char*>(kernel::HostPtr(ctx.edx)));
+    // its own console line ("!slot1", "!impulse 101", ...): to its own queue, its xbui parts gated where they run
+    if (nsplit::FrontEndCommand(text, false) == nsplit::FrontEnd::Run) return false;
+    g_ui_withheld[kUiCommand]++;
     LOG_FIRST(16, "native split: player %d's front-end command \"%s\" withheld (the shared front end is player %d's)",
               k + 1, text, g_ui.driver + 1);
     return true;
@@ -1282,12 +1537,194 @@ bool NativeSplitModuleValidation(X86Context&, uint8_t*) {
 // disconnect (a kick, svc_disconnect, a stuffed "disconnect") ends its own connection, never the server and world the
 // others are in
 bool NativeSplitDisconnectServer(X86Context&, uint8_t*) {
-    if (!NativeSplitOn() || !R32(kSvActive) || g_session.DisconnectEndsServer(ActingPlayer())) return false;
-    LOGI("native split: player %d's client disconnects: the built-in server keeps running", ActingPlayer() + 1);
+    if (!NativeSplitOn() || !R32(kSvActive)) return false;
+    bool in_turn = csx::ClientContextInTurn();
+    nsplit::Shutdown d = nsplit::ShutdownDecision(in_turn, ActingPlayer(), g_players);
+    if (d == nsplit::Shutdown::Proceed) return false;
+    if (d == nsplit::Shutdown::Defer) g_end_session = true;
+    LOGI("native split: player %d's client disconnects: the built-in server keeps running (its shutdown %s)",
+         ActingPlayer() + 1, nsplit::Name(d));
     return true;
 }
+
+// the disconnecting client is not the window's (an added player's), or another local player plays: the shared parts
+// its CL_Disconnect would end are kept (native_split_core.h LeaveKeepsShared; docs 15.12)
+bool NativeSplitLeaveKeepsShared() {
+    if (!NativeSplitOn()) return false;
+    int acting = ActingPlayer();
+    return acting != 0 || nsplit::LeaveKeepsShared(csx::ClientContextInTurn(), acting, g_players);
+}
+
+// [[hook]] at 0x28F4F in CL_Disconnect, its call of the sound system's stop-everything 0x106380 (ebx the one sound
+// object 0x553ED8): on_true 0x28F54 (not called) when the shared parts are kept: another local player's sounds go on
+bool NativeSplitDisconnectSound(X86Context&, uint8_t*) { return NativeSplitLeaveKeepsShared(); }
 
 // [[hook]] at 0x29072 in CL_Disconnect: the free of the renderer's transparent-entity array 0x551EF4 and its size
 // 0x551EF0 (one renderer: shared scratch, reallocated by every connect, 0x93180): on_true 0x29090 (kept) for another
 // local player than the host, whose disconnect would leave the host's renderer without it until its next connect
-bool NativeSplitDisconnectRenderer(X86Context&, uint8_t*) { return NativeSplitAddedPlayerActive(); }
+bool NativeSplitDisconnectRenderer(X86Context&, uint8_t*) { return NativeSplitLeaveKeepsShared(); }
+
+// ---- the console's lines, routed by where they are added (docs 15.12) -------------------------------------------
+// native_split_lifecycle.h RouteText: a line added in a player's turn is that player's (its queue, run in its own turn
+// where the title's prelude runs the buffer); the process's, the server's and the shared front end's go to the title's
+// one buffer, run once a frame at 0x5D3AB in player 1's context, outside the turns, as before.
+
+namespace {
+// a player's lines run by the title's own Cbuf_Execute: they are put in the title's buffer (its data, cursize) for
+// the run, the shared buffer's lines kept aside meanwhile (a line the shared front end adds then goes to them); what a
+// "wait" left goes back to the front of its queue; the shared lines are put back after, also when a longjmp unwinds
+// through the run
+struct CbufSwap {
+    int k, was;
+    uint32_t data, max;
+    uint16_t flags;
+    std::string shared;
+    CbufSwap(int player, const std::string& lines) : k(player), was(g_cmd_running) {
+        data = R32(kCmdData);
+        max = R32(kCmdMax);
+        flags = R16(kCmdFlags);
+        uint32_t size = std::min(R32(kCmdSize), max);
+        shared.assign(static_cast<const char*>(kernel::HostPtr(data)), size);
+        uint32_t n = uint32_t(std::min<size_t>(lines.size(), max - 1));
+        std::memcpy(kernel::HostPtr(data), lines.data(), n);
+        W32(kCmdSize, n);
+        if (n < lines.size()) g_cmds.Return(k, lines.substr(n));  // never: a queue is bounded below the buffer's size
+        g_cmd_running = k;
+        g_swap = this;
+    }
+    ~CbufSwap() {
+        uint32_t left = std::min(R32(kCmdSize), max);
+        if (left) g_cmds.Return(k, std::string(static_cast<const char*>(kernel::HostPtr(data)), left));
+        uint32_t n = uint32_t(std::min<size_t>(shared.size(), max - 1));
+        std::memcpy(kernel::HostPtr(data), shared.data(), n);
+        W32(kCmdSize, n);
+        W16(kCmdFlags, flags);
+        g_cmd_running = was;
+        g_swap = nullptr;
+    }
+};
+
+// a line for the title's buffer (mode 0 Cbuf_AddText, 1 Cbuf_InsertText, 2 the newline-wrapped insert): true when
+// routed here (the original skipped), false when the title's own code appends it
+bool RouteLine(X86Context&, uint32_t text, int mode) {
+    if (!NativeSplitOn() || !text || !R32(kCmdData)) return false;
+    // a player's initialisation (AddPlayer, in its context, outside the turns) adds its own lines, as its turn would
+    bool own = csx::ClientContextInTurn() || g_init_owner > 0;
+    int player = csx::ClientContextInTurn() ? TurnPlayer() : g_init_owner > 0 ? g_init_owner : -1;
+    nsplit::Route r = nsplit::RouteText(g_cmd_running, g_ui_scope > 0 || g_voice_scope > 0,
+                                        csx::ClientContextInServerFrame(), own, player);
+    g_cmd_routed[int(r.origin)]++;
+    std::string s = GuestString(text, nsplit::kQueueMax);
+    if (mode == 2) s = "\n" + s + "\n";
+    if (r.origin == nsplit::Origin::FrontEnd && g_swap) {
+        // a player's lines are in the title's buffer: the shared front end's line goes to the shared lines kept aside
+        if (g_swap->shared.size() + s.size() < g_swap->max)
+            g_swap->shared = mode ? s + g_swap->shared : g_swap->shared + s;
+        else
+            LOG_FIRST(8, "native split: the shared console buffer is full: \"%.40s\" dropped", s.c_str());
+        return true;
+    }
+    if (r.native) return false;
+    bool ok = mode ? g_cmds.Insert(r.player, s) : g_cmds.Add(r.player, s);
+    if (!ok)
+        LOG_FIRST(8, "native split: player %d's console lines are full: \"%.40s\" dropped (as Cbuf_AddText's overflow)",
+                  r.player + 1, s.c_str());
+    return true;
+}
+}  // namespace
+
+// [[hook]] at 0x3B970 Cbuf_AddText (edi the text), 0x3B9D0 Cbuf_InsertText (eax) and 0x3BA80 (the newline-wrapped
+// insert, cdecl text): on_true "ret" when the line is a player's own (to its queue)
+bool NativeSplitCbufAdd(X86Context& ctx, uint8_t*) { return RouteLine(ctx, ctx.edi, 0); }
+bool NativeSplitCbufInsert(X86Context& ctx, uint8_t*) { return RouteLine(ctx, ctx.eax, 1); }
+bool NativeSplitCbufInsertLine(X86Context& ctx, uint8_t*) { return RouteLine(ctx, R32(ctx.esp + 4), 2); }
+
+// player k's queued lines run now, in its own context, by the title's Cbuf_Execute (its own lines' lines with them)
+void RunPlayerLines(X86Context& ctx, int k) {
+    if (k < 0 || g_cmd_running >= 0 || !g_cmds.Size(k) || !R32(kCmdData) || R32(kCmdMax) < 2) return;
+    std::string lines = g_cmds.Take(k);
+    CbufSwap swap(k, lines);
+    g_cmd_runs[k]++;
+    kernel::CallGuest(ctx, kCbufExecute, {});
+}
+
+// [[hook]] at 0x3BB50, Cbuf_Execute's entry (before pc_keys.cpp's PcKeysFrame there): on_true "ret" in a player's turn
+// (a line added and run at once: the player's own queue runs, never the shared buffer in its context)
+bool NativeSplitCbufExecute(X86Context& ctx, uint8_t*) {
+    if (!NativeSplitOn()) return false;
+    int k = TurnPlayer();
+    if (!nsplit::ExecuteRunsQueue(g_cmd_running, csx::ClientContextInTurn(), k)) return false;
+    RunPlayerLines(ctx, k);
+    return true;
+}
+
+// pc_keys.cpp: this Cbuf_Execute is a local player's run (its lines, or in its turn): no PC keys or console fed to it
+bool NativeSplitCbufForPlayer() {
+    return NativeSplitOn() && (g_cmd_running >= 0 || TurnPlayer() >= 0);
+}
+
+// [[hook]] at 0xD7450, the "xbui" console command (its arguments from Cmd_Argv): the shared front end's screens
+// opened, closed, swapped (native_split_core.h SharedUiOwner): outside the turns as the title's (the shared buffer,
+// player 1's context); in the driver's turn (its own lines) in the shared front end's scope, as the process; in
+// another player's turn not run (on_true "ret", logged): its "!" lines' xbui parts
+bool NativeSplitUiXbui(X86Context& ctx, uint8_t*) { return SharedUiGate(ctx, kUiXbui, kXbuiCommand, {}); }
+
+// client_context.cpp: a frame cut short (Host_EndGame / Host_Error's longjmp) in a player's turn; player 1's context is
+// live again. That player's client, if it left, is removed between frames as any leaving client
+void NativeSplitAborted(int context) {
+    g_aborts++;
+    g_cmd_running = -1;
+    g_swap = nullptr;
+    int k = PlayerOfContext(context);
+    LOGE("native split: the frame was cut short (Host_EndGame / Host_Error) in player %d's turn (context %d): player 1's "
+         "context is live again", k + 1, context);
+}
+
+// ---- the voice channels: one set, the process's (docs 15.12) ---------------------------------------------------
+
+namespace {
+bool VoiceGate(X86Context& ctx, uint32_t fn, std::initializer_list<uint32_t> args, uint32_t withheld_eax) {
+    if (!NativeSplitOn() || g_voice_scope) return false;
+    switch (nsplit::VoiceDecide(csx::ClientContextInTurn(), csx::ClientContextActive())) {
+    case nsplit::SharedUi::AsTitle: return false;
+    case nsplit::SharedUi::Withheld:
+        g_voice_withheld++;
+        ctx.eax = withheld_eax;
+        return true;
+    case nsplit::SharedUi::AsShared: break;
+    }
+    {
+        Depth scope(g_voice_scope);
+        ctx.eax = kernel::CallGuest(ctx, fn, args.begin(), args.size());
+    }
+    g_voice_shared++;
+    return true;
+}
+}  // namespace
+
+// [[hook]] at 0x101FD0 Voice_Idle (cdecl frametime), 0x102620 the speaker's channel (edi the speaker; -1 none) and
+// 0x102760 its data added (cdecl channel, data, length): on_true "ret". In context 0's turn run here in the voice
+// scope (the codecs the process's); in another context's turn not run (no channel: -1; the parse read the data)
+bool NativeSplitVoiceIdle(X86Context& ctx, uint8_t*) { return VoiceGate(ctx, kVoiceIdle, {R32(ctx.esp + 4)}, 0); }
+bool NativeSplitVoiceAssign(X86Context& ctx, uint8_t*) { return VoiceGate(ctx, kVoiceAssign, {}, 0xFFFFFFFFu); }
+bool NativeSplitVoiceData(X86Context& ctx, uint8_t*) {
+    return VoiceGate(ctx, kVoiceData, {R32(ctx.esp + 4), R32(ctx.esp + 8), R32(ctx.esp + 12)}, 0);
+}
+
+// ---- a kick or a drop of a local player (docs 15.12) -------------------------------------------------------------
+
+// [[hook]] at 0x30932 in the client's svc_disconnect handler (0x30910: its reason printed, then Host_EndGame("Server
+// disconnected"), whose longjmp to _Host_Frame's setjmp is not a continuation here: a guest trap), the call itself
+// (its argument pushed; on_true 0x30937, the caller's `add esp, 0xC`): for a local player whose leaving keeps the shared
+// parts (an added player's client, or player 1's while another plays), its own CL_Disconnect (0x28F20) instead, in
+// its own context, its turn: its connection ended alone (the server's shutdown refused there, its sounds and the
+// renderer's list kept; native_split_core.h ShutdownDecision); it is removed (or departs) between frames. Player 1
+// alone: the title's own
+bool NativeSplitServerDisconnected(X86Context& ctx, uint8_t*) {
+    if (!NativeSplitOn() || !csx::ClientContextInTurn() || !NativeSplitLeaveKeepsShared()) return false;
+    int k = PlayerOfContext(csx::ClientContextActive());
+    kernel::CallGuest(ctx, 0x28F20, {});
+    LOGI("native split: player %d's server disconnected it (svc_disconnect: a kick or a drop): its client disconnects "
+         "alone (cls.state %u), the others play on", k + 1, R32(kClsState));
+    return true;
+}

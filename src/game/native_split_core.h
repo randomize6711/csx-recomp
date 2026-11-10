@@ -17,6 +17,8 @@ enum class State {
     Connecting,    // initialised; its client joins the built-in server on its own turn
     Active,        // in the match
     Leaving,       // its server slot dropped, its objects being released
+    Departed,      // slot 0 only: the game's own player left while others play (docs 15.12); its context stays the
+                   // switcher's first, its client disconnected; the title's own player again when the session ends
 };
 
 inline const char* Name(State s) {
@@ -26,6 +28,7 @@ inline const char* Name(State s) {
     case State::Connecting: return "connecting";
     case State::Active: return "active";
     case State::Leaving: return "leaving";
+    case State::Departed: return "departed";
     }
     return "?";
 }
@@ -47,6 +50,12 @@ public:
     int Count() const {
         int n = 0;
         for (const Player& x : p_) n += x.state != State::Empty;
+        return n;
+    }
+    // the players in the match or joining it (Connecting / Active): who keeps the session alive
+    int Playing() const {
+        int n = 0;
+        for (const Player& x : p_) n += x.state == State::Connecting || x.state == State::Active;
         return n;
     }
     // the slot a new player takes (the lowest empty), -1 when full
@@ -80,6 +89,18 @@ public:
     bool Released(int k) {
         if (!Step(k, State::Leaving, State::Empty, false)) return false;
         p_[size_t(k)] = {};
+        return true;
+    }
+    // the game's own player (slot 0, context 0) leaves while another plays: Departed (its context kept); false when it
+    // is not active. Back to Active when the session ends (the title's own player at its menus again)
+    bool Depart0() {
+        if (p_[0].state != State::Active) return false;
+        p_[0].state = State::Departed;
+        return true;
+    }
+    bool Return0() {
+        if (p_[0].state != State::Departed) return false;
+        p_[0].state = State::Active;
         return true;
     }
     // a context removed: the players whose contexts came after it move down one (client_context's Remove)
@@ -178,6 +199,67 @@ struct Session {
     int host = 0;  // the local player whose disconnect ends the match (the server's starter)
     bool DisconnectEndsServer(int player) const { return player == host; }
 };
+
+// another local player than `k` keeps the session alive (joining or in the match)
+inline bool OthersRemain(const Players& p, int k) {
+    for (int j = 0; j < kMaxPlayers; j++)
+        if (j != k && (p.At(j).state == State::Connecting || p.At(j).state == State::Active)) return true;
+    return false;
+}
+
+// a request to shut the built-in server down (Host_ShutdownServer 0x5C9D0: the disconnect command, Host_EndGame,
+// Host_Error, a gamedir mismatch, a map change), decided by where it is made (docs 15.12):
+//  - outside the players' turns: the process's (the console, the menus, a map change, the host's frame) - it goes on,
+//    the other local players removed first (TeardownOrder);
+//  - in a player's turn while another local player plays: refused - that player's client leaves alone (its own
+//    CL_Disconnect: its server slot dropped by its "dropclient"), the server and world stay for the others;
+//  - in player 1's turn, alone: the title's own (it goes on);
+//  - in another player's turn, the last one playing: deferred - the session ends as the process at the frame's end,
+//    from player 1's context (the switcher's first), after that player is removed: never inside a player's context
+//    the world is freed in; an unknown player's turn is refused (fail closed)
+enum class Shutdown { Proceed, Refuse, Defer };
+inline const char* Name(Shutdown s) {
+    switch (s) {
+    case Shutdown::Proceed: return "goes on";
+    case Shutdown::Refuse: return "refused";
+    case Shutdown::Defer: return "deferred to the frame's end";
+    }
+    return "?";
+}
+inline Shutdown ShutdownDecision(bool in_turn, int acting, const Players& p) {
+    if (!in_turn) return Shutdown::Proceed;
+    if (acting < 0 || acting >= kMaxPlayers) return Shutdown::Refuse;
+    if (OthersRemain(p, acting)) return Shutdown::Refuse;
+    return acting == 0 ? Shutdown::Proceed : Shutdown::Defer;
+}
+// a client's own disconnect (CL_Disconnect 0x28F20) in its turn while another local player plays: the shared parts it
+// would end (the server, the one sound system's sounds, the renderer's list, the LostHost screen) are kept
+inline bool LeaveKeepsShared(bool in_turn, int acting, const Players& p) { return in_turn && OthersRemain(p, acting); }
+
+// a player's client watched between frames: cls.state's highest value seen since it joined; dropped back to
+// disconnected (1) or below after it was connecting (2) or more: its client left (a kick, the server's disconnect, its
+// own disconnect command, a connection that failed or timed out)
+constexpr uint32_t kClsStateDisconnected = 1, kClsStateConnecting = 2;
+struct ClientWatch {
+    uint32_t best = 0;
+    // the state seen now; true once, when the client has left
+    bool Dropped(uint32_t state) {
+        if (state > best) best = state;
+        if (best >= kClsStateConnecting && state <= kClsStateDisconnected) {
+            best = 0;
+            return true;
+        }
+        return false;
+    }
+};
+
+// the local player whose leaving ends the server (StartsModuleValidation; the window's): the lowest one playing,
+// player 1 while it plays
+inline int SessionHost(const Players& p) {
+    for (int k = 0; k < kMaxPlayers; k++)
+        if (p.At(k).state == State::Connecting || p.At(k).state == State::Active) return k;
+    return 0;
+}
 
 // before the server shuts down (its world, hunk and models freed): the other local players removed first, the highest
 // slot first, so none is left pointing into a freed world. Only from the host's own context (the switcher's state is

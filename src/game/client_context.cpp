@@ -38,6 +38,7 @@ uint8_t* Map(uint32_t va) { return static_cast<uint8_t*>(kernel::HostPtr(va)); }
 using Switcher = ctx::Switcher<uint8_t* (*)(uint32_t)>;
 
 bool g_in_turn = false;  // between a turn's start (0x5D3B5, 0x5D3F0) and the end of the last player's turn
+bool g_in_server_frame = false;  // between 0x5D3CD and 0x5D3D2 (SV_Frame's call): the built-in server's frame
 
 // the generated per-player objects (tools/region_model.py), and their fingerprint as compiled (table_fingerprint.h;
 // tools/check_tables.py compares it with the source tree's table)
@@ -146,6 +147,7 @@ uint32_t ClientContextAddressOf(size_t offset) { return Contexts().AddressOf(off
 long ClientContextOffsetOf(uint32_t va) { return Contexts().OffsetOf(va); }
 
 bool ClientContextInTurn() { return g_in_turn; }
+bool ClientContextInServerFrame() { return g_in_server_frame; }
 
 }  // namespace csx
 
@@ -179,6 +181,7 @@ double Ms(std::chrono::steady_clock::time_point a, std::chrono::steady_clock::ti
 
 // [[hook]] at 0x5D3CD in _Host_Frame, before SV_Frame's call: the guard's copy of every per-player region
 void ClientContextsGuardBefore(X86Context&, uint8_t*) {
+    g_in_server_frame = true;  // the console lines the server adds are the process's (native_split.cpp's routing)
     Guard& g = TheGuard();
     if (!g.on) return;
     const auto& regions = Contexts().Regions();
@@ -195,6 +198,7 @@ void ClientContextsGuardBefore(X86Context&, uint8_t*) {
 
 // [[hook]] at 0x5D3D2 in _Host_Frame, after SV_Frame: what the server frame wrote into a player's client state
 void ClientContextsGuardAfter(X86Context&, uint8_t*) {
+    g_in_server_frame = false;
     Guard& g = TheGuard();
     if (!g.on || g.before.empty()) return;
     const auto& regions = Contexts().Regions();
@@ -282,13 +286,32 @@ void ClientContextsTurnBegin(X86Context&, uint8_t*) { g_in_turn = true; }
 
 void NativeSplitFrameEnd(X86Context& ctx);     // native_split.cpp
 void NativeSplitTurnPrelude(X86Context& ctx);  // native_split.cpp
+void NativeSplitAborted(int context);          // native_split.cpp
 
 // [[hook]] at 0x5D3B5 in _Host_Frame: a player's input turn starts (its CL_Move). Every context but player 1's first
 // runs the frame's per-player prelude the title runs before the turns, in player 1's context only (0x5D3A6 / 0x5D3B0:
-// the activation check, the client data update; native_split.cpp, docs 15.10). Nothing more with one context
+// the activation check, the client data update; native_split.cpp, docs 15.10); with native split-screen every
+// player, player 1 too, then runs its own console lines (docs 15.12). Nothing more without native split-screen
 void ClientContextsMoveBegin(X86Context& ctx, uint8_t*) {
     g_in_turn = true;
-    if (Contexts().Count() > 1) NativeSplitTurnPrelude(ctx);
+    g_in_server_frame = false;
+    if (NativeSplitOn()) NativeSplitTurnPrelude(ctx);
+}
+
+// [[hook]] at 0x5D2F4 in _Host_Frame and 0x5D5F0 in Host_Frame, the `test eax, eax` after their setjmp (0x6CE000,
+// 0x6CE060): eax not 0 is a frame cut short by Host_EndGame (0x5BCF1, 0x5BD1C) or Host_Error (0x5BE1B), whose longjmp
+// unwinds whatever turn was running. With native split-screen, a turn of another player than player 1 would leave its
+// context live for the next frame (its prelude and the console buffer then run as that player): player 1's context
+// is made live again and the turns' state cleared (docs 15.12). Nothing else changes: the frame returns as the title's
+void ClientContextsAbortLanding(X86Context& ctx, uint8_t*) {
+    if (!ctx.eax) return;
+    g_in_server_frame = false;
+    Switcher& s = Contexts();
+    int was = s.Active();
+    bool in_turn = g_in_turn;
+    g_in_turn = false;
+    if (s.Count() > 1 && was != 0) csx::ClientContextSwitch(0);
+    if (NativeSplitOn() && (was != 0 || in_turn)) NativeSplitAborted(was);
 }
 
 // [[hook]] at 0x5D3C2 in _Host_Frame, after a player's CL_Move: the next player's turn (false: back to 0x5D3B5), or

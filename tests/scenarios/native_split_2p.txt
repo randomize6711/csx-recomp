@@ -53,6 +53,12 @@ expect nolog native split: player [0-9].s activation check gave client state
 expect log native split: the shared front end, driven by player 1:
 expect nolog native split: the shared front end would free block
 expect nolog native split: the shared front end.s element code ran in player
+# docs 15.12: the console's lines routed (each player's own, the process's once); no frame cut short, no shutdown
+# asked in a player's turn, no voice or cleanup diagnostics
+expect log native split: console lines routed: [0-9]+ the process's, [0-9]+ the server's, [0-9]+ a player's own
+expect nolog native split: the frame was cut short
+expect nolog native split: player [0-9]'s turn asks the built-in server to shut down
+expect nolog native split: player [0-9]'s console lines are full
 expect nolog native split: the server shuts down in player
 expect nolog local server: starting
 expect nolog Host_Error

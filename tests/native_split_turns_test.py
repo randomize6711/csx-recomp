@@ -12,6 +12,14 @@ run: player 2 left at client state 4; 126 cross-player frees in the shared score
      0xDD520 is 0x1B9820; 0xCA6F0 queues "xbui %s" to the shared console buffer (Cbuf_AddText 0x3B970, 0x748660);
      0xCA0B0 closes the shared screen stack's screen; 0xD96A0 sets an element's text (stdcall, ret 4 at 0xD96B5);
      every gate's hook is in config/game.toml and in the generated code, with the skip target it needs.
+  3. the lifecycle (15.12): the console buffer 0x748660 touched only by its init 0x3B900, Cbuf_AddText 0x3B970 (edi),
+     Cbuf_InsertText 0x3B9D0 (eax), the wrapped insert 0x3BA80 (its stack argument), Cbuf_Execute 0x3BB50 and the
+     exec command 0x3BF60, none of it a player's region; Cbuf_Execute's per-frame call at 0x5D3AB; the "xbui" command
+     0xD7450 as registered; CL_Disconnect's stop-everything call at 0x28F4F; svc_disconnect's Host_EndGame call at
+     0x30932 and its caller's `add esp, 0xC`; the voice channels 0x3855B8 touched only by the voice module, Voice_Idle
+     called only at 0x5D46C in the client half, the channel and data calls of CL_ParseVoiceData; the two setjmp sites
+     and their `test eax, eax`; every lifecycle hook in config/game.toml (NativeSplitCbufExecute before PcKeysFrame at
+     0x3BB50) and in the generated code.
 Needs build/gen/game (your own XBE); without it the checks are skipped with a note. No game is started.
 
 Usage: python3 -I tests/native_split_turns_test.py
@@ -199,6 +207,80 @@ def shared_ui(funcs, cl, regs, hk, text):
         check(f'goto {target};' in text and f'{target}:' in text, f'the skip target {target} exists')
 
 
+def all_hooks():
+    """every hook in config order: [(at, call, on_true)]"""
+    t = open(os.path.join(ROOT, 'config', 'game.toml')).read()
+    out = []
+    for block in t.split('[[hook]]')[1:]:
+        at = re.search(r'^at = (0x[0-9A-F]+)', block, re.M)
+        call = re.search(r'^call = "([^"]+)"', block, re.M)
+        on_true = re.search(r'^on_true = (\S+)', block, re.M)
+        if at and call:
+            out.append((int(at[1], 16), call[1], on_true and on_true[1].strip('"')))
+    return out
+
+
+def lifecycle(funcs, cl, regs, text):
+    # the console buffer: who touches cmd_text (0x748660..0x748674)
+    users = set()
+    for fn, ins in funcs.items():
+        for a, s in ins:
+            for m in re.findall(r'0x00?(74866[0-9A-F]|748670)\b', s):
+                users.add(fn)
+    check(users == {0x3B900, 0x3B970, 0x3B9D0, 0x3BA80, 0x3BB50, 0x3BF60},
+          f'cmd_text is touched only by the buffer\'s own functions ({sorted(hex(u) for u in users)})')
+    check(not any(in_regions(v, regs) for v in (0x748640, 0x748660, 0x748668, 0x748670)),
+          'cmd_text and cmd_wait are shared (no player region)')
+    check(funcs[0x3B970][0][1] == 'mov cl, [edi]', 'Cbuf_AddText reads its text from edi')
+    check(ins_at(funcs, 0x3B9D0, 0x3B9D8) == 'mov edi, eax', 'Cbuf_InsertText takes its text in eax')
+    check(ins_at(funcs, 0x3BA80, 0x3BA81) == 'mov ebp, [esp+0x08]' and funcs[0x3BA80][0][1] == 'push ebp',
+          'the wrapped insert takes a stack argument ([esp+4] at its entry)')
+    check(ins_at(funcs, 0x3BA80, 0x3BAEC) == 'mov edi, 0x329E28' and ins_at(funcs, 0x3BA80, 0x3BAF6) == 'mov edi, ebp',
+          'it inserts newline, the text, newline')
+    check(ins_at(funcs, 0x5D2E0, 0x5D3AB) == 'call 0x0003BB50', 'Cbuf_Execute once a frame at 0x5D3AB, before the turns')
+    check(ins_at(funcs, 0xD7710, 0xD7724) == 'push 0xD7450' or 'push 0xD7450' in [s for _, s in funcs.get(0xD7710, [])],
+          'the xbui command is 0xD7450 (Cmd_AddCommand in 0xD7710)')
+    # the disconnect
+    check(ins_at(funcs, 0x28F20, 0x28F37) == 'mov ebx, 0x553ED8' and ins_at(funcs, 0x28F20, 0x28F4F) == 'call 0x00106380' and
+          ins_at(funcs, 0x28F20, 0x28F54) is not None, 'CL_Disconnect stops the one sound object\'s sounds at 0x28F4F')
+    check(ins_at(funcs, 0x30910, 0x3092D) == 'push 0x32CF90' and ins_at(funcs, 0x30910, 0x30932) == 'call 0x0005BC40' and
+          ins_at(funcs, 0x30910, 0x30937) == 'add esp, 0x0C', 'svc_disconnect calls Host_EndGame at 0x30932; 0x30937 pops')
+    check(ins_at(funcs, 0x290D0, 0x290E0) == 'call 0x0005C9D0' and ins_at(funcs, 0x290D0, 0x290D0) == 'call 0x00028F20',
+          'the disconnect command: CL_Disconnect, then Host_ShutdownServer')
+    # the voice channels
+    def users(v):
+        return {fn for fn, ins in funcs.items() if any(re.search(r'0x0*' + v + r'\b', s) for _, s in ins)}
+    vusers = users('3855B8')
+    check(vusers == {0x101E70, 0x101FD0, 0x102620, 0x1026A0, 0x102760},
+          f'the voice channels 0x3855B8 are the voice module\'s ({sorted(hex(u) for u in vusers)})')
+    check(users('38AC08') == {0x101EB0}, 'their codecs (+0x5650, 0x38AC08) are released only by 0x101EB0')
+    check({f for f, _ in cl.get(0x101EB0, ())} == {0x101FD0, 0x5DDA0}, 'by Voice_Idle and Host_Shutdown (0x5DDA0) only')
+    check({a for _, a in cl.get(0x101FD0, ())} == {0x5D46C} and 0x5D3F0 < 0x5D46C < 0x5D54A,
+          'Voice_Idle is called only at 0x5D46C, in the players\' client half')
+    check({a for _, a in cl.get(0x102620, ())} >= {0x31C8F} and {a for _, a in cl.get(0x102760, ())} >= {0x31CA0},
+          'CL_ParseVoiceData assigns a channel and adds its data')
+    check(not in_regions(0x3855B8, regs), 'the voice channels are shared (no player region)')
+    # the setjmp sites
+    for fn, call, at in ((0x5D2E0, 0x5D2EC, 0x5D2F4), (0x5D5D0, 0x5D5E8, 0x5D5F0)):
+        check(ins_at(funcs, fn, call) == 'call 0x0022EC0C' and ins_at(funcs, fn, at) == 'test eax, eax',
+              f'the setjmp at 0x{call:X} and its test at 0x{at:X}')
+    hl = all_hooks()
+    want = [(0x3B970, 'NativeSplitCbufAdd', 'ret'), (0x3B9D0, 'NativeSplitCbufInsert', 'ret'),
+            (0x3BA80, 'NativeSplitCbufInsertLine', 'ret'), (0x3BB50, 'NativeSplitCbufExecute', 'ret'),
+            (0xD7450, 'NativeSplitUiXbui', 'ret'), (0x28F4F, 'NativeSplitDisconnectSound', '0x28F54'),
+            (0x30932, 'NativeSplitServerDisconnected', '0x30937'), (0x101FD0, 'NativeSplitVoiceIdle', 'ret'),
+            (0x102620, 'NativeSplitVoiceAssign', 'ret'), (0x102760, 'NativeSplitVoiceData', 'ret'),
+            (0x5C9D0, 'NativeSplitShutdownServer', 'ret'), (0x5D2F4, 'ClientContextsAbortLanding', None),
+            (0x5D5F0, 'ClientContextsAbortLanding', None)]
+    for w in want:
+        check(w in hl, f'hook {w}')
+        check(f'{w[1]}(ctx, base)' in text, f'{w[1]} is in the generated code')
+    at = [c for a, c, _ in hl if a == 0x3BB50]
+    check(at[:2] == ['NativeSplitCbufExecute', 'PcKeysFrame'], f'at 0x3BB50 the routing runs before PcKeysFrame ({at})')
+    for target in ('loc_00028F54', 'loc_00030937'):
+        check(f'goto {target};' in text and f'{target}:' in text, f'the skip target {target} exists')
+
+
 def main():
     if not os.path.isdir(GEN) or not glob.glob(os.path.join(GEN, 'x86_recomp.*.cpp')):
         print('note: build/gen/game missing: the checks are skipped')
@@ -210,6 +292,7 @@ def main():
     hk = hooks()
     activation(funcs, cl, regs, hk, text)
     shared_ui(funcs, cl, regs, hk, text)
+    lifecycle(funcs, cl, regs, text)
     print(f'native_split_turns_test: {checks} checks, {len(failures)} failed')
     return 1 if failures else 0
 

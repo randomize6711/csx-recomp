@@ -16,6 +16,7 @@ bool ClientContextSwitch(int k);    // player k's state made the live memory
 double ClientContextSwitchMs(uint64_t& switches);  // the time spent switching so far (ms) and how many switches
 bool ClientContextRemove(int k);    // context k dropped (not 0, not active); later ones move down an index
 bool ClientContextInTurn();         // inside a player's turn of _Host_Frame (its CL_Move, or its client half)
+bool ClientContextInServerFrame();  // inside _Host_Frame's SV_Frame call (0x5D3CD..0x5D3D2): the built-in server's
 bool ClientContextHasInitial();     // the state a new context starts from was taken (native split-screen only)
 std::vector<uint8_t>& ClientContextInitial();     // that state (the boot image: native_split.cpp checks it)
 std::vector<uint8_t>& ClientContextSaved(int k);  // context k's saved copy (not the active one's: stale)

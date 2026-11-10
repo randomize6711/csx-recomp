@@ -286,7 +286,12 @@ void PcMapLightConfig(X86Context& ctx, uint8_t*) {
 }
 
 // [[hook]] at 0x3BB50 (config/game.toml): Cbuf_Execute's entry, on the game thread every frame
+bool NativeSplitCbufForPlayer();  // native_split.cpp: this Cbuf_Execute runs a local player's own lines (docs 15.12)
+
 void PcKeysFrame(X86Context& ctx, uint8_t*) {
+    // the keyboard, the console and the menus' PC input are the process's (player 1's window): fed only to the
+    // process's run of the buffer, never into a local player's own lines
+    if (NativeSplitCbufForPlayer()) return;
     PollRequests();
     if (csx::Dedicated()) {
         // a dedicated server has no client: no console, menus, mouse, bindings or keys; only the commands (its stdin
