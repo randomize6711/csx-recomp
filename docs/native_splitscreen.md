@@ -969,3 +969,38 @@ no crash, no hang, no Host_Error, no guest trap, nothing freed or destroyed. Pla
    for it. **Not changed** (an ownership decision): the options are in the completion report.
 4. Not seen because of 1-3: whether the 115-region model's tables pass the checks; player 2's connect, slots and
    userids; the shared-once connect's hooks in player 2's turn.
+
+### 15.7 The timer once per process; the build's table fingerprints (2026-11-10; approved option B; static only, not run)
+
+**The timer.** FC870 (a timer, cdecl with ebx an id; called by the client game 0x1A616A.. and the server game
+0x144D78) holds a function-local static: its guard bit 0x5C9660 (FC87B), and under it (FC87F..FC8C6) the fields
+0x5C9648..0x5C9658 cleared and 0x5C9640 = C / the counter frequency (0x200E3D: the Xbox's constant 0x2BB5C755). Only
+FC870 accesses 0x5C9640..0x5C9663. The block's result is the same whoever runs it first and whenever, so:
+- At the end of Host_Init (NativeSplitReference, with native split-screen only: no other mode is changed), before
+  the initial state is kept and before any player, the process calls the original FC870 with a hook at 0xFC8CC (where
+  the block joins the path that skips it) returning true only in that call: on_true 0xFC954, the epilogue (pop edi;
+  add esp, 8; ret, the frame as at FC8CC). The block runs as the code has it; nothing after it (no time read, 0x5BD9D8
+  and 0x56169C untouched). Every other call goes on as the title's; a later first call finds the guard set and skips
+  the block, as the title's second call does: the timer's state after the first timing is the title's.
+- `nsplit::TimerOnce` checks the result (the guard set, a period not 0); players are added only when it ran (or the
+  guard was already set): pending or failed adds none (fail closed, logged as an error).
+- Unchanged: 0x5C9640 and 0x5C9660 stay protected start-up state; a player's initialisation that changed them still
+  fails. No per-player copy. The dedicated server and one-player play never take the path (the hook returns false).
+
+**The fingerprints.** The region model's tables are hashed at compile time from the arrays the executable uses
+(src/game/table_fingerprint.h: FNV-1a 64 over the count and each entry's numbers) into 32-byte stamps
+`CSXFP1:regions`, `CSXFP1:protect`, `CSXFP1:address`. tools/check_tables.py computes the same hashes from the source
+tree's tables and compares them with the stamps in each executable (missing, differing or stale: a failure, exit 1),
+read only. With patch 0046 (the build's rebuild rule counts `*.inc`), it is the preflight's check that the executable
+holds the model it was meant to: it does not depend on timestamps or on log text. The start-up log also prints the
+fingerprints. The generated regions moved into a constexpr array (client_context.cpp kGenRegions) for it.
+
+Tests: native_split_test (the timer's block once, by the process, before a player; the protected values unchanged by
+a player's call; the state equal to the title's first call; the sixth run's failure still detected; the tempent
+pool initialised in a player's own copy), region_model_test (the code's facts: the jump, the block's writes and its
+one call, the epilogue, the frequency constant, the sole accessor, both values still protected, the hook's entry),
+check_tables_test (C++ and Python hash alike; programs compiled from an older table found stale; missing and
+conflicting stamps; the build rule recompiles an object older than a regenerated .inc; the real executables).
+
+The Windows cross-build does not compile (net_session.cpp's setenv / unsetenv, since 7af1caa, 2026-10-26: not this
+work's); its executable (2026-10-19) has no stamps and check_tables.py reports it.

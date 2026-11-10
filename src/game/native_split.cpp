@@ -48,6 +48,7 @@
 #include "game/net_buffers.h"
 #include "game/net_engine.h"
 #include "game/shared_once.h"
+#include "game/table_fingerprint.h"
 #include "kernel/kernel.h"
 
 namespace dispatch {
@@ -73,6 +74,9 @@ constexpr uint32_t kDropClient = 0x5C600;         // SV_DropClient (cdecl client
 constexpr uint32_t kFree = 0x22C609;              // the C runtime's free (cdecl)
 constexpr uint32_t kClientInitialize = 0x18B7A0;  // the client game's Initialize (cdecl engine functions, version)
 constexpr uint32_t kHudInit = 0x18B800;           // the client game's HUD_Init
+constexpr uint32_t kTimer = 0xFC870;              // a timer (cdecl, ebx an id): its once-per-process guarded block
+constexpr uint32_t kTimerGuard = 0x5C9660;        // its function-local static's guard bit (FC87B, FC88D)
+constexpr uint32_t kTimerPeriod = 0x5C9640;       // under the guard: the counter frequency's reciprocal (FC8C6)
 constexpr uint32_t kTempEntInit = 0x3A8A0;        // CL_TempEntInit: the tempent pool cleared and its free list linked
 constexpr uint32_t kEngineFunctions = 0x371610;   // the engine's cl_enginefunc_t table, as Host_Init hands it (0x1C69F)
 constexpr uint32_t kLoopback = 1;                 // netadrtype_t NA_LOOPBACK
@@ -136,6 +140,12 @@ struct ProtectedRange {
 constexpr ProtectedRange kProtected[] = {
 #include "game/client_context_protected.inc"
 };
+// their fingerprints as compiled (table_fingerprint.h; tools/check_tables.py)
+[[gnu::used]] const tablefp::Stamp kProtectedStamp = {"CSXFP1:protect", tablefp::Ranges(kProtected),
+                                                      uint32_t(sizeof(kProtected) / sizeof(kProtected[0])),
+                                                      tablefp::Bytes(kProtected)};
+[[gnu::used]] const tablefp::Stamp kAddressesStamp = {"CSXFP1:address", tablefp::Words(kTakenAddresses),
+                                                      uint32_t(sizeof(kTakenAddresses) / sizeof(kTakenAddresses[0])), 0};
 bool IsFunctionEntry(uint32_t v) { return dispatch::Find(v) != nullptr; }
 uint8_t GuestByte(uint32_t va) { return *static_cast<const uint8_t*>(kernel::HostPtr(va)); }
 std::vector<heapown::Range> ProtectedRanges() {
@@ -175,6 +185,8 @@ bool g_tracking = false;   // heap ownership tracked (native split-screen on, fr
 int g_init_owner = -1;     // the player whose initialisation is running (its allocations are its own), -1 none
 uint64_t g_foreign_frees = 0, g_skipped_frees = 0;
 bool g_add_failed = false;  // a player's initialisation failed its checks: no further players added this session
+nsplit::Once g_timer_once = nsplit::Once::Pending;  // the timer's one-time block (docs 15.7): players only once done
+bool g_timer_block_only = false;                    // the process's call of the timer: its guarded block, then return
 std::vector<uint8_t> g_reference;         // player 1's regions at the end of Host_Init (the check of a new player)
 std::vector<heapown::Pointer> g_reference_objects;  // the heap pointers in it: the objects a new player must have
 // per player: packets its client sent to the server, the server sent to it, it read, the server read from it; packets
@@ -547,7 +559,27 @@ bool NativeSplitOn() { return Wanted() >= 2; }
 
 // client_context.cpp, at the end of Host_Init: player 1's initialised regions, kept to check a new player's (the
 // objects its initialisation made: the heap pointers of that state); what the heap holds now is the process's
-void NativeSplitReference(const std::vector<uint8_t>& state) {
+void NativeSplitReference(X86Context& ctx, const std::vector<uint8_t>& state) {
+    // the process's one-time work first (docs 15.7): the timer's guarded block, run by its own code as the title's
+    // first call would, so no player's initialisation sets it (it is protected start-up state from here on)
+    uint32_t guard = R32(kTimerGuard);
+    bool ran = false;
+    if (!(guard & 1)) {
+        g_timer_block_only = true;
+        kernel::CallGuest(ctx, kTimer, {0});  // its argument and ebx are read only after the block (0xFC8CC on)
+        g_timer_block_only = false;
+        ran = true;
+    }
+    g_timer_once = nsplit::TimerOnce(guard, ran, R32(kTimerGuard), R32(kTimerPeriod));
+    if (nsplit::MayAddPlayers(g_timer_once))
+        LOGI("native split: the timer's one-time block (0xFC870) %s as the process before any player: guard 0x%08X, "
+             "period 0x%08X", nsplit::Name(g_timer_once), R32(kTimerGuard), R32(kTimerPeriod));
+    else
+        LOGE("native split: the timer's one-time block (0xFC870) %s (guard 0x%08X, period 0x%08X): no player is added",
+             nsplit::Name(g_timer_once), R32(kTimerGuard), R32(kTimerPeriod));
+    LOGI("native split: protected ranges %u (%u bytes, fingerprint %016llX), taken addresses %u (fingerprint %016llX)",
+         kProtectedStamp.count, kProtectedStamp.bytes, (unsigned long long)kProtectedStamp.hash, kAddressesStamp.count,
+         (unsigned long long)kAddressesStamp.hash);
     g_blocks.OwnAll(heapown::kProcess);
     g_reference = state;
     g_reference_objects = heapown::HeapPointers(g_reference, Spans(), g_blocks);
@@ -576,8 +608,8 @@ void NativeSplitFrameEnd(X86Context& ctx) {
         }
     }
     // player 1 in its match with the built-in server: the others added, one a frame
-    if (!g_add_failed && R32(kSvActive) && int(R32(kClsState)) == kClsActive && g_players.Count() < Wanted() &&
-        g_players.Initialising() < 0) {
+    if (!g_add_failed && nsplit::MayAddPlayers(g_timer_once) && R32(kSvActive) &&
+        int(R32(kClsState)) == kClsActive && g_players.Count() < Wanted() && g_players.Initialising() < 0) {
         if (int k = g_players.FreeSlot(); k > 0) AddPlayer(ctx, k);
     }
     auto now_r = std::chrono::steady_clock::now();
@@ -921,6 +953,12 @@ bool NativeSplitNewMap(X86Context& ctx, uint8_t*) {
     }
     return false;
 }
+
+// [[hook]] at 0xFC8CC in the timer 0xFC870, where its guarded once-per-process block (FC87F..FC8C6) joins the path
+// that skips it (FC87D): on_true 0xFC954, its epilogue (pop edi; add esp, 8; ret: the frame as at FC8CC). True only
+// in the process's own call at the end of Host_Init (NativeSplitReference, docs 15.7): the block, nothing after it.
+// Every other call goes on as the title's
+bool NativeSplitTimerBlockOnly(X86Context&, uint8_t*) { return g_timer_block_only; }
 
 // [[hook]] at 0x2D3EA in the signon (0x2D350), before `mov edx, "PieMenuUI"; call 0xC4770` (an unload of that UI
 // bundle: its D3D textures freed, its buffer back to the pool 0x553ED0): on_true 0x2D3F4. Once for the generation,

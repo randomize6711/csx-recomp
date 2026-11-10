@@ -28,6 +28,7 @@
 #include "cpu/x86_context.h"
 #include "game/client_context_core.h"
 #include "game/net_engine.h"
+#include "game/table_fingerprint.h"
 #include "kernel/kernel.h"
 
 namespace {
@@ -37,6 +38,19 @@ uint8_t* Map(uint32_t va) { return static_cast<uint8_t*>(kernel::HostPtr(va)); }
 using Switcher = ctx::Switcher<uint8_t* (*)(uint32_t)>;
 
 bool g_in_turn = false;  // between a turn's start (0x5D3B5, 0x5D3F0) and the end of the last player's turn
+
+// the generated per-player objects (tools/region_model.py), and their fingerprint as compiled (table_fingerprint.h;
+// tools/check_tables.py compares it with the source tree's table)
+struct GenRegion {
+    uint32_t va, size;
+    const char* what;
+};
+constexpr GenRegion kGenRegions[] = {
+#include "game/client_context_regions.inc"
+};
+[[gnu::used]] const tablefp::Stamp kRegionsStamp = {"CSXFP1:regions", tablefp::Ranges(kGenRegions),
+                                                    uint32_t(sizeof(kGenRegions) / sizeof(kGenRegions[0])),
+                                                    tablefp::Bytes(kGenRegions)};
 
 Switcher& Contexts() {
     static Switcher s(csx::ClientContextRegions(), &Map);
@@ -72,9 +86,9 @@ std::vector<ctx::Region> ClientContextRegions() {
         // cl_visedicts[512] at 0x785BC0..0x7863C0 (filled at 0x1CA01 with its count 0x749D20 < 0x200, P: rebuilt every
         // frame). cls.state is also read by the server's code: player 1's, as for cl.
         {0x7812E0, 0x48BC, "cls"},
-    // the rest, from the audit's policy (generated; each entry names its writers)
-#include "game/client_context_regions.inc"
     };
+    // the rest, from the audit's policy (generated; each entry names its writers)
+    for (const GenRegion& g : kGenRegions) r.push_back({g.va, g.size, g.what});
     // the client's per-player arrays the 65 player slots moved into the guest tables (config/guest_tables.toml): their
     // old places in .data (predicted_players 0x3AE3D0, g_PlayerInfoList 0x5487B0, g_PlayerExtraInfo 0x57E978,
     // DM_PlayerState 0x6A38A0, ...) are no longer used. The server's tables (sv_*) and the network's scratch (net_*)
@@ -229,7 +243,7 @@ void ClientContextsHudInit(X86Context&, uint8_t*) {
 }
 
 bool NativeSplitOn();                                     // native_split.cpp
-void NativeSplitReference(const std::vector<uint8_t>& state);  // native_split.cpp
+void NativeSplitReference(X86Context& ctx, const std::vector<uint8_t>& state);  // native_split.cpp
 
 // [[hook]] at 0x202C1E in the title's startup (0x202BC8), after the C runtime's static constructors (0x206E5B) and
 // before main (0xBF470): the per-player regions as a new player's context starts them (the boot image: the client
@@ -244,13 +258,15 @@ void ClientContextsInitial(X86Context&, uint8_t*) {
     s.CaptureInitial();
     LOGI("client context: %zu regions, %zu bytes a player; the boot image kept (%.3f ms)%s", s.Regions().size(),
          s.Bytes(), Ms(t0, std::chrono::steady_clock::now()), TheGuard().on ? "; the server write guard is on" : "");
+    LOGI("client context: generated regions %u, %u bytes, fingerprint %016llX (tools/check_tables.py)",
+         kRegionsStamp.count, kRegionsStamp.bytes, (unsigned long long)kRegionsStamp.hash);
 }
 
 // [[hook]] at 0x5DD94 at the end of Host_Init (0x5D9E0), as it sets host_initialized (0x551D7C): player 1's regions
 // once the process is initialised and before any connection, a reference only (native_split.cpp checks a new
 // player's initialised state against it: every object player 1's initialisation made must be the new player's own).
 // With native split-screen only.
-void ClientContextsReference(X86Context&, uint8_t*) {
+void ClientContextsReference(X86Context& ctx, uint8_t*) {
     if (csx::Dedicated() || !NativeSplitOn() || Contexts().Regions().empty()) return;
     std::vector<uint8_t> state(Contexts().Bytes());
     size_t at = 0;
@@ -258,7 +274,7 @@ void ClientContextsReference(X86Context&, uint8_t*) {
         std::memcpy(state.data() + at, Map(r.start), r.size);
         at += r.size;
     }
-    NativeSplitReference(state);
+    NativeSplitReference(ctx, state);
 }
 
 // [[hook]] at 0x5D3B5 and 0x5D3F0 in _Host_Frame: a player's turn starts (its CL_Move; its client half)

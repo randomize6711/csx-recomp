@@ -9,6 +9,9 @@
 wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
 wait draws>=150
 expect log native split: 2 local players asked
+# docs 15.7: the timer's once-per-process block done by the process before any player (no player sets it)
+expect log native split: the timer's one-time block \(0xFC870\) ran as the process before any player
+expect nolog native split: the timer's one-time block \(0xFC870\) (pending|failed)
 expect log client context: [0-9]+ regions, [0-9]+ bytes a player; the boot image kept
 sleep 10
 press DOWN

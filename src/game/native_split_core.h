@@ -137,6 +137,36 @@ inline Registration EngineCommandPolicy(bool another_players_init) {
     return another_players_init ? Registration::Skip : Registration::Register;
 }
 
+// ---- the process's one-time start-up work (docs 15.7) --------------------------------------------------------------
+
+// A lazily initialised process constant a new player's steps would otherwise set first, in that player's
+// initialisation, against the protected start-up state: the timer 0xFC870's function-local static (its guard bit
+// 0x5C9660, under it 1 / the performance counter's frequency at 0x5C9640 and the timer's fields cleared). The process
+// runs the original guarded block once, at the end of Host_Init, before the initial state is kept and before any
+// player is added; a player's later call finds the guard set and skips it, as the title's second call does.
+enum class Once { Pending, Ran, AlreadyDone, Failed };
+
+inline const char* Name(Once s) {
+    switch (s) {
+    case Once::Pending: return "pending";
+    case Once::Ran: return "ran";
+    case Once::AlreadyDone: return "already done";
+    case Once::Failed: return "failed";
+    }
+    return "?";
+}
+
+// what the timer's one-time block left: its guard bit set and a period (a float, its bits) not 0. Before: the guard
+// already set means another call did it (nothing run); after a run, a guard still clear or no period is a failure
+inline Once TimerOnce(uint32_t guard_before, bool ran, uint32_t guard_after, uint32_t period_after) {
+    if (guard_before & 1) return Once::AlreadyDone;
+    if (!ran) return Once::Pending;
+    return (guard_after & 1) && period_after ? Once::Ran : Once::Failed;
+}
+
+// a player may be added only once the process's one-time work is done (fail closed: pending or failed, none is)
+inline bool MayAddPlayers(Once timer) { return timer == Once::Ran || timer == Once::AlreadyDone; }
+
 // ---- the session's lifecycle (docs 15) ---------------------------------------------------------------------------
 
 // the built-in server and its world are the session's, not a client's: they end only when the session's host leaves

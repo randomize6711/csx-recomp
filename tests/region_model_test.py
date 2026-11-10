@@ -426,6 +426,33 @@ def real():
     check(all(held(x) for x in range(0x3AEF2C, 0x424A3C + 4, 0x790)), 'its link loop is in a player\'s region')
     body = [mn for fn, at_, mn, ops, _ in M.instructions() if fn == 0x3A8A0]
     check(body and 'call' not in body and body[-1] == 'ret', f'CL_TempEntInit calls nothing ({len(body)} instructions)')
+    # the timer's once-per-process block (docs 15.7): the process runs FC870 up to FC8CC (the hook), its epilogue next
+    ins = {at_: (mn, ops) for fn, at_, mn, ops, _ in M.instructions() if fn == 0xFC870 and at_ is not None}
+    check(ins.get(0xFC87D) == ('jnz', '0x000FC8CC'), 'FC87D: the guard set skips the block to FC8CC')
+    check(ins.get(0xFC8CC, ('',))[0] == 'cmp' and 'ebx' in ins.get(0xFC8CC, ('', ''))[1],
+          'FC8CC: the block\'s end, where the timing starts (cmp ebx)')
+    check([ins.get(a, ('',))[0] for a in (0xFC954, 0xFC955, 0xFC958)] == ['pop', 'add', 'ret'] and
+          ins.get(0xFC955, ('', ''))[1].replace(' ', '') == 'esp,0x08', 'FC954: the epilogue (pop edi; add esp, 8; ret)')
+    check(ins.get(0xFC875, ('', ''))[1].replace(' ', '') == 'esp,0x08' and ins.get(0xFC878, ('', ''))[0] == 'push',
+          'the prologue (sub esp, 8; push edi) is what the epilogue undoes')
+    block = [a for a in acc if a[0] == 0xFC870 and 0xFC870 <= a[1] < 0xFC8CC and a[2] == 'w']
+    check(block and all(0x5C9640 <= a[3] and a[3] + (a[4] or 4) <= 0x5C9664 for a in block),
+          f'the block writes only the timer\'s statics 0x5C9640..0x5C9664 ({len(block)} writes)')
+    calls = [ops for at_, (mn, ops) in ins.items() if 0xFC870 <= at_ < 0xFC8CC and mn == 'call']
+    check(calls == ['0x00200E3D'], f'the block calls only the frequency query ({calls})')
+    qpf = [(mn, ops) for fn, at_, mn, ops, _ in M.instructions() if fn == 0x200E3D]
+    check(('mov', 'dword ptr [eax], 0x2BB5C755') in qpf, 'the frequency is the constant 0x2BB5C755 (733333333)')
+    others = {a[0] for a in acc if a[3] is not None and 0x5C9640 <= a[3] < 0x5C9664}
+    check(others == {0xFC870}, f'only FC870 accesses the timer\'s statics ({sorted(hex(f) for f in others)})')
+    for lo, what in ((0x5C9640, 'the period'), (0x5C9660, 'the guard')):
+        check(any(a <= lo and lo + 4 <= a + m for a, m in prot), f'{what} (0x{lo:X}) is still protected')
+        check(not held(lo), f'{what} (0x{lo:X}) is not a player\'s')
+    check(not any(a <= 0x5C9648 < a + m for a, m in prot), 'the timer\'s running fields are shared, not protected')
+    import tomllib
+    hooks = tomllib.load(open(os.path.join(ROOT, 'config', 'game.toml'), 'rb')).get('hook', [])
+    th = [h for h in hooks if h.get('call') == 'NativeSplitTimerBlockOnly']
+    check(len(th) == 1 and th[0].get('at') == 0xFC8CC and th[0].get('on_true') == 0xFC954 and 'on_false' not in th[0],
+          'the hook: at 0xFC8CC, on_true 0xFC954, otherwise the title\'s path')
     unresolved = sorted(o.lo for o in objs if o.ownership == 'unresolved')
     listed = open(os.path.join(ROOT, 'docs', 'native_split_review.md')).read()
     check(all(f'0x{a:X}' in listed for a in unresolved), 'every unresolved object is in the review list')

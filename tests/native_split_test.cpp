@@ -1,5 +1,6 @@
 // tests/native_split_test.py builds and runs this: native split-screen's parts without the game (M2):
 // src/game/local_loopback.h, heap_owner.h, native_split_core.h and client_context_core.h's removal
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -645,6 +646,130 @@ static void SessionLifecycle() {
     Check(n == 1 && order[0] == 0, "teardown: with another host, player 1 is removed first");
 }
 
+// the timer's once-per-process block (docs 15.7): FC870 as the code has it (its guard 0x5C9660, the period 0x5C9640
+// = C / the Xbox's constant frequency 0x2BB5C755, its fields 0x5C9648..0x5C9658 cleared; after the block, at
+// FC8CC, the timing itself) and the hook at FC8CC that ends the process's own call there
+namespace timer {
+struct Sim {
+    std::map<uint32_t, uint8_t> mem;
+    bool block_only = false;  // NativeSplitTimerBlockOnly
+    int blocks = 0;           // the guarded block's runs
+    uint32_t R(uint32_t va) const {
+        uint32_t v = 0;
+        for (int i = 0; i < 4; i++) {
+            auto it = mem.find(va + uint32_t(i));
+            v |= uint32_t(it == mem.end() ? 0 : it->second) << (8 * i);
+        }
+        return v;
+    }
+    void W(uint32_t va, uint32_t v) {
+        for (int i = 0; i < 4; i++) mem[va + uint32_t(i)] = uint8_t(v >> (8 * i));
+    }
+    uint8_t Byte(uint32_t va) const {
+        auto it = mem.find(va);
+        return it == mem.end() ? 0 : it->second;
+    }
+    void Call(uint32_t ebx, uint32_t arg) {
+        if (!(R(0x5C9660) & 1)) {  // FC87B .. FC8C6
+            W(0x5C9660, R(0x5C9660) | 1);
+            for (uint32_t va : {0x5C9640u, 0x5C9648u, 0x5C964Cu, 0x5C9650u, 0x5C9654u, 0x5C9658u}) W(va, 0);
+            float period = 1000.0f / float(0x2BB5C755);
+            uint32_t bits;
+            std::memcpy(&bits, &period, 4);
+            W(0x5C9640, bits);
+            blocks++;
+        }
+        if (block_only) return;  // the hook at FC8CC: on to the epilogue FC954
+        W(0x5BD9D8, arg);        // FC90E
+        if (ebx != 0x270F) {     // FC920 .. FC944 (simplified: the start time kept, the timer running)
+            W(0x5C9650, 0);
+            W(0x5C9654, 0);
+            W(0x5C9648, 0x1234 + arg);
+            W(0x5C9658, 1);
+        }
+        W(0x56169C, ebx);  // FC94E
+    }
+    // the process's call at the end of Host_Init (native_split.cpp NativeSplitReference)
+    nsplit::Once ProcessOnce() {
+        uint32_t guard = R(0x5C9660);
+        bool ran = false;
+        if (!(guard & 1)) {
+            block_only = true;
+            Call(0, 0);
+            block_only = false;
+            ran = true;
+        }
+        return nsplit::TimerOnce(guard, ran, R(0x5C9660), R(0x5C9640));
+    }
+};
+}  // namespace timer
+
+static void ProcessTimer() {
+    using heapown::Range;
+    const std::vector<Range> prot = {{0x5C9640, 4}, {0x5C9660, 4}};  // client_context_protected.inc's two entries
+    // the title's order (one player, or native split before this): the first call, wherever it comes, runs the block
+    timer::Sim title;
+    title.Call(5, 77);
+    // native split: the process first, then (later) the same first call of the title's
+    timer::Sim ns;
+    nsplit::Once once = ns.ProcessOnce();
+    Check(once == nsplit::Once::Ran && ns.blocks == 1, "the block runs once, as the process, at the end of Host_Init");
+    Check(nsplit::MayAddPlayers(once), "players may be added once it ran");
+    Check(ns.R(0x5BD9D8) == 0 && ns.R(0x56169C) == 0 && ns.R(0x5C9658) == 0,
+          "the process's call stops after the block: no timing, no time stored");
+    Check((ns.R(0x5C9660) & 1) && ns.R(0x5C9640) != 0, "the guard set and the period computed");
+    // a new player's initialisation calls the timer: the protected state is as it was, the block not run again
+    auto read = [&](uint32_t va) { return ns.Byte(va); };
+    std::vector<uint8_t> before = heapown::Snapshot(prot, read);
+    ns.Call(5, 77);
+    Check(heapown::Changed(prot, before, read).empty(), "player 2's call changes no protected timer byte");
+    Check(ns.blocks == 1, "the block ran once for the process (not again in player 2's initialisation)");
+    // the same state as the title's own first call: the original calculation, the shared fields alike
+    bool same = true;
+    for (uint32_t va = 0x5C9640; va < 0x5C9664; va++) same &= ns.Byte(va) == title.Byte(va);
+    for (uint32_t va : {0x5BD9D8u, 0x56169Cu}) same &= ns.R(va) == title.R(va);
+    Check(same, "process first, then the call: the timer's state is the title's after its first call");
+    // a second process start-up step (a second reference: never in one process, but it must not run the block again)
+    Check(ns.ProcessOnce() == nsplit::Once::AlreadyDone && ns.blocks == 1, "the guard already set: nothing run");
+    // without it (the sixth run, docs 15.6): player 2's initialisation made the first call; the check finds it
+    timer::Sim old;
+    auto read_old = [&](uint32_t va) { return old.Byte(va); };
+    std::vector<uint8_t> b0 = heapown::Snapshot(prot, read_old);
+    old.Call(5, 77);
+    std::vector<Range> c = heapown::Changed(prot, b0, read_old);
+    Check(c.size() == 2 && c[0].va == 0x5C9640 && c[1].va == 0x5C9660,
+          "the first call in a player's initialisation changes both protected values (still a failure)");
+    Check(!nsplit::MayAddPlayers(nsplit::Once::Pending), "no player before the process's step (pending)");
+    // a run that left the guard clear, or no period, fails closed
+    Check(nsplit::TimerOnce(0, true, 0, 0x3A800000) == nsplit::Once::Failed, "the guard still clear: failed");
+    Check(nsplit::TimerOnce(0, true, 1, 0) == nsplit::Once::Failed, "no period: failed");
+    Check(!nsplit::MayAddPlayers(nsplit::Once::Failed), "failed: no player is added");
+}
+
+// the tempent pool's free list (docs 15.6): CL_TempEntInit (0x3A8A0) as the code has it, in a new player's own copy:
+// its pool's links its own, player 1's untouched
+static void TempEntPool() {
+    constexpr uint32_t kPool = 0x3AEF00, kEnd = 0x4251A8, kFirst = 0x3AEF2C, kLast = 0x424A3C, kStride = 0x790;
+    auto init = [&](std::vector<uint8_t>& m) {  // m: the pool's bytes, guest address kPool + offset
+        std::fill(m.begin(), m.end(), 0);       // rep stosd 0x1D8A8 dwords
+        auto w = [&](uint32_t va, uint32_t v) { std::memcpy(m.data() + (va - kPool), &v, 4); };
+        for (uint32_t a = kFirst; a < kLast; a += kStride) w(a, a + 0x764);
+        w(kLast, 0);
+        w(0x4251A0, kPool);
+        w(0x4251A4, 0);
+    };
+    std::vector<uint8_t> p1(kEnd - kPool), p2(kEnd - kPool, 0);
+    init(p1);
+    std::vector<uint8_t> p1_before = p1;
+    init(p2);  // the new player's ClientState step, in its own context
+    Check(p1 == p1_before, "player 2's pool initialisation leaves player 1's pool as it was");
+    Check(p2 == p1, "player 2's pool links as player 1's start-up linked its own (250 links, none lacking)");
+    uint32_t link = 0;
+    std::memcpy(&link, p2.data() + (kFirst - kPool), 4);
+    Check(link == kFirst + 0x764 && link >= kPool && link < kEnd, "a link names an entry of the same pool");
+    Check((kLast - kFirst) / kStride == 249, "250 entries linked (the last one 0)");
+}
+
 int main() {
     SwitchCost();
     Loopback();
@@ -658,6 +783,8 @@ int main() {
     Contexts();
     SharedOnce();
     SessionLifecycle();
+    ProcessTimer();
+    TempEntPool();
     std::printf("%d checks, %d failed\n", checks, failed);
     return failed ? 1 : 0;
 }

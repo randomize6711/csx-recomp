@@ -664,7 +664,7 @@ def merge(intervals):
 def hand_regions():
     text = open(os.path.join(ROOT, 'src', 'game', 'client_context.cpp'), encoding='utf-8').read()
     body = text[text.index('ClientContextRegions() {'):]
-    body = body[:body.index('#include')]
+    body = body[:body.index('kGenRegions')]  # the hand-checked entries end where the generated ones are appended
     return [(int(a, 16), int(a, 16) + int(n, 16), w) for a, n, w in
             re.findall(r'\{0x([0-9A-Fa-f]+), 0x([0-9A-Fa-f]+), "([^"]*)"', body)]
 
