@@ -453,9 +453,91 @@ def real():
     th = [h for h in hooks if h.get('call') == 'NativeSplitTimerBlockOnly']
     check(len(th) == 1 and th[0].get('at') == 0xFC8CC and th[0].get('on_true') == 0xFC954 and 'on_false' not in th[0],
           'the hook: at 0xFC8CC, on_true 0xFC954, otherwise the title\'s path')
+    pool_facts(acc, prot, hooks)
     unresolved = sorted(o.lo for o in objs if o.ownership == 'unresolved')
     listed = open(os.path.join(ROOT, 'docs', 'native_split_review.md')).read()
     check(all(f'0x{a:X}' in listed for a in unresolved), 'every unresolved object is in the review list')
+
+
+POOL = 0x562118
+
+
+def pool_facts(acc, prot, hooks):
+    """docs 15.8: the string-intern pool's layout, its writers and the narrow reclassification, from the generated code"""
+    import re
+    fns = {}
+    for fn, at_, mn, ops, _ in M.instructions():
+        if fn in (0x115C70, 0x115D10, 0x114680, 0x1148A0, 0x114C10, 0x22E1E7, 0x20192E, 0x114440, 0x1145C0) and at_:
+            fns.setdefault(fn, []).append((at_, mn, ops))
+    plain = M.pointer_summaries()
+    wide = M.pointer_summaries(review=True)
+    # the layout: what the constructor 0x115C70 writes through esi (0x23D170: mov esi, 0x562118)
+    ctor = sorted({(o, w) for o, w, k in plain[0x115C70][('reg', 'esi')] if k == 'w'})
+    check(ctor == [(0, 4), (4, 4), (8, 4), (0xC, 4), (0x10, 2), (0x12, 2), (0x14, 2), (0x16, 2), (0x18, 4), (0x1C, 4),
+                   (0x20, 4), (0x24, 4)], f'the constructor lays out 0x28 bytes: 12 fields ({ctor})')
+    c = dict((a, (mn, ops)) for a, mn, ops in fns[0x115C70])
+    check(c.get(0x115C75) == ('mov', 'ecx, 0x115C20') and c.get(0x115C7C) == ('mov', 'ecx, 0x115BA0') and
+          c.get(0x115CC4) == ('mov', 'dword ptr [esi+0x20], 0x100'), 'the less functions and the string grow 0x100')
+    # the intern's writes through ebx: the wide reading's nine fields are exactly the evidence's, the model's own misses
+    # the strings vector and the tree's root and count
+    pool_w = sorted({(o, w) for o, w, k in wide[0x115D10][('reg', 'ebx')] if k == 'w'})
+    ev = sorted((lo - POOL, n) for lo, n, _, _ in EV.REVIEWED_POOL)
+    check(pool_w == ev, f'0x115D10 writes exactly the nine evidence fields ({pool_w} / {ev})')
+    plain_w = {(o, w) for o, w, k in plain[0x115D10][('reg', 'ebx')] if k == 'w'}
+    check({(0x10, 2), (0x12, 2), (0x18, 4), (0x1C, 4), (0x24, 4)}.isdisjoint(plain_w),
+          'the model\'s own reading misses the strings vector, the root and the count (the seventh run\'s blind spot)')
+    check(not {(0, 4), (0xC, 4), (0x20, 4)} & set(pool_w), 'the less function and the two grows are never written there')
+    for x in (0x562130, 0x562135, 0x56213C):
+        check(any(lo <= x < lo + n for lo, n, _, _ in EV.REVIEWED_POOL), f'the run\'s change 0x{x:X} is a reviewed field')
+    check(all(own == 'shared-mutable' for _, _, own, _ in EV.REVIEWED_POOL), 'the fields are shared, not a player\'s')
+    # narrow: nothing of the pool is protected any more, its constants are not reclassified, the neighbour stays protected
+    check(not any(a < POOL + 0x28 and a + m > POOL for a, m in prot), 'no protected range left in the pool')
+    check(any(a == 0x562148 and m == 4 for a, m in prot), 'the neighbour 0x562148 (the file system\'s vtable) stays protected')
+    check(len(prot) == 1755 and sum(m for _, m in prot) == 29641 - 12, f'only the three ranges left the table ({len(prot)})')
+    for lo, n in ((POOL, 4), (POOL + 0xC, 4), (POOL + 0x20, 4)):
+        check(not any(e[0] == lo for e in EV.REVIEWED_POOL), f'0x{lo:X} (a constant field) is not reclassified')
+    # its address: only the constructor, the destructor and the three interning callers take it
+    takers = sorted({(a[0], a[1]) for a in acc if a[5] == 'taken' and POOL <= a[3] < POOL + 0x28})
+    check([f for f, _ in takers] == [0x114680, 0x1148A0, 0x114C10, 0x23D170, 0x23FDA0],
+          f'the pool\'s address is taken by the constructor, the destructor and 0x114680 / 0x1148A0 / 0x114C10 only '
+          f'({[hex(f) for f, _ in takers]})')
+    # 0x115D10 is the generic symbol-table add (ebx the table: 14 callers); the pool's address is never stored, so
+    # only the three that take it pass this table, each in ebx straight into the call
+    callers = sorted({fn for fn, at_, mn, ops, _ in M.instructions() if at_ and mn == 'call' and ops == '0x00115D10'})
+    check({0x114680, 0x1148A0, 0x114C10} <= set(callers), f'the three intern this pool ({len(callers)} callers in all)')
+    stores = json.load(open(os.path.join(M.OUT, 'accesses.json')))['stores']
+    check(not [x for x in stores if POOL <= x[3] < POOL + 0x28], 'the pool\'s address is never stored into memory')
+    for fn, load, call in ((0x114680, 0x1146DB, 0x1146E5), (0x1148A0, 0x11490D, 0x114912), (0x114C10, 0x114CAA, 0x114CAF)):
+        seq = [(a, mn, ops) for a, mn, ops in fns[fn] if load <= a <= call]
+        check(seq[0][1:] == ('mov', 'ebx, 0x562118') and seq[-1][1:] == ('call', '0x00115D10') and
+              not any('ebx' in ops for _, _, ops in seq[1:-1]), f'0x{fn:X}: ebx = the pool, straight into the intern')
+    # the lock 0x52784C (RtlEnterCriticalSection 277 = call [0x3210C0]) before the intern: 0x114680 and 0x1148A0 take
+    # it; 0x114C10 does not (unresolved, region_evidence.py)
+    def locked_before(fn, call_at):
+        seq = [(a, mn, ops) for a, mn, ops in fns[fn] if a < call_at]
+        push = [i for i, (a, mn, ops) in enumerate(seq) if mn == 'push' and ops == '0x52784C']
+        return any(any(mn == 'call' and ops in ('[0x003210C0]', 'edi') for _, mn, ops in seq[i + 1:i + 3]) for i in push)
+    check(locked_before(0x114680, 0x1146E5) and locked_before(0x1148A0, 0x114912), '0x114680 / 0x1148A0 hold the lock')
+    check(not locked_before(0x114C10, 0x114CAF), '0x114C10 calls the intern without the lock (documented, unresolved)')
+    # realloc moves a block itself (docs 15.8): RtlReAllocateHeap 0x205CFF on both paths, the hooks just after
+    r = dict((a, (mn, ops)) for a, mn, ops in fns[0x22E1E7])
+    check(r.get(0x22E265) == ('call', '0x00205CFF') and r.get(0x22E2B0) == ('call', '0x00205CFF'),
+          'realloc calls RtlReAllocateHeap on its two paths')
+    check(r.get(0x22E26A, ('',))[0] == 'mov' and r.get(0x22E2B5, ('', ''))[1].replace(' ', '') == 'eax,edi',
+          'the hooks\' places: just after each call')
+    check([mn for _, mn, _ in fns[0x20192E]] == ['mov', 'ret'], 'its heap is the process heap 0x5D46F8 (0x20192E)')
+    rh = sorted(h['at'] for h in hooks if h.get('call') == 'NativeSplitHeapRealloc')
+    check(rh == [0x22E26A, 0x22E2B5], f'the realloc hooks ({[hex(x) for x in rh]})')
+    # the neighbour 0x562148: the file system object; its protected field +0 is the vtable 0x345BB0, stored only by its
+    # constructor 0x114440 and destructor 0x1145C0
+    vt = sorted({fn for fn, at_, mn, ops, _ in M.instructions() if at_ and '0x345BB0' in ops})
+    check(vt == [0x114440, 0x1145C0], f'the vtable 0x345BB0 is stored only by 0x114440 / 0x1145C0 ({vt})')
+    # intern_pool.h's layout is the evidence's
+    h = open(os.path.join(ROOT, 'src', 'game', 'intern_pool.h')).read()
+    k = {n: int(v, 16) for n, v in re.findall(r'k(\w+) = 0x([0-9A-F]+)', h)}
+    check(sorted([k['Nodes'], k['NodesAlloc'], k['Root'], k['Count'], k['Free'], k['Next'], k['Strings'],
+                  k['StringsAlloc'], k['StringsSize']]) == [lo - POOL for lo, _, _, _ in EV.REVIEWED_POOL] and
+          k['Pool'] == POOL, 'intern_pool.h names the evidence\'s fields')
 
 
 def main():

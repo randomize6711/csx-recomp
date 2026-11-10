@@ -9,6 +9,7 @@
 
 #include "game/client_context_core.h"
 #include "game/heap_owner.h"
+#include "game/intern_pool.h"
 #include "game/local_loopback.h"
 #include "game/native_split_core.h"
 #include "game/shared_once.h"
@@ -770,6 +771,246 @@ static void TempEntPool() {
     Check((kLast - kFirst) / kStride == 249, "250 entries linked (the last one 0)");
 }
 
+// ---- docs 15.8: the string-intern pool, realloc's moves, a refused player's rollback --------------------------------
+
+// a guest memory of a few ranges (sparse), and a heap that hands out blocks at increasing addresses
+struct GuestMem {
+    std::map<uint32_t, uint8_t> m;
+    uint8_t Rd(uint32_t va) const {
+        auto it = m.find(va);
+        return it == m.end() ? 0 : it->second;
+    }
+    void W8(uint32_t va, uint8_t v) { m[va] = v; }
+    void W16(uint32_t va, uint16_t v) { W8(va, uint8_t(v)), W8(va + 1, uint8_t(v >> 8)); }
+    void W32(uint32_t va, uint32_t v) { W16(va, uint16_t(v)), W16(va + 2, uint16_t(v >> 16)); }
+    uint32_t R32(uint32_t va) const { return Rd(va) | Rd(va + 1) << 8 | Rd(va + 2) << 16 | uint32_t(Rd(va + 3)) << 24; }
+    uint16_t R16(uint32_t va) const { return uint16_t(Rd(va) | Rd(va + 1) << 8); }
+    internpool::ReadByte Reader() const {
+        return [this](uint32_t va) { return Rd(va); };
+    }
+};
+
+// the title's pool, as 0x115C70 builds it and 0x115D10 appends to it (the tree's balance left out: the root stays the
+// first node); buffers moved as realloc may move them, tracked in `blocks` as the heap hooks would
+struct PoolSim {
+    GuestMem& g;
+    heapown::Blocks& blocks;
+    uint32_t heap = 0x01000000;  // the next block's address
+    static constexpr uint32_t P = internpool::kPool;
+    PoolSim(GuestMem& gm, heapown::Blocks& b, uint32_t nodes) : g(gm), blocks(b) {
+        g.W32(P + internpool::kLess, internpool::kLessInsensitive);
+        uint32_t n = Alloc(nodes * 12, heapown::kProcess);
+        g.W32(P + internpool::kNodes, n);
+        g.W32(P + internpool::kNodesAlloc, nodes);
+        g.W32(P + internpool::kNodesGrow, 0);
+        g.W16(P + internpool::kRoot, 0xFFFF), g.W16(P + internpool::kCount, 0);
+        g.W16(P + internpool::kFree, 0xFFFF), g.W16(P + internpool::kNext, 0);
+        g.W32(P + internpool::kStrings, 0), g.W32(P + internpool::kStringsAlloc, 0);
+        g.W32(P + internpool::kStringsGrow, 0x100), g.W32(P + internpool::kStringsSize, 0);
+    }
+    uint32_t Alloc(uint32_t size, int owner) {
+        uint32_t va = heap;
+        heap += (size + 0xFFF) & ~0xFFFu;
+        blocks.Allocated(va, size, owner);
+        return va;
+    }
+    // realloc: a new block, the bytes copied, the old freed (the heap's own move: only Moved records it)
+    uint32_t Realloc(uint32_t old, uint32_t old_size, uint32_t size, int mover) {
+        uint32_t va = heap;
+        heap += (size + 0xFFF) & ~0xFFFu;
+        for (uint32_t k = 0; k < old_size; k++) g.W8(va + k, g.Rd(old + k));
+        blocks.Moved(old, va, size, mover);
+        return va;
+    }
+    uint16_t Intern(const std::string& s, int who) {
+        uint16_t next = g.R16(P + internpool::kNext);
+        uint32_t nodes = g.R32(P + internpool::kNodes), str = g.R32(P + internpool::kStrings);
+        for (uint16_t i = 0; i < next; i++) {  // the find (0x115DC0)
+            uint32_t off = g.R32(nodes + i * 12 + 8);
+            std::string t;
+            for (uint32_t k = off; g.Rd(str + k); k++) t.push_back(char(g.Rd(str + k)));
+            if (t == s) return i;
+        }
+        // the strings: reserve at the end (0x113460 / 0x113A40), copied with the NUL
+        uint32_t size = g.R32(P + internpool::kStringsSize), alloc = g.R32(P + internpool::kStringsAlloc);
+        uint32_t need = uint32_t(s.size()) + 2;
+        if (size + need > alloc) {
+            uint32_t grown = alloc;
+            while (size + need > grown) grown += 0x100;
+            str = str ? Realloc(str, alloc, grown, who) : Alloc(grown, who);
+            g.W32(P + internpool::kStrings, str);
+            g.W32(P + internpool::kStringsAlloc, grown);
+        }
+        for (size_t k = 0; k <= s.size(); k++) g.W8(str + size + uint32_t(k), k < s.size() ? uint8_t(s[k]) : 0);
+        g.W32(P + internpool::kStringsSize, size + need);
+        // the node (0x115FC0: the next one, the nodes doubled when used up)
+        uint32_t nalloc = g.R32(P + internpool::kNodesAlloc);
+        if (next == nalloc) {
+            nodes = Realloc(nodes, nalloc * 12, nalloc * 2 * 12, who);
+            g.W32(P + internpool::kNodes, nodes);
+            g.W32(P + internpool::kNodesAlloc, nalloc * 2);
+        }
+        g.W32(nodes + next * 12 + 8, size);
+        g.W16(P + internpool::kNext, uint16_t(next + 1));
+        g.W16(P + internpool::kCount, uint16_t(g.R16(P + internpool::kCount) + 1));
+        if (next == 0) g.W16(P + internpool::kRoot, 0);
+        return next;
+    }
+};
+
+static void InternPool() {
+    GuestMem g;
+    heapown::Blocks blocks;
+    PoolSim pool(g, blocks, 4);
+    // the process's start-up: a few paths (the process's own)
+    uint16_t a = pool.Intern("maps/de_dust2.bsp", heapown::kProcess), b = pool.Intern("sound/a.wav", heapown::kProcess);
+    Check(a == 0 && b == 1 && pool.Intern("maps/de_dust2.bsp", heapown::kProcess) == 0, "an index per string, found again");
+    auto block = [&](uint32_t va) {
+        const heapown::Block* bl = blocks.At(va);
+        return bl ? internpool::BlockInfo{true, bl->owner, bl->size} : internpool::BlockInfo{};
+    };
+    auto reader = g.Reader();
+    internpool::State before = internpool::Capture(reader);
+    Check(before.complete && before.entries.size() == 2 && before.entries[1].text == "sound/a.wav",
+          "the pool captured: its nodes and strings");
+    // legitimate growth in player 2's steps (slot 1): in place, then with both buffers moved (realloc)
+    pool.Intern("xbox_cs_ForceFeedbackEffects.dat", 1);
+    auto in_place = internpool::Check(before, internpool::Capture(reader), block);
+    Check(in_place.empty(), "growth: a string appended is no problem");
+    uint32_t str0 = g.R32(internpool::kPool + internpool::kStrings), nodes0 = g.R32(internpool::kPool + internpool::kNodes);
+    for (int i = 0; i < 20; i++) pool.Intern("cstrike/file_" + std::to_string(i) + "_with_a_long_name.txt", 1);
+    internpool::State grown = internpool::Capture(reader);
+    Check(grown.h.strings != str0 && grown.h.nodes != nodes0, "the strings' buffer and the node array moved");
+    auto moved = internpool::Check(before, grown, block);
+    Check(moved.empty(), "growth with both buffers moved: every invariant holds");
+    Check(grown.entries[0].text == "maps/de_dust2.bsp" && grown.entries[1].text == "sound/a.wav" &&
+              pool.Intern("sound/a.wav", 1) == 1,
+          "the indices given before name the same strings after the moves");
+    Check(blocks.At(grown.h.strings) && blocks.At(grown.h.strings)->owner == heapown::kProcess &&
+              blocks.At(grown.h.nodes)->owner == heapown::kProcess && !blocks.At(str0),
+          "a moved buffer stays the process's (realloc keeps the owner), the old address no block");
+    // each broken invariant is found
+    auto broken = [&](auto mutate, const char* what) {
+        GuestMem saved = g;
+        heapown::Blocks saved_blocks = blocks;
+        mutate();
+        auto p = internpool::Check(before, internpool::Capture(reader), block);
+        Check(!p.empty(), what);
+        g = saved;
+        blocks = saved_blocks;
+    };
+    constexpr uint32_t P = internpool::kPool;
+    broken([&] { g.W32(P + internpool::kLess, 0x123456); }, "the less function changed: a problem");
+    broken([&] { g.W32(P + internpool::kLess, internpool::kLessSensitive); }, "the other less function: a problem");
+    broken([&] { g.W32(P + internpool::kStringsGrow, 0x200); }, "the string grow changed: a problem");
+    broken([&] { g.W32(P + internpool::kNodesGrow, 8); }, "the node grow changed: a problem");
+    broken([&] { g.W32(P + internpool::kStringsSize, 4); }, "the strings shrank: a problem");
+    broken([&] { g.W16(P + internpool::kCount, 1); }, "a node removed (count below next): a problem");
+    broken([&] { g.W16(P + internpool::kFree, 0); }, "a free list (a removal): a problem");
+    broken([&] { g.W32(P + internpool::kStringsSize, g.R32(P + internpool::kStringsAlloc) + 1); },
+           "more string bytes than allocated: a problem");
+    broken([&] { g.W32(grown.h.nodes + 1 * 12 + 8, 0); }, "an earlier index renamed (its offset changed): a problem");
+    broken([&] { g.W8(grown.h.strings + before.entries[1].offset, 'X'); }, "an earlier index's string overwritten: a problem");
+    broken([&] { g.W32(grown.h.nodes + 5 * 12 + 8, 0x7FFFFFF); }, "an offset outside the strings: a problem");
+    broken([&] { blocks.Moved(grown.h.strings, grown.h.strings, 0x40, heapown::kProcess); }, "a buffer smaller than allocated");
+    broken([&] {
+        heapown::Block b2 = *blocks.At(grown.h.strings);
+        blocks.Freed(grown.h.strings);
+        blocks.Allocated(grown.h.strings, b2.size, 1);
+    }, "the strings' buffer a player's block (its leaving would free it): a problem");
+    broken([&] { blocks.Freed(grown.h.nodes); }, "the node array no known block: a problem");
+    broken([&] { g.W16(P + internpool::kRoot, 0x7000); }, "the root no node: a problem");
+}
+
+static void ReallocMoves() {
+    heapown::Blocks b;
+    b.Allocated(0x1000, 0x40, heapown::kProcess, 0x1234, heapown::Kind::Owned);
+    uint64_t serial = b.At(0x1000)->serial;
+    Check(b.Moved(0x1000, 0x5000, 0x80, 1) && !b.At(0x1000) && b.At(0x5000), "a move: the old address gone, the new one known");
+    Check(b.At(0x5000)->owner == heapown::kProcess && b.At(0x5000)->site == 0x1234 && b.At(0x5000)->size == 0x80 &&
+              b.At(0x5000)->serial != serial,
+          "the object keeps its owner and site (not the mover's), its new size, a new serial");
+    Check(b.Moved(0x5000, 0, 0x100, 1) && b.At(0x5000) && b.At(0x5000)->size == 0x80, "a failed realloc changes nothing");
+    Check(b.Moved(0x5000, 0x5000, 0x100, 1) && b.At(0x5000)->size == 0x100, "in place: resized");
+    Check(!b.Moved(0x9000, 0xA000, 0x20, 2) && b.At(0xA000) && b.At(0xA000)->owner == 2,
+          "an unknown old block: the new one allocated as malloc's would be (the mover's)");
+    Check(b.Holding(0x5000 + 0xFF) == 0x5000 && b.Holding(0x5000 + 0x100) == 0, "the moved block's extent");
+}
+
+static void Rollback() {
+    // the shared data (.data: 0x400000..0x400100) and the heap: the process's pool buffer, player 1's object, and
+    // player 2's (slot 1) refused initialisation's blocks
+    GuestMem g;
+    heapown::Blocks b;
+    constexpr uint32_t kData = 0x400000, kDataEnd = 0x400100;
+    constexpr uint32_t POOL = 0x1000000, A1 = 0x1010000, B1 = 0x1020000, B2 = 0x1030000, B3 = 0x1040000,
+                       B4 = 0x1050000, B5 = 0x1060000, B6 = 0x1070000, B7 = 0x1080000, B8 = 0x1090000;
+    b.Allocated(POOL, 0x100, heapown::kProcess);
+    b.Allocated(A1, 0x40, 0);
+    for (uint32_t va : {B1, B2, B3, B5, B6, B7, B8}) b.Allocated(va, 0x40, 1);
+    b.Allocated(B4, 0x40, 1, 0x2C716, heapown::Kind::SharedRegistry);  // a user message entry it registered
+    g.W32(kData + 0x10, POOL);       // the pool names its buffer (shared)
+    g.W32(kData + 0x20, A1);         // player 1's state names its object
+    g.W32(kData + 0x30, B1);         // a registration of player 2's object in the shared data
+    g.W32(A1 + 0x8, B2);             // player 1's object names one of player 2's
+    g.W32(B1 + 0x4, B3);             // a kept block of its own names another
+    g.W32(kData + 0x40, B7 + 0x18);  // an interior pointer
+    g.W32(B5 + 0x0, B6);             // B5 -> B6, nobody names B5
+    g.W32(POOL + 0x20, 0);
+    g.W32(B8 + 0x0, B5);             // B8 -> B5 -> B6: an unnamed chain
+    auto shared = [&](auto f) {
+        for (uint32_t va = kData; va < kDataEnd; va += 4) f(va, g.R32(va));
+    };
+    auto rd = [&](uint32_t va) { return g.R32(va); };
+    heapown::RollbackPlan plan = heapown::PlanRollback(b, 1, shared, rd);
+    auto has = [](const std::vector<heapown::RollbackItem>& v, uint32_t va) {
+        return std::any_of(v.begin(), v.end(), [&](const heapown::RollbackItem& r) { return r.va == va; });
+    };
+    auto reason = [&](uint32_t va) -> std::string {
+        for (const heapown::RollbackItem& r : plan.keep)
+            if (r.va == va) return r.reason;
+        return "";
+    };
+    Check(plan.release.size() == 3 && has(plan.release, B5) && has(plan.release, B6) && has(plan.release, B8),
+          "releasable: only the failed player's blocks nothing that stays names");
+    Check(plan.keep.size() == 5 && reason(B1) == "named by the shared data" && reason(B7) == "named by the shared data",
+          "kept: named by the shared data (an interior pointer too)");
+    Check(reason(B2) == "named by another owner's block", "kept: named by player 1's object");
+    Check(reason(B3) == "named by a kept block of its own", "kept: named by a kept block");
+    Check(reason(B4).find("shared kind") != std::string::npos, "kept: a shared registry entry, whoever allocated it");
+    Check(!has(plan.release, POOL) && !has(plan.keep, POOL) && !has(plan.release, A1) && !has(plan.keep, A1),
+          "the process's and player 1's blocks are never in the plan");
+    Check(plan.ReleaseBytes() == 3 * 0x40, "the bytes releasable");
+    // the release (as native_split.cpp's: a block freed only while it is still the failed player's): each once
+    int frees = 0;
+    auto release = [&](const heapown::RollbackPlan& p) {
+        for (const heapown::RollbackItem& r : p.release) {
+            const heapown::Block* bl = b.At(r.va);
+            if (!bl || bl->owner != 1) continue;
+            b.Freed(r.va);
+            frees++;
+        }
+    };
+    release(plan);
+    release(plan);  // the same plan again: nothing freed twice
+    Check(frees == 3 && !b.At(B5) && !b.At(B6) && !b.At(B8), "released once each, never twice");
+    Check(b.At(POOL) && b.At(A1) && b.At(B1) && b.At(B2) && b.At(B3) && b.At(B4) && b.At(B7),
+          "the shared pool, player 1's object and every kept block survive");
+    heapown::RollbackPlan again = heapown::PlanRollback(b, 1, shared, rd);
+    Check(again.release.empty() && again.keep.size() == 5, "a second plan: nothing more to release");
+    // a refused initialisation that grew the shared pool: its moved buffer stays the process's, so it is not the
+    // failed player's to release, and survives
+    b.Moved(POOL, 0x10A0000, 0x200, 1);
+    g.W32(kData + 0x10, 0x10A0000);
+    heapown::RollbackPlan after_growth = heapown::PlanRollback(b, 1, shared, rd);
+    Check(!has(after_growth.release, 0x10A0000) && !has(after_growth.keep, 0x10A0000) &&
+              b.At(0x10A0000)->owner == heapown::kProcess,
+          "the pool grown by the failed player: still the process's, never released");
+    // then the player's leftovers are handed to the process (Orphan): no later free is taken for that player's
+    auto [n, bytes] = b.Orphan(1);
+    Check(n == 5 && bytes == 5 * 0x40, "the kept blocks handed to the process (5, 320 bytes)");
+}
+
 int main() {
     SwitchCost();
     Loopback();
@@ -785,6 +1026,9 @@ int main() {
     SessionLifecycle();
     ProcessTimer();
     TempEntPool();
+    InternPool();
+    ReallocMoves();
+    Rollback();
     std::printf("%d checks, %d failed\n", checks, failed);
     return failed ? 1 : 0;
 }

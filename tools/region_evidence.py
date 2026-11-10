@@ -925,3 +925,51 @@ OBJECTS = [e for e in OBJECTS if e[0] != 0x552CCC] + [
      'it (1F6934) and increments it (1F69EA); 0x1F6920 is called only by the material list load 0x1DC0C0 (0x1DC163), '
      'loaded once per map name as the process (docs 15); read by 0x1DBFE0, 0x1DC0C0, 0x1F68B0. Was a player\'s (second '
      'review): it shares its table\'s ownership [docs 15]')]
+
+# docs 15.8: the process's string-intern pool 0x562118 (a CUtlSymbolTable: a CUtlRBTree<u32 offset, u16 index> and a
+# CUtlVector<char> of the strings), the seventh run's three protected changes (0x562130, 0x562135, 0x56213C in player
+# 2's initialisation). Built by the static constructor 0x23D170 (0x115C70: esi 0x562118; cl 1 picks the less function
+# 0x115C20, which compares through 0x22E14B, over 0x115BA0; 0x200 nodes allocated, the node grow 0, the string grow
+# 0x100), destroyed only by its atexit destructor 0x23FDA0 (0x115CE0 -> 0x1139F0: the strings freed, the tree's memory
+# freed). Its only other user is the intern 0x115D10 (ebx the pool): a find (0x115DC0) and, for a string not yet in it,
+# an append. 0x115D10 is called by the file system's 0x114680 and 0x1148A0 holding its lock 0x52784C
+# (RtlEnterCriticalSection 277 at 0x1146CE / 0x1148E8 before, RtlLeaveCriticalSection 294 after) and by 0x114C10
+# without taking it: 0x114C10 is reached through the file system's vtable, so whether its callers hold the lock is not
+# known statically (unresolved, docs 15.8; split-screen adds no thread: every player's steps run on the game's one
+# thread). Nothing removes an entry (no other code takes the address: tests/region_model_test.py), so an index once
+# given stays that string's. The scan missed these writes: the strings vector is reached through ebp (lea ebp,
+# [ebx+0x18] at 0x115D5F; mov ecx, ebp; 0x113460 -> 0x113A40) and the tree's through registers held past a branch
+# (0x115E40 -> 0x115F20 -> 0x115FC0 / 0x116050); tools/escape_review.py's reading finds exactly these nine fields
+# written through ebx by 0x115D10. Only these fields: the less function +0x00, the node grow +0x0C and the string grow
+# +0x20 are written by the constructor alone and stay as they are; native_split.cpp's pool check (intern_pool.h) holds
+# them and the pool's invariants (offsets in bounds, the indices given before kept, the buffers the process's) in a
+# new player's steps.
+_POOL = 'the string-intern pool 0x562118 (docs 15.8): '
+_POOL_STR = ('appended by 0x115D10 for a new string (0x113460 reserves at the end: the old size is the new string\'s '
+             'offset; 0x113A40 grows by the grow size 0x100 with realloc 0x22E1E7 / malloc 0x22D86A); entries hold '
+             'offsets, so a moved buffer keeps every index\'s string (the less functions 0x115C20 / 0x115BA0 read '
+             '[pool+0x18] + offset)')
+_POOL_TREE = ('a node inserted by 0x115D10 for a new string (0x115E40 -> 0x115F20; 0x115FC0 takes the free list or the '
+              'next node, growing the nodes by doubling with realloc 0x22E1E7; 0x116050 rebalances); indices are node '
+              'numbers, unchanged by a moved node array')
+REVIEWED_POOL = [
+    (0x56211C, 0x4, 'shared-mutable', _POOL + 'the tree\'s node array (+0x04): ' + _POOL_TREE + ' (0x116001..0x11601C)'),
+    (0x562120, 0x4, 'shared-mutable', _POOL + 'the tree\'s nodes allocated (+0x08): doubled by 0x115FC0 (0x115FE0 / '
+     '0x115FF5) when the nodes are used up'),
+    (0x562128, 0x2, 'shared-mutable', _POOL + 'the tree\'s root (+0x10): set by 0x115F20 (0x115F9E) for the first node, '
+     'by the rebalance 0x116050 after an insert'),
+    (0x56212A, 0x2, 'shared-mutable', _POOL + 'the tree\'s node count (+0x12): incremented by 0x115F20 (0x115F70, '
+     '0x115F8F, 0x115FA7) per inserted string; never decremented'),
+    (0x56212C, 0x2, 'shared-mutable', _POOL + 'the tree\'s free list (+0x14): taken by 0x115FC0 (0x11603D)'),
+    (0x56212E, 0x2, 'shared-mutable', _POOL + 'the tree\'s next new node (+0x16): incremented by 0x115FC0 (0x116029)'),
+    (0x562130, 0x4, 'shared-mutable', _POOL + 'the strings\' buffer (+0x18; the seventh run\'s change at 0x562130): '
+     + _POOL_STR + ' (0x113A90)'),
+    (0x562134, 0x4, 'shared-mutable', _POOL + 'the strings\' bytes allocated (+0x1C; the change at 0x562135, its '
+     'second byte: grown by 0x100): 0x113A40 (0x113A57)'),
+    (0x56213C, 0x4, 'shared-mutable', _POOL + 'the strings\' bytes used (+0x24; the change at 0x56213C): 0x113A40 adds '
+     'the new string\'s length (0x113AA0); never decreased but by the destructor'),
+]
+OBJECTS = [e for e in OBJECTS if not any(lo <= e[0] < lo + n for lo, n, _, _ in REVIEWED_POOL)] + REVIEWED_POOL
+for _lo, _n, _own, _why in REVIEWED_POOL:
+    for _a in [a for a in AT if _lo <= a < _lo + _n]:
+        del AT[_a]

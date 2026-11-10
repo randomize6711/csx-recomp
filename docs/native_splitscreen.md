@@ -1004,3 +1004,92 @@ conflicting stamps; the build rule recompiles an object older than a regenerated
 
 The Windows cross-build does not compile (net_session.cpp's setenv / unsetenv, since 7af1caa, 2026-10-26: not this
 work's); its executable (2026-10-19) has no stamps and check_tables.py reports it.
+
+### 15.8 The seventh run; the string-intern pool; the address-escape review; realloc; the rollback (2026-11-10; approved option A; static only, not run)
+
+**The seventh run** (native_split_2p at a86c357, permitted once; the preflight passed: the tables' fingerprints in the
+executable, 115 regions and 1,540,487 bytes a player, the timer hook and the tempent step compiled in, 19 suites):
+**FAIL (timeout)**. The timer's block ran once as the process (guard 1, period 0x30BB6AB0); 0x5C9640 / 0x5C9660 were
+not among player 2's changes. Player 2 was built from the boot image and refused by its checks: 0 inherited, 0 missing,
+0 not its own, 0 start-up links lacking, **3 protected changes** (0x562130 4 bytes, 0x562135 1, 0x56213C 2: "start-up
+state: written by 0x23D170, 0x23FDA0"); 171 of its objects (655,494 bytes) left behind. No crash, hang, Host_Error,
+trap, foreign free or destruction; player 1 and the server ran on (the guard: 4,496 frames, 0 wrote client state).
+Not a missing step: a classification error of the model.
+
+**The string-intern pool 0x562118** (a CUtlSymbolTable, 0x28 bytes, from the generated code):
+
+| field | offset | width | written by | now |
+|---|---|---|---|---|
+| less function (0x115C20, cl 1; else 0x115BA0) | +0x00 | 4 | constructor 0x115C70 only | immutable (pool check: unchanged) |
+| tree: node array | +0x04 | 4 | 0x115FC0 (realloc, doubling) | shared-mutable (evidence) |
+| tree: nodes allocated | +0x08 | 4 | 0x115FC0 | shared-mutable (evidence) |
+| tree: node grow (0) | +0x0C | 4 | constructor only | immutable (pool check: unchanged) |
+| tree: root, count, free list, next node | +0x10, +0x12, +0x14, +0x16 | 2 each | 0x115F20, 0x116050, 0x115FC0 | shared-mutable (evidence) |
+| strings: buffer (**run: 0x562130**) | +0x18 | 4 | 0x113A40 (realloc / malloc) | shared-mutable (evidence; was protected) |
+| strings: bytes allocated (**run: 0x562135**) | +0x1C | 4 | 0x113A40 (+0x100 steps) | shared-mutable (evidence; was protected) |
+| strings: grow (0x100) | +0x20 | 4 | constructor only | immutable (pool check: unchanged) |
+| strings: bytes used (**run: 0x56213C**) | +0x24 | 4 | 0x113A40 | shared-mutable (evidence; was protected) |
+
+Evidence (tools/region_evidence.py REVIEWED_POOL, tests/region_model_test.py): the address is taken only by the
+constructor 0x23D170, its atexit destructor 0x23FDA0 and 0x114680 / 0x1148A0 / 0x114C10, never stored to memory; each
+of the three loads it into ebx straight into the intern 0x115D10 (the generic symbol-table add: a find, then an append
+for a new string; nothing removes one). The review's reading of 0x115D10 through ebx writes exactly the nine fields
+above; the model's own reading misses the strings vector, the root and the count (the pointer goes through ebp,
+`lea ebp, [ebx+0x18]`, and through registers held past a branch). Strings are appended (0x113460 reserves at the end,
+the old size is the new string's offset); nodes hold offsets, read as [pool+0x18] + offset by the less functions, so a
+moved buffer keeps every index's string; indices are node numbers, unchanged by a moved node array. The buffers hold
+only the pool's copies (rep movs of the caller's string): no caller's pointer is kept in the pool. The search key
+0x5622B0 / 0x5622B4 (the caller's string and the table, written before every find and read only inside it) is
+transient scratch, already shared-mutable. Destroyed only at the process's exit (0x23FDA0 -> 0x115CE0 -> 0x1139F0).
+The table: 1758 -> 1755 protected ranges (29,641 -> 29,629 bytes); regions and taken addresses unchanged.
+
+**Unresolved (stated, not assumed):** 0x114680 and 0x1148A0 hold the file system's lock 0x52784C
+(RtlEnterCriticalSection 277) around the intern; 0x114C10 calls it without taking the lock and is reached through the
+file system's vtable, so whether its callers hold it is not known statically. Split-screen adds no thread (every
+player's steps run on the game's one thread): the title's own synchronisation, unchanged, but not proven complete.
+
+**The pool check** (src/game/intern_pool.h, native_split.cpp's Check step): the nine fields are not compared byte for
+byte; instead, before and after a new player's steps: the less function and both grows unchanged; append-only (count
+and next never decrease, count = next, the free list empty, the strings' size never decreases, each within its
+allocation; the root a node); every index given before names the same offset and the same string; every node's string
+inside the strings; both buffers known heap blocks of the process, big enough. A broken invariant fails the player as a
+protected change does.
+
+**realloc** (0x22E1E7) moves a block itself (RtlReAllocateHeap 0x205CFF on the process heap, on both its paths): neither
+_heap_alloc nor free saw it, so a moved block's old address stayed in the ownership map and the new one was unknown.
+Hooks at 0x22E26A and 0x22E2B5 now record the move (heap_owner.h Blocks::Moved: the object keeps its owner, kind and
+site). The pool's buffers therefore stay the process's whoever grows them. A move of another owner's block is an
+error (logged: it cannot be refused), except the pool's own two buffers.
+
+**The rollback** of a refused player (heap_owner.h PlanRollback; always planned and logged): of its blocks, a shared
+kind is kept (the shared code that made it holds it); a block named by any word of the shared .data (after switching
+back: the process's state and player 1's regions), by another owner's block, or by one of its own kept blocks is kept;
+the rest are releasable. Releasing frees them (as the failed player: its own frees; a block no longer its own is
+skipped, so none is freed twice), without destructors. It is **off unless CSX_NATIVE_SPLIT_ROLLBACK=1**: the scan
+cannot see a pointer the host or the kernel keeps (a sound buffer, a texture, a pending read), and what the objects'
+destructors would release is not known. What is not released is handed to the process (Orphan) as before. The 171
+objects of the seventh run were not re-examined (no run): the next refusal's log lists each kept and releasable block
+with its site and reason.
+
+**The address-escape review** (tools/escape_review.py, docs/native_split_escape_review.md; report only, classifies
+nothing): of 142 objects static constructors initialise, 48 have an address reaching other code: 29 high confidence,
+8 medium, 11 low (stored to memory, returned, or passed to a call through a pointer: not followed). Across all
+protected ranges, 6 have potential writes by other code through a pointer, in two objects: 0x552F3C (+4, +8: by
+0x12AE0 via 0x12EC0, class FPSC) and 0x553868 (+0x70..+0x7C: by the font loader 0xBC900 via 0xB9420, class FC). Both
+reach a player's frame and are the next candidates for review: if a new player's steps reach them they will fail it
+as the pool did (fail closed). The neighbour 0x562148 is the file system object (360 bytes; constructor 0x114440, its
+destructor 0x1145C0; its address stored in 0x438C2C by 0x46730 and 0xAD8A0 and returned by 0x114430, so its methods
+are called through a pointer the review does not follow: low confidence). Its one protected field, +0x00, is its vtable
+0x345BB0, stored only by 0x114440 and 0x1145C0: unchanged after the constructor, rightly protected. Its other fields
+(the open-file tree at +0x28 and others) are runtime state its methods write through `this`; they are classified
+immutable (not compared, so no false failure) and are one per process (one file system), which is right; the
+classification is wrong but has no protection consequence. The earlier heuristic's 228 "candidates" were addresses
+near a taken base; this review replaces it.
+
+Tests: native_split_test (216: the pool's growth in place and with both buffers moved, the earlier indices kept, each
+broken invariant found, a buffer owned by a player or unknown found; realloc's moves; the rollback plan's reasons, the
+release once each, the pool and player 1's objects surviving, the pool grown by a refused player still the process's),
+region_model_test (865: the layout, the nine fields equal to the evidence, the model's own reading's blind spot, the
+constants not reclassified, the address's takers, the lock facts, realloc's heap calls and the hooks, the file
+system's vtable stores), escape_review_test (23: the blind spot on synthetic code, the walk, the real review's pool and
+file-system entries, no table changed).

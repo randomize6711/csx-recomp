@@ -162,11 +162,16 @@ def _functions(sources):
         yield fn, insns
 
 
-def pointer_summaries(sources=None):
+def pointer_summaries(sources=None, review=False):
     """per function: the fields it accesses through a pointer it is given, in a register (one it never writes, or
     before its first write in the straight-line start) or as a cdecl stack argument (loaded from [esp+N] / [ebp+N]):
     {function: {('reg', r) | ('arg', k): {(offset, width, kind)}}}, through the functions it calls with that pointer
-    too. A caller passing a static address there accesses those fields of the object (scan: 'exact-call')."""
+    too. A caller passing a static address there accesses those fields of the object (scan: 'exact-call').
+    review: the address-escape review's wider reading (tools/escape_review.py, docs/native_splitscreen.md 15.8), off for
+    the model (its tables are unchanged): ebp is followed as a pointer register too in a function that does not use it
+    as its frame (lea ebp, [ebx+0x18]; mov ecx, ebp: the string-intern pool's buffer), and a callee-saved register
+    assigned once (its push / pop around the function aside) keeps its pointer past labels and jumps. That may name a
+    field on a path the pointer does not reach: its facts are potential accesses, reported, never a classification."""
     direct, forwards = {}, {}
     for fn, insns in _functions(sources):
         if fn in BLOCK_HELPERS:
@@ -182,6 +187,17 @@ def pointer_summaries(sources=None):
         ebp_frame = len(insns) > 1 and insns[0][2:4] == ['push', 'ebp'] and insns[1][2:4] == ['mov', 'ebp, esp'] and \
             not any(mn not in ('pop', 'leave') and 'ebp' in _written(mn, body)
                     for _, at, mn, ops, body in insns[2:] if at is not None)
+        pregs = PTR_REGS + (('ebp',) if review and not ebp_frame else ())
+        # review: the callee-saved registers written once (not counting push / pop): their pointer holds after a label
+        writes = defaultdict(int)
+        for _, at, mn, ops, body in insns:
+            if at is not None and mn != 'pop':
+                for r in _written(mn, body):
+                    writes[r] += 1
+        single = {r for r in CALLEE_SAVED if review and writes[r] == 1}
+
+        def kept(h):
+            return {r: v for r, v in h.items() if r in single}
         held = {}      # register -> (pointer id, offset): straight-line facts
         pushed = []    # held pointers or None, pushed since the last call
         delta = 0      # bytes pushed since the entry (the straight-line start only; None after)
@@ -193,12 +209,12 @@ def pointer_summaries(sources=None):
         def holder(r, i):
             if r in held:
                 return held[r]
-            if r in PTR_REGS and entry_reg(r, i):
+            if r in PTR_REGS and entry_reg(r, i):  # ebp only once set here (never an entry frame)
                 return (('reg', r), 0)
             return None
         for i, (_, at, mn, ops, body) in enumerate(insns):
             if at is None:
-                held, pushed, delta = {}, [], None
+                held, pushed, delta = kept(held), [], None
                 continue
             parts = [p.strip() for p in ops.split(',')] if ops else []
             widths = [WIDTH[next(g for g in x if g)] for x in MACRO_RE.findall(body)]
@@ -220,7 +236,7 @@ def pointer_summaries(sources=None):
                             summ[h[0]].add(((h[1] + disp) & 0xFFFFFFFF, w, 'r'))
             if mn == 'call' and re.fullmatch(r'0x[0-9A-Fa-f]+', ops):
                 g = int(ops, 16)
-                m = {('reg', r): holder(r, i) for r in PTR_REGS if holder(r, i)}
+                m = {('reg', r): holder(r, i) for r in pregs if holder(r, i)}
                 m.update({('arg', k): v for k, v in enumerate(reversed(pushed)) if v})
                 if m:
                     fw.append((g, m))
@@ -229,9 +245,9 @@ def pointer_summaries(sources=None):
             new = None
             dst = parts[0] if parts else ''
             src = parts[1] if len(parts) > 1 else ''
-            if mn == 'mov' and dst in PTR_REGS and src in REGS:
+            if mn == 'mov' and dst in pregs and src in REGS:
                 new = holder(src, i)
-            elif mn == 'mov' and dst in PTR_REGS and MEM_RE.fullmatch(src):
+            elif mn == 'mov' and dst in pregs and MEM_RE.fullmatch(src):
                 pm = parse_mem(src[1:-1])
                 if pm and len(pm[0]) == 1 and pm[0][0][1] == 1:
                     base, n = pm[0][0][0], pm[1]
@@ -239,17 +255,17 @@ def pointer_summaries(sources=None):
                         new = (('arg', (n - delta - 4) // 4), 0)
                     elif base == 'ebp' and ebp_frame and 8 <= n < 0x100 and n % 4 == 0:
                         new = (('arg', (n - 8) // 4), 0)
-            elif mn == 'lea' and dst in PTR_REGS and MEM_RE.fullmatch(src):
+            elif mn == 'lea' and dst in pregs and MEM_RE.fullmatch(src):
                 pm = parse_mem(src[1:-1])
                 if pm and len(pm[0]) == 1 and pm[0][0][1] == 1 and pm[1] < MAX_FIELD:
                     h = holder(pm[0][0][0], i)
                     new = (h[0], (h[1] + pm[1]) & 0xFFFFFFFF) if h else None
-            elif mn in ('add', 'sub') and dst in PTR_REGS and re.fullmatch(r'0x[0-9A-Fa-f]+', src):
+            elif mn in ('add', 'sub') and dst in pregs and re.fullmatch(r'0x[0-9A-Fa-f]+', src):
                 h = holder(dst, i)
                 v = int(src, 16)
                 new = (h[0], (h[1] + (v if mn == 'add' else -v)) & 0xFFFFFFFF) if h and v < MAX_FIELD else None
             if mn == 'push' and len(parts) == 1:
-                pushed.append(holder(parts[0], i) if parts[0] in PTR_REGS else None)
+                pushed.append(holder(parts[0], i) if parts[0] in pregs else None)
                 if delta is not None:
                     delta += 4
             elif mn == 'pop':
@@ -266,12 +282,12 @@ def pointer_summaries(sources=None):
                 else:
                     delta = None
             if mn.startswith('j') or mn.startswith('ret'):
-                held, delta = {}, None
+                held, delta = kept(held), None
             for r in wr:
                 held.pop(r, None)
-            if new is not None and dst in PTR_REGS:
+            if new is not None and dst in pregs:
                 held[dst] = new
-            elif dst in PTR_REGS and dst in wr:
+            elif dst in pregs and dst in wr:
                 # written with something else: no longer the entry pointer here
                 held.pop(dst, None)
         direct[fn] = summ

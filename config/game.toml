@@ -1113,6 +1113,15 @@ call = "NativeSplitAllocWrapperRet"
 at = 0x235F2D
 call = "NativeSplitHeapCalloc"
 
+# realloc's two heap paths (RtlReAllocateHeap 0x205CFF moves the block itself: docs/native_splitscreen.md 15.8)
+[[hook]]
+at = 0x22E26A
+call = "NativeSplitHeapRealloc"
+
+[[hook]]
+at = 0x22E2B5
+call = "NativeSplitHeapRealloc"
+
 [[hook]]
 at = 0x22C609
 call = "NativeSplitHeapFree"

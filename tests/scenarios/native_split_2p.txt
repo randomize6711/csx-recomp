@@ -34,6 +34,11 @@ expect nolog \] \[error\] \[[^]]*\] native split:
 expect log native split: player 2 \("Player 2"\) built in context 1 from the boot image: of the [0-9]+ objects player 1.s initialisation made, [0-9]+ are its own, 0 missing, 0 not its own; start-up links lacking 0, values lacking [0-9]+ \(warned\); protected changes 0;
 expect nolog native split: player [0-9] lacks [0-9]+ start-up link
 expect nolog native split: player [0-9].s initialisation changed protected start-up state
+# docs 15.8: the string-intern pool's invariants hold in player 2's steps (its growth fields are not compared byte for
+# byte); realloc's moves are tracked, none of another owner's block
+expect log native split: player 2.s initialisation: the string-intern pool 0x00562118 holds [0-9]+ strings \([0-9]+ added, [0-9]+ bytes; its buffer (in place|moved), the process.s\), every earlier index unchanged
+expect nolog native split: player [0-9].s initialisation broke the string-intern pool
+expect nolog native split: .* moves block 0x
 expect nolog native split: player [0-9].s initialisation failed
 # docs 15: player 2's connect builds nothing shared again (the world, the UI unload, the material list once per map)
 expect log native split: the world \(spawn count [0-9]+, model 0x[0-9A-F]+\) built by R_NewMap in player 1's signon, as the process

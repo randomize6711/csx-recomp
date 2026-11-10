@@ -99,6 +99,24 @@ public:
     void OwnAll(int o) {
         for (auto& [va, b] : blocks_) b.owner = o;
     }
+    // a block realloc moved or resized (realloc 0x22E1E7 calls RtlReAllocateHeap 0x205CFF itself: neither _heap_alloc
+    // nor free sees it; docs/native_splitscreen.md 15.8): the object keeps its owner, kind and site at its new
+    // address (a new serial: a new address is another allocation to a pointer naming the old one). An old address
+    // that was no known block: the new one is allocated as malloc's would be. False: old was not known.
+    bool Moved(uint32_t old_va, uint32_t new_va, uint32_t size, int owner, uint32_t site = 0, Kind kind = Kind::Owned) {
+        if (!new_va) return blocks_.count(old_va) != 0;  // failed: the old block is untouched
+        auto it = blocks_.find(old_va);
+        if (it == blocks_.end()) {
+            Allocated(new_va, size, owner, site, kind);
+            return false;
+        }
+        Block b = it->second;
+        blocks_.erase(it);
+        b.size = size ? size : 1;
+        b.serial = ++serial_;
+        blocks_[new_va] = b;
+        return true;
+    }
     // a player gone: its blocks still allocated (count, bytes), handed to the process (they are not freed: the
     // objects' destructors are not run), so a later free of one is not taken for that player's
     std::pair<size_t, size_t> Orphan(int owner) {
@@ -301,5 +319,75 @@ inline bool MayDestroy(int owner_of_object, int acting) {
     return owner_of_object == acting;                     // another player: only its own objects
 }
 inline bool MayDestroy(const Block& b, int acting) { return b.kind != Kind::Owned || MayDestroy(b.owner, acting); }
+
+// ---- a failed player's rollback (docs/native_splitscreen.md 15.8) ------------------------------------------------
+// The heap blocks a player's refused initialisation left (its own: owner == that player, allocated in its steps). A
+// block is released (its memory freed, no destructor run: what an object's destructor would do is not known here) only
+// when nothing that stays names it: no word of the shared .data (the process's state and player 1's regions, as the
+// process sees them after switching back), of a block that is not the failed player's, or of one of its blocks that is
+// kept, points into it. Kept, with the reason:
+//   - a shared kind (a registry entry, shared scratch): the shared code that made it holds it, whoever allocated it;
+//   - named by the shared data or by another owner's block (a registration, a list the process keeps);
+//   - named by a kept block of the same player (it stays alive, its pointers stay valid).
+// What the scan cannot see (a pointer the host or the kernel keeps: a sound buffer, a texture, a pending read) is
+// not excluded by this plan: native_split.cpp releases only when asked (CSX_NATIVE_SPLIT_ROLLBACK=1), docs 15.8.
+struct RollbackItem {
+    uint32_t va = 0, size = 0, site = 0;
+    Kind kind = Kind::Owned;
+    const char* reason = "";  // kept: why; released: ""
+    uint32_t named_at = 0;    // kept: the address of the word naming it (0: its kind)
+};
+struct RollbackPlan {
+    std::vector<RollbackItem> release, keep;
+    size_t ReleaseBytes() const {
+        size_t n = 0;
+        for (const RollbackItem& r : release) n += r.size;
+        return n;
+    }
+};
+// shared_words(f): calls f(address, value) for every word of the shared data; read(va): a guest word
+template <typename SharedWords, typename Read>
+RollbackPlan PlanRollback(const Blocks& blocks, int failed, SharedWords shared_words, Read read) {
+    std::map<uint32_t, RollbackItem> mine;  // the failed player's blocks, by start
+    blocks.ForEach([&](uint32_t va, const Block& b) {
+        if (b.owner == failed) mine[va] = {va, b.size, b.site, b.kind, nullptr, 0};
+    });
+    auto holder = [&](uint32_t v) -> RollbackItem* {
+        if (v < 0x10000) return nullptr;
+        uint32_t start = blocks.Holding(v);
+        auto it = start ? mine.find(start) : mine.end();
+        return it == mine.end() ? nullptr : &it->second;
+    };
+    std::vector<uint32_t> todo;  // kept blocks whose own words are still to be followed
+    auto keep = [&](RollbackItem* r, const char* why, uint32_t at) {
+        if (!r || r->reason) return;
+        r->reason = why;
+        r->named_at = at;
+        todo.push_back(r->va);
+    };
+    for (auto& [va, r] : mine)
+        if (r.kind != Kind::Owned) keep(&r, "a shared kind (the shared code that made it holds it)", 0);
+    shared_words([&](uint32_t at, uint32_t v) { keep(holder(v), "named by the shared data", at); });
+    blocks.ForEach([&](uint32_t va, const Block& b) {
+        if (b.owner == failed) return;
+        for (uint32_t k = 0; k + 4 <= b.size; k += 4) keep(holder(read(va + k)), "named by another owner's block", va + k);
+    });
+    while (!todo.empty()) {
+        uint32_t va = todo.back();
+        todo.pop_back();
+        const RollbackItem& r = mine[va];
+        for (uint32_t k = 0; k + 4 <= r.size; k += 4) keep(holder(read(va + k)), "named by a kept block of its own", va + k);
+    }
+    RollbackPlan plan;
+    for (auto& [va, r] : mine) {
+        if (r.reason)
+            plan.keep.push_back(r);
+        else {
+            r.reason = "";
+            plan.release.push_back(r);
+        }
+    }
+    return plan;
+}
 
 }  // namespace heapown
