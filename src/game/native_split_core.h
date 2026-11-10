@@ -4,6 +4,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <string>
 
 namespace nsplit {
@@ -197,5 +198,70 @@ inline std::array<int, kMaxPlayers> TeardownOrder(const Players& p, int host, in
 // player's server is this process, the same executable, so its own request would only reset the shared machine
 // (player 1's validation, or a server download in progress)
 inline bool StartsModuleValidation(const Session& s, int player) { return player == s.host; }
+
+// whose allocation (or free) this is: a player's slot, or -1 the process. The shared front end's scope and a
+// shared-once operation are the process's whoever runs them; then the player initialising; then the player whose turn
+// it is; else (between the turns: the server, the console, the front end's own frame) the process
+inline int AllocationOwner(bool ui_scope, bool world_running, int init_owner, bool in_turn, int turn_player) {
+    if (ui_scope || world_running) return -1;
+    if (init_owner > 0) return init_owner;
+    if (in_turn) return turn_player >= 0 ? turn_player : -1;
+    return -1;
+}
+
+// ---- a player's activation (docs 15.10) ---------------------------------------------------------------------------
+
+// the activation check 0x269A0 (_Host_Frame's call at 0x5D3A6, its only caller): cls.state 3 (connected) or 4 (after
+// the signon's 0x2D800) with cls.signon [0x784800] == 2 (the signon complete) becomes 5 (active); any other state or an
+// incomplete signon is left as it is (0x269A5..0x269BE). The game runs the real function; this is its rule, which
+// tests/region_model_test.py checks against the generated code
+constexpr uint32_t kClsConnected = 3, kClsSignonDone = 4, kClsActiveState = 5, kSignonsComplete = 2;
+inline uint32_t Activation(uint32_t state, uint32_t signon) {
+    return (state == kClsConnected || state == kClsSignonDone) && signon == kSignonsComplete ? kClsActiveState : state;
+}
+
+// _Host_Frame's per-player prelude: 0x269A0 and the client's CL_UpdateClientData 0x1CC10 (HUD_UpdateClientData: the
+// client game's view angles and field of view, only in state 5) run at 0x5D3A6 / 0x5D3B0, before the players' turns,
+// so in player 1's context only. Player 1 (context 0) keeps that original call; every other context runs both, in that
+// order, once a frame, at the start of its own input turn (0x5D3B5): after its previous frame's packets, before its
+// CL_Move, as player 1's are. Never twice for one context: context 0's turn start runs nothing
+inline bool PreludeInTurn(int context) { return context > 0; }
+
+// ---- the shared front end (docs 15.10) ----------------------------------------------------------------------------
+
+// The front end (the Xbox UI's screens: the scoreboard, the team and buy menus) is one for the process until M4: one
+// screen list (0x5523D0), one command queue. A client game reaches it from its own turn: its scoreboard's rows are the
+// shared "Scoreboard" screen's list (0x1B91E0 takes it by name, 0x1B9820 frees and rebuilds its rows) and its menus are
+// "xbui" commands queued to the shared console (0xCA6F0). One local player drives it: player 1 while it is in the
+// session, then the lowest remaining player (the shared UI never depends on one player's lifetime). The driver's turn
+// runs the maintenance as the process (its elements are the process's, not the driver's); another player's turn does
+// not run it at all; outside the players' turns it runs as the title's
+enum class SharedUi { AsTitle, AsShared, Withheld };
+inline const char* Name(SharedUi s) {
+    switch (s) {
+        case SharedUi::AsTitle: return "as the title";
+        case SharedUi::AsShared: return "as the process, by its driver";
+        case SharedUi::Withheld: return "withheld";
+    }
+    return "?";
+}
+struct SharedUiOwner {
+    int driver = 0;  // the local player (slot) whose turns maintain the shared front end
+    SharedUi Decide(bool in_turn, int acting) const {
+        if (!in_turn) return SharedUi::AsTitle;  // the process's own frame: the front end's code as before
+        return acting == driver ? SharedUi::AsShared : SharedUi::Withheld;  // a turn of no known player: withheld too
+    }
+    // player `k` leaves (before its slot is released): the driver handed to the lowest remaining active player, else
+    // the lowest connecting one, else back to slot 0. The new driver
+    int Left(int k, const Players& p) {
+        if (k != driver) return driver;
+        int best = -1;
+        for (State want : {State::Active, State::Connecting})
+            for (int j = 0; j < kMaxPlayers && best < 0; j++)
+                if (j != k && p.At(j).state == want) best = j;
+        driver = best >= 0 ? best : 0;
+        return driver;
+    }
+};
 
 }  // namespace nsplit

@@ -1121,3 +1121,76 @@ exemption), and a change in a player's steps still fails it.
 
 Tests: region_model_test (878: the font load's writer and flag, its guards, the overlay's push / pop pairing, the
 offset reset, nothing else pushing, the protected fields still protected).
+
+### 15.10 The eighth run; a player's activation in its own turn; the shared front end's driver (2026-11-10; approved; static only, not run)
+
+**The eighth run** (commit 1efffb6, permitted once; logs kept outside the tree): player 2 was built (133 of 133
+objects its own, 0 protected changes), connected (server slot 1, userid 2, cl.playernum 1, "entered the game"), and
+its packets stayed isolated; the pool grew safely (15.8). It failed on two counts:
+
+- **Player 2 stayed at client state 4.** The only code that sets cls.state 5 is the activation check 0x269A0 (state 3
+  or 4 with cls.signon [0x784800] == 2, 0x269A5..0x269BE; the image's only write of 5 into cls.state). Its only call is
+  _Host_Frame's 0x5D3A6, before the players' turns, so it only ever saw player 1's context. The same holds for
+  CL_UpdateClientData 0x1CC10 (HUD_UpdateClientData: the view angles into cl 0x74A120.., the field of view into
+  0x377668; only in state 5), called at 0x5D3B0.
+- **126 cross-player frees** (84 skipped: player 2 freeing player 1's; 42 done: player 1 freeing player 2's), every one
+  at a free in 0xD5550 (a front-end row's destructor: 0xD557A, 0xD55AC), 0xDA100 (0xDA123), 0xDD4D0 (0xDD4FA) or
+  0xDD520 (a list's clear: 0xDD54C). Cause: the scoreboard. Each player's client game has its own scoreboard panel
+  (made by its own HUD_Init; its data per player), but the panel's +0xBC is the list of the front end's one
+  "Scoreboard" screen (0x1B91E0 finds it by name in the screen list 0x5523D0, which no player's region holds). Each
+  ScoreInfo / TeamInfo message (0x1A6500 -> 0x1B57A0, 0x1A6540 -> 0x1B59D0 -> 0x1B96B0) runs the panel's update
+  0x1B92F0: its own data, then 0x1B9820, which frees the shared list's rows and builds new ones. So player 2's entry
+  (the server's score messages to every client) rebuilt the rows player 1's turn had made (its frees refused), and
+  player 1's team join rebuilt player 2's (freed: the old rule let player 1 free anyone's).
+
+**The corrections:**
+
+1. **Activation.** ClientContextsMoveBegin (hook 0x5D3B5, the input turn's start, reached again at every loop-back
+   of 0x5D3C2) runs, for every context but player 1's, the frame's prelude in that context: the real 0x269A0, then
+   the real 0x1CC10 (native_split.cpp NativeSplitTurnPrelude; native_split_core.h PreludeInTurn). Player 1 keeps the
+   title's call at 0x5D3A6 (unchanged, so solo is unchanged); no context runs it twice; each runs it after its
+   previous frame's packets and before its own CL_Move, as player 1's does. Nothing sets the state or the signon: the
+   function's own conditions decide (a log line for each transition, and an error if the result differs from the
+   rule). The console's buffer 0x3BB50 at 0x5D3AB stays the process's (command routing, 15.11 below).
+2. **The shared front end's driver** (native_split_core.h SharedUiOwner). One local player drives the front end:
+   player 1 while it is in the session, then the lowest remaining active (else connecting) player, so the shared UI
+   does not depend on player 1's lifetime. A gated routine reached from a turn runs: outside the turns as the title's;
+   in the driver's turn in the shared front end's scope, as the process (its allocations the process's, so a leaving
+   driver releases none of them; a free of a player's block in the scope is refused and logged); in another player's
+   turn not at all (logged). The gates (config/game.toml):
+   - 0x1B9359 `push esi; call 0x1B9820` in 0x1B92F0 (on_true 0x1B935F): the shared rows only; the update's own
+     per-player work before it (0x1B4E30, 0x1B9370) runs for every player;
+   - 0xD96A0, a front-end element's text (on_true its `ret 4`, 0xD96B5; 0x1B4000 writes the shared screens' texts);
+   - 0xCAB40, the scoreboard / team menu open (it also clears the Scoreboard screen's +0xBC);
+   - 0x1BA732 `call 0xCA0B0` in 0x1BA710 (the shared screen stack's current screen closed);
+   - 0xCA6F0, the client game's front-end command ("xbui open ...", or a "!" line, queued to the shared console
+     buffer 0x748660 and run next frame in player 1's context): withheld in another player's turn, with its text.
+   0xDD520 and 0xD5550 log (an error) if reached in another player's turn by any path not gated.
+3. **Allocator ownership** (heap_owner.h). A player never frees another player's block: SkipFree now covers player 1
+   too (the 42 frees would be refused, logged). Player 1 may still free the process's blocks (its initialisation's)
+   and unknown ones, as the title; the process (outside the turns: the server, a map change, a shared-once operation,
+   the front end's scope) is not attributed; a leaving or refused player's release runs as that player. MayDestroy
+   likewise refuses player 1 destroying another player's object.
+
+**Ownership before / after.** Before: the shared scoreboard's rows were owned by whichever player's turn rebuilt them
+last (the eighth run: player 1's, then player 2's, then player 1's), so each rebuild freed another player's blocks.
+After: they are made and freed only in the driver's scope, owned by the process; another player's turn neither frees
+nor allocates them; its own panel data is updated as before.
+
+**Not covered** (reported, not gated): other client-game calls into front-end code that the eighth run did not show
+freeing or rebuilding: 0x1AA980 -> 0xC32E0 (front-end state 0x5520A4 / 0x55209C), 0x18FCB0 -> 0xE62C0, 0x1A6130 /
+0x1B5DA0 -> 0xFC710 and 0x1A6260 / 0x1D4DE0 -> 0xFC690; 0x1B4000's own writes other than texts and commands. The
+look and pad routines are already skipped in an added player's turn (11.2).
+
+Tests: native_split_test (291: 0x269A0's rule for states 0..6 and signons 0..3, solo, two and four contexts each
+checked once a frame in its own state, the driver's decisions and hand-over, whose allocation, the scoreboard before
+(the 84 / 42 pattern) and after (no foreign free, rows the process's, per-player data for all four), the stricter
+free and destroy rules), native_split_turns_test (50: the facts above against the generated code, the hooks and their
+skip targets).
+
+### 15.11 What remains of M2
+
+Command routing (0x3BB50 runs the shared console buffer once, in player 1's context: a player's console lines and the
+withheld front-end commands); a kick or disconnect of an added player (RemovePlayer exists, used only by the
+diagnostics); a leaving player's cleanup (rollback releasing still off by default); the voice channels; player 1
+leaving (it ends the session: the host); the lock of 0x114C10 (15.8).

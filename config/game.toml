@@ -1241,6 +1241,42 @@ at = 0x100F10
 call = "NativeSplitSound"
 on_true = "ret"
 
+# the shared front end (docs/native_splitscreen.md 15.10): its driver's turn rebuilds the shared scoreboard's rows as
+# the process, another player's turn does not; front-end commands of another player's turn withheld; its element code
+# reached in another player's turn logged
+[[hook]]
+at = 0x1B9359
+call = "NativeSplitScoreboardRows"
+on_true = 0x1B935F
+
+[[hook]]
+at = 0xCA6F0
+call = "NativeSplitUiCommand"
+on_true = "ret"
+
+[[hook]]
+at = 0xD96A0
+call = "NativeSplitUiText"
+on_true = 0xD96B5
+
+[[hook]]
+at = 0xCAB40
+call = "NativeSplitUiMenu"
+on_true = "ret"
+
+[[hook]]
+at = 0x1BA732
+call = "NativeSplitUiCloseScreen"
+on_true = 0x1BA737
+
+[[hook]]
+at = 0xDD520
+call = "NativeSplitUiElements"
+
+[[hook]]
+at = 0xD5550
+call = "NativeSplitUiElements"
+
 [[hook]]
 at = 0x202C1E
 call = "ClientContextsInitial"
@@ -1251,7 +1287,7 @@ call = "ClientContextsReference"
 
 [[hook]]
 at = 0x5D3B5
-call = "ClientContextsTurnBegin"
+call = "ClientContextsMoveBegin"
 
 [[hook]]
 at = 0x5D3F0

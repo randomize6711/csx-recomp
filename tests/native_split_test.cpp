@@ -172,8 +172,18 @@ static void Heap() {
     Check(FreeIsForeign(p1, 1) && !MayDestroy(p1, 1), "player 2: never player 1's object");
     Check(FreeIsForeign(process, 1) && !MayDestroy(process, 1), "player 2: never the process's object");
     Check(!FreeIsForeign(p1, 0) && !FreeIsForeign(mine, kProcess), "player 1 and the process as the title");
-    Check(SkipFree(0, 1) && !SkipFree(1, 1) && !SkipFree(1, kProcess), "the skip: only a player after the first");
+    Check(SkipFree(0, 1) && !SkipFree(1, 1) && !SkipFree(1, kProcess), "the skip: player 2 never frees player 1's");
+    // docs 15.10: player 1 too (its turn freed 42 of player 2's scoreboard rows in the eighth run); the process's
+    // blocks stay player 1's to free (it acts as the title), and the process (outside the turns) is not attributed
+    Check(SkipFree(1, 0) && SkipFree(3, 0) && !SkipFree(0, 0) && !SkipFree(kProcess, 0) && !SkipFree(Blocks::kNone, 0),
+          "the skip: player 1 never frees another player's block, its own and the process's as before");
     Check(MayDestroy(1, kProcess) && !MayDestroy(Blocks::kNone, 1), "an unknown block is not destroyed by player 2");
+    Check(!MayDestroy(1, 0) && !MayDestroy(mine, 0) && MayDestroy(p1, 0) && MayDestroy(process, 0) &&
+              MayDestroy(Blocks::kNone, 0) && MayDestroy(scratch, 0),
+          "player 1 destroys its own, the process's, unknown and shared ones, never player 2's object");
+    Check(SkipFreeInSharedScope(0) && SkipFreeInSharedScope(1) && !SkipFreeInSharedScope(kProcess) &&
+              !SkipFreeInSharedScope(Blocks::kNone),
+          "the shared front end's scope frees no player's block (its own elements are the process's)");
     // a leaving player: its blocks counted and handed to the process
     b.Allocated(0x4000000, 0x20, 1);
     b.Allocated(0x4000100, 0x30, 1);
@@ -1011,6 +1021,249 @@ static void Rollback() {
     Check(n == 5 && bytes == 5 * 0x40, "the kept blocks handed to the process (5, 320 bytes)");
 }
 
+// ---- docs 15.10: a player's activation in its own turn; the shared front end's driver --------------------------------
+
+static void Activation() {
+    using namespace nsplit;
+    // 0x269A0's rule: 3 or 4 with the signon complete (2) -> 5; nothing else changes
+    int fives = 0;
+    for (uint32_t st = 0; st <= 6; st++)
+        for (uint32_t so = 0; so <= 3; so++) {
+            uint32_t r = Activation(st, so);
+            bool want = (st == 3 || st == 4) && so == 2;
+            Check(r == (want ? 5u : st), ("state " + std::to_string(st) + ", signon " + std::to_string(so)).c_str());
+            fives += r == 5 && st != 5;
+        }
+    Check(fives == 2, "state 5 reached from exactly two states, with the signon complete");
+    Check(Activation(4, 1) == 4 && Activation(3, 0) == 3, "an incomplete signon: not active");
+    Check(Activation(5, 2) == 5 && Activation(5, 0) == 5, "an active client stays active (no second transition)");
+    Check(Activation(2, 2) == 2 && Activation(1, 2) == 1, "connecting or disconnected: never forced active");
+    Check(!PreludeInTurn(0) && PreludeInTurn(1) && PreludeInTurn(3), "the prelude: every context but player 1's");
+}
+
+// _Host_Frame as the hooks run it, on a synthetic per-context state: the title's prelude at 0x5D3A6 (the active
+// context's: always context 0 there), the input turns from 0x5D3B5 (ClientContextsMoveBegin: the prelude for contexts
+// after the first), SV_Frame, the client halves. Each context's own cls.state / cls.signon
+struct FrameSim {
+    struct Cls {
+        uint32_t state, signon;
+    };
+    std::vector<Cls> cls;
+    std::vector<int> prelude_runs, update_runs;
+    int active = 0;
+    explicit FrameSim(std::vector<Cls> c) : cls(std::move(c)), prelude_runs(cls.size()), update_runs(cls.size()) {}
+    void Prelude() {  // 0x269A0 then 0x1CC10 on the active context's state
+        cls[size_t(active)].state = nsplit::Activation(cls[size_t(active)].state, cls[size_t(active)].signon);
+        prelude_runs[size_t(active)]++;
+        if (cls[size_t(active)].state == 5) update_runs[size_t(active)]++;  // 0x1CC10 only in state 5 (0x1CC1C)
+    }
+    void Frame() {
+        Check(active == 0, "the frame starts in player 1's context");
+        Prelude();  // 0x5D3A6 / 0x5D3B0: the title's own call
+        for (;;) {  // the input turns: 0x5D3B5 .. 0x5D3C2
+            if (nsplit::PreludeInTurn(active)) Prelude();
+            int next = ctx::NextTurn(active, int(cls.size()));
+            if (next < 0) break;
+            active = next;
+        }
+        active = 0;
+        for (;;) {  // the client halves: 0x5D3F0 .. 0x5D54A (a signon may complete in a player's packets)
+            int next = ctx::NextTurn(active, int(cls.size()));
+            if (next < 0) break;
+            active = next;
+        }
+        active = 0;
+    }
+};
+
+static void TurnPrelude() {
+    // solo: one context, the title's call only (as before)
+    {
+        FrameSim f({{4, 2}});
+        f.Frame();
+        Check(f.prelude_runs[0] == 1 && f.cls[0].state == 5, "solo: the title's call activates player 1, once");
+        f.Frame();
+        Check(f.prelude_runs[0] == 2, "solo: once a frame");
+    }
+    // the eighth run: player 1 active, player 2 at 4 with its signon complete -> active in its own turn
+    {
+        FrameSim f({{5, 2}, {4, 2}});
+        f.Frame();
+        Check(f.cls[1].state == 5 && f.prelude_runs[0] == 1 && f.prelude_runs[1] == 1,
+              "two players: player 2 activated by its own check, each checked once a frame");
+    }
+    // four contexts, each its own state: only those whose own conditions hold become active
+    {
+        FrameSim f({{5, 2}, {4, 2}, {4, 1}, {3, 2}});
+        for (int i = 0; i < 3; i++) f.Frame();
+        Check(f.cls[0].state == 5 && f.cls[1].state == 5 && f.cls[2].state == 4 && f.cls[3].state == 5,
+              "four contexts: 2 and 4 active, 3 (signon incomplete) still 4; none set by another's check");
+        bool once = true;
+        for (int c = 0; c < 4; c++) once = once && f.prelude_runs[size_t(c)] == 3;
+        Check(once, "four contexts: every context's check once a frame, never twice");
+        Check(f.update_runs[2] == 0 && f.update_runs[1] == 3, "the client data update only in the player's own state 5");
+        f.cls[2].signon = 2;  // its signon completes in its packets
+        f.Frame();
+        Check(f.cls[2].state == 5, "player 3 active the frame after its signon completes");
+    }
+    // the eighth run's defect, for contrast: the check only in context 0 leaves player 2 at 4
+    {
+        FrameSim f({{5, 2}, {4, 2}});
+        f.active = 0;
+        f.Prelude();
+        Check(f.cls[1].state == 4, "the title's call alone never reaches player 2's state");
+    }
+}
+
+static void SharedUiDriver() {
+    using namespace nsplit;
+    SharedUiOwner ui;
+    Check(ui.Decide(false, -1) == SharedUi::AsTitle && ui.Decide(false, 1) == SharedUi::AsTitle,
+          "outside the turns: the front end as the title's");
+    Check(ui.Decide(true, 0) == SharedUi::AsShared, "player 1's turn: the driver's, run as the process");
+    Check(ui.Decide(true, 1) == SharedUi::Withheld && ui.Decide(true, 2) == SharedUi::Withheld &&
+              ui.Decide(true, 3) == SharedUi::Withheld,
+          "players 2..4's turns: withheld");
+    Check(ui.Decide(true, -1) == SharedUi::Withheld, "a turn whose context has no known player: withheld (fails closed)");
+    // the driver never tied to player 1's lifetime: handed to the lowest remaining player
+    Players p;
+    p.Begin(1, 1, "Player 2");
+    p.Initialised(1);
+    p.Joined(1);
+    p.Begin(2, 2, "Player 3");
+    p.Initialised(2);
+    p.Begin(3, 3, "Player 4");
+    p.Initialised(3);
+    p.Joined(3);
+    Check(ui.Left(2, p) == 0, "another player leaving: the driver kept");
+    Check(ui.Left(0, p) == 1 && ui.Decide(true, 1) == SharedUi::AsShared && ui.Decide(true, 0) == SharedUi::Withheld,
+          "the driver leaving: the lowest active player drives");
+    SharedUiOwner u2{0};
+    Players q;
+    q.Begin(1, 1, "Player 2");
+    q.Initialised(1);  // connecting only
+    Check(u2.Left(0, q) == 1, "the driver leaving, no other active player: the lowest connecting one");
+    SharedUiOwner u3{2};
+    Players r;
+    Check(u3.Left(2, r) == 0, "nobody left: back to slot 0");
+    // whose allocation: the scope and the shared-once operations are the process's
+    Check(AllocationOwner(true, false, -1, true, 1) == -1 && AllocationOwner(true, false, -1, true, 0) == -1,
+          "in the front end's scope: the process's, whoever's turn");
+    Check(AllocationOwner(false, true, -1, true, 1) == -1, "a shared-once operation: the process's");
+    Check(AllocationOwner(false, false, 2, true, 1) == 2, "a player's initialisation: its own");
+    Check(AllocationOwner(false, false, -1, true, 1) == 1 && AllocationOwner(false, false, -1, true, 0) == 0,
+          "a player's turn: its own");
+    Check(AllocationOwner(false, false, -1, false, 1) == -1, "between the turns: the process's");
+}
+
+// the shared scoreboard: one list of rows (the "Scoreboard" screen's, 0x1B91E0), per-player panels (each player's own
+// data). Each player's update (0x1B92F0) changes its own panel, then (0x1B9820) frees and rebuilds the shared rows. The
+// heap hook's rules decide each free; `fixed` runs the rebuild as 0x1B9359's hook does
+struct ScoreboardSim {
+    heapown::Blocks heap;
+    nsplit::SharedUiOwner ui;
+    std::vector<uint32_t> rows;      // the shared list's row blocks
+    std::vector<int> panel_updates;  // per player: its own panel's updates
+    uint32_t next = 0x2000000;
+    int foreign_done = 0, foreign_skipped = 0, scope_kept = 0, rebuilt = 0, withheld = 0;
+    std::vector<int> rebuilt_by;
+    bool fixed;
+    explicit ScoreboardSim(bool f, int players) : panel_updates(size_t(players)), rebuilt_by(size_t(players)), fixed(f) {}
+    void Free(uint32_t va, int freeing, bool scope) {
+        const heapown::Block* b = heap.At(va);
+        if (scope && b && b->kind == heapown::Kind::Owned && heapown::SkipFreeInSharedScope(b->owner)) {
+            scope_kept++;
+            return;
+        }
+        if (b && heapown::FreeIsForeign(*b, freeing)) {
+            bool skip = fixed ? heapown::SkipFree(b->owner, freeing) : freeing > 0;  // the old rule: player 1 freed
+            (skip ? foreign_skipped : foreign_done)++;
+            if (skip) return;
+        }
+        heap.Freed(va);
+    }
+    void Update(int k, int n_rows) {  // player k's turn: a ScoreInfo / TeamInfo message
+        panel_updates[size_t(k)]++;
+        nsplit::SharedUi d = fixed ? ui.Decide(true, k) : nsplit::SharedUi::AsShared;
+        if (d == nsplit::SharedUi::Withheld) {
+            withheld++;
+            return;
+        }
+        bool scope = fixed;
+        int owner = nsplit::AllocationOwner(scope, false, -1, true, k);
+        int freeing = owner >= 0 ? owner : heapown::kProcess;
+        for (uint32_t r : rows) Free(r, freeing, scope);
+        rows.clear();
+        for (int i = 0; i < n_rows; i++) {
+            heap.Allocated(next, 0x30, freeing, 0xDE610);
+            rows.push_back(next);
+            next += 0x40;
+        }
+        rebuilt++;
+        rebuilt_by[size_t(k)]++;
+    }
+};
+
+static void SharedScoreboard() {
+    // before (the eighth run): each player's turn rebuilt the shared rows as its own; player 2 refused player 1's
+    // frees (a leak), player 1 freed player 2's
+    {
+        ScoreboardSim s(false, 2);
+        s.Update(0, 14);  // player 1's team menu, its rows player 1's
+        s.Update(1, 14);  // player 2 enters: its scoreboard message rebuilds the shared rows
+        Check(s.foreign_skipped == 14 && s.foreign_done == 0, "before: player 2's rebuild would free player 1's rows");
+        s.Update(0, 14);  // player 1 joins a team
+        Check(s.foreign_done == 14, "before: player 1's rebuild freed player 2's rows under it");
+    }
+    // after: player 1 drives the shared front end; its rows are the process's; player 2's updates its own panel only
+    {
+        ScoreboardSim s(true, 2);
+        s.Update(0, 14);
+        s.Update(1, 14);  // player 2's connection: no shared row touched
+        s.Update(0, 14);
+        s.Update(1, 14);
+        Check(s.foreign_done == 0 && s.foreign_skipped == 0 && s.scope_kept == 0, "after: no foreign free at all");
+        Check(s.rebuilt == 2 && s.rebuilt_by[0] == 2 && s.rebuilt_by[1] == 0 && s.withheld == 2,
+              "after: the shared rows rebuilt by the driver only, once per update, player 2's withheld");
+        Check(s.panel_updates[0] == 2 && s.panel_updates[1] == 2, "after: each player's own scoreboard data updated");
+        bool process = s.rows.size() == 14;
+        for (uint32_t r : s.rows) process = process && s.heap.At(r) && s.heap.At(r)->owner == heapown::kProcess;
+        Check(process, "after: the shared rows are the process's, not player 1's");
+        // player 1 leaves (structurally: the driver handed over); the rows are not its to release
+        nsplit::Players p;
+        p.Begin(1, 1, "Player 2");
+        p.Initialised(1);
+        p.Joined(1);
+        s.ui.Left(0, p);
+        auto [orphaned, bytes] = s.heap.Orphan(0);
+        Check(orphaned == 0 && bytes == 0 && s.heap.At(s.rows[0]) != nullptr, "the driver leaving releases no shared row");
+        s.Update(1, 14);
+        Check(s.rebuilt_by[1] == 1 && s.foreign_done == 0 && s.foreign_skipped == 0,
+              "the new driver (player 2) rebuilds the process's rows, no foreign free");
+    }
+    // a player's block reached by the shared scope is kept, never freed (and player 1 never frees player 2's)
+    {
+        ScoreboardSim s(true, 2);
+        s.heap.Allocated(0x3000000, 0x30, 1, 0x1A7F91);  // a row player 2's turn made (the eighth run's state)
+        s.rows.push_back(0x3000000);
+        s.Update(0, 4);
+        Check(s.scope_kept == 1 && s.heap.At(0x3000000) && s.heap.At(0x3000000)->owner == 1,
+              "the scope keeps player 2's block (logged), never frees it");
+        Check(heapown::SkipFree(1, 0), "and player 1's own turn would not free it either");
+    }
+    // four players: one rebuild per round of updates, the three others withheld
+    {
+        ScoreboardSim s(true, 4);
+        for (int round = 0; round < 3; round++)
+            for (int k = 0; k < 4; k++) s.Update(k, 6);
+        Check(s.rebuilt == 3 && s.withheld == 9 && s.foreign_done + s.foreign_skipped + s.scope_kept == 0,
+              "four players: three rebuilds by the driver, nine withheld, no foreign free");
+        bool all = true;
+        for (int k = 0; k < 4; k++) all = all && s.panel_updates[size_t(k)] == 3;
+        Check(all, "four players: every player's own data updated each round");
+    }
+}
+
 int main() {
     SwitchCost();
     Loopback();
@@ -1029,6 +1282,10 @@ int main() {
     InternPool();
     ReallocMoves();
     Rollback();
+    Activation();
+    TurnPrelude();
+    SharedUiDriver();
+    SharedScoreboard();
     std::printf("%d checks, %d failed\n", checks, failed);
     return failed ? 1 : 0;
 }

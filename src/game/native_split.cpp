@@ -35,6 +35,7 @@
 #include <map>
 #include <cstdlib>
 #include <cstring>
+#include <initializer_list>
 #include <string>
 #include <vector>
 
@@ -80,6 +81,10 @@ constexpr uint32_t kTimerGuard = 0x5C9660;        // its function-local static's
 constexpr uint32_t kTimerPeriod = 0x5C9640;       // under the guard: the counter frequency's reciprocal (FC8C6)
 constexpr uint32_t kTempEntInit = 0x3A8A0;        // CL_TempEntInit: the tempent pool cleared and its free list linked
 constexpr uint32_t kEngineFunctions = 0x371610;   // the engine's cl_enginefunc_t table, as Host_Init hands it (0x1C69F)
+constexpr uint32_t kActivationCheck = 0x269A0;    // cls.state 3 / 4 with the signon complete -> 5 (docs 15.10)
+constexpr uint32_t kUpdateClientData = 0x1CC10;   // CL_UpdateClientData (HUD_UpdateClientData; state 5 only)
+constexpr uint32_t kClsSignon = 0x784800;         // cls.signon
+constexpr uint32_t kScoreboardRows = 0x1B9820;    // the scoreboard's rows into the shared "Scoreboard" screen (stdcall)
 constexpr uint32_t kLoopback = 1;                 // netadrtype_t NA_LOOPBACK
 constexpr int kClsActive = 5, kClsDisconnected = 1;
 
@@ -198,6 +203,18 @@ int g_init_owner = -1;     // the player whose initialisation is running (its al
 uint64_t g_foreign_frees = 0, g_skipped_frees = 0;
 uint64_t g_moves = 0, g_foreign_moves = 0;  // realloc's moves tracked; of another owner's block (an error, docs 15.8)
 bool g_add_failed = false;  // a player's initialisation failed its checks: no further players added this session
+// the shared front end (docs 15.10): its driver, the depth of its scope (its maintenance running as the process), and
+// what was done: rebuilds run by the driver, withheld in another player's turn, UI commands withheld, frees of a
+// player's block refused in the scope, the front end's element code reached in another player's turn
+nsplit::SharedUiOwner g_ui;
+int g_ui_scope = 0;
+enum UiGate { kUiRows, kUiText, kUiMenu, kUiClose, kUiCommand, kUiGates };
+constexpr const char* kUiGateName[kUiGates] = {"scoreboard rows (0x1B9820)", "element texts (0xD96A0)",
+                                                 "menu opens (0xCAB40)", "screen closes (0xCA0B0)",
+                                                 "front-end commands (0xCA6F0)"};
+uint64_t g_ui_shared[kUiGates] = {}, g_ui_withheld[kUiGates] = {};
+uint64_t g_ui_scope_kept = 0, g_ui_elements_in_turn = 0;
+uint64_t g_preludes[nsplit::kMaxPlayers] = {};  // per player: its activation check run in its own turn
 nsplit::Once g_timer_once = nsplit::Once::Pending;  // the timer's one-time block (docs 15.7): players only once done
 bool g_timer_block_only = false;                    // the process's call of the timer: its guarded block, then return
 std::vector<uint8_t> g_reference;         // player 1's regions at the end of Host_Init (the check of a new player)
@@ -220,13 +237,11 @@ int PlayerOfContext(int context) {
 
 // whose allocation this is (a player's slot): the player initialising, the player whose turn it is, else the process
 int OwnerNow() {
-    if (g_world.Running()) return heapown::kProcess;  // a shared-once operation: the world's, whoever runs it
-    if (g_init_owner > 0) return g_init_owner;
-    if (csx::ClientContextInTurn()) {
-        int k = PlayerOfContext(csx::ClientContextActive());
-        return k >= 0 ? k : heapown::kProcess;
-    }
-    return heapown::kProcess;
+    // the shared front end's maintenance and the world's shared-once operations: the process's (docs 15.10, 15)
+    bool in_turn = csx::ClientContextInTurn();
+    int r = nsplit::AllocationOwner(g_ui_scope > 0, g_world.Running(), g_init_owner, in_turn,
+                                    in_turn ? PlayerOfContext(csx::ClientContextActive()) : -1);
+    return r >= 0 ? r : heapown::kProcess;
 }
 
 // strings for a guest call, put below the stack (as server_admin.cpp's Drop): their addresses; esp moved below them
@@ -545,6 +560,20 @@ void Report() {
          (unsigned long long)g_ch.Dropped(), (unsigned long long)g_read_outside_turn,
          (unsigned long long)g_foreign_frees, (unsigned long long)g_skipped_frees, (unsigned long long)g_moves,
          (unsigned long long)g_foreign_moves, g_blocks.Count());
+    std::string gates;
+    for (int i = 0; i < kUiGates; i++) {
+        char item[128];
+        std::snprintf(item, sizeof item, "%s%s %llu by the driver, %llu withheld", i ? "; " : "", kUiGateName[i],
+                      (unsigned long long)g_ui_shared[i], (unsigned long long)g_ui_withheld[i]);
+        gates += item;
+    }
+    LOGI("native split: the shared front end, driven by player %d: %s; a player's block kept in its scope %llu; its "
+         "element code in another player's turn %llu",
+         g_ui.driver + 1, gates.c_str(), (unsigned long long)g_ui_scope_kept, (unsigned long long)g_ui_elements_in_turn);
+    for (int k = 1; k < nsplit::kMaxPlayers; k++)
+        if (g_players.At(k).state != nsplit::State::Empty)
+            LOGI("native split: player %d's activation check and client data update ran in its own turn %llu times",
+                 k + 1, (unsigned long long)g_preludes[k]);
     for (sharedonce::Op op : {sharedonce::Op::WorldRenderer, sharedonce::Op::SignonUi, sharedonce::Op::Materials})
         LOGI("native split: %s: built %llu, a player's part only %llu, failed %llu, as the title %llu",
              sharedonce::Name(op), (unsigned long long)g_world.Runs(op), (unsigned long long)g_world.Skipped(op),
@@ -630,6 +659,8 @@ void RemovePlayer(X86Context& ctx, int k) {
     }
     csx::ClientContextRemove(p.context);
     g_players.ContextRemoved(p.context);
+    if (int was = g_ui.driver; g_ui.Left(k, g_players) != was)
+        LOGI("native split: the shared front end is driven by player %d now (player %d left)", g_ui.driver + 1, k + 1);
     g_players.Released(k);
     LOGI("native split: player %d left: its server slot dropped, %zu of its objects released, %zu left (%zu bytes), its "
          "context removed",
@@ -771,8 +802,9 @@ void NativeSplitHeapRealloc(X86Context& ctx, uint8_t*) {
     g_blocks.Moved(old, ctx.eax, ctx.esi, mover, site, KindOf(site));
 }
 
-// [[hook]] at 0x22C609, free's entry: the block at [esp+4]; on_true "ret": a free by player 2..4 of a block that is not
-// its own is not done (heap_owner.h SkipFree), reported as an error every time
+// [[hook]] at 0x22C609, free's entry: the block at [esp+4]; on_true "ret": a free by a player of a block that is not
+// its own is not done (heap_owner.h SkipFree; player 1 included since docs 15.10), nor one of a player's blocks in the
+// shared front end's scope (SkipFreeInSharedScope), reported as an error every time
 bool NativeSplitHeapFree(X86Context& ctx, uint8_t*) {
     if (!NativeSplitOn()) return false;
     uint32_t va = R32(ctx.esp + 4);
@@ -780,6 +812,14 @@ bool NativeSplitHeapFree(X86Context& ctx, uint8_t*) {
     int freeing = OwnerNow();
     const heapown::Block* b = g_blocks.At(va);
     int owner = b ? b->owner : heapown::Blocks::kNone;
+    if (g_ui_scope && b && b->kind == heapown::Kind::Owned && heapown::SkipFreeInSharedScope(owner)) {
+        g_ui_scope_kept++;
+        g_foreign_frees++;
+        g_skipped_frees++;
+        LOGE("native split: the shared front end would free block 0x%08X of player %d (skipped: a player's object, "
+             "not the shared UI's; return 0x%08X)", va, owner + 1, R32(ctx.esp));
+        return true;
+    }
     if (b && heapown::FreeIsForeign(*b, freeing)) {
         g_foreign_frees++;
         bool skip = heapown::SkipFree(owner, freeing);
@@ -801,7 +841,7 @@ bool NativeSplitHeapFree(X86Context& ctx, uint8_t*) {
 // player's state names another's object) when not
 bool MayDestroyHere(uint32_t va, const char* what) {
     int acting = OwnerNow();
-    if (acting <= 0 || !va) return true;
+    if (acting < 0 || !va) return true;  // the process; player 1 too is checked (docs 15.10)
     const heapown::Block* b = g_blocks.At(va);
     int owner = b ? b->owner : heapown::Blocks::kNone;
     if (b ? heapown::MayDestroy(*b, acting) : heapown::MayDestroy(owner, acting)) return true;
@@ -972,6 +1012,108 @@ bool NativeSplitAddCommand(X86Context& ctx, uint8_t*) {
     LOG_FIRST(8, "native split: Cmd_AddCommand(\"%s\") skipped in another player's initialisation",
               reinterpret_cast<const char*>(kernel::HostPtr(R32(ctx.esp + 4))));
     return true;
+}
+
+// ---- a player's activation, in its own turn (docs 15.10) ----------------------------------------------------------
+
+// client_context.cpp, at the start of a player's input turn (0x5D3B5, before its CL_Move): for every context but player
+// 1's, _Host_Frame's per-player prelude, which the title runs before the turns (0x5D3A6 / 0x5D3B0) and so only in
+// player 1's context (native_split_core.h PreludeInTurn): the activation check 0x269A0, then CL_UpdateClientData
+// 0x1CC10, the real functions in this player's context, their own conditions unchanged (nothing is set here)
+void NativeSplitTurnPrelude(X86Context& ctx) {
+    if (!NativeSplitOn()) return;
+    int c = csx::ClientContextActive();
+    if (!nsplit::PreludeInTurn(c)) return;
+    int k = PlayerOfContext(c);
+    uint32_t before = R32(kClsState), signon = R32(kClsSignon);
+    kernel::CallGuest(ctx, kActivationCheck, {});
+    uint32_t after = R32(kClsState);
+    if (after != before)
+        LOGI("native split: player %d's activation check (0x269A0) in its own turn: client state %u -> %u (signon %u)",
+             k + 1, before, after, signon);
+    if (after != nsplit::Activation(before, signon))
+        LOGE("native split: player %d's activation check gave client state %u, its rule %u (from %u, signon %u)", k + 1,
+             after, nsplit::Activation(before, signon), before, signon);
+    kernel::CallGuest(ctx, kUpdateClientData, {});
+    if (k >= 0) g_preludes[k]++;
+}
+
+// ---- the shared front end: one driver, run as the process (docs 15.10) --------------------------------------------
+
+// the acting player for the shared front end's decision: the player whose turn it is (-1 outside the turns)
+static int TurnPlayer() { return csx::ClientContextInTurn() ? PlayerOfContext(csx::ClientContextActive()) : -1; }
+
+// a front-end routine reached from a player's turn (native_split_core.h SharedUiOwner): outside the turns (or inside
+// its own scope) as the title's (false: the code runs on); in the driver's turn run here, in the shared front end's
+// scope (its allocations and frees the process's), as `fn` with `args` (eax its result); in another player's turn not
+// run. true: done here (the hook's on_true path skips the original)
+static bool SharedUiGate(X86Context& ctx, UiGate gate, uint32_t fn, std::initializer_list<uint32_t> args) {
+    if (!NativeSplitOn() || g_ui_scope) return false;
+    int k = TurnPlayer();
+    switch (g_ui.Decide(csx::ClientContextInTurn(), k)) {
+        case nsplit::SharedUi::AsTitle: return false;
+        case nsplit::SharedUi::Withheld:
+            g_ui_withheld[gate]++;
+            LOG_FIRST(8, "native split: player %d's turn reached the shared front end's %s: not run (its driver is "
+                         "player %d)", k + 1, kUiGateName[gate], g_ui.driver + 1);
+            return true;
+        case nsplit::SharedUi::AsShared:
+            break;
+    }
+    g_ui_scope++;
+    ctx.eax = kernel::CallGuest(ctx, fn, args.begin(), args.size());
+    g_ui_scope--;
+    g_ui_shared[gate]++;
+    return true;
+}
+
+// [[hook]] at 0x1B9359 in the scoreboard's update 0x1B92F0 (after its own per-player work: its fields cleared, its
+// players sorted, 0x1B4E30 / 0x1B9370), at `push esi; call 0x1B9820`, on_true 0x1B935F (past both): 0x1B9820 (stdcall,
+// the panel) frees and rebuilds the rows of the shared "Scoreboard" screen's list (the panel's +0xBC, 0x1B91E0)
+bool NativeSplitScoreboardRows(X86Context& ctx, uint8_t*) {
+    return SharedUiGate(ctx, kUiRows, kScoreboardRows, {ctx.esi});
+}
+
+// [[hook]] at 0xD96A0, a front-end element's text set (stdcall: the text; esi the element; 0x1B4000 writes the shared
+// screens' texts through it), on_true 0xD96B5 (its `ret 4`)
+bool NativeSplitUiText(X86Context& ctx, uint8_t*) { return SharedUiGate(ctx, kUiText, 0xD96A0, {R32(ctx.esp + 4)}); }
+
+// [[hook]] at 0xCAB40, the front end's scoreboard or team menu open (edi kept; it queues "open ..." and clears the
+// Scoreboard screen's +0xBC), on_true "ret"
+bool NativeSplitUiMenu(X86Context& ctx, uint8_t*) { return SharedUiGate(ctx, kUiMenu, 0xCAB40, {}); }
+
+// [[hook]] at 0x1BA732 in 0x1BA710 (a team change's scoreboard), at `call 0xCA0B0` (the shared screen stack's current
+// screen closed), on_true 0x1BA737
+bool NativeSplitUiCloseScreen(X86Context& ctx, uint8_t*) { return SharedUiGate(ctx, kUiClose, 0xCA0B0, {}); }
+
+// [[hook]] at 0xCA6F0, the client game's front-end command (edx the command: "xbui <command>", or "!<line>", appended to
+// the shared console's buffer 0x748660 by Cbuf_AddText 0x3B970, run at the next frame's start in player 1's context; no
+// allocation): on_true "ret" in another player's turn than the driver's (a menu opened or closed on the shared screens,
+// or a line run as player 1's), logged with its text
+bool NativeSplitUiCommand(X86Context& ctx, uint8_t*) {
+    if (!NativeSplitOn() || g_ui_scope) return false;
+    int k = TurnPlayer();
+    nsplit::SharedUi d = g_ui.Decide(csx::ClientContextInTurn(), k);
+    if (d == nsplit::SharedUi::AsShared) g_ui_shared[kUiCommand]++;
+    if (d != nsplit::SharedUi::Withheld) return false;
+    g_ui_withheld[kUiCommand]++;
+    char text[96] = "";
+    if (ctx.edx) std::snprintf(text, sizeof text, "%s", static_cast<const char*>(kernel::HostPtr(ctx.edx)));
+    LOG_FIRST(16, "native split: player %d's front-end command \"%s\" withheld (the shared front end is player %d's)",
+              k + 1, text, g_ui.driver + 1);
+    return true;
+}
+
+// [[hook]] at 0xDD520 (a front-end list's clear) and 0xD5550 (a front-end row's destructor), the shared screens'
+// element code the eighth run's frees came from (docs 15.10): log only. Reached in another player's turn than the
+// driver's, it is shared UI code that path does not yet withhold (an error, with its caller)
+void NativeSplitUiElements(X86Context& ctx, uint8_t*) {
+    if (!NativeSplitOn() || g_ui_scope) return;
+    int k = TurnPlayer();
+    if (g_ui.Decide(csx::ClientContextInTurn(), k) != nsplit::SharedUi::Withheld) return;
+    g_ui_elements_in_turn++;
+    LOG_FIRST(16, "native split: the shared front end's element code ran in player %d's turn (return 0x%08X)", k + 1,
+              R32(ctx.esp));
 }
 
 // ---- until M3 / M4: an added player's turn draws, hears and reads nothing ------------------------------------------

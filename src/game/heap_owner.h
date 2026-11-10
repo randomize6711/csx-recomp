@@ -300,10 +300,19 @@ std::vector<Range> Changed(const std::vector<Range>& ranges, const std::vector<u
 // one span of a whole copy whose guest address is its offset (tests)
 inline std::vector<Span> Flat(size_t size, uint32_t va = 0) { return {{0, va, uint32_t(size)}}; }
 
-// the safety net: a free by a player other than the first (in its initialisation or its turns) of a block that is not
-// its own is not done (logged): another player's object, or one of the process's initialisation that player 1's state
-// names, stays alive; at worst a leak, never a block freed under another player
-inline bool SkipFree(int owner, int freeing) { return freeing > 0 && FreeIsForeign(owner, freeing); }
+// the safety net: a free by any player (in its initialisation or its turns) of a block that is not its own is not done
+// (logged): another player's object, or one of the process's initialisation that player 1's state names (for a player
+// after the first), stays alive; at worst a leak, never a block freed under another player. Player 1 included since the
+// eighth run (docs 15.10): its turn freed 42 of player 2's blocks (the shared scoreboard's rows) under it. A free
+// outside the players' turns (kProcess: the server, a map change, a shared-once operation, the shared front end's own
+// scope) is not attributed, and a leaving or refused player's release runs as that player (its own frees)
+inline bool SkipFree(int owner, int freeing) { return freeing >= 0 && FreeIsForeign(owner, freeing); }
+
+// in the shared front end's scope (native_split.cpp SharedUiScope: the shared screens' maintenance, run as the
+// process by the one player that drives them): a block a player owns is never the shared UI's to free. Its elements
+// are made in that scope, so they are the process's; a player's block here would be a player's object reached through
+// the shared screens, and is kept (logged)
+inline bool SkipFreeInSharedScope(int owner) { return owner >= 0; }
 
 // a block's free or destruction, its kind weighed: the shared kinds are anyone's to free (the title's own code
 // manages them that way); an owned block follows FreeIsForeign / MayDestroy
@@ -315,8 +324,11 @@ inline bool FreeIsForeign(const Block& b, int freeing) {
 // kProcess): the check made before a destructor runs, not only before the free (a destructor that has run has already
 // changed the object, whatever happens to its memory)
 inline bool MayDestroy(int owner_of_object, int acting) {
-    if (acting <= 0) return true;                         // player 1 and the process act as the title
-    return owner_of_object == acting;                     // another player: only its own objects
+    if (acting == kProcess) return true;           // the process acts as the title
+    if (owner_of_object == acting) return true;    // a player: its own objects
+    if (acting == 0) return owner_of_object < 0;   // player 1: the process's (its initialisation's) and unknown ones too,
+                                                   // never another player's (docs 15.10)
+    return false;                                  // another player: only its own objects
 }
 inline bool MayDestroy(const Block& b, int acting) { return b.kind != Kind::Owned || MayDestroy(b.owner, acting); }
 

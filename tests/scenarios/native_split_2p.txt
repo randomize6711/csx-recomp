@@ -46,6 +46,13 @@ expect log native split: player 2's R_NewMap: the world \(spawn count [0-9]+\) i
 expect log native split: player 2's map poll: the material list of .* is loaded; not again
 expect nolog native split: the world \(spawn count [0-9]+, model 0x[0-9A-F]+\) built by R_NewMap in player 2's
 expect nolog native split: the material list of .* loaded in player 2's turn
+# docs 15.10: player 2 activated by its own activation check, in its own turn (never set by hand); the shared front end
+# driven by player 1 as the process, never rebuilt or freed in player 2's turn
+expect log native split: player 2.s activation check \(0x269A0\) in its own turn: client state [34] -> 5
+expect nolog native split: player [0-9].s activation check gave client state
+expect log native split: the shared front end, driven by player 1:
+expect nolog native split: the shared front end would free block
+expect nolog native split: the shared front end.s element code ran in player
 expect nolog native split: the server shuts down in player
 expect nolog local server: starting
 expect nolog Host_Error

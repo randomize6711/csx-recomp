@@ -277,10 +277,19 @@ void ClientContextsReference(X86Context& ctx, uint8_t*) {
     NativeSplitReference(ctx, state);
 }
 
-// [[hook]] at 0x5D3B5 and 0x5D3F0 in _Host_Frame: a player's turn starts (its CL_Move; its client half)
+// [[hook]] at 0x5D3F0 in _Host_Frame: a player's client half starts
 void ClientContextsTurnBegin(X86Context&, uint8_t*) { g_in_turn = true; }
 
-void NativeSplitFrameEnd(X86Context& ctx);  // native_split.cpp
+void NativeSplitFrameEnd(X86Context& ctx);     // native_split.cpp
+void NativeSplitTurnPrelude(X86Context& ctx);  // native_split.cpp
+
+// [[hook]] at 0x5D3B5 in _Host_Frame: a player's input turn starts (its CL_Move). Every context but player 1's first
+// runs the frame's per-player prelude the title runs before the turns, in player 1's context only (0x5D3A6 / 0x5D3B0:
+// the activation check, the client data update; native_split.cpp, docs 15.10). Nothing more with one context
+void ClientContextsMoveBegin(X86Context& ctx, uint8_t*) {
+    g_in_turn = true;
+    if (Contexts().Count() > 1) NativeSplitTurnPrelude(ctx);
+}
 
 // [[hook]] at 0x5D3C2 in _Host_Frame, after a player's CL_Move: the next player's turn (false: back to 0x5D3B5), or
 // player 0 again and on to SV_Frame (true)
