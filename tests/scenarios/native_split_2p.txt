@@ -4,7 +4,7 @@
 # 2.5 minutes, the server write guard and every ownership report on (CSX_CTX_GUARD=1). Nothing is drawn for player 2 yet
 # (M3). The report lines ("native split: player N ...") give each player's server slot, userid, cl.playernum and the
 # packets both ways; the checks below are the hard ones.
-#   --env FPS=30 --env CSX_NATIVE_SPLIT=2 --env CSX_CTX_GUARD=1 --launch tests/launch/de_dust2_nobots
+#   --env FPS=30 --env CSX_NATIVE_SPLIT=2 --env CSX_CTX_GUARD=1 --env CSX_NATIVE_SPLIT_CHANGES=1 --launch tests/launch/de_dust2_nobots
 # timeout: 180
 wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
 wait draws>=150

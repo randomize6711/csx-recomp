@@ -353,6 +353,20 @@ AT = {a: (own, why) for a, n, own, why in REVIEWED if n is None}
 # the second review (docs 14.4): the per-player candidates of the scan and the last unresolved objects; three
 # read-only reviews, checked and adjusted where noted (DECISION)
 REVIEWED_2 = [
+    # docs/native_splitscreen.md 15.12: the shared bytes player 2's initialisation changed (the ninth run, classified by
+    # tools/shared_changes.py): 13 of the 16 runs it listed are in these two objects of the client game's ammo HUD
+    (0x545B08, 0x2980, 'player', "the client game's weapon resource (gWR: the weapons' list, the slots and the ammo "
+                                 "counts): CHudAmmo::Init 0x1AB3C0 clears it (its only absolute writer); every other "
+                                 "access goes through ecx = 0x545B08 (mov ecx, 0x545B08 in 0x1AB100..0x1AB220, 0x1AB6E0, "
+                                 "0x1AB840, 0x1ABD10, 0x1AC490, 0x1AC940, 0x1ACA10, 0x1AD800, 0x1DB570: the WeaponList, "
+                                 "CurWeapon, AmmoX and pickup message handlers, the slot commands, the HUD's draw; "
+                                 "0x1ACC70 indexes its slot table 0x547384..). Each local client's own HUD state: the ninth "
+                                 "run's player 2 HUD_Init cleared player 1's (13 of the 16 runs listed), and every player's "
+                                 "ammo messages would write the one copy. Extent: the scan's exact accesses (0x2980); no "
+                                 "pointer out of it but into itself (its slots name its weapons). [review 15.12]"),
+    (0x548488, 0x210, 'player', "the client game's pickup history (gHR) beside it: written by CHudAmmo::Init 0x1AB3C0, "
+                                "0x1AB690 and 0x1AB840 (the pickup messages' history entries); each local client's own "
+                                "HUD state, as gWR. Extent: the scan's exact accesses. [review 15.12]"),
     (0x36FC70, 0x4, 'shared-mutable', '0x22BDCB = _Atexit(pf): reads atcount (0x22BDCB), aborts if 0 (0x22BDD4 -> 0x230E40), else dec and store (0x22BDDD/0x22BDDE), atfuns[atcount]=pf (0x22BDE3 mov [eax*4+0x3A646C]). 0x22BDEB runs them at exit: inc (0x22BDF9) while < 0x0A (0x22BE01 cmp 0x0A), so 10 slots. Callers are C++ static-object registrations (0x22B8AF, behind a once-flag). The C runtime. Must share the ownership of atfuns 0x3A646C (already reviewed shared). [review 2/0]'),
     (0x371CE4, 0x4, 'shared-mutable', 'a print counter of a master-server list reply. 0x26EB0 (from CL_ConnectionlessPacket 0x27CE0; strings "%i.%i.%i.%i", "%4i:  %s:%i", "%i users") reads it as the line number for each printed address (0x27117, 0x2712C call 0x40790 Con_Printf), increments it (0x27131..0x27140), prints the total and resets it to 0 (0x27236..0x2724C) in the same call. Console output only; state does not survive the call. [review 2/0]'),
     (0x371CEC, 0x4, 'player', 'the slewed interpolation amount in 0x2AAB0 (called by 0x2AB50, which names cl_updaterate / ex_interp, from CL_Move 0x2AC80). Only 4-byte float accesses: fld 0x2AABA, fsub 0x2AADB, fld 0x2AB1A, fstp 0x2AB22, fld 0x2AB2A; no indexed access. It moves toward the target by at most frametime*k per call (0x2AACB..0x2AB22) and the result (0..100 ms, 0x2AB45..0x2AB4A) goes into the move the client sends. Each local client runs its own CL_Move each turn, so one copy would be slewed twice a frame by two clients. Start-up value: boot image (no Initialize/connect writer needed: it converges). [review 2/0]'),

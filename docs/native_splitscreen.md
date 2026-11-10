@@ -1302,3 +1302,29 @@ initialisation, a kick; the cleanup order, the release rule and the plan over a 
 lifetime); native_split_turns_test (98: the facts above against the generated code, every hook and skip target).
 Scenarios for the next runs: native_split_2p (now also the routing's report), native_split_2p_leave (player 2 leaves
 by its own disconnect and joins again, repeatedly), native_split_2p_p1_leaves (player 1 departs, player 2 plays on).
+
+### 15.13 The shared state player 2's initialisation changes; the lock of 0x114C10 (2026-11-10; static only)
+
+**Classification** (tools/shared_changes.py: each changed run's object in the region model, its ownership, writers and
+evidence). The ninth run reported 8,595 bytes in 1,842 runs outside the protected state but listed only the first 16
+(49 bytes). Of those: 3 runs (6 bytes) are the command tokenizer's argument buffer 0x4251A8.. (Cmd_TokenizeString
+0x3C620; transient scratch, legitimate); 13 runs (43 bytes) are in two objects of the client game's ammo HUD,
+0x545B08 + 0x2980 (the weapon resource gWR: the weapons, the slots, the ammo counts) and 0x548488 + 0x210 (the pickup
+history), which the model had as shared-mutable because its scan sees only CHudAmmo::Init's absolute writes (every
+other access goes through ecx = 0x545B08): **an unexpected mutation** - player 2's HUD_Init cleared player 1's weapon
+HUD, and every player's WeaponList / CurWeapon / AmmoX messages wrote the one copy. They are now player regions
+(tools/region_evidence.py REVIEWED_2, review 15.12; regenerated): 95 generated regions, 770,944 bytes (116 in all,
+1,551,639 bytes a player); protected ranges and taken addresses unchanged; the regions' fingerprint 1466E918CE4A080B.
+The other 1,826 runs are not known (not listed): the next run lists every run with CSX_NATIVE_SPLIT_CHANGES=1, for
+`tools/shared_changes.py LOG`. A run inside a 'process' or 'immutable' object is the first to review; nothing is
+called harmless by the tool, and no protection was relaxed.
+
+**0x114C10** (the file system object's vtable 0x345BB0, slot +0x20; slot +0x04 is 0x1148A0; constructed at 0x114462 /
+0x1145DC): it interns without taking the lock 0x52784C that 0x114680 / 0x1148A0 hold (the lock's users: 0x114440,
+0x114680, 0x1148A0, 0x114AD0, 0x114B40). The game has four guest threads (the ninth run's log): the game thread
+(0x202BC8), a start-up one that exits at once (0x6EC40), the sound object's (0x103E60, 0x553ED8) and a library one
+(0x2FCE4F). From the three others, the direct-call closure (524, 564 and 1 functions) reaches neither the intern
+0x115D10 nor any user of the lock. Every local player's steps, turns and console lines run on the game thread, one
+after another: split-screen adds no thread and no concurrency to the pool, so the missing lock is the title's own
+(single-threaded use) and not a split-screen hazard. Not proven: the other threads' indirect calls (vtables, function
+pointers) are not followed.
