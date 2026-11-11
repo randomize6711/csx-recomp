@@ -230,7 +230,7 @@ nsplit::Session g_session;   // the built-in server's host (docs 15): its discon
 sharedonce::World g_world;   // the world's shared-once operations, by map generation (the process's, docs 15)
 bool g_tracking = false;   // heap ownership tracked (native split-screen on, from the process's start)
 int g_init_owner = -1;     // the player whose initialisation is running (its allocations are its own), -1 none
-uint64_t g_foreign_frees = 0, g_skipped_frees = 0;
+uint64_t g_foreign_frees = 0, g_skipped_frees = 0, g_double_frees = 0, g_stale_names = 0, g_cleanup_refused = 0;
 uint64_t g_moves = 0, g_foreign_moves = 0;  // realloc's moves tracked; of another owner's block (an error, docs 15.8)
 bool g_add_failed = false;  // a player's initialisation failed its checks: no further players added this session
 // the shared front end (docs 15.10): its driver, the depth of its scope (its maintenance running as the process), and
@@ -444,7 +444,8 @@ void AddPlayer(X86Context& ctx, int k) {
             // the boot image holds no heap pointer: checked, not assumed
             inherited = heapown::HeapPointers(csx::ClientContextSaved(context), spans, g_blocks).size();
             if (inherited)
-                LOGE("native split: player %d's boot image holds %zu heap pointers (it must hold none)", k + 1, inherited);
+                LOGE("native split: player %d's boot image holds %zu heap pointers (it must hold none) [own:boot-pointer]",
+                     k + 1, inherited);
             csx::ClientContextSwitch(context);
             // the shared state as it is before this player's steps (the regions now hold the new player's)
             protect_before = heapown::Snapshot(protect, GuestByte);
@@ -478,6 +479,13 @@ void AddPlayer(X86Context& ctx, int k) {
             // pointer of its regions then) must be the new player's own, or a shared registry's entry; one it lacks,
             // or one naming another's object, fails the initialisation (an initialisation step missing, an object
             // shared)
+            // a fresh context names nothing a player that left handed to the process (docs 15.16): a stale reference,
+            // reported (an error), not failed (the block is kept, never freed while named: no use after a free)
+            for (const heapown::Pointer& s : heapown::LeftBehindNames(Spans(), g_blocks, [](uint32_t va) { return R32(va); })) {
+                if (++g_stale_names <= 16)
+                    LOGE("native split: player %d's 0x%08X names 0x%08X in block 0x%08X a player that left handed to the "
+                         "process (stale) [own:stale-left]", k + 1, s.va, s.value, s.block);
+            }
             for (const heapown::Pointer& p : g_reference_objects) {
                 uint32_t mine = R32(p.va);
                 const heapown::Block* b = mine ? g_blocks.At(g_blocks.Holding(mine)) : nullptr;
@@ -491,8 +499,9 @@ void AddPlayer(X86Context& ctx, int k) {
                     own++;
                 } else {
                     foreign++;
-                    LOGE("native split: player %d's 0x%08X names 0x%08X, not its own (owner %d, %s)", k + 1, p.va, mine,
-                         b ? b->owner : -2, b ? heapown::Name(b->kind) : "no known block");
+                    LOGE("native split: player %d's 0x%08X names 0x%08X, not its own (owner %d%s, %s) [own:not-own]", k + 1,
+                         p.va, mine, b ? b->owner : -2, b && b->left_by >= 0 ? ", left behind by a player" : "",
+                         b ? heapown::Name(b->kind) : "no known block");
                 }
             }
             // the start-up values (docs 13.8): what the process's start-up set in player 1's regions that this
@@ -537,7 +546,7 @@ void AddPlayer(X86Context& ctx, int k) {
             for (const heapown::Range& c : heapown::Changed(protect, protect_before, GuestByte)) {
                 corrupted++;
                 LOGE("native split: player %d's initialisation changed protected start-up state at 0x%08X (%u "
-                     "byte(s); %s)",
+                     "byte(s); %s) [own:protected]",
                      k + 1, c.va, c.size, ProtectedWhat(c.va));
             }
             // the string-intern pool (docs 15.8): its growth fields are not compared byte for byte (region_evidence.py
@@ -547,8 +556,8 @@ void AddPlayer(X86Context& ctx, int k) {
                 std::vector<std::string> bad = internpool::Check(pool_before, pool_after, PoolBlock);
                 for (const std::string& b : bad) {
                     corrupted++;
-                    LOGE("native split: player %d's initialisation broke the string-intern pool 0x%08X: %s", k + 1,
-                         internpool::kPool, b.c_str());
+                    LOGE("native split: player %d's initialisation broke the string-intern pool 0x%08X: %s [own:protected]",
+                         k + 1, internpool::kPool, b.c_str());
                 }
                 if (bad.empty())
                     LOGI("native split: player %d's initialisation: the string-intern pool 0x%08X holds %u strings "
@@ -622,6 +631,29 @@ uint32_t PlayerDword(int k, uint32_t va) {
     return v;
 }
 
+// the shared vectors the title grows with 0xB52B0 ({count, capacity, data}; headers outside every player's regions:
+// the VGUI text-image cache 0x553844 (0xB4AC0), the VGUI font list 0x5620A8 (0x10CC00), two static ones). A grow run
+// in a player's turn frees the process's buffer (a foreign free, skipped) and leaves the vector on that player's
+// buffer (docs 15.16, the twelfth run's 0x00C93FF0). Reported (a warning) whenever a buffer is a player's or one a
+// leaving player left behind; each buffer once
+void WatchSharedVectors() {
+    static const struct {
+        uint32_t va;
+        const char* what;
+    } kVectors[] = {{0x553844, "the VGUI text-image cache"}, {0x5620A8, "the VGUI font list"},
+                    {0x384B60, "a static vector 0x384B60"}, {0x384D28, "a static vector 0x384D28"}};
+    static std::set<uint32_t> seen;
+    for (const auto& v : kVectors) {
+        uint32_t data = R32(v.va + 8);
+        const heapown::Block* b = data ? g_blocks.At(data) : nullptr;
+        if (!b || (b->owner < 0 && b->left_by < 0) || !seen.insert(data).second) continue;
+        LOGW("native split: %s (0x%08X, %u of %u entries) is on block 0x%08X of %s%d (site 0x%X): a process-wide vector "
+             "grown in a player's turn [watch:shared-vector]",
+             v.what, v.va, R32(v.va), R32(v.va + 4), data, b->owner >= 0 ? "player " : "the process, left behind by player ",
+             (b->owner >= 0 ? b->owner : b->left_by) + 1, b->site);
+    }
+}
+
 void Report() {
     for (int k = 0; k < nsplit::kMaxPlayers; k++) {
         const nsplit::Player& p = g_players.At(k);
@@ -642,6 +674,10 @@ void Report() {
          (unsigned long long)g_ch.Dropped(), (unsigned long long)g_read_outside_turn,
          (unsigned long long)g_foreign_frees, (unsigned long long)g_skipped_frees, (unsigned long long)g_moves,
          (unsigned long long)g_foreign_moves, g_blocks.Count());
+    LOGI("native split: ownership: %llu double frees skipped, %llu stale names of left-behind blocks in fresh contexts, "
+         "%llu cleanup calls refused", (unsigned long long)g_double_frees, (unsigned long long)g_stale_names,
+         (unsigned long long)g_cleanup_refused);
+    WatchSharedVectors();
     std::string gates;
     for (int i = 0; i < kUiGates; i++) {
         char item[128];
@@ -693,6 +729,51 @@ void Report() {
              (unsigned long long)g_world.Failed(op), (unsigned long long)g_world.TitleRuns(op));
 }
 
+// why a leaving player's blocks are kept (docs 15.16): each kept block followed back through the kept blocks of its own
+// that name it to its root: a word of the shared data or of another context's regions (its address), another owner's
+// block (that block's allocation site and owner), or a shared kind; the roots that keep the most logged with what they
+// keep. The string-intern pool's search key (0x5622B0, the last find's string) named on its own line
+void LogRetention(int k, const heapown::RollbackPlan& plan) {
+    std::map<uint32_t, const heapown::RollbackItem*> by;
+    for (const heapown::RollbackItem& r : plan.keep) by[r.va] = &r;
+    struct Root {
+        size_t blocks = 0, bytes = 0;
+    };
+    std::map<std::string, Root> roots;
+    std::map<std::string, Root> reasons;
+    for (const heapown::RollbackItem& r : plan.keep) {
+        const heapown::RollbackItem* at = &r;
+        for (int hops = 0; hops < 4096 && at->reason && std::strstr(at->reason, "kept block of its own"); hops++) {
+            auto it = by.find(g_blocks.Holding(at->named_at));
+            if (it == by.end() || it->second == at) break;
+            at = it->second;
+        }
+        char key[96];
+        if (!at->reason || std::strstr(at->reason, "shared kind"))
+            std::snprintf(key, sizeof key, "a shared kind (site 0x%X)", at->site);
+        else if (std::strstr(at->reason, "shared data"))
+            std::snprintf(key, sizeof key, "the word at 0x%08X%s", at->named_at,
+                          at->named_at == 0x5622B0 ? " (the string-intern pool's search key)" : "");
+        else if (const heapown::Block* b = g_blocks.At(g_blocks.Holding(at->named_at)))
+            std::snprintf(key, sizeof key, "a block of %s%d (site 0x%X)", b->owner >= 0 ? "player " : "owner ",
+                          b->owner >= 0 ? b->owner + 1 : b->owner, b->site);
+        else
+            std::snprintf(key, sizeof key, "0x%08X", at->named_at);
+        roots[key].blocks++, roots[key].bytes += r.size;
+        reasons[r.reason ? r.reason : "?"].blocks++, reasons[r.reason ? r.reason : "?"].bytes += r.size;
+    }
+    for (const auto& [why, n] : reasons)
+        LOGI("native split: player %d's cleanup keeps %zu block(s), %zu bytes: %s", k + 1, n.blocks, n.bytes, why.c_str());
+    std::vector<std::pair<std::string, Root>> top(roots.begin(), roots.end());
+    std::sort(top.begin(), top.end(), [](const auto& a, const auto& b) { return a.second.bytes > b.second.bytes; });
+    for (size_t i = 0; i < top.size() && i < 12; i++)
+        LOGI("native split:   kept through %s: %zu block(s), %zu bytes", top[i].first.c_str(), top[i].second.blocks,
+             top[i].second.bytes);
+    const heapown::Block* key = g_blocks.At(g_blocks.Holding(R32(0x5622B0)));
+    LOGI("native split: player %d's cleanup: the string-intern pool's search key names %s", k + 1,
+         !key ? "no heap block" : key->owner == k ? "one of its blocks (kept: named)" : "another owner's block");
+}
+
 // what of player k's own blocks someone else names (heap_owner.h PlanRollback): the shared data (the image's .data with
 // player 1's live regions: called from player 1's context), every other context's saved copy, another owner's block;
 // followed through its own blocks. Those its cleanup must not free (its destructors' frees of them are skipped)
@@ -722,7 +803,35 @@ std::set<uint32_t> NamedElsewhere(int k, int context, size_t& released_bytes, si
         kept_bytes += r.size;
     }
     released_bytes = plan.ReleaseBytes();
+    LogRetention(k, plan);
     return keep;
+}
+
+// a cleanup's guest call (native_split_lifecycle.h kCleanupCalls, docs 15.16): exactly the contract's registers set to
+// `object` and exactly its arguments pushed; a call through a vtable made only when the object's vtable is its
+// constructor's, to the contract's function (never a target read from guest memory). False (nothing called; the
+// object kept and reported) when the call would not meet its contract
+bool CallCleanup(X86Context& ctx, nsplit::CleanupFn id, uint32_t object, std::initializer_list<uint32_t> args) {
+    const nsplit::CleanupCall& c = nsplit::Contract(id);
+    uint8_t set = 0;
+    uint32_t saved[6] = {ctx.eax, ctx.ecx, ctx.edx, ctx.ebx, ctx.esi, ctx.edi};
+    if (c.regs & nsplit::kRegEax) ctx.eax = object, set |= nsplit::kRegEax;
+    if (c.regs & nsplit::kRegEcx) ctx.ecx = object, set |= nsplit::kRegEcx;
+    if (c.regs & nsplit::kRegEdx) ctx.edx = object, set |= nsplit::kRegEdx;
+    if (c.regs & nsplit::kRegEbx) ctx.ebx = object, set |= nsplit::kRegEbx;
+    if (c.regs & nsplit::kRegEsi) ctx.esi = object, set |= nsplit::kRegEsi;
+    if (c.regs & nsplit::kRegEdi) ctx.edi = object, set |= nsplit::kRegEdi;
+    bool ok = nsplit::MeetsContract(c, set, args.size()) && c.id == id;
+    uint32_t vt = c.vtable && object ? R32(object) : 0;
+    if (ok && !nsplit::VtableMatches(c, vt)) ok = false;
+    if (ok) kernel::CallGuest(ctx, c.fn, args.begin(), args.size());
+    ctx.eax = saved[0], ctx.ecx = saved[1], ctx.edx = saved[2], ctx.ebx = saved[3], ctx.esi = saved[4], ctx.edi = saved[5];
+    if (!ok) {
+        g_cleanup_refused++;
+        LOGE("native split: the cleanup does not call %s (0x%08X) for 0x%08X: %s; the object kept [own:cleanup-refused]",
+             c.name, c.fn, object, c.vtable && vt != c.vtable ? "its vtable is not its constructor's" : "the call would not meet its contract");
+    }
+    return ok;
 }
 
 void RemovePlayer(X86Context& ctx, int k) {
@@ -732,7 +841,7 @@ void RemovePlayer(X86Context& ctx, int k) {
     if (uint32_t cl = R32(kSvActive) ? ServerClientOf(k) : 0) {
         GuestStrings gs(ctx);
         uint32_t fmt = gs.Put("%s"), reason = gs.Put("left the split-screen game");
-        kernel::CallGuest(ctx, kDropClient, {cl, 0, fmt, reason});
+        CallCleanup(ctx, nsplit::CleanupFn::DropClient, 0, {cl, 0, fmt, reason});
     }
     g_ch.Forget(k);
     if (size_t n = g_cmds.Drop(k)) {
@@ -760,47 +869,55 @@ void RemovePlayer(X86Context& ctx, int k) {
             LOGI("native split: player %d's object 0x%08X %s", k + 1, obj, nsplit::Name(r));
         return r == nsplit::Release::Release;
     };
+    auto release = [&](uint32_t obj) {  // ReleaseCheck without its log: a 0x552C70 child's
+        const heapown::Block* b = obj ? g_blocks.At(obj) : nullptr;
+        return nsplit::ReleaseCheck(b != nullptr, b ? b->owner : heapown::Blocks::kNone,
+                                    b && b->kind == heapown::Kind::Owned, k, g_release_keep.count(obj) > 0);
+    };
     if (uint32_t ents = R32(kClientEntities); own(ents)) {  // its client entities (0x2E2E0)
-        kernel::CallGuest(ctx, kFree, {ents});
-        W32(kClientEntities, 0);
-        released++;
+        if (CallCleanup(ctx, nsplit::CleanupFn::Free, 0, {ents})) {
+            W32(kClientEntities, 0);
+            released++;
+        }
     }
-    for (uint32_t va : {0x552C70u, 0x552C9Cu}) {  // deleting destructors through the vtable (as 0x1A7F7E, 0x1B667A)
+    // deleting destructors through the vtable (as 0x1A7F7E, 0x1B667A: ecx the object, the delete flag 1); 0x552C70's
+    // own objects (+0x1C..+0x38, deleted by its destructor through their vtables) each released by the same rule first
+    for (auto [va, id] : {std::pair{0x552C70u, nsplit::CleanupFn::Delete552C70},
+                          std::pair{0x552C9Cu, nsplit::CleanupFn::Delete552C9C}}) {
         uint32_t obj = R32(va);
         if (!own(obj)) continue;
-        uint32_t ecx = ctx.ecx;
-        ctx.ecx = obj;
-        kernel::CallGuest(ctx, R32(R32(obj)), {1});
-        ctx.ecx = ecx;
-        W32(va, 0);
-        released++;
+        if (id == nsplit::CleanupFn::Delete552C70) {
+            nsplit::Release each[nsplit::k552C70ChildCount];
+            for (uint32_t i = 0; i < nsplit::k552C70ChildCount; i++)
+                each[i] = release(R32(obj + nsplit::k552C70Children + 4 * i));
+            if (!nsplit::ChildrenReleasable(each, nsplit::k552C70ChildCount)) {
+                LOGI("native split: player %d's object 0x%08X kept: an object it deletes is not released (%s)", k + 1, obj,
+                     "named by another, not its own or a shared kind");
+                continue;
+            }
+        }
+        if (CallCleanup(ctx, id, obj, {1})) {
+            W32(va, 0);
+            released++;
+        }
     }
-    if (uint32_t obj = R32(0x552CA8); own(obj)) {  // its destructor 0x1BAD90 (edi the object) and free, as 0x1BAE40
-        uint32_t edi = ctx.edi;
-        ctx.edi = obj;
-        kernel::CallGuest(ctx, 0x1BAD90, {});
-        ctx.edi = edi;
-        kernel::CallGuest(ctx, kFree, {obj});
+    // its destructor 0x1BAD90 (esi the object, as 0x1BAE40 / 0x1A6C80) and its free
+    if (uint32_t obj = R32(0x552CA8); own(obj) && CallCleanup(ctx, nsplit::CleanupFn::Destroy552CA8, obj, {})) {
+        CallCleanup(ctx, nsplit::CleanupFn::Free, 0, {obj});
         W32(0x552CA8, 0);
         released++;
     }
     for (uint32_t node = R32(0x5623D0); own(node);) {  // the HUD element list's nodes (as gHUD.Init 0x1A6A10)
         uint32_t next = R32(node + 4);
-        kernel::CallGuest(ctx, kFree, {node});
+        if (!CallCleanup(ctx, nsplit::CleanupFn::Free, 0, {node})) break;
         released++;
         node = next;
     }
     W32(0x5623D0, 0);
-    {  // its delta descriptions' slot (0x45670 frees a slot's description, esi the slot)
+    {  // its delta descriptions' slot (0x45670 frees a slot's description, esi the slot, as 0x2FBAD)
         const guest_tables::Table& t = guest_tables::kTables[guest_tables::k_native_split_delta_slots];
         uint32_t slot = t.va + uint32_t(k) * t.elem;
-        if (own(R32(slot))) {
-            uint32_t esi = ctx.esi;
-            ctx.esi = slot;
-            kernel::CallGuest(ctx, 0x45670, {});
-            ctx.esi = esi;
-            released++;
-        }
+        if (own(R32(slot)) && CallCleanup(ctx, nsplit::CleanupFn::FreeDeltaSlot, slot, {})) released++;
     }
     g_releasing = false;
     g_release_keep.clear();
@@ -822,6 +939,7 @@ void RemovePlayer(X86Context& ctx, int k) {
         LOGE("native split: player %d left %zu objects (%zu bytes) unreleased, allocated at:%s", k + 1, leaked,
              leaked_bytes, where.substr(0, 400).c_str());
     }
+    WatchSharedVectors();  // a process-wide vector left on its buffer (kept: named)
     csx::ClientContextRemove(p.context);
     g_players.ContextRemoved(p.context);
     g_players.Released(k);
@@ -1043,7 +1161,7 @@ void NativeSplitHeapRealloc(X86Context& ctx, uint8_t*) {
     bool pool = old == R32(internpool::kPool + internpool::kStrings) || old == R32(internpool::kPool + internpool::kNodes);
     if (b && !pool && heapown::FreeIsForeign(*b, mover)) {
         g_foreign_moves++;
-        LOGE("native split: %s moves block 0x%08X of %s (realloc to 0x%08X, return 0x%08X)",
+        LOGE("native split: %s moves block 0x%08X of %s (realloc to 0x%08X, return 0x%08X) [own:realloc-foreign]",
              mover >= 0 ? ("player " + std::to_string(mover + 1)).c_str() : "the process", old,
              b->owner >= 0 ? ("player " + std::to_string(b->owner + 1)).c_str() : "the process's initialisation",
              ctx.eax, site);
@@ -1074,19 +1192,41 @@ bool NativeSplitHeapFree(X86Context& ctx, uint8_t*) {
         g_foreign_frees++;
         g_skipped_frees++;
         LOGE("native split: the shared front end would free block 0x%08X of player %d (skipped: a player's object, "
-             "not the shared UI's; return 0x%08X)", va, owner + 1, R32(ctx.esp));
+             "not the shared UI's; return 0x%08X) [own:ui-free]", va, owner + 1, R32(ctx.esp));
         return true;
     }
     if (b && heapown::FreeIsForeign(*b, freeing)) {
         g_foreign_frees++;
         bool skip = heapown::SkipFree(owner, freeing);
         g_skipped_frees += skip;
-        LOGE("native split: %s %s block 0x%08X of %s (return 0x%08X)",
-             freeing >= 0 ? ("player " + std::to_string(freeing + 1)).c_str() : "the process",
-             skip ? "would free (skipped: a leak, not a block freed under its owner)" : "frees", va,
-             owner >= 0 ? ("player " + std::to_string(owner + 1)).c_str() : "the process's initialisation",
-             R32(ctx.esp));
+        char whose[64];
+        if (owner >= 0)
+            std::snprintf(whose, sizeof whose, "player %d", owner + 1);
+        else if (b->left_by >= 0)
+            std::snprintf(whose, sizeof whose, "the process (left behind by player %d)", b->left_by + 1);
+        else
+            std::snprintf(whose, sizeof whose, "the process's initialisation");
+        std::string who = freeing >= 0 ? "player " + std::to_string(freeing + 1) : "the process";
+        if (skip)
+            LOGE("native split: %s would free (skipped: a leak, not a block freed under its owner) block 0x%08X of %s "
+                 "(return 0x%08X; the block's %u bytes from site 0x%X, serial %llu) [own:free-blocked]",
+                 who.c_str(), va, whose, R32(ctx.esp), b->size, b->site, (unsigned long long)b->serial);
+        else
+            LOGE("native split: %s frees block 0x%08X of %s (return 0x%08X; the block's %u bytes from site 0x%X, serial "
+                 "%llu) [own:free-foreign]",
+                 who.c_str(), va, whose, R32(ctx.esp), b->size, b->site, (unsigned long long)b->serial);
+        // where (docs 15.16): the registers (a vector's grow 0xB52B0 has its header in ebx) and the return addresses
+        // on the guest stack, for the first few
+        if (g_foreign_frees <= 8) kernel::LogGuestStack(ctx, 48);
         if (skip) return true;
+    }
+    // a known block's start freed a second time (not allocated again since): never freed again (docs 15.16)
+    if (!b && g_blocks.WasFreed(va)) {
+        g_double_frees++;
+        LOGE("native split: %s frees block 0x%08X a second time (return 0x%08X): skipped [own:free-double]",
+             freeing >= 0 ? ("player " + std::to_string(freeing + 1)).c_str() : "the process", va, R32(ctx.esp));
+        if (g_double_frees <= 8) kernel::LogGuestStack(ctx, 48);
+        return true;
     }
     g_blocks.Freed(va);
     return false;
@@ -1102,7 +1242,8 @@ bool MayDestroyHere(uint32_t va, const char* what) {
     const heapown::Block* b = g_blocks.At(va);
     int owner = b ? b->owner : heapown::Blocks::kNone;
     if (b ? heapown::MayDestroy(*b, acting) : heapown::MayDestroy(owner, acting)) return true;
-    LOGE("native split: player %d would destroy %s 0x%08X of %s: not destroyed, the reference dropped", acting + 1, what,
+    LOGE("native split: player %d would destroy %s 0x%08X of %s: not destroyed, the reference dropped [own:destroy-foreign]",
+         acting + 1, what,
          va, owner >= 0 ? ("player " + std::to_string(owner + 1)).c_str()
                         : owner == heapown::kProcess ? "the process's initialisation" : "no known allocation");
     return false;

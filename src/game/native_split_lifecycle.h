@@ -176,6 +176,63 @@ inline Release ReleaseCheck(bool known, int owner, bool owned_kind, int leaving,
     return Release::Release;
 }
 
+// ---- the cleanup's guest calls (docs 15.16) ------------------------------------------------------------------------
+// Each call the cleanup makes into the title, with its contract as the title's own callers make it: the registers it
+// reads before writing them (each set to the one object the call is about), the dwords it reads from the stack, the
+// bytes its ret pops, and for a call through an object's vtable the vtable its constructor stores (slot 0 the
+// function). tests/guest_call_contract_test.py checks every entry against the original instructions (tools/guest_regs.py)
+// and that the cleanup makes no guest call except through this table (native_split.cpp CallCleanup, which sets exactly
+// these registers and pushes exactly these arguments; CallGuest puts every register and esp back afterwards, so a
+// callee's ret N never reaches the caller). The cleanup called 0x1BAD90 with edi set where it reads esi (since 8f52386):
+// esi was _Host_Frame's 0 and its first read faulted at 0x414 (the twelfth run, docs 15.16).
+enum GuestReg : uint8_t { kRegEax = 1, kRegEcx = 2, kRegEdx = 4, kRegEbx = 8, kRegEsi = 16, kRegEdi = 32 };
+enum class CleanupFn { DropClient, Free, Delete552C70, Delete552C9C, Destroy552CA8, FreeDeltaSlot };
+struct CleanupCall {
+    CleanupFn id;
+    const char* name;
+    uint32_t fn;      // the function called
+    uint8_t regs;     // its register inputs (GuestReg): every one set to the call's object
+    uint8_t args;     // the stack arguments pushed (exactly these)
+    uint8_t pops;     // what its ret pops (thiscall: 4); CallGuest restores esp whatever it is
+    uint32_t vtable;  // nonzero: reached through the object's vtable, which must be this one (its slot 0 fn)
+    bool frees;       // it can free (each free checked by NativeSplitHeapFree: never another's block)
+    bool shared;      // it changes process-wide state (the server's client slot)
+};
+inline constexpr CleanupCall kCleanupCalls[] = {
+    // cdecl (client, crash, format, ...): the format "%s" and its one argument
+    {CleanupFn::DropClient, "SV_DropClient", 0x5C600, 0, 4, 0, 0, true, true},
+    // the C runtime's free (cdecl, its SEH frame from 0x22E53C)
+    {CleanupFn::Free, "free", 0x22C609, 0, 1, 0, 0, true, false},
+    // `mov ecx, [0x552C70]; mov eax, [ecx]; push 1; call [eax]` (0x1A7F70): thiscall, the delete flag
+    {CleanupFn::Delete552C70, "0x552C70's deleting destructor", 0x1A7AE0, kRegEcx, 1, 4, 0x35EB78, true, false},
+    // `mov ecx, [0x552C9C]; mov eax, [ecx]; push 1; call [eax]` (0x1B6670)
+    {CleanupFn::Delete552C9C, "0x552C9C's deleting destructor", 0x1B6980, kRegEcx, 1, 4, 0x361C8C, true, false},
+    // `mov esi, [0x552CA8]; mov edi, esi; call 0x1BAD90` (0x1BAE4E, 0x1A6CF9): esi the object (edi only the callers'
+    // copy for their free after it: callee-saved, never read by 0x1BAD90)
+    {CleanupFn::Destroy552CA8, "0x552CA8's destructor", 0x1BAD90, kRegEsi, 0, 0, 0, true, false},
+    // esi the slot (0x2FBAD)
+    {CleanupFn::FreeDeltaSlot, "a delta slot's free", 0x45670, kRegEsi, 0, 0, 0, true, false},
+};
+constexpr size_t kCleanupCallCount = sizeof kCleanupCalls / sizeof kCleanupCalls[0];
+inline const CleanupCall& Contract(CleanupFn id) { return kCleanupCalls[size_t(id)]; }
+// a call made with the registers `set` and `nargs` stack arguments meets its contract: every input register set, the
+// arguments exactly the contract's
+inline bool MeetsContract(const CleanupCall& c, uint8_t set, size_t nargs) {
+    return (set & c.regs) == c.regs && nargs == c.args;
+}
+// a vtable call is made only when the object's vtable is its constructor's (an object overwritten or of another class
+// is kept, not called: its target is not known)
+inline bool VtableMatches(const CleanupCall& c, uint32_t object_vtable) { return !c.vtable || object_vtable == c.vtable; }
+
+// 0x552C70's destructor (0x1A7B10 -> 0x1A78B0) deletes the eight objects at +0x1C..+0x38 through their own vtables:
+// it runs only when each is absent or released by the same rule as the object itself (else the whole object is kept)
+constexpr uint32_t k552C70Children = 0x1C, k552C70ChildCount = 8;
+inline bool ChildrenReleasable(const Release* each, size_t n) {
+    for (size_t i = 0; i < n; i++)
+        if (each[i] != Release::Release && each[i] != Release::None) return false;
+    return true;
+}
+
 // what leaving players leave behind (kept or unreleased) is bounded: past the limit no player joins again this session
 // (each join and leave would otherwise add its residue without end)
 struct LeakBudget {

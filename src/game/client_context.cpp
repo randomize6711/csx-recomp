@@ -223,7 +223,7 @@ void ClientContextsGuardAfter(X86Context&, uint8_t*) {
         std::memcpy(&was, old + (off & ~3u), std::min<uint32_t>(4, r.size - (off & ~3u)));
         std::memcpy(&now, live + (off & ~3u), std::min<uint32_t>(4, r.size - (off & ~3u)));
         LOGW("client context guard: the server frame wrote %s at 0x%08X (+0x%X, %u bytes changed in the span to +0x%X): "
-             "0x%08X -> 0x%08X",
+             "0x%08X -> 0x%08X [own:guard-write]",
              r.what, r.start + off, off, last - off, last, was, now);
     }
     g.frames++;

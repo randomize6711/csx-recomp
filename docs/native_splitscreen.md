@@ -1424,3 +1424,167 @@ rules reproduce the run (a reconnect as userid 3, never removed), then the corre
 rejoin, player 1 throughout, a kick, repeats, the lines after a disconnect, retries without a departure, solo, player 1
 departing and the final player, four players, and a disconnect before the signon. The simulation shows the rules; only
 `native_split_2p_leave` can show the game takes these paths.
+
+### 15.16 The twelfth run's cleanup crash; the cleanup's guest calls; ownership diagnostics (2026-11-11; static only, not run)
+
+The twelfth run (b6de6e0, `native_split_2p_leave`) showed the departure and the reconnect hold working: two leaves
+removed once each, two fresh rejoins (userids 3 and 4). Then it crashed with SIGSEGV in the third leave's cleanup.
+
+**The crash.** RemovePlayer called the destructor 0x1BAD90 of the object at 0x552CA8 with edi set to the object (since
+8f52386). The destructor reads esi: `lea ebx, [esi+0x414]` comes before any write to esi. Both of the title's callers
+set it: 0x1BAE40 / 0x1A6C80 do `mov esi, [0x552CA8]; mov edi, esi; call 0x1BAD90`. edi is only their copy for the free
+after it; it is callee-saved and never read by 0x1BAD90. The full contract, from the instructions:
+- esi is the only register input. Nothing is on the stack, and a plain `ret`.
+- It saves ebx, ebp and edi and does not write esi. eax, ecx and edx are clobbered by free.
+- It frees the lists at +0x414 and +0x410, and through 0x1BACF0 (ebx = +0x418) the nodes and their +0x18 buffers. It
+  frees the buffers at +0x430, +0x434 and +0x438 and zeroes each field.
+
+The hook ran at the frame's end, 0x5D54A in _Host_Frame. _Host_Frame zeroes esi at 0x5D2E4, and nothing writes it
+before 0x5D54A: every function it calls keeps esi, and CallGuest restores the registers. So esi was 0 at every leave,
+and the destructor's first read faulted at 0x414.
+
+**The first two leaves did not run it.** With esi 0 it faults on its first read, so had it run in leaves 1 and 2 they
+would have crashed too. In both, the object was kept: each leave logged one "kept: named by another" and one
+"kept: a shared kind". So no memory was corrupted by the wrong register. In the third leave the object was its own and
+named by nobody, so the call was made.
+
+**The correction.** native_split_lifecycle.h kCleanupCalls lists every guest call the cleanup makes, each with its
+contract:
+
+| call | function | registers | stack | ret | vtable | frees | shared state |
+|---|---|---|---|---|---|---|---|
+| SV_DropClient | 0x5C600 | none | 4 (client, crash, "%s", reason) | ret | — | yes (its entity's) | the server's slot |
+| free | 0x22C609 | none | 1 | ret (SEH frame 0x22E53C) | — | yes | no |
+| 0x552C70's deleting destructor | 0x1A7AE0 | ecx | 1 (the flag) | ret 4 | 0x35EB78 | yes, and its 8 objects at +0x1C..+0x38 through their own vtables (0x1A78B0) | no |
+| 0x552C9C's deleting destructor | 0x1B6980 | ecx | 1 | ret 4 | 0x361C8C | yes (its list at +0xC, linked by +0x144) | no |
+| 0x552CA8's destructor | 0x1BAD90 | esi | 0 | ret | — | yes | no |
+| a delta slot's free | 0x45670 | esi (the slot, as 0x2FBAD) | 0 | ret | — | yes | no |
+
+- **One way to call.** RemovePlayer calls the title only through CallCleanup. It sets exactly the contract's registers
+  to the object and pushes exactly its arguments. CallGuest puts back every register and esp afterwards, so a callee's
+  pops never reach the caller.
+- **Vtable calls.** A vtable call is made only when the object's vtable is the one its constructor stores. Its target
+  is the contract's function, never one read from guest memory.
+- **0x552C70's objects.** 0x552C70 is deleted only when each of its eight objects is absent or released by the same
+  rule (its own, of the owned kind, named by nobody else). Otherwise it is kept whole.
+- **A refused call.** A call that would not meet its contract is not made. The object is kept and an error logged
+  (`[own:cleanup-refused]`).
+
+Every free the destructors make still goes through NativeSplitHeapFree: never another owner's block, and never a block
+named elsewhere.
+
+tools/guest_regs.py reads a function's contract from its instructions. It finds the registers read before being
+written on some path (a liveness over its branches, its direct calls folded in, prologue saves and the C runtime's SEH
+frame understood). It also finds the stack dwords read, the ret's pops, and the callee-saved registers changed.
+tests/guest_call_contract_test.py checks each entry against the instructions, and checks the following:
+- the title's own call sites set the same registers;
+- the vtables' slot 0 and their constructors;
+- that RemovePlayer has no other guest call;
+- that _Host_Frame's esi is 0 at 0x5D54A;
+- that the old contract (0x1BAD90 with edi) is refused.
+
+**The blocked foreign free** (65.089 s, the third join, between the HUD's video initialisation and R_NewMap). Player 2
+would have freed block 0x00C93FF0, recorded as the process's initialisation, at free's call 0xB5329 in 0xB52B0. That
+is the title's vector grow: {count, capacity, data} in ebx. It allocates the new buffer at 0xB52DA, copies, then frees
+the old [ebx+8]. 0xB52B0 has 28 call sites. Most grow vectors inside objects; four pass a constant header.
+
+| header | what | appended by |
+|---|---|---|
+| 0x553844 | the VGUI text-image cache | 0xB4AC0, reached through a vtable; its records keyed by a font or image id and the generation 0x552024 |
+| 0x5620A8 | the VGUI font list | 0x10CC00, which every new font passes through; ids from 0x37BAC0 |
+| 0x384B60 | a static vector | — |
+| 0x384D28 | a static vector | — |
+
+None of the four headers is in a player's regions. The region model calls 0x5620A8 shared-mutable only by its
+fallback reason ("its writers are not reached statically").
+
+What explains the free is a process-wide VGUI vector appended in player 2's turn. Each join's fonts and text images are
+new entries, so a vector that only grows crosses a capacity (a doubling) at some join, here the third. The grow then
+runs in player 2's turn: the new buffer is player 2's, the vector stays on it, and the process's old buffer is the
+foreign free the guard refused. That makes it a lifecycle defect of its own (case 5), not one of the other cases:
+- **Not the destructor.** That never ran in leaves 1 and 2, and the free came before leave 3.
+- **Not a stale player 2 pointer.** The vector's header is the process's, not a context's.
+- **Not a reclassification.** The guard was right: the block was not player 2's.
+
+It cannot be told statically which of the two VGUI vectors it was. Its return address is the only one logged, shared by
+all 28 call sites. The block's low address (0x00C9xxxx, beside the twelfth run's process blocks; player blocks were at
+0x020xxxxx) suggests the process's own start-up rather than an earlier player's leftover.
+
+A related case was also found. Blocks::Orphan hands a leaving player's unreleased blocks to the process, so a later
+foreign free of a block left behind by an earlier player 2 was also logged as "the process's initialisation".
+
+The guard stays strict, and nothing is reclassified. The diagnostics are now:
+- **Where a block came from.** A block's `left_by` records the player that left it. A foreign free names it ("the
+  process (left behind by player 2)") and the block's size, site and serial. For the first eight it also logs the
+  registers and the guest stack's return addresses; in the grow, ebx is the vector's header.
+- **The shared-vector watch.** WatchSharedVectors reports, as a warning (`[watch:shared-vector]`), any of the four
+  vectors whose buffer is a player's or left behind by one. It runs in every report and after every leave.
+- **Double frees.** A free of a known block's start that was freed and not allocated again since is skipped and logged
+  (`[own:free-double]`).
+- **Stale references.** A fresh context's initialisation scans its regions for words naming a block a departed player
+  left behind (`[own:stale-left]`). They are reported, not failed: such a block is kept and never freed while named, so
+  there is no use after a free.
+
+Correcting the vectors themselves (making a player's VGUI fonts and text images its own, or growing the shared vectors
+as the process) needs the vectors identified first. The next run's foreign-free line (ebx) or the watch will do that.
+
+**Retention.** Both leaves left 2708 objects (930,443 bytes). The cleanup releases only the six kinds of object above;
+everything else player 2 owns is handed to the process as a reported leak. PlanRollback is conservative and
+transitive: it keeps anything named by the shared data or another context's regions, anything named by another owner's
+block, and then anything a kept block names. So a few process-wide roots keep almost everything: 2638 of the 2708
+blocks were "named by another".
+
+The 1264 blocks from 0xB52DA are vector buffers. They are what 0xB52B0 allocates for the VGUI objects' own vectors
+(0x10A4E0 makes four in each; 0x10EA50 and others more). The process-wide VGUI lists above name those objects. The
+wrong register did not add to this: the destructor never ran.
+
+The string-intern pool's search key 0x5622B0 keeps the last find's string. It can name one of a leaving player's
+blocks, which the scan then keeps (§15.14). The run did not log it on its own, so whether it did is not known.
+LogRetention now traces each kept block back to its root and logs, per leave, the reasons and the twelve roots that
+keep the most. A root is a word of the shared data (the search key named), another owner's block (its site), or a
+shared kind. It also logs whether the search key names one of the leaving player's blocks.
+
+No bulk freeing was added and rollback releasing stays off. The leak stays, bounded by LeakBudget (8 MB, about eight
+leaves at this size).
+
+**Failure detection.** The leave scenario's foreign-free pattern expected "would free block". The twelfth run's line
+reads "would free (skipped: …) block", so the scenario passed that step. Every ownership error now carries a stable
+tag, and all three native split-screen scenarios fail on `\[own:[a-z-]+\]`:
+
+| tag | line |
+|---|---|
+| `[own:free-foreign]` | a foreign free done |
+| `[own:free-blocked]` | a foreign free refused |
+| `[own:free-double]` | a block freed a second time (skipped) |
+| `[own:realloc-foreign]` | realloc moved another owner's block |
+| `[own:ui-free]` | the shared front end would free a player's block |
+| `[own:destroy-foreign]` | a player would destroy another's object |
+| `[own:protected]` | a player's initialisation changed protected start-up state, or broke the string-intern pool |
+| `[own:guard-write]` | the server frame wrote client state (CSX_CTX_GUARD) |
+| `[own:not-own]` | a new player's object names another's |
+| `[own:boot-pointer]` | the boot image holds a heap pointer |
+| `[own:stale-left]` | a fresh context names a block a departed player left behind |
+| `[own:cleanup-refused]` | a cleanup guest call refused by its contract |
+
+The scenarios keep text patterns for the same lines from older binaries, with the free pattern corrected.
+tests/scenario_ownership_test.py feeds lines through each scenario's patterns, read as tools/drive.py reads them:
+- the twelfth run's line verbatim (it fails now; the old pattern missed it);
+- an untagged line of each kind;
+- a line made from every tagged format in the source;
+- a passing leave's lines, which must not fail it.
+
+It also checks that every tag is listed above.
+
+**Tests (no game).**
+- **tests/native_split_lifecycle_test.cpp, simulated.** CleanupCalls covers the contract table and its refusals,
+  including the twelfth run's edi-only call, and 0x552C70's objects rule. RepeatedLeaves runs three leave/rejoin cycles
+  over one heap with the run's pattern: a process vector grown in player 2's turn is refused each time, first as the
+  process's buffer, then as one left behind. It also covers:
+  - removal exactly once, and no foreign free done;
+  - player 1's and the process's blocks untouched;
+  - released + left behind = what it owned;
+  - left_by set; the stale-name scan; double-free tracking.
+- **tests/guest_call_contract_test.py, static.** The contracts against the original instructions.
+- **tests/scenario_ownership_test.py.** The scenarios' detection.
+
+None of these shows the game taking these paths; only `native_split_2p_leave` can.

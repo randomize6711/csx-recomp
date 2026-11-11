@@ -25,7 +25,17 @@ expect log native split: the shared front end, driven by player 2:
 expect nolog native split: the server shuts down
 expect nolog native split: the session ended
 expect nolog native split: the frame was cut short
-expect nolog native split: (player [0-9]|the process) (frees|would free) block
+# ownership violations (docs 15.16): every one carries a stable [own:...] tag; the text patterns below catch the same
+# lines from a binary built before the tags
+expect nolog \[own:[a-z-]+\]
+expect nolog native split: (player [0-9]|the process) (frees|would free)( \([^)]*\))? block
+expect nolog native split: .* moves block 0x
+expect nolog native split: the shared front end would free block
+expect nolog native split: player [0-9] would destroy
+expect nolog native split: .* frees block 0x[0-9A-F]+ a second time
+expect nolog native split: the cleanup does not call
+expect nolog client context guard: the server frame wrote
+expect nolog native split: player [0-9].s initialisation (changed protected start-up state|broke the string-intern pool)
 expect nolog \] \[error\] \[[^]]*\] native split:
 expect nolog local server: starting
 expect nolog Host_Error

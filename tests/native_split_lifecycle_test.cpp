@@ -760,6 +760,129 @@ static void Voice() {
     Check(ch[0].owner == heapown::kProcess, "player 2 leaving owns no channel to release");
 }
 
+// ---- the cleanup's guest calls and repeated leaves (docs 15.16; simulated: no game, no guest code) ----------------
+
+static void CleanupCalls() {
+    for (size_t i = 0; i < kCleanupCallCount; i++)
+        Check(size_t(kCleanupCalls[i].id) == i, "the contract table in CleanupFn's order (Contract() indexes it)");
+    const CleanupCall& d = Contract(CleanupFn::Destroy552CA8);
+    Check(d.fn == 0x1BAD90 && d.regs == kRegEsi && d.args == 0, "0x1BAD90: esi the object, nothing on the stack");
+    Check(MeetsContract(d, kRegEsi, 0) && MeetsContract(d, kRegEsi | kRegEdi, 0), "esi set: met (edi too is harmless)");
+    Check(!MeetsContract(d, kRegEdi, 0), "the twelfth run's call (edi only): refused");
+    Check(!MeetsContract(d, kRegEsi, 1), "an argument too many: refused");
+    const CleanupCall& v = Contract(CleanupFn::Delete552C70);
+    Check(v.regs == kRegEcx && v.args == 1 && v.pops == 4 && v.vtable == 0x35EB78, "thiscall: ecx, the delete flag, ret 4");
+    Check(!MeetsContract(v, 0, 1) && MeetsContract(v, kRegEcx, 1), "a thiscall without ecx: refused");
+    Check(VtableMatches(v, 0x35EB78) && !VtableMatches(v, 0x361C8C) && !VtableMatches(v, 0),
+          "a vtable call only on its constructor's vtable");
+    Check(VtableMatches(Contract(CleanupFn::Free), 0x12345678), "a direct call has no vtable to match");
+    for (size_t i = 0; i < kCleanupCallCount; i++) {
+        int bits = 0;
+        for (uint8_t r = kCleanupCalls[i].regs; r; r &= uint8_t(r - 1)) bits++;
+        Check(bits <= 1, "every cleanup call takes at most one register (the object)");
+    }
+    Release ok[8] = {Release::Release, Release::None, Release::None, Release::None,
+                     Release::None,    Release::None, Release::None, Release::Release};
+    Check(ChildrenReleasable(ok, 8), "0x552C70's objects absent or its own: it is deleted");
+    for (Release r : {Release::NotOwn, Release::SharedKind, Release::Referenced}) {
+        Release one[8] = {Release::Release, r, Release::None, Release::None,
+                          Release::None,    Release::None, Release::None, Release::None};
+        Check(!ChildrenReleasable(one, 8), "one of its objects kept: 0x552C70 kept whole");
+    }
+}
+
+// three leaves and rejoins of player 2 over one heap: the run-12 pattern (a process-wide vector grown in its turn)
+static void RepeatedLeaves() {
+    heapown::Blocks b;
+    std::map<uint32_t, uint32_t> mem;  // guest words
+    const uint32_t kVec = 0x5620A8, kProc = 0x00C93FF0, kP1 = 0x01000000;
+    b.Allocated(kProc, 64, heapown::kProcess, 0xB52DA);  // the process's vector buffer (its initialisation)
+    b.Allocated(kP1, 32, 0, 0x1000);                       // player 1's object
+    mem[kVec + 8] = kProc;
+    Players p = With(2);
+    size_t left_total = 0, blocked = 0, foreign_done = 0, removals = 0;
+    LeakBudget lb;
+    uint32_t next = 0x02000000;
+    for (int cycle = 0; cycle < 3; cycle++) {
+        // its turn: its objects, one named by nobody, one by the shared data, one grown vector buffer
+        uint32_t own = next, named = next + 0x100, buf = next + 0x200;
+        next += 0x1000;
+        b.Allocated(own, 16, 1, 0x2E2E0);
+        b.Allocated(named, 16, 1, 0x1A6E0F);
+        mem[0x36E000 + 4 * uint32_t(cycle)] = named;
+        // the vector's grow in its turn: its new buffer, the old one's free refused when not its own
+        uint32_t old = mem[kVec + 8];
+        b.Allocated(buf, 128, 1, 0xB52DA);
+        mem[kVec + 8] = buf;
+        const heapown::Block* ob = b.At(old);
+        if (ob && heapown::SkipFree(ob->owner, 1)) {
+            blocked++;
+            Check(cycle == 0 ? ob->left_by == -2 : ob->left_by == 1,
+                  "the refused buffer: the process's own first, then one an earlier player 2 left behind");
+        } else if (ob) {
+            b.Freed(old);
+        }
+        // the leave: removed exactly once
+        Check(p.Leave(1) && !p.Leave(1), "a leaving player is removed once (a second Leave does nothing)");
+        removals++;
+        auto plan = heapown::PlanRollback(
+            b, 1,
+            [&](auto f) {
+                for (auto& [a, v] : mem)
+                    if (a < 0x01000000) f(a, v);
+            },
+            [&](uint32_t va) { auto it = mem.find(va); return it == mem.end() ? 0u : it->second; });
+        size_t total = 0, released = 0, kept = 0;
+        b.ForEach([&](uint32_t, const heapown::Block& x) {
+            if (x.owner == 1) total += x.size;
+        });
+        std::set<uint32_t> keep;
+        for (auto& r : plan.keep) keep.insert(r.va), kept += r.size;
+        for (auto& r : plan.release) {
+            // its own frees only (as NativeSplitHeapFree): never another owner's block
+            const heapown::Block* x = b.At(r.va);
+            if (!x || heapown::FreeIsForeign(*x, 1)) {
+                foreign_done++;
+                continue;
+            }
+            released += x->size;
+            b.Freed(r.va);
+        }
+        Check(keep.count(named) && keep.count(buf) && !keep.count(own), "the named and the vector's buffer kept; its own freed");
+        auto [n, bytes] = b.Orphan(1);
+        Check(bytes == kept && released + bytes == total, "released + left behind = everything it owned (accounting)");
+        Check(b.At(buf) && b.At(buf)->owner == heapown::kProcess && b.At(buf)->left_by == 1,
+              "the kept buffer handed to the process, marked left behind by player 2");
+        lb.Left(bytes);
+        left_total += bytes;
+        Check(b.At(kP1) && b.At(kP1)->owner == 0 && b.At(kProc) && b.At(kProc)->owner == heapown::kProcess,
+              "player 1's object and the process's buffer untouched by the cleanup");
+        p.Released(1);
+        // the rejoin: a fresh context (no heap pointer from the boot image), then its initialisation
+        Check(p.Begin(1, 1, "Player 2") && p.Initialised(1) && p.Joined(1), "player 2 joins again in the slot");
+        std::vector<heapown::Span> spans = {{0, 0x750000, 16}};
+        std::map<uint32_t, uint32_t> fresh;
+        auto read = [&](uint32_t va) { auto it = fresh.find(va); return it == fresh.end() ? 0u : it->second; };
+        Check(heapown::LeftBehindNames(spans, b, read).empty(), "a fresh context names nothing left behind");
+        fresh[0x750004] = named + 4;  // a stale name of what an earlier player 2 left
+        auto stale = heapown::LeftBehindNames(spans, b, read);
+        Check(stale.size() == 1 && stale[0].va == 0x750004 && stale[0].block == named, "a stale name found: its word and block");
+        fresh[0x750004] = kP1;
+        Check(heapown::LeftBehindNames(spans, b, read).empty(), "player 1's object is not a left-behind one");
+    }
+    Check(removals == 3 && blocked == 3 && foreign_done == 0, "three cycles: every foreign free refused, none done");
+    Check(lb.leaves == 3 && lb.left_behind == left_total && lb.MayJoin(), "what was left behind summed over the leaves");
+    // a double free: a block freed, then freed again before any allocation reuses the address
+    heapown::Blocks d;
+    d.Allocated(0x3000000, 8, 1);
+    Check(d.Freed(0x3000000) == 1 && d.WasFreed(0x3000000) && !d.At(0x3000000), "freed once: remembered");
+    d.Allocated(0x3000000, 8, 1);
+    Check(!d.WasFreed(0x3000000), "the address allocated again: a later free is not a double one");
+    Check(d.Moved(0x3000000, 0x3001000, 16, 1) && d.WasFreed(0x3000000) && !d.WasFreed(0x3001000),
+          "a moved block's old address freed, its new one live");
+    Check(!d.WasFreed(0x3002000), "an address never known: not a double free");
+}
+
 int main() {
     Routing();
     Queues();
@@ -770,6 +893,8 @@ int main() {
     Sessions();
     SameFrameReconnect();
     CleanupRules();
+    CleanupCalls();
+    RepeatedLeaves();
     Voice();
     std::printf("%d checks, %d failed\n", checks, failed);
     return failed ? 1 : 0;

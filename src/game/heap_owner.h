@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <cstring>
 #include <map>
+#include <set>
 #include <utility>
 #include <vector>
 
@@ -54,6 +55,7 @@ struct Block {
     uint64_t serial = 0;  // the allocation's number: a later block at the same address is a different object
     uint32_t site = 0;    // the code that asked for it (the caller's return address)
     Kind kind = Kind::Owned;
+    int left_by = -2;     // a player's block handed to the process when it left (Orphan): that player; else kNone (-2)
 };
 
 class Blocks {
@@ -61,6 +63,7 @@ public:
     void Allocated(uint32_t va, uint32_t size, int owner, uint32_t site = 0, Kind kind = Kind::Owned) {
         if (!va) return;
         blocks_[va] = {size ? size : 1, owner, ++serial_, site, kind};
+        freed_.erase(va);
     }
     // the block freed; its owner, or kNone when the address was not a known block's start
     static constexpr int kNone = -2;
@@ -69,8 +72,11 @@ public:
         if (it == blocks_.end()) return kNone;
         int owner = it->second.owner;
         blocks_.erase(it);
+        freed_.insert(va);
         return owner;
     }
+    // a known block's start freed and not allocated again since (a second free of it: a double free; docs 15.16)
+    bool WasFreed(uint32_t va) const { return freed_.count(va) != 0; }
     // the block holding va (its start), or 0
     uint32_t Holding(uint32_t va) const {
         auto it = blocks_.upper_bound(va);
@@ -112,6 +118,8 @@ public:
         }
         Block b = it->second;
         blocks_.erase(it);
+        if (old_va != new_va) freed_.insert(old_va);
+        freed_.erase(new_va);
         b.size = size ? size : 1;
         b.serial = ++serial_;
         blocks_[new_va] = b;
@@ -126,12 +134,14 @@ public:
                 n++;
                 bytes += b.size;
                 b.owner = kProcess;
+                b.left_by = owner;
             }
         return {n, bytes};
     }
 
 private:
     std::map<uint32_t, Block> blocks_;
+    std::set<uint32_t> freed_;  // known blocks' starts freed since and not allocated again
     uint64_t serial_ = 0;
 };
 
@@ -243,6 +253,23 @@ struct StartupGap {
 };
 constexpr uint32_t kImageLo = 0x10000, kImageHi = 0x7D6F20;  // the XBE's code and data
 inline bool IsImageAddress(uint32_t v) { return v >= kImageLo && v < kImageHi; }
+
+// the words of a player's regions (read live) naming a block a player that has left handed to the process (Orphan:
+// left_by): a fresh context's reference to an earlier player's objects, stale (docs 15.16). A block the process made
+// itself (left_by kNone) is not one: a shared registry's entry
+template <typename Read>
+std::vector<Pointer> LeftBehindNames(const std::vector<Span>& spans, const Blocks& blocks, Read read) {
+    std::vector<Pointer> out;
+    for (const Span& sp : spans) {
+        for (uint32_t va = (sp.va + 3) & ~3u; va + 4 <= sp.va + sp.size; va += 4) {
+            uint32_t v = read(va);
+            uint32_t start = v < 0x10000 ? 0 : blocks.Holding(v);
+            const Block* b = start ? blocks.At(start) : nullptr;
+            if (b && b->left_by >= 0) out.push_back({sp.offset + (va - sp.va), va, v, start, b->serial});
+        }
+    }
+    return out;
+}
 
 // boot and reference are copies (the regions end to end); mine(va) reads the new player's word at a guest address;
 // heap pointers are left to the object check (HeapPointers)
