@@ -159,6 +159,14 @@ inline Registration EngineCommandPolicy(bool another_players_init) {
     return another_players_init ? Registration::Skip : Registration::Register;
 }
 
+// the client game's IN_Init (0x19DF20: HUD_Init 0x18B800 -> InitInput 0x190690 -> 0x19E660, which jumps to it) also
+// stores two fields of the one pad-to-key bridge 0x19DFD0 (docs 15.14), the process's (it follows the one physical
+// pad): its loop bound 0x543A04 (8 at 0x19DF25; dead: the bridge stores 16 at 0x19E067 before its only read at
+// 0x19E13A) and its previous button mask 0x5439B8 (cleared at 0x19DF43: the buttons held on that pad would be posted
+// down again). In another player's initialisation those two stores are skipped, the process's bridge kept; the rest of
+// IN_Init (its write-only constants) as the title
+inline bool SkipSharedPadStore(bool another_players_init) { return another_players_init; }
+
 // ---- the process's one-time start-up work (docs 15.7) --------------------------------------------------------------
 
 // A lazily initialised process constant a new player's steps would otherwise set first, in that player's

@@ -20,6 +20,12 @@ run: player 2 left at client state 4; 126 cross-player frees in the shared score
      called only at 0x5D46C in the client half, the channel and data calls of CL_ParseVoiceData; the two setjmp sites
      and their `test eax, eax`; every lifecycle hook in config/game.toml (NativeSplitCbufExecute before PcKeysFrame at
      0x3BB50) and in the generated code.
+  4. the shared-state audit (15.14): the pad bridge's loop bound 0x543A04 (IN_Init's 8 never read: the bridge stores
+     16 before its only read) and its button mask 0x5439B8, written only by IN_Init and the bridge, IN_Init reached only
+     from InitInput's 0x19E660, the two stores' hooks; the health HUD's damage icon size 0x548F34 / 0x548F38 written
+     only by its Init and VidInit, a player's region; the string-intern pool's search key 0x5622B0 written only by the
+     intern before its find, read only by the less functions; the console ring 0x744060 (201 lines of 0x4E) and its
+     positions 0x551914..0x55191C named only by the console's code, in no player region and not protected.
 Needs build/gen/game (your own XBE); without it the checks are skipped with a note. No game is started.
 
 Usage: python3 -I tests/native_split_turns_test.py
@@ -281,6 +287,97 @@ def lifecycle(funcs, cl, regs, text):
         check(f'goto {target};' in text and f'{target}:' in text, f'the skip target {target} exists')
 
 
+def refs(funcs, lo, hi):
+    """every instruction naming an address in [lo, hi): {(fn, at, text)}"""
+    out = set()
+    for fn, ins in funcs.items():
+        for a, s in ins:
+            for m in re.findall(r'0x([0-9A-F]{6,8})\b', s):
+                if lo <= int(m, 16) < hi:
+                    out.add((fn, a, s))
+    return out
+
+
+def protected():
+    inc = open(os.path.join(ROOT, 'src', 'game', 'client_context_protected.inc')).read()
+    return [(int(a, 16), int(n, 16)) for a, n in re.findall(r'^\{0x([0-9A-F]+), 0x([0-9A-F]+),', inc, re.M)]
+
+
+def shared_audit(funcs, cl, regs, text):
+    """docs 15.14: the tenth run's four unexplained shared changes and the console ring, against the generated code"""
+    prot = protected()
+    every = {}
+    for fn, ins in funcs.items():
+        for a, s in ins:
+            every.setdefault(a, s)
+    # 1. the pad bridge's loop bound 0x543A04: IN_Init's 8 is never read
+    r = {(a, s) for _, a, s in refs(funcs, 0x543A04, 0x543A08)}
+    check(r == {(0x19DF25, 'mov dword ptr [0x00543A04], 0x08'), (0x19E067, 'mov dword ptr [0x00543A04], 0x10'),
+                (0x19E13A, 'mov eax, [0x00543A04]')},
+          f'0x543A04: IN_Init stores 8, the bridge stores 16 and reads it, nothing else ({sorted(hex(a) for a, _ in r)})')
+    body = dict(funcs.get(0x19DFD0, []))
+    early = [(a, x) for a, x in body.items() if a < 0x19E067]
+    targets = [int(m, 16) for _, x in early for m in re.findall(r'^j[a-z]+ 0x([0-9A-F]{8})$', x)]
+    check(body and all(t <= 0x19E067 for t in targets) and 0x19E067 < 0x19E13A in body,
+          'the bridge 0x19DFD0 stores 16 on every path before its only read (no branch before 0x19E067 passes it)')
+    check(not any(t in (0x19E070, 0x19E071) or 0x19E067 < t <= 0x19E13A for t in cl if t != 0x19DFD0),
+          'nothing calls into the bridge past its entry')
+    to_in_init = {a for a, x in every.items() if re.match(r'(call|jmp|j[a-z]+) 0x0019DF20$', x)}
+    check(to_in_init == {0x19EA9E} and every.get(0x19EA9E) == 'jmp 0x0019DF20',
+          f'IN_Init 0x19DF20 is reached only by the jump at 0x19EA9E (0x19E660\'s) ({sorted(hex(a) for a in to_in_init)})')
+    check(every.get(0x190C0C) == 'call 0x0019E660', 'InitInput calls 0x19E660 at 0x190C0C')
+    # 2. the bridge's previous button mask 0x5439B8
+    w = {a for a, v in abs_writes([(a, s) for a, s in every.items()]) if v == 0x5439B8}
+    check(w == {0x19DF43, 0x19E149}, f'0x5439B8 is written only by IN_Init and the bridge ({sorted(hex(a) for a in w)})')
+    for at, want, nxt in ((0x19DF25, 'mov dword ptr [0x00543A04], 0x08', 0x19DF2F),
+                          (0x19DF43, 'mov dword ptr [0x005439B8], 0x00', 0x19DF4D)):
+        check(every.get(at) == want and nxt in every, f'IN_Init\'s store at 0x{at:X} ({want}); the next instruction 0x{nxt:X}')
+    hl = all_hooks()
+    for w in ((0x19DF25, 'NativeSplitPadBridgeStore', '0x19DF2F'), (0x19DF43, 'NativeSplitPadBridgeStore', '0x19DF4D')):
+        check(w in hl, f'hook {w}')
+    check('NativeSplitPadBridgeStore(ctx, base)' in text, 'NativeSplitPadBridgeStore is in the generated code')
+    for target in ('loc_0019DF2F', 'loc_0019DF4D'):
+        check(f'goto {target};' in text and f'{target}:' in text, f'the skip target {target} exists')
+    for va in (0x543A04, 0x5439B8):
+        check(not in_regions(va, regs), f'0x{va:X} is the process\'s (no player region)')
+    # 3. the health HUD's damage icon size 0x548F34 / 0x548F38: a player's
+    r = {(a, s) for _, a, s in refs(funcs, 0x548F34, 0x548F3C)}
+    check({a for a, s in r if s.startswith('mov [')} == {0x1D3A32, 0x1D3A38, 0x1D3B14, 0x1D3B27},
+          'giDmgHeight / giDmgWidth are written only by the health HUD\'s Init and VidInit')
+    check({a for a, s in r if not s.startswith('mov [')} == {0x1D481F, 0x1D4951, 0x1D49B0},
+          'and read only by its damage draw')
+    check(every.get(0x1A6BC7) == 'mov dword ptr [eax+0x160], 0x35E7F4', 'gHUD+0x160 gets the health HUD\'s vtable')
+    check(in_regions(0x548F34, regs) and in_regions(0x548F38, regs) and not in_regions(0x548F3C, regs) and
+          not in_regions(0x548F30, regs), 'both are a player\'s region, exactly (the studio API before them stays the process\'s)')
+    # 4. the string-intern pool's search key 0x5622B0 / 0x5622B4
+    r = refs(funcs, 0x5622B0, 0x5622B8)
+    wr = {a for _, a, s in r if s.startswith('mov [')}
+    rd = {a for _, a, s in r if not s.startswith('mov [')}
+    check(wr == {0x115D2E, 0x115D34}, f'the search key is written only by the intern 0x115D10 ({sorted(hex(a) for a in wr)})')
+    check(rd == {0x115BA9, 0x115BB1, 0x115C29, 0x115C2F}, 'and read only by the two less functions')
+    check(every.get(0x115D3A) == 'mov dword ptr [esp+0x0C], 0xFFFFFFFF' and every.get(0x115D42) == 'call 0x00115DC0',
+          'the intern stores the key, then finds with the key node -1')
+    check(not in_regions(0x5622B0, regs), 'the search key is shared (no player region)')
+    # 5. the console's text ring and its positions: the one console's
+    ring = refs(funcs, 0x744060, 0x747D9E)
+    check({a for _, a, _ in ring} == {0x40650, 0x40665, 0x40950, 0x409DB, 0x40B79, 0x40E52},
+          f'the ring is named only by Con_Init, its line add, the scroll, the draw and condump '
+          f'({sorted(hex(a) for _, a, _ in ring)})')
+    check(every.get(0x40665) == 'cmp eax, 0x747D50' and every.get(0x40662) == 'add eax, 0x4E',
+          'Con_Init clears 200 lines of 0x4E bytes')
+    check(every.get(0x40A0D) == 'cmp esi, 0xC8' and every.get(0x40A19) == 'jle 0x00040A2D',
+          'the line add uses line 200 too (jle): 201 lines, to 0x747D9E')
+    check(every.get(0x40885) == 'call 0x000409C0' and {a for _, a in cl.get(0x409C0, set())} == {0x40885},
+          'the line add is called only by Con_Printf (0x40885)')
+    check({a for _, a in cl.get(0x40650, set())} == {0x5DB33}, 'Con_Init is called only by Host_Init (0x5DB33)')
+    w = {a for a, v in abs_writes([(a, s) for a, s in every.items()]) if v in (0x551914, 0x551918, 0x55191C)}
+    check(all(0x40650 <= a < 0x40A40 for a in w) and len(w) == 13,
+          f'the ring\'s positions are written only by the console\'s own code ({sorted(hex(a) for a in w)})')
+    for lo, n in ((0x744060, 0x3D3E), (0x551914, 0xC)):
+        check(not any(a < lo + n and lo < a + s for a, s in regs), f'0x{lo:X}+0x{n:X} is in no player region')
+        check(not any(a < lo + n and lo < a + s for a, s in prot), f'0x{lo:X}+0x{n:X} is not protected')
+
+
 def main():
     if not os.path.isdir(GEN) or not glob.glob(os.path.join(GEN, 'x86_recomp.*.cpp')):
         print('note: build/gen/game missing: the checks are skipped')
@@ -293,6 +390,7 @@ def main():
     activation(funcs, cl, regs, hk, text)
     shared_ui(funcs, cl, regs, hk, text)
     lifecycle(funcs, cl, regs, text)
+    shared_audit(funcs, cl, regs, text)
     print(f'native_split_turns_test: {checks} checks, {len(failures)} failed')
     return 1 if failures else 0
 

@@ -987,3 +987,66 @@ OBJECTS = [e for e in OBJECTS if not any(lo <= e[0] < lo + n for lo, n, _, _ in 
 for _lo, _n, _own, _why in REVIEWED_POOL:
     for _a in [a for a in AT if _lo <= a < _lo + _n]:
         del AT[_a]
+
+# docs/native_splitscreen.md 15.14: the tenth run's shared changes (player 2's initialisation, CSX_NATIVE_SPLIT_CHANGES:
+# 127 runs, tools/shared_changes.py), read and checked against the generated code (tests/native_split_turns_test.py
+# shared_audit). The console's text ring and its positions (117 of the runs) were in no object (the ring is reached
+# only through computed addresses) or labelled the server's (Con_Printf is reached from the server's code too): they
+# are the one console's, written by its own code alone. Two fields of the client's health HUD were "not reached
+# statically" (their writers are a vtable's methods): a player's. The pad bridge's two fields stay the process's; the
+# stores of IN_Init to them are skipped in another player's initialisation (native_split.cpp NativeSplitPadBridgeStore)
+_CON = ('the console (docs 15.14): one for the process, never a player\'s (no player region, not protected); '
+        'Con_Printf 0x40790 adds its text a line at a time through 0x409C0 (at 0x40885), whoever\'s steps print; ')
+REVIEWED_RUN10 = [
+    (0x744060, 0x3D3E, 'shared-mutable', _CON + 'its text ring: 201 lines of 0x4E bytes (0x744060..0x747D9E). '
+     'Con_Init 0x40650 (only from Host_Init at 0x5DB33) clears lines 0..199 (0x40660..0x4066A, bound 0x747D50); the line '
+     'add 0x409C0 copies at most 0x4E bytes into line [0x55191C] (imul 0x4E, lea [edx+0x744060] at 0x409D6..0x409DB; '
+     '0x409F0..0x40A09) and advances it with jle 200 (0x40A0D..0x40A19): line 200 (0x747D50) is used too. Readers: '
+     'the draw 0x40B76, the scroll 0x40950 ([0x747D50]), condump 0x40E52. Its only writers 0x40650 and 0x409C0'),
+    (0x551914, 0x4, 'shared-mutable', _CON + 'the ring has wrapped: set to 1 only by the line add (0x40A1D), read by '
+     'the scroll 0x40920 (0x4093B)'),
+    (0x551918, 0x4, 'shared-mutable', _CON + 'the line the view shows: Con_Init 0x40677, the line add follows the '
+     'newest line when the view is at it (0x409CB..0x409D1, 0x40A31); consoleup 0x40920 and consoledown 0x40970 '
+     'scroll it (0x40934..0x40960, 0x4098E..0x409AA)'),
+    (0x55191C, 0x4, 'shared-mutable', _CON + 'the newest line: Con_Init 0x40671, the line add 0x40A13 / 0x40A27 (0 '
+     'after line 200); read by the draw and condump (0x40E38)'),
+    (0x548F34, 0x8, 'player', 'the client\'s health HUD: giDmgHeight / giDmgWidth, the damage icons\' size. Its Init '
+     '0x1D3940 (CHudHealth vtable 0x35E7F0 +4, installed at gHUD+0x160 by 0x1A6BC7) clears both (0x1D3A32, 0x1D3A38); '
+     'its VidInit 0x1D3AD0 (+8) sets them from the player\'s sprite rectangles [0x5624C8] (0x1D3B14, 0x1D3B27); read '
+     'only by its damage draw (0x1D481F, 0x1D4951, 0x1D49B0). Each player\'s HUD sets its own: a new player\'s Init '
+     'cleared player 1\'s (the tenth run\'s changes at 0x548F34 / 0x548F38)'),
+    (0x543A04, 0x4, 'shared-mutable', 'the loop bound of the one pad-to-key bridge 0x19DFD0 (the process\'s: it '
+     'follows the physical pad, docs 15.14). Written only by IN_Init 0x19DF25 (8) and by 0x19DFD0 itself at 0x19E067 '
+     '(16), on every path before its only read (0x19E13A, the loop\'s cmp at 0x19E140): IN_Init\'s 8 is never read. '
+     'IN_Init (reached from every player\'s HUD_Init: 0x190C0C -> 0x19E660 -> jmp 0x19DF20) does not store it in '
+     'another player\'s initialisation (NativeSplitPadBridgeStore) [review 32; docs 15.14]'),
+    (0x5439B8, 0x4, 'shared-mutable', 'the previous button mask of the one pad-to-key bridge 0x19DFD0: built from the '
+     'physical pad 0x384F9C + 0xE0*[0x3852F8] (0x19DFD0..0x19E05E), compared to post key changes through [0x5431A8] '
+     '(0x19E09F, 0x19E0F9, 0x19E131), stored (0x19E149); copied by the Xbox UI 0x19E160 (0x19E1D3). IN_Init clears it '
+     '(0x19DF43); in another player\'s initialisation that store is skipped (NativeSplitPadBridgeStore): a cleared mask '
+     'would post the buttons held on player 1\'s pad down again [review 32; docs 15.14]'),
+    (0x5622B0, 0x8, 'shared-mutable', _POOL + 'the search key: the caller\'s string +0 and the pool +4, stored by the '
+     'intern 0x115D10 (0x115D2E, 0x115D34) before every find (0x115D42), read only by the less functions 0x115BA0 '
+     '(0x115BA9, 0x115BB1) and 0x115C20 (0x115C29, 0x115C2F) for the key node -1 the find passes; scratch, rewritten '
+     'before each use (its string pointer is stale after the call, never read then)'),
+]
+OBJECTS = [e for e in OBJECTS if not any(lo <= e[0] < lo + n for lo, n, _, _ in REVIEWED_RUN10)] + REVIEWED_RUN10
+for _lo, _n, _own, _why in REVIEWED_RUN10:
+    for _a in [a for a in AT if _lo <= a < _lo + _n]:
+        del AT[_a]
+
+# the shared kinds tools/shared_changes.py reports apart (docs 15.14): objects the evidence proves rewritten before
+# every use (nothing kept between two uses), so a change there is not state another player depends on. Only objects
+# whose evidence says so; any other shared-mutable object is process-wide mutable state
+SCRATCH = {
+    0x5622B0: 'the string-intern pool\'s search key (rewritten before every find)',
+    0x5BD8A8: 'the particle manager\'s view vector (rewritten by each player\'s HUD_TempEntUpdate before its pass)',
+    0x537B40: 'the client COM_Parse token (rewritten before each use within one call)',
+    0x526BE8: 'the renderer\'s texture-name scratch (rewritten before each use)',
+}
+# writer reasons that are the model's fallbacks, not evidence: an object classified only by one of these is reported as
+# unresolved by tools/shared_changes.py when a player's steps changed it (its writers were not traced)
+FALLBACK_REASONS = (
+    'its writers are not reached statically',
+    'written only through a hub or a console command',
+)

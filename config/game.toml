@@ -1170,6 +1170,18 @@ at = 0x3C760
 call = "NativeSplitAddCommand"
 on_true = "ret"
 
+# IN_Init's stores to the one pad-to-key bridge (0x19DFD0, the process's): its loop bound 0x543A04 and its previous
+# button mask 0x5439B8, skipped in another player's initialisation (docs 15.14)
+[[hook]]
+at = 0x19DF25
+call = "NativeSplitPadBridgeStore"
+on_true = 0x19DF2F
+
+[[hook]]
+at = 0x19DF43
+call = "NativeSplitPadBridgeStore"
+on_true = 0x19DF4D
+
 [[hook]]
 at = 0x1A7F7E
 call = "NativeSplitDestroy552C70"

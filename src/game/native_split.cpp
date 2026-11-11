@@ -267,6 +267,7 @@ uint64_t g_release_kept = 0;
 // the voice channels' scope (as the process; docs 15.12): its depth; run in it, not run in another context's turn
 int g_voice_scope = 0;
 uint64_t g_voice_shared = 0, g_voice_withheld = 0;
+uint64_t g_pad_stores_kept = 0;  // IN_Init's stores to the shared pad bridge skipped in another player's init
 // a scope's depth kept right when a longjmp (Host_EndGame / Host_Error) unwinds the host frames through it
 struct Depth {
     int& d;
@@ -668,10 +669,12 @@ void Report() {
     }
     LOGI("native split: the lifecycle: %llu frames cut short in a player's turn, %llu server shutdowns refused in a "
          "player's turn, %llu departures of player 1, %d leaves (%zu bytes left behind, the bound %zu); the voice channels "
-         "run as the process %llu times, withheld in another context's turn %llu; cleanup frees of a named block kept %llu",
+         "run as the process %llu times, withheld in another context's turn %llu; cleanup frees of a named block kept %llu; "
+         "IN_Init's stores to the shared pad bridge skipped in another player's initialisation %llu",
          (unsigned long long)g_aborts, (unsigned long long)g_refused_shutdowns, (unsigned long long)g_departures,
          g_leaks.leaves, g_leaks.left_behind, g_leaks.limit, (unsigned long long)g_voice_shared,
-         (unsigned long long)g_voice_withheld, (unsigned long long)g_release_kept);
+         (unsigned long long)g_voice_withheld, (unsigned long long)g_release_kept,
+         (unsigned long long)g_pad_stores_kept);
     for (sharedonce::Op op : {sharedonce::Op::WorldRenderer, sharedonce::Op::SignonUi, sharedonce::Op::Materials})
         LOGI("native split: %s: built %llu, a player's part only %llu, failed %llu, as the title %llu",
              sharedonce::Name(op), (unsigned long long)g_world.Runs(op), (unsigned long long)g_world.Skipped(op),
@@ -1257,6 +1260,16 @@ bool NativeSplitAddCommand(X86Context& ctx, uint8_t*) {
     if (nsplit::EngineCommandPolicy(g_players.Initialising() > 0) != nsplit::Registration::Skip) return false;
     LOG_FIRST(8, "native split: Cmd_AddCommand(\"%s\") skipped in another player's initialisation",
               reinterpret_cast<const char*>(kernel::HostPtr(R32(ctx.esp + 4))));
+    return true;
+}
+
+// [[hook]] at 0x19DF25 and 0x19DF43, IN_Init's stores to the shared pad bridge's loop bound 0x543A04 and previous button
+// mask 0x5439B8 (10 bytes each; native_split_core.h SkipSharedPadStore, docs 15.14). In another player's
+// initialisation (on_true the next instruction): not stored
+bool NativeSplitPadBridgeStore(X86Context&, uint8_t*) {
+    if (!nsplit::SkipSharedPadStore(g_players.Initialising() > 0)) return false;
+    g_pad_stores_kept++;
+    LOG_FIRST(2, "native split: IN_Init's store to the shared pad bridge skipped in another player's initialisation");
     return true;
 }
 

@@ -1328,3 +1328,50 @@ called harmless by the tool, and no protection was relaxed.
 after another: split-screen adds no thread and no concurrency to the pool, so the missing lock is the title's own
 (single-threaded use) and not a split-screen hazard. Not proven: the other threads' indirect calls (vtables, function
 pointers) are not followed.
+
+### 15.14 The tenth run's shared changes; the pad bridge; the console ring (2026-11-11; static only, not run)
+
+The tenth run (`native_split_2p` at 56b2a28, CSX_NATIVE_SPLIT_CHANGES=1; passed) listed every run player 2's
+initialisation changed outside the protected state: 4,770 bytes in 127 runs (the ninth: 8,595 in 1,842; the ammo HUD's
+regions of 15.13 took the most). Each was traced in the generated code (tests/native_split_turns_test.py
+shared_audit holds the facts below):
+
+| Run | What | Ownership | Correction |
+|---|---|---|---|
+| 0x7441E6 .. 0x7464A2, 115 lines | the console's text ring 0x744060: 201 lines of 0x4E (Con_Init 0x40650 clears 200, the line add 0x409C0 uses line 200 too, jle 200) | the process's | it was in no object (reached only by computed addresses): one object 0x744060 + 0x3D3E, shared-mutable |
+| 0x551918, 0x55191C | the line the console shows and its newest line (0x551914: it has wrapped) | the process's | were "server" (Con_Printf is reached from the server's code): shared-mutable, the console's |
+| 0x56212A .. 0x56213C, 5 | the string-intern pool's growth (15.8; its invariants checked in the run) | the process's | none |
+| 0x5622B0, 2 bytes | the pool's search key: stored by 0x115D10 before every find, read only by the less functions for the key node -1 | scratch | an evidence entry (was the model's fallback "a hub or a console command") |
+| 0x5BD8A8, 8 bytes | the particle manager's view vector (SetVariables before each player's pass) | scratch | none |
+| 0x548F34, 0x548F38 | the health HUD's damage icon size (giDmgHeight / giDmgWidth): Init 0x1D3940 clears it, VidInit 0x1D3AD0 sets it from the player's sprites, read only by its damage draw | **a player's** | a player region 0x548F34 + 8: player 2's Init cleared player 1's (its damage icons drew 0 wide until player 2's VidInit) |
+| 0x543A04 | the pad bridge's loop bound | the process's | IN_Init's store skipped in another player's initialisation |
+
+**The pad bridge** (0x19DFD0: the one physical pad 0x384F9C + 0xE0 * [0x3852F8] to key events, the process's; the Xbox
+UI calls it too). IN_Init 0x19DF20 is in every player's HUD_Init (0x18B800 -> InitInput 0x190690 -> 0x19E660 -> jmp
+0x19DF20). It stores the loop bound 0x543A04 = 8 and clears the previous button mask 0x5439B8. The 8 is never read: the
+bridge stores 16 at 0x19E067, on every path before its only read (0x19E13A), so the capacity at the use was 16 in every
+run, and two players did not depend on 8. The mask's clear is the real effect: the buttons held on player 1's pad when a
+player joins would be posted down again (no button was held at the tenth run's join, so the mask did not change). Both
+stores are now skipped in another player's initialisation (NativeSplitPadBridgeStore at 0x19DF25 and 0x19DF43, each to
+the next instruction; native_split_core.h SkipSharedPadStore). IN_Init's other stores are constants nothing else
+writes. The bridge stays one for the process: 4-player split-screen with each player's own pad (M4) needs the bridge per
+pad, not a different bound.
+
+**The console**: one ring and one pair of positions for the process (no player region, not protected). Every player's
+Con_Printf adds to it through 0x409C0; Con_Init runs only in Host_Init; no player's steps make a second ring.
+
+**tools/shared_changes.py** reports each run as one of five kinds: protected (process / immutable, a change is a
+violation), player (a swapped object: an error of the list), scratch (region_evidence.SCRATCH: proven rewritten before
+every use), process (process-wide mutable state) and unresolved (in no object, 'unresolved', or classified only by the
+model's fallback reasons, region_evidence.FALLBACK_REASONS: its writers were never traced). A "review" line names every
+protected, player and unresolved run. Against the corrected model the tenth run is 117 + 5 + 1 process-wide runs, 2
+scratch, 2 player (the damage icon size, now a region), 0 unresolved (tests/shared_changes_test.py).
+
+Regenerated: 96 generated regions, 770,952 bytes (117 in all, 1,551,647 bytes a player; fingerprint 493C482FED9BC3E9);
+protected ranges (D860455A35A3CD29) and taken
+addresses unchanged.
+
+**For the leave scenario**: player 2's damage icon size goes with its context; the pad bridge is never a leaving
+player's; the console's lines a leaving player printed stay in the one ring (text, no pointers). The pool's search key
+keeps the last caller's string pointer after a find: if that is a leaving player's block, the leave's reference scan
+keeps the block (a small leak, reported; never freed while named).

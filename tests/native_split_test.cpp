@@ -392,6 +392,38 @@ static void Lifecycle() {
     Check(RegisterPolicy(true, false) == Registration::Register, "a name only it registers: new");
     Check(EngineCommandPolicy(true) == Registration::Skip && EngineCommandPolicy(false) == Registration::Register,
           "Cmd_AddCommand never again after the start");
+    // docs 15.14: IN_Init's two stores to the one pad bridge (loop bound 0x543A04, previous mask 0x5439B8). A model of
+    // the bridge: the game's own IN_Init stores 8 and 0; the bridge stores 16 before reading it, then the mask
+    struct Bridge {
+        uint32_t bound = 0, mask = 0;
+        int posted = 0;  // key-downs posted for buttons newly held
+        void InInit(bool another) {
+            if (SkipSharedPadStore(another)) return;
+            bound = 8;
+            mask = 0;
+        }
+        uint32_t Poll(uint32_t pad) {  // 0x19DFD0
+            bound = 16;
+            uint32_t seen = 0;
+            for (uint32_t i = 0; i < bound; i++)
+                if ((pad & (1u << i)) && !(mask & (1u << i))) posted++, seen++;
+            mask = pad;
+            return seen;
+        }
+    };
+    Check(SkipSharedPadStore(true) && !SkipSharedPadStore(false), "IN_Init's bridge stores: skipped only in another's");
+    Bridge b;
+    b.InInit(false);
+    Check(b.bound == 8 && b.mask == 0, "player 1's IN_Init as the title");
+    b.Poll(0x8001);  // buttons 0 and 15 held on the one pad
+    Check(b.bound == 16 && b.posted == 2, "the bridge's bound is 16 at its use: button 15 is seen");
+    for (int k = 1; k < 4; k++) b.InInit(true);  // players 2..4 join while the buttons stay held
+    Check(b.bound == 16 && b.mask == 0x8001, "players 2..4's IN_Init leave the process's bridge as it was");
+    Check(b.Poll(0x8001) == 0 && b.posted == 2, "no held button posted down again after the joins");
+    Bridge t;  // as the title would have it: another player's IN_Init clears the mask
+    t.Poll(0x8001);
+    t.bound = 8, t.mask = 0;
+    Check(t.Poll(0x8001) == 2 && t.bound == 16, "without the skip the held buttons are posted again (the bound still 16)");
 }
 
 // per-player connection buffers: cls.datagram's buffer is inside cls (the per-player region), at the same address for
