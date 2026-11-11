@@ -261,6 +261,71 @@ struct ClientWatch {
     }
 };
 
+// ---- a local player's departure, pending until the frame's end (docs 15.15) ----------------------------------------
+// The eleventh run: player 2's own "disconnect" ran at the start of its turn (cls.state 1), and later in the same
+// frame its client half's CL_CheckForResend (0x298F0, called at 0x5D487) saw state 1 with the built-in server active
+// (0x29904..0x2992C) and connected it again to "localhost" in place; the frame's end only ever saw it connecting or
+// active, so it was never removed. A departure is now recorded when it is confirmed - the player's own CL_Disconnect
+// (0x28F20) ran in its own turn with the shared server kept (its "disconnect" command, svc_disconnect: a kick or a
+// drop, a connect that failed or timed out, Host_EndGame) - never when a line is only queued, and never from a
+// connection state alone. From then until the frame's end removes it (player 1: departs) the player is held: its
+// client does not connect again (CL_CheckForResend, the connect packet 0x29310), its remaining and later console
+// lines do not run. Its removal clears it, so a later join is a fresh player in an empty slot.
+enum class Leave { None, Disconnect, Kicked };
+inline const char* Name(Leave l) {
+    switch (l) {
+    case Leave::None: return "none";
+    case Leave::Disconnect: return "its own disconnect";
+    case Leave::Kicked: return "svc_disconnect (a kick or a drop)";
+    }
+    return "?";
+}
+class Departures {
+public:
+    // player k's disconnect confirmed: true when recorded now; false when it already is (a repeat, counted) or the
+    // player is not connecting or in the match (an empty, initialising, leaving or departed slot)
+    bool Mark(int k, const Players& p, Leave why) {
+        if (k < 0 || k >= kMaxPlayers || why == Leave::None) return false;
+        State s = p.At(k).state;
+        if (s != State::Connecting && s != State::Active) return false;
+        if (why_[size_t(k)] != Leave::None) {
+            repeats_++;
+            return false;
+        }
+        why_[size_t(k)] = why;
+        marks_++;
+        return true;
+    }
+    bool Pending(int k) const { return k >= 0 && k < kMaxPlayers && why_[size_t(k)] != Leave::None; }
+    Leave Why(int k) const { return k >= 0 && k < kMaxPlayers ? why_[size_t(k)] : Leave::None; }
+    // its removal done (its slot empty), or player 1 departed: the record ends (player 1's hold goes on as Departed)
+    void Clear(int k) {
+        if (k >= 0 && k < kMaxPlayers) why_[size_t(k)] = Leave::None;
+    }
+    uint64_t Marks() const { return marks_; }
+    uint64_t Repeats() const { return repeats_; }
+
+private:
+    std::array<Leave, kMaxPlayers> why_{};
+    uint64_t marks_ = 0, repeats_ = 0;
+};
+// a player's client held: its departure pending, or player 1 departed (its context stays the switcher's first and its
+// turn still runs: its client must not join again in place while the others play; the session's end frees it)
+inline bool Held(const Departures& d, const Players& p, int k) {
+    return k >= 0 && k < kMaxPlayers && (d.Pending(k) || (k == 0 && p.At(0).state == State::Departed));
+}
+// CL_CheckForResend (0x298F0) and the connect packet (0x29310) reached in a turn: skipped only for a held player's
+// client; outside the turns (the process's, a player's initialisation), solo (native split off) and for every other
+// player the title's own (its retries, its listen-server connect of a new player)
+inline bool HoldsReconnect(bool on, bool in_turn, int turn_player, const Departures& d, const Players& p) {
+    return on && in_turn && Held(d, p, turn_player);
+}
+// a player's console lines (queued, added, or the rest of a run its disconnect is in): dropped once it is held
+inline bool DropsLines(const Departures& d, const Players& p, int k) { return Held(d, p, k); }
+// the frame's end: a playing player is removed (player 1: departs) when its departure is pending, or when the watch saw
+// its client back at disconnected (a drop no CL_Disconnect of its turn recorded); otherwise it plays on
+inline bool RemoveAtFrameEnd(bool pending, bool dropped) { return pending || dropped; }
+
 // the local player whose leaving ends the server (StartsModuleValidation; the window's): the lowest one playing,
 // player 1 while it plays
 inline int SessionHost(const Players& p) {

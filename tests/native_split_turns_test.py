@@ -26,6 +26,11 @@ run: player 2 left at client state 4; 126 cross-player frees in the shared score
      only by its Init and VidInit, a player's region; the string-intern pool's search key 0x5622B0 written only by the
      intern before its find, read only by the less functions; the console ring 0x744060 (201 lines of 0x4E) and its
      positions 0x551914..0x55191C named only by the console's code, in no player region and not protected.
+  5. the same-frame reconnect (15.15): CL_CheckForResend 0x298F0 called only at 0x5D487, in the client turn after the
+     input turn a queued "disconnect" runs in; its state-1 branch (sv.active: "localhost", state 2, the connect packet
+     0x29310); every store of 2 into cls.state and how it is reached (the "connect" and "listen" commands, the multicast
+     reply), "retry" only a console line, "reconnect" idle below state 3, the connect packet's four callers; the
+     departure's hook after CL_Disconnect's store of 1; Cbuf_Execute's size re-read after each line; the two gates.
 Needs build/gen/game (your own XBE); without it the checks are skipped with a note. No game is started.
 
 Usage: python3 -I tests/native_split_turns_test.py
@@ -378,6 +383,81 @@ def shared_audit(funcs, cl, regs, text):
         check(not any(a < lo + n and lo < a + s for a, s in prot), f'0x{lo:X}+0x{n:X} is not protected')
 
 
+
+def reconnect(funcs, cl, text):
+    """docs 15.15: the eleventh run's same-frame reconnect and every way a client at cls.state 1 connects again"""
+    order = dict(funcs.get(0x5D2E0, []))
+    # CL_CheckForResend: called once a frame, in the client turn, after the input turn its disconnect ran in
+    check(cl.get(0x298F0) == {(0x5D2E0, 0x5D487)}, f'CL_CheckForResend\'s only call: 0x5D487 ({cl.get(0x298F0)})')
+    check(order.get(0x5D487) == 'call 0x000298F0' and order.get(0x5D4BC) == 'call 0x000B70D0',
+          '_Host_Frame\'s client half: CL_CheckForResend at 0x5D487, 0xB70D0 at 0x5D4BC')
+    hooks_at = {(a, c, t) for a, c, t in all_hooks()}
+    check({(0x5D3B5, 'ClientContextsMoveBegin', None), (0x5D3F0, 'ClientContextsTurnBegin', None)} <= hooks_at,
+          'the input turns start at 0x5D3B5 (its queued lines run there), the client turns at 0x5D3F0')
+    check(0x5D3B5 < 0x5D3CD < 0x5D3F0 < 0x5D487 < 0x5D4BC < 0x5D54A and all(
+        a in order for a in (0x5D3B5, 0x5D3CD, 0x5D3F0, 0x5D487, 0x5D4BC, 0x5D54A)),
+          'the order: input turn (0x5D3B5), server frame (0x5D3CD), client turn (0x5D3F0) with 0x5D487 and 0x5D4BC, '
+          'its loop-back (0x5D54A)')
+    # its state-1 branch: disconnected with the server active -> "localhost", state 2, the connect packet
+    want = {0x29904: 'mov eax, [0x007812E0]', 0x2990A: 'mov edi, 0x01', 0x2990F: 'cmp eax, edi',
+            0x29911: 'jnz 0x00029986', 0x29913: 'mov eax, [0x005EF7C0]', 0x2991C: 'jz 0x00029CB5',
+            0x2992C: 'mov dword ptr [0x007812E0], 0x02', 0x2996B: 'call 0x00029310', 0x29986: 'cmp eax, 0x02'}
+    got = dict(funcs.get(0x298F0, []))
+    check(all(got.get(a) == w for a, w in want.items()),
+          'CL_CheckForResend: state 1 and sv.active -> state 2 and the connect packet; state 2 -> its retries')
+    # every store of cls.state; the stores of 2 (a connect begun) are CL_CheckForResend's, "listen"'s and "connect"'s
+    writes = {}
+    for f, ins in funcs.items():
+        for a, s in ins:
+            if re.match(r'mov (?:dword ptr )?\[0x007812E0\], ', s):
+                writes[a] = s.split(', ')[1]
+    twos = {a for a, v in writes.items() if v == '0x02'}
+    check(twos == {0x2992C, 0x27BC2, 0x29E1C}, f'cls.state = 2 only at 0x2992C, 0x27BC2, 0x29E1C ({sorted(map(hex, twos))})')
+    check(cl.get(0x27AE0) == {(0x27BF0, 0x27C22), (0x27CE0, 0x27E4C)},
+          '0x27AE0 (0x27BC2) reached by the "listen" command and the multicast reply only')
+    regs_cmd = {}
+    for f, ins in funcs.items():
+        for i, (a, s) in enumerate(ins):
+            if s == 'call 0x0003C760' and i >= 2:
+                fn_ = re.match(r'push 0x([0-9A-F]+)$', ins[i - 2][1])
+                if fn_:
+                    regs_cmd[int(fn_[1], 16)] = a
+    check(0x29CD0 in regs_cmd and 0x27BF0 in regs_cmd and 0x29170 in regs_cmd and 0x60680 in regs_cmd,
+          '"connect" 0x29CD0, "listen" 0x27BF0, "retry" 0x29170, "reconnect" 0x60680: console commands (a held '
+          'player\'s lines never run)')
+    check(not cl.get(0x29CD0) and not cl.get(0x27BF0), 'the connect and listen commands have no direct caller')
+    retry = funcs.get(0x29170, [])
+    check(any(s == 'call 0x0003B970' for _, s in retry) and not any('0x007812E0' in s or s == 'call 0x00029310'
+                                                                  for _, s in retry),
+          '"retry" only adds a "connect" line (Cbuf_AddText): no state store, no connect packet')
+    rc = dict(funcs.get(0x60680, []))
+    check(rc.get(0x6069D) == 'jz 0x00060780' and rc.get(0x606A6) == 'jz 0x00060780' and
+          rc.get(0x606AF) == 'jz 0x00060780', '"reconnect" does nothing at cls.state 0, 1 or 2')
+    check(cl.get(0x29310) == {(0x298F0, 0x2996B), (0x298F0, 0x299D6), (0x27CE0, 0x27F1D), (0xB70D0, 0xB7130)},
+          f'the connect packet 0x29310: CL_CheckForResend, the multicast reply, 0xB70D0 ({cl.get(0x29310)})')
+    # the departure is recorded at 0x29029: after CL_Disconnect's store of state 1 (0x2901F), before the shutdown
+    d = dict(funcs.get(0x28F20, []))
+    check(d.get(0x2901F) == 'mov dword ptr [0x007812E0], 0x01' and d.get(0x29029) == 'jz 0x00029034' and
+          d.get(0x2902C) == 'call 0x0005C9D0', 'CL_Disconnect: state 1 at 0x2901F, then 0x29029 (the hook), the shutdown')
+    # Cbuf_Execute removes the line before running it and re-reads the size after: a size of 0 ends the run
+    ce = dict(funcs.get(0x3BB50, []))
+    check(ce.get(0x3BC32) == 'mov [0x00748670], ebx' and ce.get(0x3BC73) == 'call 0x0003CA10' and
+          ce.get(0x3BC84) == 'mov ebx, [0x00748670]' and ce.get(0x3BC8C) == 'jnz 0x0003BB74',
+          'Cbuf_Execute: the line taken out (0x3BC32), run (0x3BC73), the size re-read (0x3BC84)')
+    # the two gates: in config/game.toml at the functions' entries, `ret` (no arguments: plain cdecl) in the code
+    check((0x298F0, 'NativeSplitCheckResend', 'ret') in hooks_at and (0x29310, 'NativeSplitConnectPacket', 'ret')
+          in hooks_at, 'the gates\' hooks at 0x298F0 and 0x29310 (on_true "ret")')
+    check(got.get(0x298F0) == 'sub esp, 0x91C' and dict(funcs.get(0x29310, [])).get(0x29310) == 'push ebp',
+          'both gated at their first instruction (nothing pushed yet)')
+    for name in ('NativeSplitCheckResend', 'NativeSplitConnectPacket'):
+        check(f'bool hook = {name}(ctx, base);' in text and
+              re.search(re.escape(f'{name}(ctx, base);') + r'[^\n]*if \(hook\) \{ ctx\.esp \+= 4; return; \}', text),
+              f'{name}: in the generated code, its on_true a return')
+    check((0x29029, 'NativeSplitDisconnectServer', '0x29034') in hooks_at and
+          (0x30932, 'NativeSplitServerDisconnected', '0x30937') in hooks_at,
+          'the departure\'s hooks: CL_Disconnect 0x29029, svc_disconnect 0x30932')
+
+
 def main():
     if not os.path.isdir(GEN) or not glob.glob(os.path.join(GEN, 'x86_recomp.*.cpp')):
         print('note: build/gen/game missing: the checks are skipped')
@@ -391,6 +471,7 @@ def main():
     shared_ui(funcs, cl, regs, hk, text)
     lifecycle(funcs, cl, regs, text)
     shared_audit(funcs, cl, regs, text)
+    reconnect(funcs, cl, text)
     print(f'native_split_turns_test: {checks} checks, {len(failures)} failed')
     return 1 if failures else 0
 

@@ -1912,3 +1912,18 @@ call = "ClientContextsAbortLanding"
 at = 0x30932
 call = "NativeSplitServerDisconnected"
 on_true = 0x30937
+
+# a departing local player's client held until the frame's end removes it (src/game/native_split.cpp,
+# docs/native_splitscreen.md 15.15): CL_CheckForResend (0x298F0, called at 0x5D487 in the client half) would connect a
+# client at cls.state 1 to the active built-in server again in place, and the connect packet (0x29310) sends; both
+# skipped (on_true "ret": no arguments, nothing returned) only for a player whose departure is pending (or player 1
+# departed), in its own client turn
+[[hook]]
+at = 0x298F0
+call = "NativeSplitCheckResend"
+on_true = "ret"
+
+[[hook]]
+at = 0x29310
+call = "NativeSplitConnectPacket"
+on_true = "ret"

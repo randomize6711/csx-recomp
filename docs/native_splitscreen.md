@@ -1375,3 +1375,52 @@ addresses unchanged.
 player's; the console's lines a leaving player printed stay in the one ring (text, no pointers). The pool's search key
 keeps the last caller's string pointer after a find: if that is a leaving player's block, the leave's reference scan
 keeps the block (a small leak, reported; never freed while named).
+
+### 15.15 The eleventh run's same-frame reconnect; departures pending until the frame's end (2026-11-11; static only, not run)
+
+The eleventh run (`native_split_2p_leave` at db445a2) timed out at its fifteenth step: player 2's own "disconnect"
+ran in its input turn (its CL_Disconnect: cls.state 1, the server's shutdown refused), and later in the same frame its
+client turn's CL_CheckForResend (0x298F0, called only at 0x5D487) took its state-1 branch (0x29904..0x2992C: with
+sv.active 0x5EF7C0 set it copies "localhost", stores state 2 and sends the connect packet 0x29310), the same path that
+connects a new player. It came back as "Player 2<3>" (userid 3, slot 1, its own activation 4 -> 5) in its old context.
+The frame's end only samples cls.state (ClientWatch), so it never saw 1, and the player was never removed. No crash,
+trap, foreign free or shared-state change; player 1 at state 5 throughout.
+
+The frame's order (tests/native_split_turns_test.py reconnect): the input turns (0x5D3B5: a player's queued lines
+run), the server's frame (0x5D3CD), the client turns (0x5D3F0 .. 0x5D54A: 0x5D487 CL_CheckForResend, 0x5D4BC 0xB70D0,
+which can also send the connect packet), the frame's end (NativeSplitFrameEnd).
+
+**The correction** (native_split_core.h Departures, native_split.cpp):
+- A departure is recorded when it is confirmed: in NativeSplitDisconnectServer (0x29029, after CL_Disconnect stored
+  state 1 at 0x2901F), when the shutdown is refused or deferred, so only for a local player's own CL_Disconnect in its
+  own turn while the shared server stays. That covers its "disconnect" command, svc_disconnect (NativeSplitServerDisconnected:
+  the cause recorded as a kick), a connect that failed or timed out, and Host_EndGame. Not when a line is only queued,
+  never from a connection state alone (a map change's 3 and 4 between frames remove nobody), never outside the turns,
+  never for an initialising, leaving or departed slot, never with player 1 alone (its shutdown goes on: the title's own).
+  A repeat is counted and changes nothing.
+- When it is recorded, the rest of the player's console run ends (Cbuf_Execute re-reads its size at 0x3BC84 after each
+  line: the size set to 0) and its queue is dropped. From then on its lines are not added (RouteLine) or run (RunPlayerLines).
+- A held player is one whose departure is pending, or player 1 once departed: its context stays the switcher's first
+  and its turns still run, so before this correction its CL_CheckForResend would also have connected it again in
+  place. Two hooks at the functions' entries, CL_CheckForResend 0x298F0 and the connect packet 0x29310 (on_true "ret":
+  no arguments, nothing returned), skip them only in a held player's own client turn. Solo, outside the turns, for a
+  connecting player's retries and for a new player's first connect the title's code runs as before. The protocol and
+  the server are unchanged.
+- The frame's end removes a playing player when its departure is pending, or when the watch saw it at state 1 (kept for
+  a drop no CL_Disconnect in its turn recorded), once: Players::Leave allows Connecting / Active only, and RemovePlayer
+  clears the record and the queue with the slot. Player 1 departs instead (its record cleared, held as Departed); with
+  nobody else playing any more its record is dropped (the title's own). The session's end (Return0) frees player 1.
+- A later join is AddPlayer's: a new context from the boot image in the empty slot (nothing pending, an empty queue,
+  a fresh watch); its client connects through CL_CheckForResend as the first time.
+
+Other ways a client connects, reviewed: "connect" 0x29CD0 and "listen" 0x27BF0 (both store 2 after their own
+CL_Disconnect) and "retry" 0x29170 (it only adds a "connect" line) are console commands, which never run for a held
+player. "reconnect" 0x60680 does nothing at state 0..2. The multicast reply 0x27CE0 (from the connectionless packets
+0x28A40) reaches 0x27AE0 and the connect packet, which is held. The stores of 2 into cls.state are only 0x2992C,
+0x27BC2 and 0x29E1C.
+
+Tests (no game): tests/native_split_lifecycle_test.cpp SameFrameReconnect simulates the frame's order: the unfixed
+rules reproduce the run (a reconnect as userid 3, never removed), then the corrected ones cover player 2's departure and
+rejoin, player 1 throughout, a kick, repeats, the lines after a disconnect, retries without a departure, solo, player 1
+departing and the final player, four players, and a disconnect before the signon. The simulation shows the rules; only
+`native_split_2p_leave` can show the game takes these paths.

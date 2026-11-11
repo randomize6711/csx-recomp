@@ -339,6 +339,329 @@ static void Sessions() {
     }
 }
 
+// ---- the same-frame reconnect (docs 15.15): the frame's order simulated -----------------------------------------
+// SIMULATED, no game: the title's frame as the eleventh run showed it - each player's input turn (its queued lines run
+// at 0x5D3B5: a "disconnect" is its CL_Disconnect, cls.state 1), the server's frame (the dropped client's slot
+// freed), each player's client turn (CL_CheckForResend at 0x5D487: state 1 with the server active connects again to
+// "localhost", state 2 resends), then the frame's end (native_split.cpp NativeSplitFrameEnd). The rules are
+// native_split_core.h's; whether the game takes these paths is the runtime test's to show (native_split_2p_leave).
+
+struct FrameOrderSim {
+    bool fixed = true;  // false: the rules before the correction (no departure recorded, nothing held)
+    bool split = true;  // native split on (false: the title alone)
+    Players p;
+    SharedUiOwner ui;
+    ClientWatch watch[kMaxPlayers];
+    Departures dep;
+    CommandQueues q;
+    uint32_t cls[kMaxPlayers] = {5, 1, 1, 1};
+    int userid[kMaxPlayers] = {1, 0, 0, 0};
+    int contexts_made = 0, next_userid = 2, reconnects = 0, resends = 0, held = 0, removals[kMaxPlayers] = {};
+    int departures = 0, shutdowns = 0, sessions_ended = 0;
+    bool server = true, end = false, kick_next[kMaxPlayers] = {};
+    std::vector<std::pair<int, std::string>> ran;  // the lines run, by player
+    size_t dropped = 0;
+
+    // a player added between frames (native_split.cpp AddPlayer): a fresh context, its client at state 1
+    bool Add(int k) {
+        if (p.FreeSlot() != k || p.At(0).state != State::Active) return false;
+        if (!p.Begin(k, p.Count(), "P")) return false;  // client_context's Add: the next context (they stay compact)
+        contexts_made++;
+        dep.Clear(k);
+        cls[k] = 1;
+        p.Initialised(k);
+        return true;
+    }
+    // its own CL_Disconnect in its turn (the disconnect command, or svc_disconnect: kicked)
+    void Disconnect(int k, Leave why) {
+        Shutdown d = split ? ShutdownDecision(true, k, p) : Shutdown::Proceed;
+        cls[k] = 1;
+        if (d == Shutdown::Proceed) {
+            Shutdown_();
+            return;
+        }
+        if (d == Shutdown::Defer) end = true;
+        if (fixed && dep.Mark(k, p, why)) dropped += q.Drop(k);
+    }
+    void Shutdown_() {
+        if (!server) return;
+        server = false;
+        shutdowns++;
+        int n = 0;
+        auto order = TeardownOrder(p, 0, n);
+        for (int i = 0; i < n; i++) Remove(order[size_t(i)]);
+        p.Return0();
+        dep.Clear(0);
+    }
+    void InputTurn(int k) {
+        if (fixed && DropsLines(dep, p, k)) {
+            dropped += q.Drop(k);
+            return;
+        }
+        std::string lines = q.Take(k);
+        size_t at = 0;
+        while (at < lines.size()) {
+            size_t nl = lines.find('\n', at);
+            std::string line = lines.substr(at, nl - at);
+            at = nl == std::string::npos ? lines.size() : nl + 1;
+            if (fixed && DropsLines(dep, p, k)) {  // the run ends at the departure (its size set to 0)
+                dropped += line.size() + 1 + (lines.size() - at);
+                break;
+            }
+            ran.push_back({k, line});
+            if (line == "disconnect") Disconnect(k, Leave::Disconnect);
+            if (line == "connect localhost") {
+                Disconnect(k, Leave::Disconnect);
+                cls[k] = 2;
+            }
+        }
+        if (kick_next[k]) {  // svc_disconnect read in its turn
+            kick_next[k] = false;
+            Disconnect(k, Leave::Kicked);
+        }
+    }
+    void ClientTurn(int k) {
+        if (fixed && HoldsReconnect(split, true, k, dep, p)) {
+            held++;
+            return;
+        }
+        // CL_CheckForResend
+        if (cls[k] == 1 && server) {
+            cls[k] = 2;
+            reconnects++;
+        } else if (cls[k] == 2) {
+            resends++;
+        }
+        // the server's reply and the signon, in one step here: a connecting client becomes active, a new userid
+        if (cls[k] == 2 && server) {
+            cls[k] = 5;
+            userid[k] = next_userid++;
+        }
+    }
+    void Remove(int k) {
+        if (!p.Leave(k)) return;
+        removals[k]++;
+        ui.Left(k, p);
+        p.ContextRemoved(p.At(k).context);
+        p.Released(k);
+        watch[k] = {};
+        dep.Clear(k);
+        dropped += q.Drop(k);
+        userid[k] = 0;
+        cls[k] = 1;
+        if (p.At(0).state == State::Departed && p.Playing() == 0) end = true;
+    }
+    void FrameEnd() {
+        for (int k = 0; k < kMaxPlayers; k++) {
+            State s = p.At(k).state;
+            if (s != State::Connecting && s != State::Active) continue;
+            bool pending = dep.Pending(k), drop = watch[k].Dropped(cls[k]);
+            if (!(fixed ? RemoveAtFrameEnd(pending, drop) : drop)) continue;
+            if (k == 0) {
+                if (OthersRemain(p, 0)) {
+                    if (p.Depart0()) departures++;
+                    dep.Clear(0);
+                    ui.Left(0, p);
+                } else {
+                    dep.Clear(0);
+                }
+                continue;
+            }
+            Remove(k);
+        }
+        if (end) {
+            end = false;
+            for (int k = kMaxPlayers - 1; k > 0; k--) Remove(k);
+            Shutdown_();
+            sessions_ended++;
+        }
+        for (int k = 1; k < kMaxPlayers; k++)
+            if (p.At(k).state == State::Connecting && cls[k] == 5) p.Joined(k);
+    }
+    void Frame() {
+        std::vector<int> playing;
+        for (int k = 0; k < kMaxPlayers; k++)
+            if (p.At(k).state != State::Empty && p.At(k).state != State::Leaving) playing.push_back(k);
+        for (int k : playing) InputTurn(k);
+        for (int k : playing) ClientTurn(k);
+        FrameEnd();
+    }
+    void Frames(int n) {
+        for (int i = 0; i < n; i++) Frame();
+    }
+};
+
+static FrameOrderSim TwoPlaying(bool fixed = true) {
+    FrameOrderSim s;
+    s.fixed = fixed;
+    s.watch[0].Dropped(5);
+    s.Add(1);
+    s.Frames(2);
+    return s;
+}
+
+static void SameFrameReconnect() {
+    std::printf("note: SameFrameReconnect: simulated frames (no game); the runtime path is native_split_2p_leave's\n");
+    {  // before the correction: the eleventh run's failure, reproduced
+        FrameOrderSim s = TwoPlaying(false);
+        Check(s.p.At(1).state == State::Active && s.userid[1] == 2, "(unfixed) player 2 in the match, userid 2");
+        s.q.Add(1, "disconnect\n");
+        s.Frames(5);
+        Check(s.removals[1] == 0 && s.p.At(1).state == State::Active && s.userid[1] == 3 && s.reconnects == 2,
+              "(unfixed) CL_CheckForResend reconnects it in place (userid 3): never removed - the eleventh run");
+    }
+    {  // player 2 disconnects at the start of its turn; CL_CheckForResend later in the same frame
+        FrameOrderSim s = TwoPlaying();
+        int before = s.reconnects;
+        s.q.Add(1, "disconnect\n");
+        s.InputTurn(0);
+        s.InputTurn(1);
+        Check(s.dep.Pending(1) && s.dep.Why(1) == Leave::Disconnect && s.cls[1] == 1,
+              "its own disconnect at its turn's start: its departure recorded, cls.state 1");
+        Check(!s.dep.Pending(0) && s.p.At(0).state == State::Active, "player 1 not marked");
+        s.ClientTurn(0);
+        s.ClientTurn(1);
+        Check(s.held == 1 && s.reconnects == before && s.cls[1] == 1,
+              "CL_CheckForResend later in the frame: held, no reconnect, still disconnected");
+        s.FrameEnd();
+        Check(s.removals[1] == 1 && s.p.At(1).state == State::Empty && !s.dep.Pending(1),
+              "the frame's end removes it once; the record cleared");
+        s.Frames(3);
+        Check(s.removals[1] == 1, "removed exactly once (later frames nothing)");
+        Check(s.p.At(0).state == State::Active && s.cls[0] == 5 && s.userid[0] == 1 && s.server && s.shutdowns == 0,
+              "player 1 active throughout, the server kept");
+        // an explicit rejoin: a fresh context, the normal connect and signon
+        int ctx_before = s.contexts_made;
+        Check(s.Add(1) && s.p.At(1).context == 1 && s.contexts_made == ctx_before + 1 && !s.dep.Pending(1) &&
+                  s.q.Size(1) == 0,
+              "a rejoin: a new context in the empty slot, nothing pending, no queued lines");
+        s.Frames(2);
+        Check(s.p.At(1).state == State::Active && s.userid[1] == 3 && s.held == 1,
+              "it connects as the title's (not held) and joins with a new userid");
+    }
+    {  // repeated departure requests, and lines after the disconnect
+        FrameOrderSim s = TwoPlaying();
+        s.q.Add(1, "disconnect\nsay after\ndisconnect\n");
+        s.InputTurn(1);
+        Check(s.ran.size() == 1 && s.ran[0].second == "disconnect", "the lines after its disconnect in the run: dropped");
+        s.Disconnect(1, Leave::Kicked);
+        Check(s.dep.Repeats() == 1 && s.dep.Why(1) == Leave::Disconnect, "a repeated request: counted, the first cause kept");
+        s.q.Add(1, "connect localhost\n");
+        s.InputTurn(1);
+        Check(s.q.Size(1) == 0 && s.ran.size() == 1, "a held player's later lines never run");
+        s.ClientTurn(1);
+        s.FrameEnd();
+        s.FrameEnd();
+        Check(s.removals[1] == 1 && s.q.Size(1) == 0, "removed once, its queue empty");
+    }
+    {  // a kicked player (svc_disconnect: its CL_Disconnect in its turn)
+        FrameOrderSim s = TwoPlaying();
+        s.kick_next[1] = true;
+        s.Frame();
+        Check(s.removals[1] == 1 && s.reconnects == 1 && s.server && s.p.At(0).state == State::Active,
+              "a kicked player 2: held, removed, the server kept");
+    }
+    {  // normal retries when no departure is pending
+        FrameOrderSim s;
+        s.watch[0].Dropped(5);
+        s.Add(1);
+        s.server = false;  // its first connect waits (no answer yet): state 2 resent each frame
+        s.cls[1] = 2;
+        s.Frames(3);
+        Check(s.resends == 3 && s.held == 0 && s.removals[1] == 0, "a connecting player's retries: the title's, not held");
+        Players p = With(2);
+        Departures d;
+        Check(!HoldsReconnect(true, true, 1, d, p) && !HoldsReconnect(true, true, 0, d, p),
+              "nobody held without a departure");
+        d.Mark(1, p, Leave::Disconnect);
+        Check(HoldsReconnect(true, true, 1, d, p) && !HoldsReconnect(true, true, 0, d, p) &&
+                  !HoldsReconnect(true, false, 1, d, p) && !HoldsReconnect(false, true, 1, d, p) &&
+                  !HoldsReconnect(true, true, -1, d, p),
+              "held only in the departing player's own turn, with native split on");
+    }
+    {  // solo: the title's own
+        FrameOrderSim s;
+        s.split = false;
+        s.watch[0].Dropped(5);
+        s.q.Add(0, "disconnect\n");
+        s.Frame();
+        Check(s.shutdowns == 1 && !s.server && s.dep.Marks() == 0 && s.held == 0, "solo: its disconnect shuts the server, nothing held");
+        FrameOrderSim t;
+        t.watch[0].Dropped(5);
+        t.q.Add(0, "disconnect\n");
+        t.Frame();
+        Check(t.shutdowns == 1 && t.dep.Marks() == 0 && t.held == 0, "native split with player 1 alone: the title's own");
+    }
+    {  // player 1 departs while player 2 plays: no reconnect in place, ever, while the others play
+        FrameOrderSim s = TwoPlaying();
+        s.q.Add(0, "disconnect\n");
+        s.Frame();
+        Check(s.departures == 1 && s.p.At(0).state == State::Departed && s.cls[0] == 1 && s.server,
+              "player 1 departs: the server kept");
+        s.Frames(10);
+        Check(s.cls[0] == 1 && s.userid[0] == 1 && s.held >= 11 && s.p.At(1).state == State::Active &&
+                  s.p.At(1).context == 1 && s.ui.driver == 1,
+              "departed player 1 never reconnects in place; player 2 plays on, drives, not renumbered");
+        s.q.Add(1, "disconnect\n");
+        s.Frame();
+        Check(s.sessions_ended == 1 && s.shutdowns == 1 && s.p.At(0).state == State::Active && s.p.Count() == 1 &&
+                  !s.server,
+              "the final player leaves: the session ends once; player 1 the title's own again");
+        int held = s.held;
+        s.Frames(2);
+        Check(s.held == held && s.dep.Marks() == 2, "after the session's end player 1 is not held (no server to rejoin)");
+    }
+    {  // four players: 2 and 4 depart in one frame, 3 stays, a repeat ignored
+        FrameOrderSim s;
+        s.watch[0].Dropped(5);
+        for (int k = 1; k < 4; k++) {
+            s.Add(k);
+            s.Frames(1);
+        }
+        Check(s.p.Playing() == 4, "four players playing");
+        s.q.Add(1, "disconnect\n");
+        s.q.Add(3, "disconnect\ndisconnect\n");
+        s.Frame();
+        Check(s.removals[1] == 1 && s.removals[3] == 1 && s.removals[2] == 0 && s.p.At(2).state == State::Active &&
+                  s.p.At(2).context == 1 && s.p.Playing() == 2 && s.server,
+              "four: 2 and 4 removed once each, 3 plays on (its context moves down, its slot kept)");
+        Check(s.Add(1) && s.p.At(1).context == 2 && !s.dep.Pending(1), "a new player in slot 1: a fresh context");
+    }
+    {  // a disconnect during an incomplete initialisation / signon
+        FrameOrderSim s;
+        s.watch[0].Dropped(5);
+        s.Add(1);
+        s.server = false;  // no signon yet: it stays connecting
+        s.cls[1] = 2;
+        s.Frame();
+        Check(s.p.At(1).state == State::Connecting, "player 2 connecting");
+        s.server = true;
+        s.q.Add(1, "disconnect\n");
+        s.InputTurn(1);
+        Check(s.dep.Pending(1), "a connecting player's disconnect: recorded");
+        s.ClientTurn(1);
+        s.FrameEnd();
+        Check(s.removals[1] == 1 && s.p.At(1).state == State::Empty, "removed, never joined");
+        Players p;
+        p.Begin(1, 1, "P");
+        Departures d;
+        Check(!d.Mark(1, p, Leave::Disconnect) && !d.Mark(0, With(1), Leave::None), "an initialising player is never marked");
+        Players left = With(2);
+        left.Leave(1);
+        Check(!d.Mark(1, left, Leave::Disconnect) && !d.Mark(5, left, Leave::Disconnect), "nor a leaving or unknown slot");
+    }
+    {  // an ordinary temporary state never removes: a map change's reconnect (state 3 again), connecting, signon
+        FrameOrderSim s = TwoPlaying();
+        s.cls[1] = 3;
+        s.FrameEnd();
+        s.cls[1] = 4;
+        s.FrameEnd();
+        s.cls[1] = 5;
+        s.FrameEnd();
+        Check(s.removals[1] == 0 && s.dep.Marks() == 0, "states 3 and 4 between frames: not removed");
+    }
+}
+
 // ---- a leaving player's cleanup ------------------------------------------------------------------------------------
 
 static void CleanupRules() {
@@ -445,6 +768,7 @@ int main() {
     Departure();
     Watch();
     Sessions();
+    SameFrameReconnect();
     CleanupRules();
     Voice();
     std::printf("%d checks, %d failed\n", checks, failed);

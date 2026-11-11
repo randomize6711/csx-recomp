@@ -268,6 +268,12 @@ uint64_t g_release_kept = 0;
 int g_voice_scope = 0;
 uint64_t g_voice_shared = 0, g_voice_withheld = 0;
 uint64_t g_pad_stores_kept = 0;  // IN_Init's stores to the shared pad bridge skipped in another player's init
+// the departures pending until the frame's end (native_split_core.h Departures, docs 15.15): recorded at a confirmed
+// disconnect in the player's own turn; the cause of the CL_Disconnect running now (svc_disconnect's: a kick); the
+// reconnects held (CL_CheckForResend, the connect packet), the console bytes dropped for a held player, the removals
+nsplit::Departures g_departing;
+nsplit::Leave g_disconnect_cause = nsplit::Leave::Disconnect;
+uint64_t g_resends_held = 0, g_connects_held = 0, g_held_lines = 0, g_pending_removals = 0, g_watch_removals = 0;
 // a scope's depth kept right when a longjmp (Host_EndGame / Host_Error) unwinds the host frames through it
 struct Depth {
     int& d;
@@ -675,6 +681,12 @@ void Report() {
          g_leaks.leaves, g_leaks.left_behind, g_leaks.limit, (unsigned long long)g_voice_shared,
          (unsigned long long)g_voice_withheld, (unsigned long long)g_release_kept,
          (unsigned long long)g_pad_stores_kept);
+    LOGI("native split: departures: %llu recorded at a confirmed disconnect (%llu repeats), removed at the frame's end "
+         "%llu (by the watch alone %llu); a held player's reconnects skipped: CL_CheckForResend %llu, connect packets "
+         "%llu; its console bytes dropped %llu",
+         (unsigned long long)g_departing.Marks(), (unsigned long long)g_departing.Repeats(),
+         (unsigned long long)g_pending_removals, (unsigned long long)g_watch_removals,
+         (unsigned long long)g_resends_held, (unsigned long long)g_connects_held, (unsigned long long)g_held_lines);
     for (sharedonce::Op op : {sharedonce::Op::WorldRenderer, sharedonce::Op::SignonUi, sharedonce::Op::Materials})
         LOGI("native split: %s: built %llu, a player's part only %llu, failed %llu, as the title %llu",
              sharedonce::Name(op), (unsigned long long)g_world.Runs(op), (unsigned long long)g_world.Skipped(op),
@@ -814,6 +826,8 @@ void RemovePlayer(X86Context& ctx, int k) {
     g_players.ContextRemoved(p.context);
     g_players.Released(k);
     g_watch[k] = {};
+    g_departing.Clear(k);  // the slot empty: a later join there is a fresh player, its client the title's own again
+    if (size_t n = g_cmds.Drop(k)) g_cmd_dropped += n;  // nothing of it survives its removal
     g_leaks.Left(leaked_bytes);
     LOGI("native split: player %d left: its server slot dropped, %zu of its objects released, %zu left (%zu bytes), its "
          "context removed; left behind by leaving players so far %zu bytes in %d leave(s)",
@@ -835,6 +849,7 @@ void DepartPlayer1() {
     if (!g_players.Depart0()) return;
     g_departures++;
     g_watch[0] = {};
+    g_departing.Clear(0);  // held from here on as Departed (native_split_core.h Held) until the session's end
     if (size_t n = g_cmds.Drop(0)) g_cmd_dropped += n;
     g_ui.Left(0, g_players);
     g_session.host = nsplit::SessionHost(g_players);
@@ -863,6 +878,7 @@ void EndSession(X86Context& ctx) {
     bool active = R32(kSvActive) != 0;
     if (active) kernel::CallGuest(ctx, kShutdownServer, {0});
     g_players.Return0();
+    g_departing.Clear(0);
     g_session.host = 0;
     g_ui.driver = 0;
     g_watch[0] = {};
@@ -914,12 +930,22 @@ void NativeSplitFrameEnd(X86Context& ctx) {
     for (int k = 0; k < nsplit::kMaxPlayers; k++) {
         nsplit::State s = g_players.At(k).state;
         if (s != nsplit::State::Connecting && s != nsplit::State::Active) continue;
-        if (!g_watch[k].Dropped(PlayerDword(k, kClsState))) continue;
+        bool pending = g_departing.Pending(k);
+        bool dropped = g_watch[k].Dropped(PlayerDword(k, kClsState));
+        if (!nsplit::RemoveAtFrameEnd(pending, dropped)) continue;
         if (k == 0) {
-            if (nsplit::OthersRemain(g_players, 0)) DepartPlayer1();
+            if (nsplit::OthersRemain(g_players, 0)) {
+                DepartPlayer1();
+            } else if (pending) {
+                // nobody else plays any more: player 1 the title's own again (never held alone)
+                g_departing.Clear(0);
+                LOGI("native split: player 1's departure dropped: nobody else plays (the title's own player)");
+            }
             continue;
         }
-        LOGI("native split: player %d's client left the match (cls.state %u): removed", k + 1, PlayerDword(k, kClsState));
+        (pending ? g_pending_removals : g_watch_removals)++;
+        LOGI("native split: player %d's client left the match (cls.state %u): removed (%s)", k + 1,
+             PlayerDword(k, kClsState), pending ? nsplit::Name(g_departing.Why(k)) : "seen by the watch");
         RemovePlayer(ctx, k);
     }
     if (g_end_session) EndSession(ctx);
@@ -1233,6 +1259,7 @@ bool NativeSplitShutdownServer(X86Context& ctx, uint8_t*) {
         g_world.Invalidate();
         g_end_session = false;
         if (g_players.Return0()) LOGI("native split: player 1 is the title's own player again (the session ends)");
+        g_departing.Clear(0);  // nobody held once the server is gone (player 1 the title's own)
         g_session.host = 0;
         g_ui.driver = 0;
     }
@@ -1545,6 +1572,21 @@ bool NativeSplitModuleValidation(X86Context&, uint8_t*) {
     return true;
 }
 
+// a player's departure confirmed in its own turn (docs 15.15, native_split_core.h Departures): recorded once; the rest
+// of its console lines' run (the lines after its "disconnect", in the title's buffer now) and its queue dropped
+static void MarkDeparture(int k) {
+    if (!g_departing.Mark(k, g_players, g_disconnect_cause)) return;
+    size_t dropped = g_cmds.Drop(k);
+    if (g_cmd_running == k) {  // Cbuf_Execute re-reads cmd_text's size (0x3BC84) after each line: the run ends here
+        dropped += std::min(R32(kCmdSize), R32(kCmdMax));
+        W32(kCmdSize, 0);
+    }
+    g_held_lines += dropped;
+    LOGI("native split: player %d's departure recorded (%s, cls.state %u): its client does not connect again, %zu bytes "
+         "of its console lines dropped; it is removed at the frame's end", k + 1, nsplit::Name(g_departing.Why(k)),
+         R32(kClsState), dropped);
+}
+
 // [[hook]] at 0x29029 in CL_Disconnect (0x28F20), `jz` past Host_ShutdownServer (0x2902C) when sv.active is 0: on_true
 // 0x29034 (the server kept) when the disconnecting client is not the session's host: another local player's
 // disconnect (a kick, svc_disconnect, a stuffed "disconnect") ends its own connection, never the server and world the
@@ -1557,6 +1599,8 @@ bool NativeSplitDisconnectServer(X86Context&, uint8_t*) {
     if (d == nsplit::Shutdown::Defer) g_end_session = true;
     LOGI("native split: player %d's client disconnects: the built-in server keeps running (its shutdown %s)",
          ActingPlayer() + 1, nsplit::Name(d));
+    // its connection to the shared server has ended (cls.state 1 was stored at 0x2901F): its departure, confirmed
+    MarkDeparture(TurnPlayer());
     return true;
 }
 
@@ -1626,6 +1670,11 @@ bool RouteLine(X86Context&, uint32_t text, int mode) {
     int player = csx::ClientContextInTurn() ? TurnPlayer() : g_init_owner > 0 ? g_init_owner : -1;
     nsplit::Route r = nsplit::RouteText(g_cmd_running, g_ui_scope > 0 || g_voice_scope > 0,
                                         csx::ClientContextInServerFrame(), own, player);
+    if (r.origin == nsplit::Origin::Player && nsplit::DropsLines(g_departing, g_players, r.player)) {
+        // a held player's line (its own CL_Disconnect's, or anything after its departure): never run
+        g_held_lines += GuestString(text, nsplit::kQueueMax).size();
+        return true;
+    }
     g_cmd_routed[int(r.origin)]++;
     std::string s = GuestString(text, nsplit::kQueueMax);
     if (mode == 2) s = "\n" + s + "\n";
@@ -1654,6 +1703,10 @@ bool NativeSplitCbufInsertLine(X86Context& ctx, uint8_t*) { return RouteLine(ctx
 
 // player k's queued lines run now, in its own context, by the title's Cbuf_Execute (its own lines' lines with them)
 void RunPlayerLines(X86Context& ctx, int k) {
+    if (nsplit::DropsLines(g_departing, g_players, k)) {  // its departure is pending (or player 1 departed)
+        g_held_lines += g_cmds.Drop(k);
+        return;
+    }
     if (k < 0 || g_cmd_running >= 0 || !g_cmds.Size(k) || !R32(kCmdData) || R32(kCmdMax) < 2) return;
     std::string lines = g_cmds.Take(k);
     CbufSwap swap(k, lines);
@@ -1736,8 +1789,38 @@ bool NativeSplitVoiceData(X86Context& ctx, uint8_t*) {
 bool NativeSplitServerDisconnected(X86Context& ctx, uint8_t*) {
     if (!NativeSplitOn() || !csx::ClientContextInTurn() || !NativeSplitLeaveKeepsShared()) return false;
     int k = PlayerOfContext(csx::ClientContextActive());
+    g_disconnect_cause = nsplit::Leave::Kicked;  // its CL_Disconnect's departure, recorded there, is a kick's
     kernel::CallGuest(ctx, 0x28F20, {});
+    g_disconnect_cause = nsplit::Leave::Disconnect;
     LOGI("native split: player %d's server disconnected it (svc_disconnect: a kick or a drop): its client disconnects "
          "alone (cls.state %u), the others play on", k + 1, R32(kClsState));
+    return true;
+}
+
+// ---- a departing player's client held until its removal (docs 15.15) ---------------------------------------------
+
+// [[hook]] at 0x298F0, CL_CheckForResend's entry (no arguments, nothing returned; its only call at 0x5D487 in the
+// client half, in each player's client turn): on_true "ret" for a held player's client - its state-1 branch
+// (0x29904..0x2992C) would connect it to "localhost" again in place while the built-in server is active, its state-2
+// branch would resend a connect. Every other client (solo, a player connecting or retrying, a new player's first
+// connect, anything outside the turns) runs it as the title
+bool NativeSplitCheckResend(X86Context&, uint8_t*) {
+    int k = TurnPlayer();
+    if (!nsplit::HoldsReconnect(NativeSplitOn(), csx::ClientContextInTurn(), k, g_departing, g_players)) return false;
+    g_resends_held++;
+    LOG_FIRST(4, "native split: player %d's CL_CheckForResend skipped (cls.state %u): its departure is pending, it does "
+                 "not connect again", k + 1, R32(kClsState));
+    return true;
+}
+
+// [[hook]] at 0x29310, the connect packet's entry (no arguments; called by CL_CheckForResend at 0x2996B / 0x299D6, the
+// multicast reply's 0x27F1D, and 0xB70D0's tail jump at 0xB7130, reached at 0x5D4BC in the client half): on_true "ret"
+// for a held player's client, as NativeSplitCheckResend
+bool NativeSplitConnectPacket(X86Context&, uint8_t*) {
+    int k = TurnPlayer();
+    if (!nsplit::HoldsReconnect(NativeSplitOn(), csx::ClientContextInTurn(), k, g_departing, g_players)) return false;
+    g_connects_held++;
+    LOG_FIRST(4, "native split: player %d's connect packet not sent (cls.state %u): its departure is pending", k + 1,
+              R32(kClsState));
     return true;
 }
