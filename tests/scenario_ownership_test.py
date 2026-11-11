@@ -48,6 +48,9 @@ P = '[   65.089] [error] [tad74] '
 HISTORICAL = {
     'run 12: a blocked foreign free': P + "native split: player 2 would free (skipped: a leak, not a block freed under "
                                           "its owner) block 0x00C93FF0 of the process's initialisation (return 0x000B532E)",
+    'run 13: the root panel\'s children grown in player 2\'s turn': '[   65.191] [error] [t15e1] native split: player 2 '
+        'would free (skipped: a leak, not a block freed under its owner) block 0x00C93FF0 of the process\'s initialisation '
+        '(return 0x000B532E; the block\'s 16 bytes from site 0xB52DA, serial 10003) [own:free-blocked]',
     'a foreign free done': P + "native split: the process frees block 0x02180330 of player 2 (return 0x001A7AF9)",
     'a foreign realloc': P + "native split: player 2 moves block 0x0211C670 of the process's initialisation (realloc to "
                              "0x02200000, return 0x000B532E)",
@@ -83,6 +86,19 @@ PASSING = [
     "149 reallocs moved (0 of another owner's block), 33822 heap blocks tracked",
     "native split: player 2's object 0x02155010 kept: an object it deletes is not released (named by another, not its "
     "own or a shared kind)",
+    # docs 15.17: the VGUI hierarchy's lines of a passing leave
+    "native split: player 2's turn grows the process's panel 0x00909CC0's vector (header 0x00909CEC: 4 of 4 entries, to "
+    "5; buffer 0x00C93FF0 of the process) as the process (return 0x000B5246) [watch:shared-vector]",
+    "native split: player 2's turn sets the parent of panel 0x02B99870 (player 2's) to the process's panel 0x00909CC0: 3 "
+    "of 4 children, buffer 0x00C93FF0 (the process's) [watch:shared-parent]",
+    "native split: player 2's viewport 0x02B99870 detached from the process's panel 0x00909CC0 (removeChild 0x10ADC0): "
+    "its children 3 -> 2 of 4, buffer 0x00C93FF0 unchanged; the viewport not deleted (no destructor: left behind) "
+    "[watch:shared-parent]",
+    "native split: the VGUI hierarchy: 1 process-wide vectors grown as the process (0 old buffers of a player kept), 3 "
+    "panels given a parent of the process's, 3 viewports detached (0 kept on their parent), 1 shared parents watched, 0 "
+    "stale children",
+    "native split:   kept through the word at 0x005D1748: 1 block(s), 637500 bytes (it names block 0x02400000, 637500 "
+    "bytes from site 0x66943)",
 ]
 
 
@@ -113,7 +129,7 @@ def main():
             check(bool(fails(rx[s], line)), f'{s}: a [own:{tag}] line fails it ({line[:90]})')
     tags = {t for t, _ in tagged_formats()}
     want = {'free-blocked', 'free-foreign', 'free-double', 'realloc-foreign', 'ui-free', 'destroy-foreign', 'protected',
-            'guard-write', 'not-own', 'boot-pointer', 'stale-left', 'cleanup-refused'}
+            'guard-write', 'not-own', 'boot-pointer', 'stale-left', 'cleanup-refused', 'vector-free', 'stale-child'}
     check(want <= tags, f'every ownership kind is tagged in the sources (missing {sorted(want - tags)})')
     docs = open(os.path.join(ROOT, 'docs', 'native_splitscreen.md')).read()
     check(all(f'[own:{t}]' in docs for t in tags), f'the docs list every tag ({sorted(t for t in tags if f"[own:{t}]" not in docs)})')
@@ -122,6 +138,12 @@ def main():
     check(not old.search(HISTORICAL['run 12: a blocked foreign free']), 'the old pattern missed the twelfth run\'s line')
     check(bool(fails(rx['native_split_2p_leave.txt'], HISTORICAL['run 12: a blocked foreign free'])),
           'the leave scenario now fails on the twelfth run\'s line')
+    # docs 15.17: the leave scenario asks for the detach, and fails on a viewport kept on its parent
+    leave = open(os.path.join(ROOT, 'tests', 'scenarios', 'native_split_2p_leave.txt')).read()
+    check(re.search(r"^expect log native split: player 2's viewport 0x\[0-9A-F\]\+ detached from the process's panel",
+                    leave, re.M) is not None, 'the leave scenario expects player 2\'s viewport detached')
+    kept = P + "native split: player 2's viewport 0x02B99870 not detached: not among its parent's children (parent 0x00909CC0 of the process, 3 of 4 children, listed 0)"
+    check(bool(fails(rx['native_split_2p_leave.txt'], kept)), 'a viewport not detached fails the leave scenario')
     for line in PASSING:
         check(not fails(rx['native_split_2p_leave.txt'], line), f'a passing leave\'s line does not fail it: {line[:80]}')
     print(f'scenario_ownership_test: {checks} checks, {len(failures)} failed')

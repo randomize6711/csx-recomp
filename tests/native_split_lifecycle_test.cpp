@@ -791,6 +791,256 @@ static void CleanupCalls() {
     }
 }
 
+// ---- the VGUI hierarchy's shared parent (docs 15.17) ----------------------------------------------------------------
+// A model of the guest's words and blocks: the engine's root panel (the process's, made at its start) with its
+// children vector at +0x2C (4 reserved: the 16-byte buffer from 0xB52DA), each local player's viewport (0x552B7C)
+// set as its child (setParent -> 0xB5220 -> 0xB52B0), removeChild (0x10ADC0 -> 0xB51B0) as the cleanup's detach.
+// Simulated: these are the rules native_split.cpp applies, not a run of the title's code.
+namespace vgui {
+struct World {
+    heapown::Blocks b;
+    std::map<uint32_t, uint32_t> mem;
+    uint32_t next = 0x02000000;
+    uint64_t foreign = 0, process_grows = 0, frees = 0;
+    bool fixed = true;  // the grow's ownership rule on (false: the run-13 build, the acting owner's)
+    uint32_t R(uint32_t va) const {
+        auto it = mem.find(va);
+        return it == mem.end() ? 0 : it->second;
+    }
+    uint32_t Alloc(uint32_t size, int owner, uint32_t site) {
+        uint32_t va = next;
+        next += (size + 0xFF) & ~0xFFu;
+        b.Allocated(va, size, owner, site);
+        return va;
+    }
+    // a panel: its vtable (one with the Panel's setParent / removeChild, as every class the title builds on it)
+    uint32_t Panel(int owner, uint32_t vtable = kViewportVtable) {
+        uint32_t p = Alloc(0xA84, owner, 0x1BAF1A);
+        mem[p] = vtable;
+        mem[p + kPanelChildren] = 0, mem[p + kPanelChildren + 4] = 4;
+        mem[p + kPanelChildren + 8] = Alloc(16, owner, 0xB52DA);
+        return p;
+    }
+    // 0xB52B0 from `acting`'s turn: its new buffer, its old one freed (a foreign free refused, as NativeSplitHeapFree)
+    void Grow(uint32_t hdr, int32_t wanted, int acting) {
+        int32_t cap = int32_t(R(hdr + 4));
+        if (wanted <= cap) return;
+        uint32_t start = b.Holding(hdr);
+        const heapown::Block* hb = start ? b.At(start) : nullptr;
+        int as = acting;
+        if (fixed && VectorGrowOwner(wanted, cap, hb != nullptr, hb ? hb->owner : heapown::Blocks::kNone,
+                                     heapown::IsImageAddress(hdr), false, acting) == GrowAs::Process) {
+            as = heapown::kProcess;
+            process_grows++;
+        }
+        int32_t n = cap ? cap : 1;
+        while (n < wanted) n *= 2;
+        uint32_t nb = Alloc(uint32_t(n) * 4, as, 0xB52DA), old = R(hdr + 8);
+        for (int32_t i = 0; i < int32_t(R(hdr)); i++) mem[nb + 4 * uint32_t(i)] = R(old + 4 * uint32_t(i));
+        mem[hdr + 4] = uint32_t(n), mem[hdr + 8] = nb;
+        const heapown::Block* ob = b.At(old);
+        bool refused = ob && ((as >= 0 && heapown::SkipFree(ob->owner, as)) || (as < 0 && fixed && ob->owner >= 0));
+        if (ob && heapown::FreeIsForeign(*ob, as)) foreign++;
+        if (!refused && ob) b.Freed(old), frees++;
+    }
+    // setParent(child, parent) from `acting`'s turn: off its old parent, appended once (0xB5220)
+    void SetParent(uint32_t child, uint32_t parent, int acting) {
+        if (uint32_t old = R(child + kPanelParent)) RemoveChild(old, child);
+        mem[child + kPanelParent] = parent;
+        uint32_t hdr = parent + kPanelChildren;
+        for (uint32_t i = 0; i < R(hdr); i++)
+            if (R(R(hdr + 8) + 4 * i) == child) return;
+        Grow(hdr, int32_t(R(hdr)) + 1, acting);
+        mem[R(hdr + 8) + 4 * R(hdr)] = child;
+        mem[hdr]++;
+    }
+    // removeChild 0x10ADC0: the child's parent and +0x3C cleared, 0xB51B0 (entries moved down; nothing freed)
+    void RemoveChild(uint32_t parent, uint32_t child) {
+        mem[child + kPanelParent] = 0, mem[child + 0x3C] = 0;
+        uint32_t hdr = parent + kPanelChildren, data = R(hdr + 8), n = R(hdr);
+        for (uint32_t i = 0; i < n; i++)
+            if (R(data + 4 * i) == child) {
+                for (uint32_t j = i; j + 1 < n; j++) mem[data + 4 * j] = R(data + 4 * (j + 1));
+                mem[hdr]--;
+                return;
+            }
+    }
+    PanelView View(uint32_t vp) const {
+        PanelView v;
+        const heapown::Block* x = vp ? b.At(vp) : nullptr;
+        v.known = x != nullptr;
+        v.owner = x ? x->owner : heapown::Blocks::kNone;
+        v.panel = x && R(vp) == kViewportVtable;
+        v.parent = x ? R(vp + kPanelParent) : 0;
+        if (v.parent) {
+            const heapown::Block* pb = b.At(b.Holding(v.parent));
+            v.parent_owner = pb ? pb->owner : heapown::Blocks::kNone;
+            v.parent_panel = R(v.parent) != 0;
+            v.count = int32_t(R(v.parent + kPanelChildren)), v.capacity = int32_t(R(v.parent + kPanelChildren + 4));
+            uint32_t data = R(v.parent + kPanelChildren + 8);
+            v.data_ok = data && b.At(data) && b.At(data)->size >= uint32_t(v.capacity) * 4;
+            for (int32_t i = 0; i < v.count; i++) v.listed += R(data + 4 * uint32_t(i)) == vp;
+        }
+        return v;
+    }
+    // the cleanup's detach (DetachViewport): DetachCheck, then removeChild
+    Detach Leave(uint32_t vp, int k) {
+        Detach d = DetachCheck(vp, View(vp), k);
+        if (d == Detach::Detach) RemoveChild(R(vp + kPanelParent), vp);
+        return d;
+    }
+    std::vector<ChildFinding> Stale(uint32_t parent) const {
+        return StaleChildren(parent, b, [&](uint32_t va) { return R(va); });
+    }
+    bool Lists(uint32_t parent, uint32_t child) const {
+        for (uint32_t i = 0; i < R(parent + kPanelChildren); i++)
+            if (R(R(parent + kPanelChildren + 8) + 4 * i) == child) return true;
+        return false;
+    }
+};
+}  // namespace vgui
+
+static void SharedParentRules() {
+    // whose a grown vector's buffer is
+    Check(VectorGrowOwner(5, 4, true, heapown::kProcess, false, false, 1) == GrowAs::Process,
+          "a process block's vector grown in player 2's turn: as the process");
+    Check(VectorGrowOwner(4, 4, true, heapown::kProcess, false, false, 1) == GrowAs::Acting,
+          "no grow (within the capacity): the title's code as it is");
+    Check(VectorGrowOwner(5, 4, true, 1, false, false, 1) == GrowAs::Acting, "its own block's vector: its own buffer");
+    Check(VectorGrowOwner(5, 4, true, 0, false, false, 1) == GrowAs::Acting,
+          "another player's block's vector: not reclassified (the guard reports a foreign free)");
+    Check(VectorGrowOwner(5, 4, false, -2, true, false, 1) == GrowAs::Process, "a process-wide static vector: the process's");
+    Check(VectorGrowOwner(5, 4, false, -2, true, true, 1) == GrowAs::Acting, "a static in the players' regions: its own");
+    Check(VectorGrowOwner(5, 4, false, -2, false, false, 1) == GrowAs::Acting, "a stack vector: the acting owner's");
+    Check(VectorGrowOwner(5, 4, true, heapown::kProcess, false, false, -1) == GrowAs::Acting,
+          "outside the turns (and solo, native split off: no hook at all): the process already");
+    Check(VectorGrowOwner(5, 4, true, heapown::kProcess, false, false, 0) == GrowAs::Process,
+          "player 1's turn too (its allocations in turns are its own since docs 15.10)");
+    // the detach's check, case by case
+    PanelView v;
+    Check(DetachCheck(0, v, 1) == Detach::None, "no viewport: nothing");
+    v.known = true, v.owner = 0;
+    Check(DetachCheck(0x02000000, v, 1) == Detach::NotOwn, "another's viewport: not touched");
+    v.owner = 1;
+    Check(DetachCheck(0x02000000, v, 1) == Detach::NotPanel, "not a panel: not called");
+    v.panel = true;
+    Check(DetachCheck(0x02000000, v, 1) == Detach::NoParent, "no parent: nothing to detach (already detached)");
+    v.parent = 0x00909CC0, v.parent_owner = 1;
+    Check(DetachCheck(0x02000000, v, 1) == Detach::OwnParent, "its own parent: its own tree, left as it is");
+    v.parent_owner = heapown::kProcess;
+    Check(DetachCheck(0x02000000, v, 1) == Detach::ParentNotPanel, "a parent that is not a panel: not called");
+    v.parent_panel = true, v.count = 5, v.capacity = 4, v.data_ok = true;
+    Check(DetachCheck(0x02000000, v, 1) == Detach::BadList, "a count past the capacity: not called");
+    v.count = 2, v.data_ok = false;
+    Check(DetachCheck(0x02000000, v, 1) == Detach::BadList, "a children buffer that is no block: not called");
+    v.data_ok = true;
+    Check(DetachCheck(0x02000000, v, 1) == Detach::NotListed, "not among the children: not called");
+    v.listed = 2;
+    Check(DetachCheck(0x02000000, v, 1) == Detach::Duplicate, "listed twice: not called (removeChild takes one)");
+    v.listed = 1;
+    Check(DetachCheck(0x02000000, v, 1) == Detach::Detach, "its own panel, once among a process panel's children: detached");
+    // its contract
+    const CleanupCall& c = Contract(CleanupFn::DetachChild);
+    Check(c.fn == 0x10ADC0 && c.regs == kRegEcx && c.args == 1 && c.pops == 4 && c.slot == 0x4C && !c.vtable && !c.frees,
+          "removeChild: ecx the parent, the child pushed, ret 4, through slot 0x4C, no free");
+    Check(SlotMatches(c, 0x10ADC0) && !SlotMatches(c, 0x10AD00) && !SlotMatches(c, 0),
+          "called only when the parent's vtable has removeChild at 0x4C");
+    Check(MeetsContract(c, kRegEcx, 1) && !MeetsContract(c, kRegEcx, 0) && !MeetsContract(c, kRegEsi, 1),
+          "the parent in ecx and exactly the child: met; anything else refused");
+    Check(SlotMatches(Contract(CleanupFn::Delete552C70), 0), "the other contracts have no slot (their vtable exact)");
+    Check(IsPanelVtable(kPanelSetParent, kPanelRemoveChild) && !IsPanelVtable(kPanelSetParent, 0),
+          "a panel: both of the Panel's methods in its vtable");
+}
+
+static void SharedParentCycles() {
+    // the run-13 build: player 2's third join grows the root's 4 children in its turn, the process's buffer refused
+    {
+        vgui::World w;
+        w.fixed = false;
+        uint32_t root = w.Panel(heapown::kProcess, 0x3447E4), other = w.Panel(heapown::kProcess, 0x3447E4);
+        w.SetParent(other, root, heapown::kProcess);
+        w.SetParent(w.Panel(heapown::kProcess), root, heapown::kProcess);  // player 1's (the process's start)
+        for (int join = 0; join < 3; join++) {
+            uint32_t vp = w.Panel(1);
+            w.SetParent(vp, root, 1);
+            if (join < 2) w.b.Orphan(1);  // its leave, not detached (the run-13 build)
+        }
+        Check(w.foreign == 1, "the run-13 build: the third join's grow frees the process's buffer (a foreign free)");
+    }
+    // the fix: ten leaves and rejoins of player 2
+    vgui::World w;
+    uint32_t root = w.Panel(heapown::kProcess, 0x3447E4), other = w.Panel(heapown::kProcess, 0x3447E4);
+    w.SetParent(other, root, heapown::kProcess);
+    uint32_t p1 = w.Panel(heapown::kProcess);  // player 1's viewport: made at the process's start (the process's)
+    w.SetParent(p1, root, heapown::kProcess);
+    uint32_t first_buf = w.R(root + kPanelChildren + 8);
+    bool ok = true, once = true;
+    std::vector<uint32_t> gone;
+    for (int cycle = 0; cycle < 10; cycle++) {
+        uint32_t vp = w.Panel(1);
+        w.SetParent(vp, root, 1);
+        ok &= w.Lists(root, vp) && w.Lists(root, p1) && w.R(root + kPanelChildren) == 3;
+        Detach d = w.Leave(vp, 1);
+        once &= d == Detach::Detach && w.Leave(vp, 1) == Detach::NoParent;  // a second detach does nothing
+        w.b.Orphan(1);
+        gone.push_back(vp);
+        ok &= !w.Lists(root, vp) && w.Lists(root, p1) && w.R(vp + kPanelParent) == 0;
+    }
+    Check(ok, "each cycle: player 2's viewport a child while it plays, off the root at its leave; player 1's stays");
+    Check(once, "detached exactly once (a second detach finds no parent)");
+    Check(w.foreign == 0 && w.process_grows == 0 && w.R(root + kPanelChildren + 8) == first_buf,
+          "ten cycles: the root's 4 children never grown (no free at all, none foreign)");
+    Check(w.Stale(root).empty(), "no stale child: no departed player's viewport, no duplicate");
+    for (uint32_t vp : gone) Check(w.b.At(vp) && w.b.At(vp)->left_by == 1, "each viewport left behind, never deleted");
+    // four players: the root's 4 children grown at the fourth's join, as the process
+    vgui::World f;
+    uint32_t r4 = f.Panel(heapown::kProcess, 0x3447E4);
+    f.SetParent(f.Panel(heapown::kProcess, 0x3447E4), r4, heapown::kProcess);
+    uint32_t v1 = f.Panel(heapown::kProcess);
+    f.SetParent(v1, r4, heapown::kProcess);
+    uint32_t vps[4] = {v1, 0, 0, 0};
+    for (int k = 1; k < 4; k++) f.SetParent(vps[k] = f.Panel(k), r4, k);
+    const heapown::Block* buf = f.b.At(f.R(r4 + kPanelChildren + 8));
+    Check(f.process_grows == 1 && f.foreign == 0 && buf && buf->owner == heapown::kProcess && f.frees == 1,
+          "four players: the fifth child grows the root's vector as the process (its old buffer freed by its owner)");
+    Check(f.R(r4 + kPanelChildren) == 5, "four viewports and the engine's own child: five children");
+    Check(f.Leave(vps[2], 2) == Detach::Detach && !f.Lists(r4, vps[2]) && f.Lists(r4, vps[1]) && f.Lists(r4, vps[3]) &&
+              f.Lists(r4, v1),
+          "player 3 leaves: only its viewport off the root; players 1, 2 and 4 keep theirs");
+    f.b.Orphan(2);
+    Check(f.Leave(vps[1], 2) == Detach::NotOwn, "player 3's cleanup never touches player 2's viewport");
+    for (int k = 2; k < 4; k++) f.SetParent(f.Panel(k), r4, k);  // player 3 back, and a rejoin of player 4's slot
+    Check(f.foreign == 0 && f.Stale(r4).empty(), "rejoins over a grown vector: no foreign free, no stale child");
+    // player 1 departs while player 2 plays: its context (and viewport, the process's) kept on the root
+    vgui::World g;
+    uint32_t rg = g.Panel(heapown::kProcess, 0x3447E4), g1 = g.Panel(heapown::kProcess), g2 = g.Panel(1);
+    g.SetParent(g1, rg, heapown::kProcess);
+    g.SetParent(g2, rg, 1);
+    Check(g.Leave(g1, 0) == Detach::NotOwn && g.Lists(rg, g1) && g.Lists(rg, g2),
+          "player 1's departure: its viewport (the process's) not detached; player 2's untouched");
+    Check(g.Stale(rg).empty(), "player 1's kept viewport is no stale child (it is no departed player's block)");
+    // the stale-parent detection: a viewport left on the root, a freed child, a duplicate entry
+    vgui::World s;
+    uint32_t rs = s.Panel(heapown::kProcess, 0x3447E4), s2 = s.Panel(1), s3 = s.Panel(2);
+    s.SetParent(s2, rs, 1);
+    s.SetParent(s3, rs, 2);
+    s.b.Orphan(1);  // player 2 left without the detach
+    auto st = s.Stale(rs);
+    Check(st.size() == 1 && st[0].child == s2 && st[0].left_by == 1 && !st[0].duplicate,
+          "a departed player's viewport kept on the process's panel: reported [own:stale-child]");
+    s.b.Freed(s3);
+    st = s.Stale(rs);
+    Check(st.size() == 2 && st[1].child == s3 && st[1].left_by == -2, "a freed child still listed: reported");
+    uint32_t data = s.R(rs + kPanelChildren + 8);
+    s.mem[data + 4] = s2;  // the same panel twice
+    st = s.Stale(rs);
+    Check(st.size() == 2 && st[1].duplicate, "a panel listed twice: reported");
+    vgui::World e;
+    uint32_t re = e.Panel(heapown::kProcess, 0x3447E4);
+    e.mem[re + kPanelChildren] = 9;  // a count past the capacity: not read
+    Check(e.Stale(re).empty(), "a vector that is not sane is not read");
+}
+
 // three leaves and rejoins of player 2 over one heap: the run-12 pattern (a process-wide vector grown in its turn)
 static void RepeatedLeaves() {
     heapown::Blocks b;
@@ -895,6 +1145,8 @@ int main() {
     CleanupRules();
     CleanupCalls();
     RepeatedLeaves();
+    SharedParentRules();
+    SharedParentCycles();
     Voice();
     std::printf("%d checks, %d failed\n", checks, failed);
     return failed ? 1 : 0;

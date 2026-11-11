@@ -231,6 +231,13 @@ sharedonce::World g_world;   // the world's shared-once operations, by map gener
 bool g_tracking = false;   // heap ownership tracked (native split-screen on, from the process's start)
 int g_init_owner = -1;     // the player whose initialisation is running (its allocations are its own), -1 none
 uint64_t g_foreign_frees = 0, g_skipped_frees = 0, g_double_frees = 0, g_stale_names = 0, g_cleanup_refused = 0;
+// the VGUI hierarchy (docs 15.17): a process-wide vector's grow run as the process from a player's turn (its depth;
+// how many; its old buffer a player's, not freed), the process's panels that are parents of a player's panel, a
+// leaving player's viewport detached from its parent or kept on it, a shared parent's stale children reported
+int g_vector_scope = 0;
+uint64_t g_vector_grows = 0, g_vector_free_skipped = 0, g_detached = 0, g_detach_kept = 0, g_stale_children = 0;
+uint64_t g_parent_links = 0;
+std::set<uint32_t> g_shared_parents;
 uint64_t g_moves = 0, g_foreign_moves = 0;  // realloc's moves tracked; of another owner's block (an error, docs 15.8)
 bool g_add_failed = false;  // a player's initialisation failed its checks: no further players added this session
 // the shared front end (docs 15.10): its driver, the depth of its scope (its maintenance running as the process), and
@@ -304,7 +311,8 @@ int PlayerOfContext(int context) {
 int OwnerNow() {
     // the shared front end's maintenance and the world's shared-once operations: the process's (docs 15.10, 15)
     bool in_turn = csx::ClientContextInTurn();
-    int r = nsplit::AllocationOwner(g_ui_scope > 0 || g_voice_scope > 0, g_world.Running(), g_init_owner, in_turn,
+    int r = nsplit::AllocationOwner(g_ui_scope > 0 || g_voice_scope > 0 || g_vector_scope > 0, g_world.Running(),
+                                    g_init_owner, in_turn,
                                     in_turn ? PlayerOfContext(csx::ClientContextActive()) : -1);
     return r >= 0 ? r : heapown::kProcess;
 }
@@ -654,6 +662,82 @@ void WatchSharedVectors() {
     }
 }
 
+// ---- the VGUI hierarchy's shared parents (docs 15.17; native_split_lifecycle.h) ------------------------------------
+
+// a guest word that may be read: in the image, or inside a known heap block (R32 itself checks nothing)
+bool Readable(uint32_t va) {
+    if (heapown::IsImageAddress(va) && va + 4 <= heapown::kImageHi) return true;
+    uint32_t start = va >= 0x10000 ? g_blocks.Holding(va) : 0;
+    const heapown::Block* b = start ? g_blocks.At(start) : nullptr;
+    return b && va + 4 <= start + b->size;
+}
+uint32_t ReadOr0(uint32_t va) { return Readable(va) ? R32(va) : 0; }
+
+// a VGUI panel: a readable object whose vtable (in the image) has the Panel's setParent and removeChild
+bool IsPanel(uint32_t va) {
+    uint32_t vt = va ? ReadOr0(va) : 0;
+    return vt && heapown::IsImageAddress(vt) &&
+           nsplit::IsPanelVtable(ReadOr0(vt + nsplit::kPanelSetParentSlot), ReadOr0(vt + nsplit::kPanelRemoveChildSlot));
+}
+
+int OwnerOfHolding(uint32_t va) {
+    uint32_t start = va >= 0x10000 ? g_blocks.Holding(va) : 0;
+    const heapown::Block* b = start ? g_blocks.At(start) : nullptr;
+    return b ? b->owner : heapown::Blocks::kNone;
+}
+
+std::string OwnerName(int owner) {
+    if (owner >= 0) return "player " + std::to_string(owner + 1);
+    return owner == heapown::kProcess ? "the process" : "no known block";
+}
+
+// a player's panel given a parent of the process's (setParent 0x10ACC0, addChild 0x10AD00), seen at the call: the
+// parent remembered (the shared parents watched), logged for the first few
+void SharedParentLink(uint32_t child, uint32_t parent, const char* how) {
+    if (!child || !parent) return;
+    int acting = OwnerNow(), child_owner = OwnerOfHolding(child), parent_owner = OwnerOfHolding(parent);
+    bool process_parent = parent_owner == heapown::kProcess || (parent_owner == heapown::Blocks::kNone &&
+                                                                heapown::IsImageAddress(parent));
+    if (!process_parent || (acting < 0 && child_owner < 0) || !IsPanel(parent)) return;
+    g_shared_parents.insert(parent);
+    g_parent_links++;
+    uint32_t data = ReadOr0(parent + nsplit::kPanelChildren + 8);
+    LOG_FIRST(16, "native split: %s's turn %s panel 0x%08X (%s's) to the process's panel 0x%08X: %d of %d children, buffer "
+                  "0x%08X (%s's) [watch:shared-parent]",
+              OwnerName(acting).c_str(), how, child, OwnerName(child_owner).c_str(), parent,
+              int32_t(ReadOr0(parent + nsplit::kPanelChildren)), int32_t(ReadOr0(parent + nsplit::kPanelChildren + 4)),
+              data, OwnerName(OwnerOfHolding(data)).c_str());
+}
+
+// the shared parents' children (native_split_lifecycle.h StaleChildren): a departed player's panel, one that is no
+// known block any more, an entry twice: an error, once each [own:stale-child]
+void WatchSharedParents() {
+    static std::set<std::pair<uint32_t, uint32_t>> seen;
+    for (auto it = g_shared_parents.begin(); it != g_shared_parents.end();) {
+        uint32_t parent = *it;
+        if (!IsPanel(parent)) {
+            it = g_shared_parents.erase(it);
+            continue;
+        }
+        ++it;
+        uint32_t data = ReadOr0(parent + nsplit::kPanelChildren + 8);
+        int32_t cap = int32_t(ReadOr0(parent + nsplit::kPanelChildren + 4));
+        if (data && !(Readable(data) && (cap <= 0 || Readable(data + 4 * uint32_t(cap - 1))))) continue;
+        for (const nsplit::ChildFinding& f : nsplit::StaleChildren(parent, g_blocks, [](uint32_t va) { return ReadOr0(va); })) {
+            if (!seen.insert({parent, f.child}).second) continue;
+            g_stale_children++;
+            char why[64];
+            if (f.left_by >= 0)
+                std::snprintf(why, sizeof why, "a panel player %d left behind", f.left_by + 1);
+            else
+                std::snprintf(why, sizeof why, "%s", f.left_by == -2 ? "no known block (freed)" : "a panel");
+            LOGE("native split: the process's panel 0x%08X keeps child 0x%08X: %s%s (%d of %d children) [own:stale-child]",
+                 parent, f.child, why, f.duplicate ? ", listed twice" : "", int32_t(ReadOr0(parent + nsplit::kPanelChildren)),
+                 cap);
+        }
+    }
+}
+
 void Report() {
     for (int k = 0; k < nsplit::kMaxPlayers; k++) {
         const nsplit::Player& p = g_players.At(k);
@@ -674,10 +758,17 @@ void Report() {
          (unsigned long long)g_ch.Dropped(), (unsigned long long)g_read_outside_turn,
          (unsigned long long)g_foreign_frees, (unsigned long long)g_skipped_frees, (unsigned long long)g_moves,
          (unsigned long long)g_foreign_moves, g_blocks.Count());
+    LOGI("native split: the VGUI hierarchy: %llu process-wide vectors grown as the process (%llu old buffers of a player "
+         "kept), %llu panels given a parent of the process's, %llu viewports detached (%llu kept on their parent), %zu "
+         "shared parents watched, %llu stale children",
+         (unsigned long long)g_vector_grows, (unsigned long long)g_vector_free_skipped, (unsigned long long)g_parent_links,
+         (unsigned long long)g_detached, (unsigned long long)g_detach_kept, g_shared_parents.size(),
+         (unsigned long long)g_stale_children);
     LOGI("native split: ownership: %llu double frees skipped, %llu stale names of left-behind blocks in fresh contexts, "
          "%llu cleanup calls refused", (unsigned long long)g_double_frees, (unsigned long long)g_stale_names,
          (unsigned long long)g_cleanup_refused);
     WatchSharedVectors();
+    WatchSharedParents();
     std::string gates;
     for (int i = 0; i < kUiGates; i++) {
         char item[128];
@@ -738,6 +829,9 @@ void LogRetention(int k, const heapown::RollbackPlan& plan) {
     for (const heapown::RollbackItem& r : plan.keep) by[r.va] = &r;
     struct Root {
         size_t blocks = 0, bytes = 0;
+        // the first block it keeps directly (docs 15.17): what the root names, and whether it is a VGUI panel
+        uint32_t va = 0, size = 0, site = 0;
+        bool panel = false;
     };
     std::map<std::string, Root> roots;
     std::map<std::string, Root> reasons;
@@ -759,7 +853,9 @@ void LogRetention(int k, const heapown::RollbackPlan& plan) {
                           b->owner >= 0 ? b->owner + 1 : b->owner, b->site);
         else
             std::snprintf(key, sizeof key, "0x%08X", at->named_at);
-        roots[key].blocks++, roots[key].bytes += r.size;
+        Root& root = roots[key];
+        if (!root.va) root.va = at->va, root.size = at->size, root.site = at->site, root.panel = IsPanel(at->va);
+        root.blocks++, root.bytes += r.size;
         reasons[r.reason ? r.reason : "?"].blocks++, reasons[r.reason ? r.reason : "?"].bytes += r.size;
     }
     for (const auto& [why, n] : reasons)
@@ -767,8 +863,9 @@ void LogRetention(int k, const heapown::RollbackPlan& plan) {
     std::vector<std::pair<std::string, Root>> top(roots.begin(), roots.end());
     std::sort(top.begin(), top.end(), [](const auto& a, const auto& b) { return a.second.bytes > b.second.bytes; });
     for (size_t i = 0; i < top.size() && i < 12; i++)
-        LOGI("native split:   kept through %s: %zu block(s), %zu bytes", top[i].first.c_str(), top[i].second.blocks,
-             top[i].second.bytes);
+        LOGI("native split:   kept through %s: %zu block(s), %zu bytes (it names block 0x%08X, %u bytes from site 0x%X%s)",
+             top[i].first.c_str(), top[i].second.blocks, top[i].second.bytes, top[i].second.va, top[i].second.size,
+             top[i].second.site, top[i].second.panel ? ", a VGUI panel" : "");
     const heapown::Block* key = g_blocks.At(g_blocks.Holding(R32(0x5622B0)));
     LOGI("native split: player %d's cleanup: the string-intern pool's search key names %s", k + 1,
          !key ? "no heap block" : key->owner == k ? "one of its blocks (kept: named)" : "another owner's block");
@@ -822,16 +919,78 @@ bool CallCleanup(X86Context& ctx, nsplit::CleanupFn id, uint32_t object, std::in
     if (c.regs & nsplit::kRegEsi) ctx.esi = object, set |= nsplit::kRegEsi;
     if (c.regs & nsplit::kRegEdi) ctx.edi = object, set |= nsplit::kRegEdi;
     bool ok = nsplit::MeetsContract(c, set, args.size()) && c.id == id;
-    uint32_t vt = c.vtable && object ? R32(object) : 0;
+    uint32_t vt = (c.vtable || c.slot >= 0) && object ? ReadOr0(object) : 0;
+    uint32_t entry = c.slot >= 0 && heapown::IsImageAddress(vt) ? ReadOr0(vt + uint32_t(c.slot)) : 0;
     if (ok && !nsplit::VtableMatches(c, vt)) ok = false;
+    if (ok && !nsplit::SlotMatches(c, entry)) ok = false;
     if (ok) kernel::CallGuest(ctx, c.fn, args.begin(), args.size());
     ctx.eax = saved[0], ctx.ecx = saved[1], ctx.edx = saved[2], ctx.ebx = saved[3], ctx.esi = saved[4], ctx.edi = saved[5];
     if (!ok) {
         g_cleanup_refused++;
         LOGE("native split: the cleanup does not call %s (0x%08X) for 0x%08X: %s; the object kept [own:cleanup-refused]",
-             c.name, c.fn, object, c.vtable && vt != c.vtable ? "its vtable is not its constructor's" : "the call would not meet its contract");
+             c.name, c.fn, object,
+             c.vtable && vt != c.vtable ? "its vtable is not its constructor's"
+             : c.slot >= 0 && entry != c.fn ? "its vtable does not have the function at the slot"
+                                            : "the call would not meet its contract");
     }
     return ok;
+}
+
+// a leaving player's viewport (its 0x552B7C, read from its saved context) taken off the process's panel it is a child
+// of, by the title's own removeChild (slot 0x4C, as setParent does; native_split_lifecycle.h DetachCheck, the contract
+// DetachChild), before what of its own another names is planned: never deleted (no destructor; its block left behind)
+void DetachViewport(X86Context& ctx, int k, int context) {
+    uint32_t vp = 0;
+    if (context == csx::ClientContextActive()) {
+        vp = R32(nsplit::kViewport);
+    } else if (long off = csx::ClientContextOffsetOf(nsplit::kViewport); off >= 0) {
+        const std::vector<uint8_t>& copy = csx::ClientContextSaved(context);
+        if (size_t(off) + 4 <= copy.size()) std::memcpy(&vp, copy.data() + off, 4);
+    }
+    nsplit::PanelView v;
+    const heapown::Block* b = vp ? g_blocks.At(vp) : nullptr;
+    v.known = b != nullptr;
+    v.owner = b ? b->owner : heapown::Blocks::kNone;
+    v.panel = b && IsPanel(vp);
+    v.parent = b ? ReadOr0(vp + nsplit::kPanelParent) : 0;
+    uint32_t data = 0;
+    if (v.parent) {
+        v.parent_owner = OwnerOfHolding(v.parent);
+        v.parent_panel = IsPanel(v.parent);
+        v.count = int32_t(ReadOr0(v.parent + nsplit::kPanelChildren));
+        v.capacity = int32_t(ReadOr0(v.parent + nsplit::kPanelChildren + 4));
+        data = ReadOr0(v.parent + nsplit::kPanelChildren + 8);
+        v.data_ok = data && v.capacity > 0 && v.capacity <= 4096 && Readable(data) &&
+                    Readable(data + 4 * uint32_t(v.capacity - 1));
+        if (v.data_ok && v.count >= 0 && v.count <= v.capacity)
+            for (int32_t i = 0; i < v.count; i++) v.listed += R32(data + 4 * uint32_t(i)) == vp;
+    }
+    nsplit::Detach d = nsplit::DetachCheck(vp, v, k);
+    if (d == nsplit::Detach::None) return;
+    if (d == nsplit::Detach::Detach && CallCleanup(ctx, nsplit::CleanupFn::DetachChild, v.parent, {vp})) {
+        int32_t after = int32_t(R32(v.parent + nsplit::kPanelChildren));
+        int still = 0;
+        for (int32_t i = 0; i < after && i < v.capacity; i++) still += R32(data + 4 * uint32_t(i)) == vp;
+        bool done = !still && after == v.count - 1 && R32(vp + nsplit::kPanelParent) == 0 &&
+                    R32(v.parent + nsplit::kPanelChildren + 8) == data;
+        g_shared_parents.insert(v.parent);
+        g_detached += done;
+        g_detach_kept += !done;
+        if (done)
+            LOGI("native split: player %d's viewport 0x%08X detached from the process's panel 0x%08X (removeChild 0x%X): "
+                 "its children %d -> %d of %d, buffer 0x%08X unchanged; the viewport not deleted (no destructor: left "
+                 "behind) [watch:shared-parent]",
+                 k + 1, vp, v.parent, nsplit::kPanelRemoveChild, v.count, after, v.capacity, data);
+        else
+            LOGE("native split: player %d's viewport 0x%08X: removeChild on 0x%08X did not take it off (children %d -> "
+                 "%d, still listed %d) [own:stale-child]",
+                 k + 1, vp, v.parent, v.count, after, still);
+        return;
+    }
+    g_detach_kept++;
+    if (v.parent && v.parent_owner != k) g_shared_parents.insert(v.parent);  // watched: a kept child is reported
+    LOGW("native split: player %d's viewport 0x%08X not detached: %s (parent 0x%08X of %s, %d of %d children, listed %d)",
+         k + 1, vp, nsplit::Name(d), v.parent, OwnerName(v.parent_owner).c_str(), v.count, v.capacity, v.listed);
 }
 
 void RemovePlayer(X86Context& ctx, int k) {
@@ -851,6 +1010,8 @@ void RemovePlayer(X86Context& ctx, int k) {
     if (int was = g_ui.driver; g_ui.Left(k, g_players) != was)
         LOGI("native split: the shared front end is driven by player %d now (player %d leaves)", g_ui.driver + 1, k + 1);
     g_session.host = nsplit::SessionHost(g_players);
+    // its viewport off the process's root panel (docs 15.17), from player 1's context
+    DetachViewport(ctx, k, p.context);
     // what of its own another names, from player 1's context (before its own is made live)
     size_t plan_free = 0, plan_kept = 0;
     g_release_keep = NamedElsewhere(k, p.context, plan_free, plan_kept);
@@ -940,6 +1101,7 @@ void RemovePlayer(X86Context& ctx, int k) {
              leaked_bytes, where.substr(0, 400).c_str());
     }
     WatchSharedVectors();  // a process-wide vector left on its buffer (kept: named)
+    WatchSharedParents();  // a shared parent still listing its viewport (not detached)
     csx::ClientContextRemove(p.context);
     g_players.ContextRemoved(p.context);
     g_players.Released(k);
@@ -1187,6 +1349,17 @@ bool NativeSplitHeapFree(X86Context& ctx, uint8_t*) {
                       "(return 0x%08X)", owner + 1, va, b->size, b->site, R32(ctx.esp));
         return true;
     }
+    // a process-wide vector's grow run as the process (docs 15.17): its old buffer a player's (made before, or left
+    // behind and not yet the process's) is not freed by the process
+    if (g_vector_scope && b && owner >= 0) {
+        g_vector_free_skipped++;
+        g_foreign_frees++;
+        g_skipped_frees++;
+        LOGE("native split: a process-wide vector's grow (as the process) would free block 0x%08X of player %d (skipped: "
+             "a player's buffer under the process's vector; return 0x%08X; %u bytes from site 0x%X) [own:vector-free]",
+             va, owner + 1, R32(ctx.esp), b->size, b->site);
+        return true;
+    }
     if ((g_ui_scope || g_voice_scope) && b && b->kind == heapown::Kind::Owned && heapown::SkipFreeInSharedScope(owner)) {
         g_ui_scope_kept++;
         g_foreign_frees++;
@@ -1230,6 +1403,56 @@ bool NativeSplitHeapFree(X86Context& ctx, uint8_t*) {
     }
     g_blocks.Freed(va);
     return false;
+}
+
+// ---- the VGUI hierarchy's shared vectors and parents (docs 15.17) -------------------------------------------------
+
+// whether a guest address is in the players' regions (each context's own copy)
+bool InPlayerRegions(uint32_t va) { return csx::ClientContextOffsetOf(va) >= 0; }
+
+// [[hook]] at 0xB52B0, the vector grow (ebx the header {count, capacity, data}, eax the count wanted; no stack
+// argument, a plain ret; ebx, esi, edi, ebp kept, eax, ecx, edx undefined after a grow: its free's), on_true "ret": a
+// grow from a player's turn or initialisation of a vector whose header is the process's (in a process block, or a
+// static outside the players' regions: native_split_lifecycle.h VectorGrowOwner) is run here as the process, so its
+// new buffer is the process's and its old one (the process's) is freed by its owner. Otherwise (no grow, the process
+// already, a player's vector) the title's own code runs on. CallGuest puts every register back (as a grow leaves
+// eax, ecx, edx undefined, and the others kept)
+bool NativeSplitVectorGrow(X86Context& ctx, uint8_t*) {
+    if (!NativeSplitOn() || g_vector_scope) return false;
+    uint32_t hdr = ctx.ebx;
+    int32_t wanted = int32_t(ctx.eax), cap = Readable(hdr + 4) ? int32_t(R32(hdr + 4)) : 0;
+    if (wanted <= cap) return false;
+    int acting = OwnerNow();
+    if (acting < 0) return false;
+    uint32_t start = hdr >= 0x10000 ? g_blocks.Holding(hdr) : 0;
+    const heapown::Block* hb = start ? g_blocks.At(start) : nullptr;
+    if (nsplit::VectorGrowOwner(wanted, cap, hb != nullptr, hb ? hb->owner : heapown::Blocks::kNone,
+                                heapown::IsImageAddress(hdr), InPlayerRegions(hdr), acting) != nsplit::GrowAs::Process)
+        return false;
+    g_vector_grows++;
+    uint32_t old = ReadOr0(hdr + 8);
+    bool panel = hb && hdr == start + nsplit::kPanelChildren && IsPanel(start);
+    if (panel) g_shared_parents.insert(start);
+    LOG_FIRST(16, "native split: %s's turn grows %s 0x%08X's vector (header 0x%08X: %d of %d entries, to %d; buffer "
+                  "0x%08X of %s) as the process (return 0x%08X) [watch:shared-vector]",
+              OwnerName(acting).c_str(), panel ? "the process's panel" : hb ? "the process's block" : "the static",
+              hb ? start : hdr, hdr, int32_t(ReadOr0(hdr)), cap, wanted, old, OwnerName(OwnerOfHolding(old)).c_str(),
+              R32(ctx.esp));
+    {
+        Depth scope(g_vector_scope);  // kept right through a longjmp's unwinding
+        kernel::CallGuest(ctx, nsplit::kVectorGrow, {});
+    }
+    return true;
+}
+
+// [[hook]] at 0x10ACC0, a panel's setParent (thiscall: ecx the panel, [esp+4] the new parent; slot 0x40): log only
+void NativeSplitPanelSetParent(X86Context& ctx, uint8_t*) {
+    if (NativeSplitOn()) SharedParentLink(ctx.ecx, R32(ctx.esp + 4), "sets the parent of");
+}
+
+// [[hook]] at 0x10AD00, a panel's addChild (thiscall: ecx the parent, [esp+4] the child; slot 0x44): log only
+void NativeSplitPanelAddChild(X86Context& ctx, uint8_t*) {
+    if (NativeSplitOn()) SharedParentLink(R32(ctx.esp + 4), ctx.ecx, "adds");
 }
 
 // ---- before a destructor: another player's object is never destroyed --------------------------------------------

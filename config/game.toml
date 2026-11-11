@@ -1265,6 +1265,21 @@ on_true = "ret"
 # the shared front end (docs/native_splitscreen.md 15.10): its driver's turn rebuilds the shared scoreboard's rows as
 # the process, another player's turn does not; front-end commands of another player's turn withheld; its element code
 # reached in another player's turn logged
+# native split-screen (docs/native_splitscreen.md 15.17): a process-wide vector's grow from a player's turn run as the
+# process (its buffer its header's owner's); a panel given a parent of the process's, logged
+[[hook]]
+at = 0xB52B0
+call = "NativeSplitVectorGrow"
+on_true = "ret"
+
+[[hook]]
+at = 0x10ACC0
+call = "NativeSplitPanelSetParent"
+
+[[hook]]
+at = 0x10AD00
+call = "NativeSplitPanelAddChild"
+
 [[hook]]
 at = 0x1B9359
 call = "NativeSplitScoreboardRows"

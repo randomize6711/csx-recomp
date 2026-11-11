@@ -1588,3 +1588,119 @@ It also checks that every tag is listed above.
 - **tests/scenario_ownership_test.py.** The scenarios' detection.
 
 None of these shows the game taking these paths; only `native_split_2p_leave` can.
+
+### 15.17 The thirteenth run's shared VGUI parent; vector growth by owner; the viewport's detach (2026-11-11; static only, not run)
+
+The thirteenth run (63b734d, `native_split_2p_leave`) completed all three of player 2's leaves and rejoins (userids 3,
+4 and 5) without a crash. Leave 2 was the case that crashed in run 12: no "named by another" line for the object at
+0x552CA8, and 0 cleanup calls refused. So the destructor 0x1BAD90 most likely ran there with esi and returned; cleanup
+logs no line for a successful call, so that is inferred. The run failed on one `[own:free-blocked]` at the third join
+(65.191 s):
+- the block: 0x00C93FF0, 16 bytes from site 0xB52DA, the process's start-up (serial 10003);
+- the free: at 0xB5329 in the vector grow 0xB52B0, ebx 0x00909CEC;
+- the chain: 0x18B7E0 -> 0x1BAE90 -> `call [edx+0x40]` -> 0x10ACC0 -> 0xB5220 -> 0xB52B0.
+
+**The hierarchy (from the instructions; tests/guest_call_contract_test.py).**
+- **The panel class (VGUI 1).** Panel 0x10A4E0 keeps its children in a vector at +0x2C {count, capacity, data} and
+  reserves 4 at construction: a 16-byte buffer from 0xB52DA. Its parent is at +0x38, and +0x3C is a value its parent
+  pushes down to it (slot 0x16C).
+  - Every panel vtable has setParent 0x10ACC0 at 0x40, addChild 0x10AD00 at 0x44 and removeChild 0x10ADC0 at 0x4C.
+  - None has a destructor slot, and the title deletes no panel.
+- **setParent 0x10ACC0.** thiscall: ecx the panel, the new parent on the stack. It calls the old parent's removeChild,
+  stores the parent, appends itself to the parent's +0x2C (0xB5220, unique) and pushes the parent's +0x3C down.
+- **removeChild 0x10ADC0.** thiscall: ecx the parent, the child, ret 4. It clears the child's +0x38 and +0x3C and
+  removes it with 0xB51B0, which moves the later entries down and calls nothing. It allocates nothing and frees nothing.
+- **The viewport.** VGui_Startup 0x1BAE90 (from 0x18B7E0, after the HUD's init 0x1A6D70) asks the engine for the root
+  panel through the client's engine function `[0x54321C]`.
+  - It sets the root's colour and its layout; the layout is a new 8-byte object each call, which the title's own
+    VGui_Startup leaks too.
+  - If 0x552B7C (gViewPort, in the players' regions) is 0, it makes a 0xA84-byte viewport (0x1B03B0, vtable 0x35FD10),
+    stores it there and calls setParent(root).
+  - 0x552B7C is written only there and in the constructor, and never cleared: the title never deletes the viewport.
+- **So the parent is process-wide, and genuinely shared.** The root is the engine's one panel, which the process made
+  at its start. Each local player, starting from a fresh boot-image context (0x552B7C 0), makes its own viewport,
+  owned by that player, and adds it as one more child of that root. Player 1's viewport dates from the process's
+  start, so the process owns it.
+- **What run 13 shows.** The root kept every departed viewport as a child, since no leave removed it: the engine's
+  own child, player 1's, then player 2's first and second, filling the 4 entries. At the third join, the fifth child
+  made 0xB52B0 grow the process's buffer in player 2's turn. The guard refused the free, and the new buffer became
+  player 2's. At leave 3 it was left behind, the extra 0xB52DA block in that leave's list (1,265 instead of 1,264).
+- **Other references to a detached viewport are not removed.** The App's focus, mouse and tick state is not traced.
+  Since the viewport is never freed, none of them can dangle.
+
+**The ownership correction (NativeSplitVectorGrow, a hook at 0xB52B0's entry, on_true `ret`).**
+- **The rule.** A vector's buffer belongs to its header's owner (native_split_lifecycle.h VectorGrowOwner). The grow
+  runs as the process, in g_vector_scope, when all of these hold:
+  - it does grow (count wanted > capacity, the same signed test as 0xB52B0's own);
+  - a player is acting (its turn or its initialisation);
+  - the header is in a process block, or in the image outside the players' regions.
+- **Unchanged:** every other case (a player's own vector, a stack vector, no grow, outside the turns, solo with native
+  split off).
+- **Effect:** the new buffer is the process's, and the old one is freed by its owner.
+- **If the old buffer is a player's anyway** (one made before the fix), the free is refused and logged
+  `[own:vector-free]`.
+- **The call's contract:** 0xB52B0 takes eax and ebx, nothing on the stack, and returns with a plain ret. It keeps
+  ebx, esi, edi and ebp; a grow leaves eax, ecx and edx undefined (its free's). No caller of the 28 reads eax, ecx or
+  edx after it before writing them. CallGuest puts every register back, which matches one of the outcomes the title's
+  own grow could leave.
+- **Not changed:** VGUI allocations in general. Nothing is reclassified, and no capacity is reserved.
+- **Four players:** the engine's child and four viewports make five, so the fourth player's join grows the root's
+  vector as the process.
+
+**The detach (DetachViewport, from RemovePlayer before the retention plan).**
+- **Reading:** the leaving player's 0x552B7C comes from its saved context.
+- **The checks** (DetachCheck): the viewport is the player's own block and a panel. Its parent is not the player's
+  own and is a panel. The parent's children vector is sane (count <= capacity <= 4096, its buffer a readable block)
+  and lists the viewport exactly once.
+- **The call:** the title's removeChild through the contract DetachChild (0x10ADC0, ecx the parent, 1 argument,
+  ret 4). It is made only when the parent's vtable has 0x10ADC0 at 0x4C (SlotMatches).
+- **The result is checked afterwards:** the viewport is no longer listed, the count is one less, its parent is
+  cleared and the buffer is unchanged.
+- **The viewport is never deleted**, since there is no destructor contract; its block is left behind and reported
+  with the leak.
+- **A second detach finds no parent**, and does nothing.
+- **When player 1 departs it keeps its context**, and its viewport (the process's) stays on the root.
+
+**Retention (run 13, about 930 KB a leave).**
+
+| Root | Size | Finding |
+|---|---|---|
+| A word in the image's data that changed every leave: 0x5D1748, 0x5D1E48, 0x62DCA4 | 637,500 B, one block | Not a fixed global, since no code names those words: each is inside a static array or structure, outside the players' regions. The nearest named data, 0x5D0DF8..0x5D14C0, is the front end's settings and screens (0xCE6A0..0xCF310, 0xD7550 "InGame_Root"). Whether it is a genuine shared reference (a cache entry) or a stale one is undetermined; no root may be inferred from its address. The root line now gives the block's own site and size. |
+| A process block from 0x10829B (0x108230: a file read into a 2 KB-rounded buffer; VGUI's loaders 0x1055D0 / 0x105CA0 from 0xAD8A0, and 0xBF470) | 120–130 KB, about 1,600–1,900 blocks | File contents scanned word by word: possibly a false reference, a byte pattern that looks like a player 2 address. The line now names the block it reaches and whether that is a VGUI panel. |
+| Process blocks from 0x66943 (0x668A0's size + 0x10 allocation; called from 0x48F30, which tests a model_t-like +0x44 type and +0x184 cache) | 29–46 KB | Apparently the engine's model or sprite loading: process data naming player 2's blocks. Not VGUI. Undetermined whether the references are genuine. |
+
+The root panel's children list was the VGUI link. With the detach, the next run's root lines show what still keeps
+the viewport's tree.
+
+**Diagnostics.**
+- Panels given a parent the process owns (log-only hooks at setParent 0x10ACC0 and addChild 0x10AD00) are logged with
+  the parent's count, capacity, buffer and owner, tagged `[watch:shared-parent]`.
+- Grows run as the process are logged with the header and old buffer, tagged `[watch:shared-vector]`.
+- The detach is logged.
+- WatchSharedParents (each report, and after each leave) checks every shared parent's children for a departed
+  player's panel, a freed one or a duplicate.
+- A report line counts all of these.
+
+| Tag | Meaning |
+|---|---|
+| `[own:vector-free]` | a process-wide vector's grow, run as the process, would free a player's old buffer (refused) |
+| `[own:stale-child]` | a process panel keeps a departed player's panel, a freed one, or one twice; or removeChild failed |
+
+The leave scenario now also expects `player 2's viewport ... detached from the process's panel`. All three scenarios
+fail on `not detached` and on a shared panel keeping a child.
+
+**Tests.**
+- **tests/native_split_lifecycle_test.cpp: simulated.** It applies the same rules to a model of the guest's words:
+  - the run-13 build's foreign free at the third join, reproduced;
+  - ten leave and rejoin cycles with no grow and no foreign free;
+  - a single detach each time, with player 1's viewport untouched;
+  - four players: the fifth child grown as the process, and player 3's leave detaching only its own;
+  - player 1's departure, which keeps its viewport;
+  - stale, freed and duplicate children reported;
+  - every DetachCheck case, and the contract.
+- **tests/guest_call_contract_test.py: static.** It checks the hierarchy's instructions, the DetachChild contract,
+  0xB52B0's contract, and that no caller reads its undefined registers.
+- **tests/scenario_ownership_test.py.** Run 13's line and the new tags fail every scenario; a passing leave's new
+  lines do not.
+
+None of this has run in the game: only `native_split_2p_leave` can show the detach and the grow's scope there.

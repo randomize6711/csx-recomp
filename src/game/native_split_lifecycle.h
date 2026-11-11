@@ -7,8 +7,11 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <set>
 #include <string>
+#include <vector>
 
+#include "game/heap_owner.h"
 #include "game/native_split_core.h"
 
 namespace nsplit {
@@ -186,7 +189,7 @@ inline Release ReleaseCheck(bool known, int owner, bool owned_kind, int leaving,
 // callee's ret N never reaches the caller). The cleanup called 0x1BAD90 with edi set where it reads esi (since 8f52386):
 // esi was _Host_Frame's 0 and its first read faulted at 0x414 (the twelfth run, docs 15.16).
 enum GuestReg : uint8_t { kRegEax = 1, kRegEcx = 2, kRegEdx = 4, kRegEbx = 8, kRegEsi = 16, kRegEdi = 32 };
-enum class CleanupFn { DropClient, Free, Delete552C70, Delete552C9C, Destroy552CA8, FreeDeltaSlot };
+enum class CleanupFn { DropClient, Free, Delete552C70, Delete552C9C, Destroy552CA8, FreeDeltaSlot, DetachChild };
 struct CleanupCall {
     CleanupFn id;
     const char* name;
@@ -195,23 +198,31 @@ struct CleanupCall {
     uint8_t args;     // the stack arguments pushed (exactly these)
     uint8_t pops;     // what its ret pops (thiscall: 4); CallGuest restores esp whatever it is
     uint32_t vtable;  // nonzero: reached through the object's vtable, which must be this one (its slot 0 fn)
+    int16_t slot;     // >= 0: reached through the object's vtable at this offset, whatever its class: that entry must
+                      // be fn (the title's `call [eax+slot]`); -1 not
     bool frees;       // it can free (each free checked by NativeSplitHeapFree: never another's block)
     bool shared;      // it changes process-wide state (the server's client slot)
 };
 inline constexpr CleanupCall kCleanupCalls[] = {
     // cdecl (client, crash, format, ...): the format "%s" and its one argument
-    {CleanupFn::DropClient, "SV_DropClient", 0x5C600, 0, 4, 0, 0, true, true},
+    {CleanupFn::DropClient, "SV_DropClient", 0x5C600, 0, 4, 0, 0, -1, true, true},
     // the C runtime's free (cdecl, its SEH frame from 0x22E53C)
-    {CleanupFn::Free, "free", 0x22C609, 0, 1, 0, 0, true, false},
+    {CleanupFn::Free, "free", 0x22C609, 0, 1, 0, 0, -1, true, false},
     // `mov ecx, [0x552C70]; mov eax, [ecx]; push 1; call [eax]` (0x1A7F70): thiscall, the delete flag
-    {CleanupFn::Delete552C70, "0x552C70's deleting destructor", 0x1A7AE0, kRegEcx, 1, 4, 0x35EB78, true, false},
+    {CleanupFn::Delete552C70, "0x552C70's deleting destructor", 0x1A7AE0, kRegEcx, 1, 4, 0x35EB78, -1, true, false},
     // `mov ecx, [0x552C9C]; mov eax, [ecx]; push 1; call [eax]` (0x1B6670)
-    {CleanupFn::Delete552C9C, "0x552C9C's deleting destructor", 0x1B6980, kRegEcx, 1, 4, 0x361C8C, true, false},
+    {CleanupFn::Delete552C9C, "0x552C9C's deleting destructor", 0x1B6980, kRegEcx, 1, 4, 0x361C8C, -1, true, false},
     // `mov esi, [0x552CA8]; mov edi, esi; call 0x1BAD90` (0x1BAE4E, 0x1A6CF9): esi the object (edi only the callers'
     // copy for their free after it: callee-saved, never read by 0x1BAD90)
-    {CleanupFn::Destroy552CA8, "0x552CA8's destructor", 0x1BAD90, kRegEsi, 0, 0, 0, true, false},
+    {CleanupFn::Destroy552CA8, "0x552CA8's destructor", 0x1BAD90, kRegEsi, 0, 0, 0, -1, true, false},
     // esi the slot (0x2FBAD)
-    {CleanupFn::FreeDeltaSlot, "a delta slot's free", 0x45670, kRegEsi, 0, 0, 0, true, false},
+    {CleanupFn::FreeDeltaSlot, "a delta slot's free", 0x45670, kRegEsi, 0, 0, 0, -1, true, false},
+    // a VGUI panel's removeChild (docs 15.17): `mov ecx, [child+0x38]; mov eax, [ecx]; push child; call [eax+0x4C]`
+    // (0x10ACCD setParent, 0x10AD14 addChild, 0x10AD96 insertChildAt): thiscall, the parent; the child; ret 4. It
+    // clears the child's parent (+0x38) and its inherited +0x3C and takes it out of the parent's children (0xB51B0:
+    // the entries after it moved down, the count less one); it allocates and frees nothing. Slot 0x4C of every panel
+    // vtable (the classes the title builds on Panel 0x10A4E0)
+    {CleanupFn::DetachChild, "a panel's removeChild", 0x10ADC0, kRegEcx, 1, 4, 0, 0x4C, false, true},
 };
 constexpr size_t kCleanupCallCount = sizeof kCleanupCalls / sizeof kCleanupCalls[0];
 inline const CleanupCall& Contract(CleanupFn id) { return kCleanupCalls[size_t(id)]; }
@@ -223,6 +234,8 @@ inline bool MeetsContract(const CleanupCall& c, uint8_t set, size_t nargs) {
 // a vtable call is made only when the object's vtable is its constructor's (an object overwritten or of another class
 // is kept, not called: its target is not known)
 inline bool VtableMatches(const CleanupCall& c, uint32_t object_vtable) { return !c.vtable || object_vtable == c.vtable; }
+// and a call through a vtable slot only when the object's vtable has the contract's function there
+inline bool SlotMatches(const CleanupCall& c, uint32_t slot_entry) { return c.slot < 0 || slot_entry == c.fn; }
 
 // 0x552C70's destructor (0x1A7B10 -> 0x1A78B0) deletes the eight objects at +0x1C..+0x38 through their own vtables:
 // it runs only when each is absent or released by the same rule as the object itself (else the whole object is kept)
@@ -231,6 +244,105 @@ inline bool ChildrenReleasable(const Release* each, size_t n) {
     for (size_t i = 0; i < n; i++)
         if (each[i] != Release::Release && each[i] != Release::None) return false;
     return true;
+}
+
+// ---- the VGUI hierarchy's shared parents (docs 15.17) --------------------------------------------------------------
+// A VGUI panel (Panel 0x10A4E0; no virtual destructor: the title never deletes one) keeps its children in a vector at
+// +0x2C {count, capacity, data} (four reserved at its construction: a 16-byte buffer from 0xB52DA) and its parent at
+// +0x38; setParent (slot 0x40, 0x10ACC0) takes it from its old parent (slot 0x4C, removeChild 0x10ADC0) and appends it
+// to the new parent's vector (0xB5220, unique; grown by 0xB52B0). Each player's VGui_Startup (0x1BAE90, from
+// 0x18B7E0 in its HUD's video initialisation) makes its own viewport (0xA84 bytes, 0x1B03B0, vtable 0x35FD10, kept at
+// 0x552B7C in its regions) and sets its parent to the engine's root panel (the client's engine function [0x54321C]):
+// one panel the process made at its start, so every local player's viewport is a child of the one process-owned panel.
+constexpr uint32_t kPanelChildren = 0x2C, kPanelParent = 0x38, kPanelSetParentSlot = 0x40, kPanelRemoveChildSlot = 0x4C;
+constexpr uint32_t kPanelSetParent = 0x10ACC0, kPanelRemoveChild = 0x10ADC0, kViewport = 0x552B7C;
+constexpr uint32_t kViewportVtable = 0x35FD10, kVectorGrow = 0xB52B0;
+// a panel: its vtable has the Panel's setParent and removeChild (every class the title builds on 0x10A4E0 keeps both)
+inline bool IsPanelVtable(uint32_t set_parent_entry, uint32_t remove_child_entry) {
+    return set_parent_entry == kPanelSetParent && remove_child_entry == kPanelRemoveChild;
+}
+
+// 0xB52B0 (ebx a vector's header {count, capacity, data}, eax the count wanted; it allocates the larger buffer and
+// frees the old one): whose its new buffer is. A vector's buffer is its header's owner's: a header in a process block,
+// or in the image outside the players' regions (a process-wide static), is the process's, so a player's turn grows it
+// as the process (its old buffer the process's, freed by the process); a header in a player's block or regions, on
+// the stack, or in no known block, stays the acting owner's (unchanged). No allocation when it does not grow.
+enum class GrowAs { Acting, Process };
+inline GrowAs VectorGrowOwner(int32_t wanted, int32_t capacity, bool in_block, int block_owner, bool in_image,
+                              bool in_regions, int acting) {
+    if (wanted <= capacity || acting < 0) return GrowAs::Acting;  // no grow, or the process already
+    if (in_block) return block_owner == heapown::kProcess ? GrowAs::Process : GrowAs::Acting;
+    return in_image && !in_regions ? GrowAs::Process : GrowAs::Acting;
+}
+
+// a leaving player's viewport taken off its parent (removeChild, as the title's setParent does) when: it is its own
+// block, a panel (its vtable has the Panel's methods), its parent is a panel that is not its own (the root: the
+// process's), the parent's vector is sane and lists it exactly once. Never deleted: the title has no destructor for
+// it (its block is left behind, the leak reported); a player that keeps its context (player 1's departure) keeps it.
+enum class Detach { None, NotOwn, NotPanel, NoParent, OwnParent, ParentNotPanel, BadList, NotListed, Duplicate, Detach };
+inline const char* Name(Detach d) {
+    switch (d) {
+        case Detach::None: return "no viewport";
+        case Detach::NotOwn: return "not its own block";
+        case Detach::NotPanel: return "not a panel";
+        case Detach::NoParent: return "no parent";
+        case Detach::OwnParent: return "its parent is its own";
+        case Detach::ParentNotPanel: return "its parent is not a panel";
+        case Detach::BadList: return "its parent's children are not a sane vector";
+        case Detach::NotListed: return "not among its parent's children";
+        case Detach::Duplicate: return "listed more than once";
+        case Detach::Detach: return "detached";
+    }
+    return "?";
+}
+struct PanelView {  // what the cleanup read: the viewport's and its parent's words
+    bool known = false;  // the viewport is a known block
+    int owner = -2;      // its block's owner
+    bool panel = false;  // its vtable has the Panel's methods
+    uint32_t parent = 0;
+    int parent_owner = -2;  // the parent's block's owner (-2: no known block)
+    bool parent_panel = false;
+    int32_t count = 0, capacity = 0;
+    bool data_ok = false;  // the children's buffer is a known block holding capacity entries
+    int listed = 0;        // how many times the viewport is in it
+};
+inline Detach DetachCheck(uint32_t viewport, const PanelView& v, int leaving) {
+    if (!viewport) return Detach::None;
+    if (!v.known || v.owner != leaving) return Detach::NotOwn;
+    if (!v.panel) return Detach::NotPanel;
+    if (!v.parent) return Detach::NoParent;
+    if (v.parent_owner == leaving) return Detach::OwnParent;
+    if (!v.parent_panel) return Detach::ParentNotPanel;
+    if (v.count < 0 || v.capacity < v.count || v.capacity > 4096 || !v.data_ok) return Detach::BadList;
+    if (v.listed == 0) return Detach::NotListed;
+    if (v.listed > 1) return Detach::Duplicate;
+    return Detach::Detach;
+}
+
+// a shared parent's children (read live) a departed player left (its block handed to the process: left_by) or that
+// is no known block any more (freed): stale (docs 15.17); with the entries duplicated
+struct ChildFinding {
+    uint32_t child;
+    int left_by;  // >= 0 a departed player's; -2 no known block
+    bool duplicate;
+};
+template <typename Read>
+std::vector<ChildFinding> StaleChildren(uint32_t parent, const heapown::Blocks& blocks, Read read) {
+    std::vector<ChildFinding> out;
+    int32_t n = int32_t(read(parent + kPanelChildren)), cap = int32_t(read(parent + kPanelChildren + 4));
+    uint32_t data = read(parent + kPanelChildren + 8);
+    if (n < 0 || n > cap || cap > 4096 || (n && !data)) return out;
+    std::set<uint32_t> seen;
+    for (int32_t i = 0; i < n; i++) {
+        uint32_t c = read(data + 4 * uint32_t(i));
+        bool dup = !seen.insert(c).second;
+        uint32_t start = c >= 0x10000 ? blocks.Holding(c) : 0;  // a panel may be a member of a larger object
+        const heapown::Block* b = start ? blocks.At(start) : nullptr;
+        if (!b && !heapown::IsImageAddress(c)) out.push_back({c, -2, dup});
+        else if (b && b->left_by >= 0) out.push_back({c, b->left_by, dup});
+        else if (dup) out.push_back({c, -1, true});
+    }
+    return out;
 }
 
 // what leaving players leave behind (kept or unreleased) is bounded: past the limit no player joins again this session
