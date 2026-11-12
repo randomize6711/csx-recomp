@@ -520,6 +520,13 @@ inline constexpr StaticArea kStaticAreas[] = {
     {0x5D14C8, 0x5D34C8, Evidence::Unverified, "a 64x64 16-bit texture's texels (0xBEB70)"},
     // 0x9FEF0: the sizebuf 0x62DBC8 {data 0x62DBD4, maxsize 0x8000, cursize}: message bytes
     {0x62DBD4, 0x635BD4, Evidence::Unverified, "the 32 KB message buffer's bytes (sizebuf 0x62DBC8)"},
+    // docs 15.21: the client game's sentence groups (0x1525B0 clears 0xA28 dwords from 0x53FD20 and loads them from a
+    // file: 200 records of 0x34 bytes, a name at +0, a count at +0x10 (0x1527EE), index bytes at +0x14..+0x33 with
+    // 0xFF marks (0x152290, 0x152308); read by 0x152180 / 0x152290 / 0x152390 as names, counts and bytes: no field is
+    // a pointer). Run 15's first pool root 0x540830 is record 54's +0x18, an index byte
+    {0x53FD20, 0x5425C0, Evidence::Unverified, "the sentence groups' names, counts and index bytes (0x1525B0)"},
+    // the sentence text 0x539D20 (0x1800 dwords cleared by 0x1525B0 with the groups): characters
+    {0x539D20, 0x53FD20, Evidence::Unverified, "the sentences' text (0x1525B0)"},
 };
 inline const StaticArea* StaticAreaOf(uint32_t va) {
     for (const StaticArea& a : kStaticAreas)
@@ -563,6 +570,34 @@ inline Evidence EvidenceOf(RootKind r, uint32_t at, uint32_t site) {
     if ((r == RootKind::ProcessBlock || r == RootKind::PlayerBlock || r == RootKind::LeftBehindBlock) && ByteSiteOf(site))
         return Evidence::Unverified;
     return Evidence::Unclassified;
+}
+
+// docs 15.21: the particle pool's dry run at a leave (report only: the pool is never freed). Every word that names a
+// place in the leaving player's pool, outside its own state (the image's data with player 1's live regions, the
+// other contexts, every block not the leaving player's), as bytes (a static area or a block site of unverified bytes)
+// or a reference (anything else). No name, or only bytes: it could be reclaimed by freeing its block (not its
+// destructor), were that enabled; a reference: it could not. Nothing here frees it
+enum class PoolReclaim { NotFound, Unreferenced, OnlyByteData, Referenced };
+inline const char* Name(PoolReclaim r) {
+    switch (r) {
+        case PoolReclaim::NotFound: return "no pool of its own";
+        case PoolReclaim::Unreferenced: return "named by nothing outside its own state";
+        case PoolReclaim::OnlyByteData: return "named only by unverified bytes (no pointer field)";
+        case PoolReclaim::Referenced: return "named by a word not known to be bytes";
+    }
+    return "?";
+}
+inline PoolReclaim PoolVerdict(bool found, size_t byte_names, size_t other_names) {
+    if (!found) return PoolReclaim::NotFound;
+    if (other_names) return PoolReclaim::Referenced;
+    return byte_names ? PoolReclaim::OnlyByteData : PoolReclaim::Unreferenced;
+}
+inline constexpr uint32_t kPoolSite = 0x1F9BBE;
+// the experimental reclamation (docs 15.21; CSX_NATIVE_SPLIT_RECLAIM_POOL=1, off unless set): the pool's block freed by
+// the title's free (one malloc: 0x1F9BB9), never by its destructor (which frees each entry's interior +4), only when
+// the dry run found no word but unverified bytes naming it; its 16-byte CMiniMem object kept
+inline bool ReclaimsPool(bool enabled, PoolReclaim v) {
+    return enabled && (v == PoolReclaim::Unreferenced || v == PoolReclaim::OnlyByteData);
 }
 
 // a player's allocations the title itself keeps for its whole life (no destructor, or none that may run): left

@@ -1932,3 +1932,45 @@ wording ("leaving players still hold").
 
 Unproven until a run: the cycle counts against the game (that 0x108BB0 is the only source of run 15's churn), the
 outstanding figures.
+
+### 15.21 The particle manager's pool: its state, the roots that kept it, a dry run (2026-11-12; static only, not run)
+
+**What it is.** The client game's particle manager (the "particleman" library's CMiniMem): InitializeParticleMan
+0x1F8E00 copies the engine's 0x78 functions to 0x5430E8 and sets the interface 0x552CDC and the entry size 0x552CE0
+(0x118); CMiniMem::Instance 0x1F9EC0 makes the 16-byte manager (site 0x1F9EE6) and, through 0x1F9B90, the pool: one
+malloc of (30000 >> 4) x (size + 0x14) bytes (0x1F9BB9, site 0x1F9BBE; 1,875 x 340 = 637,500), its base kept at
+0x5517FC, each entry's +4 pointing inside it (0x1F9C25). The free list 0x5BD8C4 and the active list 0x5BD8D8
+(0x1F9DE0, 0x1F9E40: entries linked through +8 / +0xC, inside the pool), the frame's processing 0x1F9F80 (from the
+HUD's 0x1F8E40), a vector 0x5BD8CC..0x5BD8D4, the singleton 0x552CE4: every one in a player's regions (checked). The
+one process-wide global it uses, 0x5430E8, holds the engine's function pointers (the image's code), never a particle.
+The two static destructors 0x240160 (the vector's free) and 0x2401A0 (the free list's) have no caller: the process's
+exit. Particles name models (the engine's, shared, not owned); the engine is handed values, never a particle to keep.
+So nothing of the process is designed to keep a pointer into a player's pool.
+
+**The roots that kept it.** Run 15's three (one a leave): 0x5D1DC8 (a texture's texels) and 0x62DCA4 (the message
+buffer), already bytes, and 0x540830, now classified: the client game's sentence groups at 0x53FD20 (0x1525B0 clears
+0xA28 dwords there and 0x1800 at the sentence text 0x539D20, then loads them from a file: 200 records of 0x34 bytes, a
+name at +0, a count at +0x10, index bytes at +0x14..+0x33 marked 0xFF when used; only 0x152180, 0x152290, 0x152390 and
+0x1525B0 name the area, as names, counts and bytes). 0x540830 is group 54's +0x18 and run 14's 0x540978 group 60's
++0x28: index bytes. Both areas are now unverified bytes (kStaticAreas). Every root that kept a pool in runs 14 and 15
+was bytes.
+
+**The dry run** (PoolDryRun, at each leave after the reference plan, before the player's blocks are handed to the
+process; `[watch:pool]`). Every word outside the leaving player's own state that names a place in its pool: the
+image's data (player 1's live regions included), every other context's saved copy, every block not the leaving
+player's; each counted as unverified bytes (a byte area, a block of a byte site) or another word (the first named).
+The verdict (PoolVerdict): no pool, named by nothing, named only by bytes, or named by another word. It frees, calls
+and writes nothing; the pool stays allocated.
+
+**The experimental reclamation** (off: CSX_NATIVE_SPLIT_RECLAIM_POOL=1 only, set by no scenario). When the verdict is
+"named by nothing" or "only by bytes": the pool's one block freed by the title's free (CleanupFn::Free, as its own, in
+its context, inside the cleanup), never by its destructor 0x1F9D10 / 0x1F9B30 (which free the interior +4 of each
+entry); the 16-byte manager kept (`[watch:pool-reclaimed]`). Not enabled and not to be run without a separate
+permission; the dry run's verdicts from a permitted run are the evidence it would need first.
+
+**Tests.** native_split_lifecycle_test PoolDryRunRules (the verdicts; run 14's and 15's pool roots now bytes; the
+areas' ends; the reclamation only when on and only for bytes or nothing); guest_call_contract_test (0x1525B0's
+clears, the records' stride and count, 0x152290's index bytes, the area's only users; the header's areas; the dry run
+calls, frees and writes nothing and runs after the plan; the option exactly "1", no scenario sets it, the reclamation
+frees only the player's own pool block by free); native_split_2p_leave expects a dry-run line at each leave and no
+reclamation.

@@ -17,6 +17,7 @@ native_split_2p_leave's).
 
 Usage: python3 -I tests/guest_call_contract_test.py
 """
+import glob
 import os
 import re
 import struct
@@ -310,6 +311,37 @@ def retention_checks(funcs, cl, r32, src, regs):
     check('size_t limit = size_t(8) << 20;' in hdr, 'the bound stays 8 MiB')
     check(fe.find('SettleLinks();') >= 0 and fe.find('SettleLinks();') < fe.find('RemovePlayer('),
           'the frame\'s end settles the pending removals before any removal of a player')
+    # docs 15.21: the sentence groups 0x53FD20 (0x1525B0): cleared, loaded, read as names, counts and bytes
+    seq(0x1525B0, [(0x1525DC, 'mov ecx, 0x1800'), (0x1525E1, 'mov edi, 0x539D20'), (0x1525E6, 'rep stosd'),
+                   (0x1525E8, 'mov ecx, 0xA28'), (0x1525ED, 'mov edi, 0x53FD20'), (0x1525F2, 'rep stosd'),
+                   (0x1527C5, 'add esi, 0x34'), (0x1527C8, 'cmp esi, 0x5425D0'), (0x1527EE, 'mov dword ptr [esi], 0x01')],
+          'the sentence groups: 0x539D20 (0x6000 bytes) and 0x53FD20 (0x28A0) cleared; 0x34-byte records; a count at +0x10')
+    seq(0x152290, [(0x1522C4, 'imul eax, eax, 0x34'), (0x1522C8, 'mov bl, [eax+0x53FD30]'), (0x1522D6,
+                   'lea esi, [eax+0x53FD34]'), (0x1522E9, 'cmp byte ptr [ecx+esi*1], 0xFF'), (0x152308, 'mov byte ptr [eax], 0xFF')],
+          'a group\'s +0x14 index bytes, marked 0xFF when used')
+    users = {f for f, ins in funcs.items() if f < 0x29B000 for _, s_ in ins
+             if any(0x53FD20 <= int(m, 16) < 0x5425C0 for m in re.findall(r'0x([0-9A-F]{5,8})\b', s_))}
+    check(users == {0x152180, 0x152290, 0x152390, 0x1525B0}, f'the groups\' only users (below the data decoded as code at 0x29B000) ({sorted(map(hex, users))})')
+    check(0x53FD20 + 0xA28 * 4 == 0x5425C0 and '{0x53FD20, 0x5425C0, Evidence::Unverified' in hdr and
+          '{0x539D20, 0x53FD20, Evidence::Unverified' in hdr, 'the header\'s two areas are exactly the cleared ones')
+    pd = body_of(src, 'PoolSeen PoolDryRun(int k, int context)')
+    check('CallGuest' not in pd and 'CallCleanup' not in pd and 'Freed' not in pd and 'W32' not in pd,
+          'the pool\'s dry run frees, calls and writes nothing')
+    on = body_of(src, 'bool ReclaimPoolOn()')
+    check('CSX_NATIVE_SPLIT_RECLAIM_POOL' in on and "v && v[0] == '1' && !v[1]" in on,
+          'the experimental reclamation: off unless CSX_NATIVE_SPLIT_RECLAIM_POOL is exactly 1')
+    scen = ''.join(open(f).read() for f in glob.glob(os.path.join(ROOT, 'tests', 'scenarios', '*.txt')))
+    check('RECLAIM_POOL' not in scen, 'no scenario turns the experimental reclamation on')
+    rp4 = body_of(src, 'void RemovePlayer(X86Context& ctx, int k)')
+    blk = rp4[rp4.find('nsplit::ReclaimsPool(ReclaimPoolOn(), pool.verdict)'):]
+    blk = blk[:blk.find('g_releasing = false;')]
+    check("CallCleanup(ctx, nsplit::CleanupFn::Free, 0, {pool.pool}, k)" in blk and '0x1F9D10' not in blk and
+          '0x1F9B30' not in blk and 'g_blocks.At(pool.pool)->owner == k' in blk and
+          'g_blocks.At(pool.pool)->site == nsplit::kPoolSite' in blk and blk.count('CallCleanup') == 1,
+          'the reclamation: only the leaving player\'s own pool block, by free, never the pool\'s destructors')
+    rp3 = body_of(src, 'void RemovePlayer(X86Context& ctx, int k)')
+    check(rp3.find('NamedElsewhere(') < rp3.find('PoolDryRun(k, p.context)') < rp3.find('g_blocks.Orphan(k)'),
+          'the dry run after the plan, before its blocks are handed to the process')
     # the particle manager's pool: its singleton per player, its size, its entries' interior pointers, its destructor
     seq(0x1F9EC0, [(0x1F9ED6, 'mov eax, [0x00552CE4]'), (0x1F9EDF, 'push 0x10'), (0x1F9EE1, 'call 0x0022D86A'),
                    (0x1F9EFF, 'mov eax, 0x7530'), (0x1F9F04, 'call 0x001F9B90'), (0x1F9F09, 'mov [0x00552CE4], eax')],

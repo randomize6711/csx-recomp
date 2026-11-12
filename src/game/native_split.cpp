@@ -1073,6 +1073,76 @@ std::set<uint32_t> NamedElsewhere(int k, int context, size_t& released_bytes, si
     return keep;
 }
 
+// docs 15.21: the leaving player's particle pool (site 0x1F9BBE) and every word outside its own state that names a
+// place in it: reported (bytes or a reference) with the dry run's verdict; the pool is kept whatever it says
+uint64_t g_pool_verdicts[4] = {}, g_pools_reclaimed = 0;
+// docs 15.21: experimental, off unless CSX_NATIVE_SPLIT_RECLAIM_POOL=1 (never in the permitted runs)
+bool ReclaimPoolOn() {
+    static const bool on = [] {
+        const char* v = std::getenv("CSX_NATIVE_SPLIT_RECLAIM_POOL");
+        return v && v[0] == '1' && !v[1];
+    }();
+    return on;
+}
+struct PoolSeen {
+    uint32_t pool = 0, size = 0;
+    nsplit::PoolReclaim verdict = nsplit::PoolReclaim::NotFound;
+};
+PoolSeen PoolDryRun(int k, int context) {
+    constexpr uint32_t kDataLo = 0x36C8A0, kDataHi = 0x7D6F20;
+    uint32_t pool = 0, size = 0;
+    g_blocks.ForEach([&](uint32_t va, const heapown::Block& b) {
+        if (!pool && b.owner == k && b.site == nsplit::kPoolSite) pool = va, size = b.size;
+    });
+    size_t bytes_n = 0, other_n = 0;
+    uint32_t first_other = 0;
+    std::string first_what;
+    auto seen = [&](uint32_t at, uint32_t v, nsplit::Evidence e, const char* what) {
+        if (v < pool || v - pool >= size) return;
+        if (e == nsplit::Evidence::Unverified) {
+            bytes_n++;
+            return;
+        }
+        if (!other_n++) first_other = at, first_what = what;
+    };
+    if (pool) {
+        for (uint32_t va = kDataLo; va + 4 <= kDataHi; va += 4) {
+            uint32_t v = R32(va);
+            if (v < pool || v - pool >= size) continue;
+            const nsplit::StaticArea* a = nsplit::StaticAreaOf(va);
+            bool region = csx::ClientContextOffsetOf(va) >= 0;
+            seen(va, v, a ? a->evidence : nsplit::Evidence::Unclassified,
+                 region ? "a word of player 1's regions" : a ? a->what : "a word of the process's static data");
+        }
+        std::vector<heapown::Span> spans = Spans();
+        for (int c = 1; c < csx::ClientContextCount(); c++) {
+            if (c == context || c == csx::ClientContextActive()) continue;
+            const std::vector<uint8_t>& copy = csx::ClientContextSaved(c);
+            for (const heapown::Span& sp : spans)
+                for (uint32_t o = 0; o + 4 <= sp.size && sp.offset + o + 4 <= copy.size(); o += 4) {
+                    uint32_t v;
+                    std::memcpy(&v, copy.data() + sp.offset + o, 4);
+                    seen(sp.va + o, v, nsplit::Evidence::Unclassified, "a word of another context's regions");
+                }
+        }
+        g_blocks.ForEach([&](uint32_t va, const heapown::Block& b) {
+            if (b.owner == k || !Readable(va) || !Readable(va + b.size - 1)) return;
+            nsplit::Evidence e = nsplit::ByteSiteOf(b.site) ? nsplit::Evidence::Unverified : nsplit::Evidence::Unclassified;
+            for (uint32_t o = 0; o + 4 <= b.size; o += 4) seen(va + o, R32(va + o), e, "a word of another owner's block");
+        });
+    }
+    nsplit::PoolReclaim v = nsplit::PoolVerdict(pool != 0, bytes_n, other_n);
+    g_pool_verdicts[int(v)]++;
+    char first[160] = "";
+    if (other_n) std::snprintf(first, sizeof first, " (the first at 0x%08X, %s)", first_other, first_what.c_str());
+    LOGI("native split: player %d's particle pool 0x%08X (%u bytes, site 0x%X): named by %zu word(s) of unverified "
+         "bytes, %zu other word(s)%s: %s; %s [watch:pool]",
+         k + 1, pool, size, nsplit::kPoolSite, bytes_n, other_n, first, nsplit::Name(v),
+         nsplit::ReclaimsPool(ReclaimPoolOn(), v) ? "EXPERIMENTAL: its block is freed by the cleanup"
+                                                   : "dry run only, the pool kept");
+    return {pool, size, v};
+}
+
 // a cleanup's guest call (native_split_lifecycle.h kCleanupCalls, docs 15.16): exactly the contract's registers set to
 // `object` and exactly its arguments pushed; a call through a vtable made only when the object's vtable is its
 // constructor's, to the contract's function (never a target read from guest memory). False (nothing called; the
@@ -1297,6 +1367,7 @@ void RemovePlayer(X86Context& ctx, int k) {
     size_t plan_free = 0, plan_kept = 0;
     std::vector<uint32_t> verified_seeds;
     g_release_keep = NamedElsewhere(k, p.context, plan_free, plan_kept, verified_seeds);
+    const PoolSeen pool = PoolDryRun(k, p.context);  // docs 15.21: a report (its free experimental, off)
     const std::set<uint32_t> kept_by_plan = g_release_keep;
     const std::set<uint32_t> verified_reach =
         heapown::ReachableFrom(g_blocks, k, verified_seeds, [](uint32_t va) { return ReadOr0(va); });
@@ -1369,6 +1440,18 @@ void RemovePlayer(X86Context& ctx, int k) {
         if (RunDestructor(ctx, k, nsplit::CleanupFn::FreeDeltaSlot, slot, desc ? slot : 0, desc ? skip_of(desc) : nullptr,
                           {}, nsplit::Post::NotABlock))
             released++;
+    }
+    // docs 15.21, experimental (off unless CSX_NATIVE_SPLIT_RECLAIM_POOL=1): its particle pool's one block freed by
+    // the title's free, as its own, when only bytes name it; never its destructor
+    if (pool.pool && nsplit::ReclaimsPool(ReclaimPoolOn(), pool.verdict) && g_blocks.At(pool.pool) &&
+        g_blocks.At(pool.pool)->owner == k && g_blocks.At(pool.pool)->site == nsplit::kPoolSite) {
+        g_release_keep.erase(pool.pool);
+        if (CallCleanup(ctx, nsplit::CleanupFn::Free, 0, {pool.pool}, k) && !g_blocks.At(pool.pool)) {
+            g_pools_reclaimed++;
+            released++;
+            LOGW("native split: player %d's particle pool 0x%08X (%u bytes) freed by the cleanup (EXPERIMENTAL "
+                 "reclamation; its CMiniMem object kept) [watch:pool-reclaimed]", k + 1, pool.pool, pool.size);
+        }
     }
     g_releasing = false;
     g_release_keep.clear();

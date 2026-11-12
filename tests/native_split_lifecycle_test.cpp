@@ -492,6 +492,30 @@ static void LiveRetention() {
     Check(LeakBudget{}.limit == size_t(8) << 20, "the bound stays 8 MiB");
 }
 
+// docs 15.21: the particle pool's dry run (report only) and the sentence groups' bytes
+static void PoolDryRunRules() {
+    Check(PoolVerdict(false, 0, 0) == PoolReclaim::NotFound, "no pool: not found");
+    Check(PoolVerdict(true, 0, 0) == PoolReclaim::Unreferenced, "a pool nothing names");
+    Check(PoolVerdict(true, 3, 0) == PoolReclaim::OnlyByteData, "a pool named only by bytes");
+    Check(PoolVerdict(true, 3, 1) == PoolReclaim::Referenced && PoolVerdict(true, 0, 1) == PoolReclaim::Referenced,
+          "one word not known to be bytes: referenced");
+    // run 15's three pool roots, each a byte area now
+    for (uint32_t at : {0x540830u, 0x5D1DC8u, 0x62DCA4u})
+        Check(EvidenceOf(RootKind::StaticWord, at, 0) == Evidence::Unverified, "run 15's pool roots: unverified bytes");
+    Check((0x540830u - 0x53FD20u) / 0x34u == 54 && (0x540830u - 0x53FD20u) % 0x34u == 0x18,
+          "0x540830: sentence group 54, +0x18 (an index byte)");
+    Check(EvidenceOf(RootKind::StaticWord, 0x5425C0, 0) == Evidence::Unclassified &&
+              EvidenceOf(RootKind::StaticWord, 0x53FD1C, 0) == Evidence::Unverified &&
+              EvidenceOf(RootKind::StaticWord, 0x539D1C, 0) == Evidence::Unclassified,
+          "the areas' ends: the groups end at 0x5425C0, the text starts at 0x539D20");
+    Check(kPoolSite == 0x1F9BBE && PersistentSiteOf(kPoolSite) != nullptr, "the pool's site, persistent by the title");
+    Check(!ReclaimsPool(false, PoolReclaim::OnlyByteData) && !ReclaimsPool(false, PoolReclaim::Unreferenced),
+          "reclamation off: never freed, whatever the dry run says");
+    Check(ReclaimsPool(true, PoolReclaim::OnlyByteData) && ReclaimsPool(true, PoolReclaim::Unreferenced) &&
+              !ReclaimsPool(true, PoolReclaim::Referenced) && !ReclaimsPool(true, PoolReclaim::NotFound),
+          "reclamation on (experimental): only a pool named by nothing but bytes");
+}
+
 static void Sessions() {
     {  // player 2 leaves while player 1 plays
         SessionSim s;
@@ -1454,8 +1478,9 @@ static void RetentionRules() {
           "run 14's third leave: a word of the 32 KB message buffer's bytes");
     Check(EvidenceOf(RootKind::StaticWord, 0x5D1DC8, 0) == Evidence::Unverified,
           "run 14's second leave: a word of the 64x64 texture's texels");
-    Check(EvidenceOf(RootKind::StaticWord, 0x540978, 0) == Evidence::Unclassified,
-          "run 14's first leave: a word of the 0x34-byte records at 0x53FD20 (not established either way)");
+    Check(EvidenceOf(RootKind::StaticWord, 0x540978, 0) == Evidence::Unverified &&
+              (0x540978u - 0x53FD20u) % 0x34u == 0x28,
+          "run 14's first leave: sentence group 60's +0x28, an index byte (docs 15.21; was unclassified)");
     Check(EvidenceOf(RootKind::ProcessBlock, 0, 0x10829B) == Evidence::Unverified, "a whole file's bytes (0x108230)");
     Check(EvidenceOf(RootKind::ProcessBlock, 0, 0x66943) == Evidence::Unclassified, "the model loader's block: unclassified");
     Check(EvidenceOf(RootKind::SharedKind, 0, 0) == Evidence::Verified, "a shared kind: by its kind's rule");
@@ -1607,6 +1632,7 @@ int main() {
     Player1Rejoin();
     LinkCycles();
     LiveRetention();
+    PoolDryRunRules();
     Routing();
     Queues();
     OnceAndPerPlayer();
