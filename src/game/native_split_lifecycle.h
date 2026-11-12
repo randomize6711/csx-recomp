@@ -268,10 +268,13 @@ inline bool IsPanelVtable(uint32_t set_parent_entry, uint32_t remove_child_entry
 // as the process (its old buffer the process's, freed by the process); a header in a player's block or regions, on
 // the stack, or in no known block, stays the acting owner's (unchanged). No allocation when it does not grow.
 enum class GrowAs { Acting, Process };
+// A header in a block a departed player left behind (handed to the process: left_by) is not the process's own vector
+// (docs 15.18): nobody should grow it, so it is left to the acting owner, whose free of the old buffer the guard then
+// refuses and reports (never a left-behind buffer freed in silence as the process's).
 inline GrowAs VectorGrowOwner(int32_t wanted, int32_t capacity, bool in_block, int block_owner, bool in_image,
-                              bool in_regions, int acting) {
+                              bool in_regions, int acting, bool left_behind = false) {
     if (wanted <= capacity || acting < 0) return GrowAs::Acting;  // no grow, or the process already
-    if (in_block) return block_owner == heapown::kProcess ? GrowAs::Process : GrowAs::Acting;
+    if (in_block) return block_owner == heapown::kProcess && !left_behind ? GrowAs::Process : GrowAs::Acting;
     return in_image && !in_regions ? GrowAs::Process : GrowAs::Acting;
 }
 

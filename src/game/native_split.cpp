@@ -1126,8 +1126,8 @@ void DetachViewport(X86Context& ctx, int k, int context) {
          k + 1, vp, nsplit::Name(d), v.parent, OwnerName(v.parent_owner).c_str(), v.count, v.capacity, v.listed);
 }
 
-// the VGUI App's focus fields naming a panel of the leaving player reported (docs 15.18: nsplit::ClearFocus), and its
-// objects among App's tick signals or surfaces reported
+// the VGUI App's focus fields naming a panel of the leaving player cleared (docs 15.18: nsplit::ClearFocus; 0 as App's
+// removeSurfaceBase 0x109B20 stores, nothing called), and its objects among App's tick signals or surfaces reported
 // (kept: no verified removal). The App is the static object 0x384B58 only when 0x552740 names it with App's vtable
 void ClearAppFocus(int k) {
     if (R32(nsplit::kAppInstance) != nsplit::kApp || R32(nsplit::kApp) != nsplit::kAppVtable) {
@@ -1138,8 +1138,11 @@ void ClearAppFocus(int k) {
     for (const nsplit::FocusField& f : nsplit::kAppFocus) {
         uint32_t va = nsplit::kApp + f.offset, v = R32(va);
         if (!v || !nsplit::ClearFocus(IsPanel(v), OwnerOfHolding(v), k)) continue;
-        LOGW("native split: player %d's panel 0x%08X is the VGUI App's %s (0x%08X): left as it is (App's next tick "
-             "reaches it) [watch:app-focus]", k + 1, v, f.name, va);
+        W32(va, 0);
+        g_focus_cleared++;
+        LOGI("native split: player %d's panel 0x%08X was the VGUI App's %s (0x%08X): cleared to 0 as App's "
+             "removeSurfaceBase (0x109B20) does, the panel not called [watch:app-focus]",
+             k + 1, v, f.name, va);
     }
     for (auto [off, what] : {std::pair{nsplit::kAppTickSignals, "tick signals"}, std::pair{nsplit::kAppSurfaces, "surfaces"}}) {
         uint32_t hdr = nsplit::kApp + off;
@@ -1220,7 +1223,7 @@ void RemovePlayer(X86Context& ctx, int k) {
         LOGI("native split: the shared front end is driven by player %d now (player %d leaves)", g_ui.driver + 1, k + 1);
     g_session.host = nsplit::SessionHost(g_players);
     // its viewport off the process's root panel (docs 15.17), from player 1's context; the VGUI App's focus on a panel
-    // of its own reported (docs 15.18)
+    // of its own cleared (docs 15.18)
     DetachViewport(ctx, k, p.context);
     ClearAppFocus(k);
     // its memory before its cleanup (docs 15.18): its own blocks, and what earlier leaves left that is still allocated
@@ -1705,7 +1708,8 @@ bool NativeSplitVectorGrow(X86Context& ctx, uint8_t*) {
     uint32_t start = hdr >= 0x10000 ? g_blocks.Holding(hdr) : 0;
     const heapown::Block* hb = start ? g_blocks.At(start) : nullptr;
     if (nsplit::VectorGrowOwner(wanted, cap, hb != nullptr, hb ? hb->owner : heapown::Blocks::kNone,
-                                heapown::IsImageAddress(hdr), InPlayerRegions(hdr), acting) != nsplit::GrowAs::Process)
+                                heapown::IsImageAddress(hdr), InPlayerRegions(hdr), acting,
+                                hb && hb->left_by >= 0) != nsplit::GrowAs::Process)
         return false;
     g_vector_grows++;
     uint32_t old = ReadOr0(hdr + 8);
