@@ -392,6 +392,11 @@ inline P1Exit Player1Exit(const Players& p) {
     return OthersRemain(p, 0) ? P1Exit::Depart : P1Exit::TitleOwn;
 }
 
+// docs 15.22: a new player in slot k connects from loopback port k; a server client still naming that port (a slot
+// its earlier player's removal did not drop) would be taken for it by the server's same-address check. The add waits
+// (fail closed: tried again at a later frame's end) while one does
+inline bool AddWaitsForSlot(bool server_active, bool stale_slot) { return server_active && stale_slot; }
+
 // the local player whose leaving ends the server (StartsModuleValidation; the window's): the lowest one playing,
 // player 1 while it plays
 inline int SessionHost(const Players& p) {

@@ -494,6 +494,8 @@ static void LiveRetention() {
 
 // docs 15.21: the particle pool's dry run (report only) and the sentence groups' bytes
 static void PoolDryRunRules() {
+    Check(!AddWaitsForSlot(true, false) && AddWaitsForSlot(true, true) && !AddWaitsForSlot(false, true),
+          "docs 15.22: an add waits while a server slot names its port (only while the server runs)");
     Check(PoolVerdict(false, 0, 0) == PoolReclaim::NotFound, "no pool: not found");
     Check(PoolVerdict(true, 0, 0) == PoolReclaim::Unreferenced, "a pool nothing names");
     Check(PoolVerdict(true, 3, 0) == PoolReclaim::OnlyByteData, "a pool named only by bytes");

@@ -458,6 +458,22 @@ def reconnect(funcs, cl, text):
           'the departure\'s hooks: CL_Disconnect 0x29029, svc_disconnect 0x30932')
 
 
+def stale_slot(funcs):
+    """docs 15.22: SV_DropClient (0x5C600) clears the three words ServerClientOf reads as a slot in use (+0, +4, +0xC):
+    a dropped slot never names its port, so an add waits only for a slot no drop reached"""
+    d = dict(funcs.get(0x5C600, []))
+    stores = {a for a, s_ in d.items() if re.match(r'mov \[ebp(?:\+0x0[48C])?\], ebx$', s_)}
+    check(d.get(0x5C62F) == 'xor ebx, ebx' and {0x5C70C, 0x5C71B, 0x5C70F} <= stores and
+          not any(re.match(r'mov ebx, ', s_) or re.match(r'(pop|xchg) ebx', s_) for a, s_ in d.items() if 0x5C62F < a < 0x5C70C),
+          'SV_DropClient: ebx 0 (0x5C62F), then +0, +4, +0xC of the client zeroed (0x5C70C, 0x5C71B, 0x5C70F)')
+    src = open(os.path.join(ROOT, 'src', 'game', 'native_split.cpp')).read()
+    sc = src[src.find('uint32_t ServerClientOf(int k) {'):]
+    check('bool used = R32(cl) || R32(cl + 0x4) || R32(cl + 0xC);' in sc[:600], 'ServerClientOf reads +0, +4, +0xC')
+    ap = src[src.find('void AddPlayer(X86Context& ctx, int k) {'):]
+    check(0 <= ap.find('nsplit::AddWaitsForSlot(') < ap.find('g_ch.Forget(k);') < ap.find('csx::ClientContextAdd()'),
+          'AddPlayer: the stale slot checked, its port emptied, before any context is made')
+
+
 def player1_rejoin(funcs, cl, text):
     """docs 15.19: player 1 departs and rejoins in its kept context 0; what its own CL_Disconnect leaves for the
     reconnect (the server told, the connection's state cleared) and the code's order (src/game/native_split.cpp)"""
@@ -511,6 +527,7 @@ def main():
     shared_audit(funcs, cl, regs, text)
     reconnect(funcs, cl, text)
     player1_rejoin(funcs, cl, text)
+    stale_slot(funcs)
     print(f'native_split_turns_test: {checks} checks, {len(failures)} failed')
     return 1 if failures else 0
 

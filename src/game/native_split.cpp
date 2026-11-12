@@ -436,7 +436,23 @@ size_t Rollback(X86Context& ctx, int k) {
     return freed;
 }
 
+uint32_t ServerClientOf(int k);
+int SlotOf(uint32_t cl);
+uint64_t g_add_waits = 0, g_add_stale_packets = 0;
 void AddPlayer(X86Context& ctx, int k) {
+    // docs 15.22: no server slot may still name its loopback port; what is still queued on it is an earlier
+    // connection's (dropped)
+    if (nsplit::AddWaitsForSlot(R32(kSvActive) != 0, ServerClientOf(k) != 0)) {
+        if (!g_add_waits++)
+            LOGW("native split: player %d is not added yet: server slot %d still names its loopback port (an earlier "
+                 "connection's) [watch:stale-slot]", k + 1, SlotOf(ServerClientOf(k)));
+        return;
+    }
+    if (size_t stale = g_ch.ClientPending(k)) {
+        g_add_stale_packets += stale;
+        LOGI("native split: player %d's loopback port held %zu packet(s) of an earlier connection: dropped", k + 1, stale);
+    }
+    g_ch.Forget(k);
     std::string name = "Player " + std::to_string(k + 1);
     // player 1's userinfo text (keys CL_Init set from the settings: plain text, no pointer), before switching
     std::vector<uint8_t> userinfo(0x100);

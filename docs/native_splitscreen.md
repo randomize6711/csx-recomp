@@ -1974,3 +1974,23 @@ clears, the records' stride and count, 0x152290's index bytes, the area's only u
 calls, frees and writes nothing and runs after the plan; the option exactly "1", no scenario sets it, the reclamation
 frees only the player's own pool block by free); native_split_2p_leave expects a dry-run line at each leave and no
 reclamation.
+
+### 15.22 Lifecycle hardening: a stale server slot before an add (2026-11-12; static only, not run)
+
+A new player in slot k connects from loopback port k. AddPlayer now first checks that no server client still names
+that port (ServerClientOf: +0, +4 or +0xC set); while one does, the add waits (AddWaitsForSlot, fail closed, tried
+again at a later frame's end; `[watch:stale-slot]` once), so a stale client is never taken for the new player by the
+server's same-address handling. Not expected: SV_DropClient (0x5C600) zeroes +0, +4, +0xC (0x5C70C, 0x5C71B,
+0x5C70F; ebx 0 from 0x5C62F), and a removal drops the slot first. Packets still queued on the port (an earlier
+connection's) are dropped before its context is made.
+
+The rest of the audit list, reviewed against the code: duplicate disconnects (Departures::Mark counts a repeat and
+records nothing; a departed player 1 is not marked again); a reconnect while a departure is pending (held:
+CL_CheckForResend and the connect packet, 15.15); command routing after a departure (its lines dropped while held,
+its queue dropped at removal or departure); a kick of a rejoining player 1 (svc_disconnect's own CL_Disconnect in its
+turn while another plays; it departs again); the last other player leaving while player 1 is departed (the session
+ends as the process, EndSession) or rejoining (player 1 plays on, it drives the front end); network channels (a
+removal, a departure, a rejoin and an add each empty the player's port); the destructors' calling conventions
+(15.16's contracts, unchanged); a partial initialisation (unwound, its context removed, fail closed; its leftovers now
+in the retention history, 15.20); context switching while player 1 is departed (its turn runs disconnected, held).
+No other defect was found.
