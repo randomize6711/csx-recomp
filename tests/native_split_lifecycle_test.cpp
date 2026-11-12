@@ -194,6 +194,23 @@ struct SessionSim {
     int world = 1, shutdowns = 0, world_frees = 0;
     LeakBudget leaks;
     bool add_failed = false;
+    Departures dep;
+    int host = 0, rejoined = 0;
+    // player 1 rejoins between frames (native_split.cpp RejoinPlayer1): its client disconnected, then connecting in
+    // its next turn (the title's CL_CheckForResend), active after its signon
+    Rejoin RejoinP1(bool stale_slot = false) {
+        Rejoin r = MayRejoin0(p, dep, server, stale_slot, cls[0]);
+        if (r == Rejoin::Allowed) {
+            watch[0] = {};
+            p.Rejoin0();
+        }
+        return r;
+    }
+    void P1Connects(bool ok = true) {
+        cls[0] = 2;
+        watch[0].Dropped(2);
+        cls[0] = ok ? 5 : 1;
+    }
     // a player's client leaves in its own turn (its CL_Disconnect: its shutdown decided)
     void LeaveInTurn(int k) {
         Shutdown d = ShutdownDecision(true, k, p);
@@ -243,14 +260,21 @@ struct SessionSim {
             if (s != State::Connecting && s != State::Active) continue;
             if (!watch[k].Dropped(cls[k])) continue;
             if (k == 0) {
-                if (OthersRemain(p, 0)) {
+                if (Player1Exit(p) == P1Exit::Depart) {
                     p.Depart0();
                     ui.Left(0, p);
+                    host = SessionHost(p);
+                    watch[0] = {};
+                } else {
+                    p.Return0();
+                    watch[0] = {};
                 }
                 continue;
             }
             Remove(k, left_each);
         }
+        // player 1 rejoining: in the match once its client is active (native_split.cpp NativeSplitFrameEnd)
+        if (p.At(0).state == State::Connecting && cls[0] == 5 && p.Joined(0)) rejoined++;
         if (end) {
             end = false;
             for (int k = kMaxPlayers - 1; k > 0; k--) Remove(k, 0);
@@ -258,6 +282,119 @@ struct SessionSim {
         }
     }
 };
+
+// player 1's departure and rejoin in its kept context (docs 15.19; native_split_core.h MayRejoin0, Rejoin0)
+static void Player1Rejoin() {
+    {  // the rule's reasons, in order
+        Players p = With(2);
+        Departures d;
+        Check(MayRejoin0(p, d, true, false, 1) == Rejoin::NotDeparted, "rejoin: only a departed player 1");
+        Check(p.Depart0(), "player 1 departs");
+        Check(MayRejoin0(p, d, false, false, 1) == Rejoin::NoServer, "rejoin: not without the server");
+        Check(MayRejoin0(p, d, true, true, 1) == Rejoin::StaleSlot, "rejoin: not while a slot names its port");
+        Check(MayRejoin0(p, d, true, false, 2) == Rejoin::NotDisconnected, "rejoin: not while its client connects");
+        Check(d.Mark(1, p, Leave::Disconnect) && MayRejoin0(p, d, true, false, 1) == Rejoin::DeparturePending,
+              "rejoin: not while another's departure is pending");
+        d.Clear(1);
+        Check(p.Begin(2, 2, "P3") && MayRejoin0(p, d, true, false, 1) == Rejoin::Initialising,
+              "rejoin: not while a player initialises");
+        p.InitFailed(2);
+        Check(MayRejoin0(p, d, true, false, 1) == Rejoin::Allowed, "rejoin allowed: departed, the server, player 2");
+        Check(Held(d, p, 0) && HoldsReconnect(true, true, 0, d, p), "departed: its reconnect held");
+        Check(p.Rejoin0() && p.At(0).state == State::Connecting && p.At(0).context == 0 && !p.Rejoin0(),
+              "player 1 rejoins once, in its own context 0");
+        Check(!Held(d, p, 0) && !HoldsReconnect(true, true, 0, d, p) && !DropsLines(d, p, 0),
+              "rejoining: its client's own reconnect runs, its lines run");
+        Check(ShutdownDecision(true, 0, p) == Shutdown::Refuse && LeaveKeepsShared(true, 0, p),
+              "rejoining while player 2 plays: a shutdown in its turn refused, the shared parts kept");
+        Check(p.Playing() == 2 && SessionHost(p) == 0, "rejoining counts as playing");
+        Check(p.Joined(0) && p.At(0).state == State::Active && !p.Joined(0), "in the match once");
+        Check(!p.Rejoin0() && !p.Return0(), "active: no rejoin, no return");
+        Players q = With(2);
+        Check(!q.Joined(0), "player 1 active from the start: not joined again");
+        Players solo;
+        Departures d2;
+        Check(MayRejoin0(solo, d2, true, false, 1) == Rejoin::NotDeparted && Player1Exit(solo) == P1Exit::TitleOwn,
+              "solo: player 1 never departs (its client leaving is the title's own) and never rejoins");
+    }
+    {  // departs, rejoins, plays: nobody renumbered, the front end and the host stay with player 2 while it plays
+        SessionSim s;
+        s.watch[0].Dropped(5);
+        Check(s.Join(1), "player 2 joins");
+        s.LeaveInTurn(0);
+        s.FrameEnd();
+        Check(s.p.At(0).state == State::Departed && s.ui.driver == 1 && s.host == 1 && s.server,
+              "player 1 departs: player 2 drives and hosts, the server stays");
+        Check(!s.Join(2), "no player added while player 1 is away");
+        Check(s.RejoinP1() == Rejoin::Allowed && s.p.At(0).state == State::Connecting, "player 1 rejoins");
+        Check(!s.Join(2), "no player added while player 1 connects");
+        s.P1Connects();
+        s.FrameEnd();
+        Check(s.p.At(0).state == State::Active && s.rejoined == 1 && s.p.At(1).state == State::Active &&
+                  s.p.At(1).context == 1 && s.ui.driver == 1 && s.host == 1 && s.server && s.shutdowns == 0,
+              "player 1 in the match again: player 2 untouched, still driving");
+        Check(s.Join(2) && s.p.At(2).context == 2, "players added again from player 1's match");
+    }
+    {  // a rejoin whose connect fails while player 2 plays: departed again; then player 2 leaves: the session ends once
+        SessionSim s;
+        s.watch[0].Dropped(5);
+        s.Join(1);
+        s.LeaveInTurn(0);
+        s.FrameEnd();
+        s.RejoinP1();
+        s.P1Connects(false);
+        s.FrameEnd();
+        Check(s.p.At(0).state == State::Departed && s.rejoined == 0 && s.p.At(1).state == State::Active,
+              "a failed rejoin: player 1 departed again, player 2 plays on");
+        s.LeaveInTurn(1);
+        s.FrameEnd();
+        Check(!s.server && s.shutdowns == 1 && s.p.At(0).state == State::Active && s.p.Count() == 1,
+              "then player 2 leaves: the session ends once, player 1 the title's own");
+    }
+    {  // player 2 leaves while player 1 is rejoining: the session goes on with player 1; it drives once player 2 is gone
+        SessionSim s;
+        s.watch[0].Dropped(5);
+        s.Join(1);
+        s.LeaveInTurn(0);
+        s.FrameEnd();
+        s.RejoinP1();
+        s.LeaveInTurn(1);
+        s.FrameEnd();
+        Check(s.server && !s.end && s.p.At(1).state == State::Empty && s.p.At(0).state == State::Connecting &&
+                  s.ui.driver == 0,
+              "player 2 leaves while player 1 rejoins: the server stays, player 1 drives (still connecting)");
+        s.P1Connects();
+        s.FrameEnd();
+        Check(s.p.At(0).state == State::Active && s.server && s.shutdowns == 0, "player 1 in the match, alone");
+        Players q = With(1);
+        Check(q.Depart0() == true && q.Rejoin0() && Player1Exit(q) == P1Exit::TitleOwn && q.Return0() &&
+                  q.At(0).state == State::Active,
+              "a rejoin left alone (nobody else plays): the title's own player again");
+    }
+    {  // repeated departures and rejoins, with two, three and four players
+        for (int n = 2; n <= 4; n++) {
+            SessionSim s;
+            s.watch[0].Dropped(5);
+            for (int k = 1; k < n; k++) s.Join(k);
+            bool ok = true;
+            for (int cycle = 0; cycle < 10; cycle++) {
+                s.LeaveInTurn(0);
+                s.FrameEnd();
+                ok = ok && s.p.At(0).state == State::Departed && s.ui.driver == 1 && s.server;
+                ok = ok && s.RejoinP1() == Rejoin::Allowed;
+                s.P1Connects();
+                s.FrameEnd();
+                ok = ok && s.p.At(0).state == State::Active;
+                for (int k = 1; k < n; k++) ok = ok && s.p.At(k).state == State::Active && s.p.At(k).context == k;
+            }
+            ok = ok && s.rejoined == 10 && s.shutdowns == 0 && s.world_frees == 0 && s.p.Count() == n &&
+                 s.leaks.leaves == 0;
+            Check(ok, n == 2   ? "two players: ten departures and rejoins of player 1, nothing else changes"
+                      : n == 3 ? "three players: ten departures and rejoins of player 1, nothing else changes"
+                               : "four players: ten departures and rejoins of player 1, nothing else changes");
+        }
+    }
+}
 
 static void Sessions() {
     {  // player 2 leaves while player 1 plays
@@ -1371,6 +1508,7 @@ static void GrowLeftBehind() {
 }
 
 int main() {
+    Player1Rejoin();
     Routing();
     Queues();
     OnceAndPerPlayer();

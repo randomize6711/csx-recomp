@@ -78,7 +78,15 @@ public:
         p_[size_t(k)] = {};
         return true;
     }
-    bool Joined(int k) { return Step(k, State::Connecting, State::Active, false); }
+    // in the match: an added player's connect done; player 1's rejoin (Rejoin0) done too
+    bool Joined(int k) {
+        if (k == 0) {
+            if (p_[0].state != State::Connecting) return false;
+            p_[0].state = State::Active;
+            return true;
+        }
+        return Step(k, State::Connecting, State::Active, false);
+    }
     bool Leave(int k) {
         if (k <= 0 || k >= kMaxPlayers) return false;
         State s = p_[size_t(k)].state;
@@ -92,15 +100,24 @@ public:
         return true;
     }
     // the game's own player (slot 0, context 0) leaves while another plays: Departed (its context kept); false when it
-    // is not active. Back to Active when the session ends (the title's own player at its menus again)
+    // is neither active nor rejoining (a rejoin's connect that failed departs again). Back to Active when the session
+    // ends (the title's own player at its menus again), also from a rejoin still connecting then
     bool Depart0() {
-        if (p_[0].state != State::Active) return false;
+        if (p_[0].state != State::Active && p_[0].state != State::Connecting) return false;
         p_[0].state = State::Departed;
         return true;
     }
     bool Return0() {
-        if (p_[0].state != State::Departed) return false;
+        if (p_[0].state != State::Departed && p_[0].state != State::Connecting) return false;
         p_[0].state = State::Active;
+        return true;
+    }
+    // player 1 rejoins (docs 15.19): Departed -> Connecting, in its own kept context (the window's, the process's
+    // start-up objects; never rebuilt from the boot image); its client connects again by the title's own
+    // CL_CheckForResend in its turn, and is in the match (Joined(0)) once its cls.state is active
+    bool Rejoin0() {
+        if (p_[0].state != State::Departed) return false;
+        p_[0].state = State::Connecting;
         return true;
     }
     // a context removed: the players whose contexts came after it move down one (client_context's Remove)
@@ -141,9 +158,14 @@ inline std::array<InitStep, 6> InitOrder() {
 }
 
 // svc_deltadescription's registry slot for a player: player 1 (and the first registration of a name) the shared slot;
-// a player after the first, once the name is registered, its own slot (it reads the message, the registry stays)
-inline uint32_t DeltaSlot(uint32_t shared_slot, uint32_t shared_value, int player, uint32_t own_slots, uint32_t elem) {
-    if (player <= 0 || !shared_slot || !shared_value) return shared_slot;
+// a player after the first, once the name is registered, its own slot (it reads the message, the registry stays).
+// Player 1 rejoining the running server (docs 15.19; `p1_rejoined`: it departed in this session) is not the first any
+// more: the registry its first connect built is the server's too, and the title never reconnects its own client to a
+// server still running (its disconnect shuts it down), so its connect again parses into its own slot (index 0) too
+inline uint32_t DeltaSlot(uint32_t shared_slot, uint32_t shared_value, int player, uint32_t own_slots, uint32_t elem,
+                          bool p1_rejoined = false) {
+    if (player < 0 || !shared_slot || !shared_value) return shared_slot;
+    if (player == 0 && !p1_rejoined) return shared_slot;
     return own_slots + uint32_t(player) * elem;
 }
 
@@ -325,6 +347,50 @@ inline bool DropsLines(const Departures& d, const Players& p, int k) { return He
 // the frame's end: a playing player is removed (player 1: departs) when its departure is pending, or when the watch saw
 // its client back at disconnected (a drop no CL_Disconnect of its turn recorded); otherwise it plays on
 inline bool RemoveAtFrameEnd(bool pending, bool dropped) { return pending || dropped; }
+
+// ---- player 1's rejoin (docs 15.19) ---------------------------------------------------------------------------------
+// Player 1's context is the process's first: the window's, the process's console buffer runs there, and its regions
+// hold the objects of the process's start-up (its client game's HUD, its viewport, its particle manager). A departed
+// player 1 is therefore kept dormant (State::Departed, its client disconnected and held), never removed and never
+// rebuilt; it rejoins in that same context, through the title's own reconnect of a disconnected client while the
+// built-in server is active (CL_CheckForResend 0x298F0, state 1 with sv.active: 0x29904..0x2996B, the connect packet
+// to "localhost"), as the title itself disconnects and connects again in one process. It may rejoin only between
+// frames (player 1's context live, outside the turns), only while the server runs and another player keeps the
+// session, with no player initialising and no departure pending (one transition at a time), no server slot still
+// naming its loopback port (a stale slot: fail closed), and its client disconnected (cls.state 1)
+enum class Rejoin { Allowed, NotDeparted, NoServer, NobodyElse, Initialising, DeparturePending, StaleSlot, NotDisconnected };
+inline const char* Name(Rejoin r) {
+    switch (r) {
+    case Rejoin::Allowed: return "allowed";
+    case Rejoin::NotDeparted: return "player 1 has not departed";
+    case Rejoin::NoServer: return "the built-in server is not running";
+    case Rejoin::NobodyElse: return "nobody else plays (the session ends)";
+    case Rejoin::Initialising: return "a player is initialising";
+    case Rejoin::DeparturePending: return "a departure is pending";
+    case Rejoin::StaleSlot: return "a server slot still names its loopback port";
+    case Rejoin::NotDisconnected: return "its client is not disconnected";
+    }
+    return "?";
+}
+inline Rejoin MayRejoin0(const Players& p, const Departures& d, bool server_active, bool stale_slot, uint32_t cls_state) {
+    if (p.At(0).state != State::Departed) return Rejoin::NotDeparted;
+    if (!server_active) return Rejoin::NoServer;
+    if (!OthersRemain(p, 0)) return Rejoin::NobodyElse;
+    if (p.Initialising() >= 0) return Rejoin::Initialising;
+    for (int k = 0; k < kMaxPlayers; k++)
+        if (d.Pending(k)) return Rejoin::DeparturePending;
+    if (stale_slot) return Rejoin::StaleSlot;
+    if (cls_state != kClsStateDisconnected) return Rejoin::NotDisconnected;
+    return Rejoin::Allowed;
+}
+// a playing player 1 (active, or rejoining) whose client left at the frame's end: it departs while another plays; else
+// it is the title's own player again (a rejoin still connecting returns to Active: the title's own, at its menus)
+enum class P1Exit { Depart, TitleOwn, Nothing };
+inline P1Exit Player1Exit(const Players& p) {
+    State s = p.At(0).state;
+    if (s != State::Active && s != State::Connecting) return P1Exit::Nothing;
+    return OthersRemain(p, 0) ? P1Exit::Depart : P1Exit::TitleOwn;
+}
 
 // the local player whose leaving ends the server (StartsModuleValidation; the window's): the lowest one playing,
 // player 1 while it plays

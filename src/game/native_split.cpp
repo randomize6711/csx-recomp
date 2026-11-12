@@ -155,6 +155,15 @@ int LeaveWho() {
     }();
     return n;
 }
+// diagnostics (docs 15.19): a departed player 1 rejoins this many seconds after its departure (0, unset: it stays
+// departed until the session ends, as before); its own client's reconnect, in its kept context
+double RejoinAfter() {
+    static const double s = [] {
+        const char* v = std::getenv("CSX_NATIVE_SPLIT_REJOIN_AFTER");
+        return v ? std::atof(v) : 0.0;
+    }();
+    return s;
+}
 // diagnostics: remove the last added player after this many seconds in the match, add one again after as many more
 double LeaveAfter() {
     static const double s = [] {
@@ -274,6 +283,14 @@ uint64_t g_cmd_routed[nsplit::kOrigins] = {}, g_cmd_runs[nsplit::kMaxPlayers] = 
 // the frame's end; what leaving players left behind
 nsplit::ClientWatch g_watch[nsplit::kMaxPlayers];
 uint64_t g_aborts = 0, g_refused_shutdowns = 0, g_departures = 0;
+// player 1's rejoins (docs 15.19): begun, in the match again, refused (by their reason's first), its departures'
+// server slot dropped by the cleanup (its own "dropclient" had not), its stale loopback packets dropped
+uint64_t g_p1_rejoins = 0, g_p1_rejoined = 0, g_p1_rejoin_refused = 0, g_p1_slot_drops = 0, g_p1_stale_packets = 0;
+std::chrono::steady_clock::time_point g_p1_departed_at{};
+// player 1 departed in this session (its server still the one its first connect registered the delta descriptions
+// with): its connects from here on parse them into its own slot (native_split_core.h DeltaSlot); the session's end
+// (the server shut down) makes it the title's own again
+bool g_p1_rejoin_session = false;
 bool g_end_session = false;
 nsplit::LeakBudget g_leaks;
 // a leaving player's cleanup: its blocks another names (shared data, another context, another owner's block), never
@@ -860,6 +877,11 @@ void Report() {
          g_leaks.leaves, g_leaks.left_behind, g_leaks.limit, (unsigned long long)g_voice_shared,
          (unsigned long long)g_voice_withheld, (unsigned long long)g_release_kept,
          (unsigned long long)g_pad_stores_kept);
+    LOGI("native split: player 1: %s; departures %llu (its server slot dropped by the cleanup %llu: its own "
+         "\"dropclient\" had not), rejoins begun %llu, in the match again %llu, refused %llu; stale loopback packets "
+         "dropped %llu", nsplit::Name(g_players.At(0).state), (unsigned long long)g_departures,
+         (unsigned long long)g_p1_slot_drops, (unsigned long long)g_p1_rejoins, (unsigned long long)g_p1_rejoined,
+         (unsigned long long)g_p1_rejoin_refused, (unsigned long long)g_p1_stale_packets);
     LOGI("native split: departures: %llu recorded at a confirmed disconnect (%llu repeats), removed at the frame's end "
          "%llu (by the watch alone %llu); a held player's reconnects skipped: CL_CheckForResend %llu, connect packets "
          "%llu; its console bytes dropped %llu",
@@ -1389,16 +1411,60 @@ void RemovePlayer(X86Context& ctx, int k) {
     if (g_players.At(0).state == nsplit::State::Departed && g_players.Playing() == 0) g_end_session = true;
 }
 
+// player 1's UI while it is away and when it rejoins (docs 15.19), reported, never changed: its viewport (the client
+// game's, made in its context at start-up) stays on the process's root panel with its context, for its rejoin (its
+// client game is not initialised again, so nothing would attach it again); App's focus fields and lists may name its
+// panels, which stay allocated (no use after free; App sets its focus again every tick). From player 1's context
+void ReportPlayer1Ui(const char* when) {
+    uint32_t vp = R32(nsplit::kViewport);
+    uint32_t parent = vp && g_blocks.At(vp) ? ReadOr0(vp + nsplit::kPanelParent) : 0;
+    int listed = 0;
+    if (parent) {
+        int32_t n = int32_t(ReadOr0(parent + nsplit::kPanelChildren)), cap = int32_t(ReadOr0(parent + nsplit::kPanelChildren + 4));
+        uint32_t data = ReadOr0(parent + nsplit::kPanelChildren + 8);
+        if (n > 0 && n <= cap && cap <= 4096 && Readable(data) && Readable(data + 4 * uint32_t(n - 1)))
+            for (int32_t i = 0; i < n; i++) listed += R32(data + 4 * uint32_t(i)) == vp;
+    }
+    std::string focus;
+    if (R32(nsplit::kAppInstance) == nsplit::kApp && R32(nsplit::kApp) == nsplit::kAppVtable)
+        for (const nsplit::FocusField& f : nsplit::kAppFocus) {
+            uint32_t v = R32(nsplit::kApp + f.offset);
+            if (v && OwnerOfHolding(v) == 0) focus += std::string(focus.empty() ? "" : ", ") + f.name;
+        }
+    LOGI("native split: player 1's UI %s: its viewport 0x%08X %s the process's panel 0x%08X (listed %d), kept with its "
+         "context; App's focus fields naming its panels: %s (left: they stay allocated) [watch:p1-ui]",
+         when, vp, listed == 1 ? "on" : "NOT on", parent, listed, focus.empty() ? "none" : focus.c_str());
+}
+
 // player 1's client left while another plays (docs 15.12): it departs, its context kept (the switcher's first: the
 // window's, the process's console runs there); the server, the world and the process's systems stay; the shared front
 // end and the session's host go to the lowest player still playing; no slot or identity renumbered. Its objects are
 // the process's (its initialisation's) or its turns': none released (its context stays)
-void DepartPlayer1() {
+void DepartPlayer1(X86Context& ctx) {
     if (!g_players.Depart0()) return;
     g_departures++;
+    g_p1_departed_at = std::chrono::steady_clock::now();
+    g_p1_rejoin_session = true;
     g_watch[0] = {};
     g_departing.Clear(0);  // held from here on as Departed (native_split_core.h Held) until the session's end
     if (size_t n = g_cmds.Drop(0)) g_cmd_dropped += n;
+    // its server slot (docs 15.19): its CL_Disconnect's "dropclient" reached the server in this frame's server half
+    // (its input turn comes first); a slot still naming its loopback port is dropped as an added player's is
+    // (SV_DropClient as the process, from player 1's context, outside the turns), never left to a later connect
+    if (uint32_t cl = R32(kSvActive) ? ServerClientOf(0) : 0) {
+        g_p1_slot_drops++;
+        int slot = SlotOf(cl);
+        GuestStrings gs(ctx);
+        uint32_t fmt = gs.Put("%s"), reason = gs.Put("left the split-screen game");
+        CallCleanup(ctx, nsplit::CleanupFn::DropClient, 0, {cl, 0, fmt, reason});
+        LOGW("native split: player 1's server slot %d was still in use after its disconnect: dropped by the cleanup "
+             "(SV_DropClient) [watch:p1-slot]", slot);
+    }
+    // what is still queued to or from its loopback port is of the ended connection (the server's disconnect message
+    // included): dropped, so its next connection starts with none
+    size_t stale = g_ch.ClientPending(0);
+    g_ch.Forget(0);
+    g_p1_stale_packets += stale;
     g_ui.Left(0, g_players);
     g_session.host = nsplit::SessionHost(g_players);
     size_t n = 0, bytes = 0;
@@ -1410,8 +1476,41 @@ void DepartPlayer1() {
     });
     LOGI("native split: player 1 left the match (its client disconnected): the built-in server and the world stay for %d "
          "other player(s); the shared front end is driven by player %d, the session's host is player %d; its context "
-         "kept, %zu of its turns' objects (%zu bytes) kept with it",
-         g_players.Playing(), g_ui.driver + 1, g_session.host + 1, n, bytes);
+         "kept, %zu of its turns' objects (%zu bytes) kept with it; its server slot %s; %zu stale packet(s) to it "
+         "dropped",
+         g_players.Playing(), g_ui.driver + 1, g_session.host + 1, n, bytes,
+         ServerClientOf(0) ? "still in use [watch:p1-slot]" : "free", stale);
+    ReportPlayer1Ui("at its departure");
+}
+
+// a departed player 1 rejoins (docs 15.19; native_split_core.h MayRejoin0), between frames in its own context: held no
+// longer, its client connects again by the title's own CL_CheckForResend in its next turn (state 1 with the server
+// active: "localhost"), in its kept context (nothing rebuilt, no process object made again). Its watch, console
+// lines and loopback packets start empty; the shared front end and the session's host stay where they are (no
+// hand-over while the others play). False (logged once a reason) when not allowed
+bool RejoinPlayer1() {
+    nsplit::Rejoin r = nsplit::MayRejoin0(g_players, g_departing, R32(kSvActive) != 0, ServerClientOf(0) != 0,
+                                          R32(kClsState));
+    if (r != nsplit::Rejoin::Allowed) {
+        static nsplit::Rejoin last = nsplit::Rejoin::Allowed;
+        if (r != last) {
+            g_p1_rejoin_refused++;
+            LOGW("native split: player 1 does not rejoin yet: %s", nsplit::Name(r));
+        }
+        last = r;
+        return false;
+    }
+    g_watch[0] = {};
+    if (size_t n = g_cmds.Drop(0)) g_cmd_dropped += n;
+    size_t stale = g_ch.ClientPending(0);
+    g_ch.Forget(0);
+    g_p1_stale_packets += stale;
+    g_players.Rejoin0();
+    g_p1_rejoins++;
+    LOGI("native split: player 1 rejoins in its own context 0 (kept, not rebuilt): its client connects again to the "
+         "built-in server in its turn; %zu stale packet(s) dropped; the shared front end stays with player %d, the "
+         "session's host player %d", stale, g_ui.driver + 1, g_session.host + 1);
+    return true;
 }
 
 // the session ended by the last player playing, not player 1 (nsplit::Shutdown::Defer): between frames, in player 1's
@@ -1482,12 +1581,18 @@ void NativeSplitFrameEnd(X86Context& ctx) {
         bool dropped = g_watch[k].Dropped(PlayerDword(k, kClsState));
         if (!nsplit::RemoveAtFrameEnd(pending, dropped)) continue;
         if (k == 0) {
-            if (nsplit::OthersRemain(g_players, 0)) {
-                DepartPlayer1();
-            } else if (pending) {
-                // nobody else plays any more: player 1 the title's own again (never held alone)
+            if (nsplit::Player1Exit(g_players) == nsplit::P1Exit::Depart) {
+                DepartPlayer1(ctx);
+            } else {
+                // nobody else plays any more: player 1 the title's own again (never held alone; a rejoin still
+                // connecting too)
+                bool was_rejoining = s == nsplit::State::Connecting;
                 g_departing.Clear(0);
-                LOGI("native split: player 1's departure dropped: nobody else plays (the title's own player)");
+                g_players.Return0();
+                g_watch[0] = {};
+                if (pending || was_rejoining)
+                    LOGI("native split: player 1's %s dropped: nobody else plays (the title's own player)",
+                         was_rejoining ? "rejoin" : "departure");
             }
             continue;
         }
@@ -1497,17 +1602,22 @@ void NativeSplitFrameEnd(X86Context& ctx) {
         RemovePlayer(ctx, k);
     }
     if (g_end_session) EndSession(ctx);
-    // the players connecting: joined when their client is active
-    for (int k = 1; k < nsplit::kMaxPlayers; k++) {
+    // player 1 departed: it rejoins after CSX_NATIVE_SPLIT_REJOIN_AFTER seconds (diagnostics; docs 15.19)
+    if (double s = RejoinAfter(); s > 0 && g_players.At(0).state == nsplit::State::Departed &&
+                                  std::chrono::steady_clock::now() - g_p1_departed_at > std::chrono::duration<double>(s))
+        RejoinPlayer1();
+    // the players connecting (player 1 rejoining too): joined when their client is active (player 1's context is the
+    // live one here; another's from its saved copy)
+    for (int k = 0; k < nsplit::kMaxPlayers; k++) {
         const nsplit::Player& p = g_players.At(k);
         if (p.state != nsplit::State::Connecting) continue;
-        long off = csx::ClientContextOffsetOf(kClsState);
-        std::vector<uint8_t>& copy = csx::ClientContextSaved(p.context);
-        uint32_t st = 0;
-        if (off >= 0) std::memcpy(&st, copy.data() + off, 4);
-        if (int(st) == kClsActive) {
+        if (int(PlayerDword(k, kClsState)) == kClsActive) {
             g_players.Joined(k);
             g_joined_at = std::chrono::steady_clock::now();
+            if (k == 0) {
+                g_p1_rejoined++;
+                ReportPlayer1Ui("in the match again");
+            }
             uint32_t cl = ServerClientOf(k);
             LOGI("native split: player %d is in the match: server slot %d, userid %u, its cl.playernum %u (player 1's "
                  "%u)", k + 1, SlotOf(cl), cl ? R32(cl + 0x4BA4) : 0, PlayerDword(k, kClPlayernum), R32(kClPlayernum));
@@ -1805,11 +1915,15 @@ void NativeSplitDeltaSlot(X86Context& ctx, uint8_t*) {
     if (!NativeSplitOn()) return;
     const guest_tables::Table& t = guest_tables::kTables[guest_tables::k_native_split_delta_slots];
     int k = OwnerNow();
-    uint32_t slot = nsplit::DeltaSlot(ctx.esi, ctx.esi ? R32(ctx.esi) : 0, k, t.va, t.elem);
+    uint32_t slot = nsplit::DeltaSlot(ctx.esi, ctx.esi ? R32(ctx.esi) : 0, k, t.va, t.elem, g_p1_rejoin_session);
     if (slot == ctx.esi) return;
     ctx.esi = slot;
-    LOG_FIRST(4, "native split: player %d's delta description goes to its own slot 0x%08X, the shared registry kept",
-              k + 1, slot);
+    if (k == 0)  // player 1 rejoined (docs 15.19): its own count of lines
+        LOG_FIRST(4, "native split: player 1's delta description goes to its own slot 0x%08X, the shared registry kept "
+                     "(it rejoined the running server)", slot);
+    else
+        LOG_FIRST(4, "native split: player %d's delta description goes to its own slot 0x%08X, the shared registry kept",
+                  k + 1, slot);
 }
 
 // ---- the loopback ------------------------------------------------------------------------------------------------
@@ -1924,6 +2038,7 @@ bool NativeSplitShutdownServer(X86Context& ctx, uint8_t*) {
                  n == 1 ? "" : "s");
         }
         g_world.Invalidate();
+        g_p1_rejoin_session = false;  // a new server registers its descriptions with player 1's connect again
         g_end_session = false;
         if (g_players.Return0()) LOGI("native split: player 1 is the title's own player again (the session ends)");
         g_departing.Clear(0);  // nobody held once the server is gone (player 1 the title's own)

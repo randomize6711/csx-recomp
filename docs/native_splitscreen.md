@@ -1811,3 +1811,76 @@ the acting owner, so a free of its old buffer is refused and reported instead of
 
 Unproven until a run: the focus clear (whether the focus names the viewport at a leave), the destructors' outcomes, the
 accounting's numbers, whether App's tick signals hold a player's object.
+
+### 15.19 The fifteenth run; player 1's departure and rejoin in its kept context (2026-11-12; static only, not run)
+
+**The fifteenth run** (native_split_2p_leave at b6c18c1, permitted once): PASS, 42 steps, 122 s. Three departures and
+rejoins of player 2; on each, its viewport detached once (3 -> 2 of 4) and App's mouse focus (0x384B74) named it and
+was cleared, no `[watch:app-kept]`; 0x1BAD90 invoked and returned (its object left allocated, then freed), 0x1A7AE0
+and 0x1B6980 returned, the delta slot's free skipped (a shared kind); 22 blocks (1,344 bytes) released and 929,355
+bytes left behind each (persistent 640,208, verified 17,723, conservative ~230 KB, unreferenced ~45 KB; each block
+counted once); no `[own:]` tag; 0.0815 ms a context switch. The VGUI summary counted 1,686 attachments: the game's own
+remove / re-add of 0x909E50 (removeChild from 0x108BC5, then addChild), not no-op re-attachments (15.20).
+
+**Player 1 and the process's resources.** Player 1 is slot 0 in context 0, the switcher's first: the window's, the
+process's console buffer runs there between the turns, and its regions hold what the process's start-up made in them
+(its client game's HUD and objects, its viewport 0x552B7C on the process's root panel 0x909CC0, its particle manager).
+The process's own: the built-in server and its world (the session's), the VGUI App 0x384B58 and root panel, the
+renderer, the one sound system, the string-intern pool, the shared front end (driven by a player, owned by the
+process), the loopback channels (one a slot). A context built from the boot image (players 2-4) cannot replace
+context 0: its start-up objects are not made again by a player's initialisation (Host_Init's work), so player 1 is
+never removed and never rebuilt.
+
+**Departure** (15.12's, completed). Its client's own CL_Disconnect in its turn while another plays (the shutdown
+refused, the shared parts kept): "dropclient" sent three times on cls.netchan (0x28FC6..0x29011), state 1, cls.signon
+0, CL_ClearState 0x28E60, Netchan_Clear 0x69630. Between frames (DepartPlayer1, player 1's context, outside the turns):
+State::Departed, held (its reconnects and lines held, its lines dropped), the front end and the session's host to the
+lowest player playing, nobody renumbered; new: a server slot still naming loopback port 0 is dropped by SV_DropClient
+as an added player's is (`[watch:p1-slot]`, not expected: its own "dropclient" is read by the server half of the same
+frame), then whatever is queued on port 0 is dropped (the server's disconnect message included). Its context, its
+objects, its viewport and its HUD stay. Its gameplay commands stop with its connection (CL_Move sends nothing at state
+1). Player 2's turns, packets and objects are not touched.
+
+**Rejoin** (new; native_split_core.h MayRejoin0, Rejoin0; RejoinPlayer1). Player 1 rejoins in its kept context, by the
+title's own reconnect of a disconnected client while the server runs: CL_CheckForResend 0x298F0, at state 1 with
+sv.active (0x29904..0x2996B), sets state 2 and sends the connect packet to "localhost". The rule (between frames
+only): departed, the server running, another player playing, no player initialising, no departure pending (one
+transition at a time), no server slot naming its port (fail closed), its client disconnected. Then: its watch, lines
+and packets emptied, State::Connecting (not held: its CL_CheckForResend runs in its next turn); its server slot is the
+server's choice (the lowest free one), its userid new; it is in the match (Joined(0)) once its live cls.state is 5 (its
+activation 0x269A0 in its context's original prelude call 0x5D3A6). No guest call is made for it; nothing of the
+process's is initialised again. Diagnostics: CSX_NATIVE_SPLIT_REJOIN_AFTER=N (seconds after its departure); there is
+no in-game trigger yet (M4's menus). A rejoin that does not connect (the watch sees it disconnected again) departs
+again; with nobody else playing it is the title's own player (the server, still running, is its own to connect to).
+
+**What a second connect of player 1 changes** (each connect-time rule of 13.3 / 15.1 reviewed for "player 1's connect
+is the first"):
+- the delta registry (svc_deltadescription 0x2FAE0): player 1's first connect built it, and the server encodes with
+  it. The title never reconnects its own client to a server still running (its disconnect shuts it down), so its
+  handler's free and rebuild of a registered name would free descriptions under the server. A rejoined player 1 now
+  parses into its own slot, index 0 of native_split_delta_slots (0x700D1FF0, unused until now), as players 2-4 do
+  (DeltaSlot's `p1_rejoined`, set at its departure, cleared when the server shuts down);
+- the world (R_NewMap), the signon's UI unload, the material list: keyed by the map generation, not by player: its
+  rejoin to the same server is "its own part only"; the material poll does not even call the load (its HUD's map name
+  is unchanged);
+- the secure-module validation: started only by the session's host, which stays player 2 after the rejoin;
+- svc_serverinfo's HUD_VidInit and the per-connection handlers: its own, as on every map the title loads;
+- CL_ClearState's Host_ClearMemory: not while the server runs (0x28E6A).
+
+**Its UI** (ReportPlayer1Ui, `[watch:p1-ui]`, report only). Its viewport stays on the root panel while it is away (its
+client game is not initialised again at the rejoin, so nothing would attach it again); App's focus fields may name its
+panels, which stay allocated (ClearFocus never clears player 1's: `leaving >= 1`); App sets its focus every tick. The
+front end stays with its driver (player 2) after the rejoin, and the session's host too, until that player leaves:
+no hand-over while the others play. The per-player focus is M4's.
+
+**Tests.** native_split_lifecycle_test (Player1Rejoin: the rule's reasons in order; held while departed, not while
+rejoining; a shutdown in its turn refused while another plays; joined once; a failed rejoin departs again; player 2
+leaving during the rejoin; ten departures and rejoins with two, three and four players, nobody renumbered, nothing left
+behind); native_split_test (DeltaSlot for a rejoined player 1); native_split_turns_test (CL_Disconnect's dropclient and
+clears; the activation in context 0; RejoinPlayer1, DepartPlayer1 and the frame's end in the source).
+tests/scenarios/native_split_2p_p1_rejoin.txt: player 1 leaves and rejoins twice while player 2 plays (not run).
+
+Unproven until a run: that player 1's departure is clean at runtime at all (native_split_2p_p1_leaves has never run),
+that its client reconnects in place and reaches state 5, that the server gives it a slot, that its second signon is
+"its own part only", that its own delta slot decodes as the shared one did.
+

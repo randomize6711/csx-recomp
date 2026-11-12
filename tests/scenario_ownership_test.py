@@ -19,7 +19,8 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SCENARIOS = ['native_split_2p_leave.txt', 'native_split_2p.txt', 'native_split_2p_p1_leaves.txt']
+SCENARIOS = ['native_split_2p_leave.txt', 'native_split_2p.txt', 'native_split_2p_p1_leaves.txt',
+             'native_split_2p_p1_rejoin.txt']
 failures = []
 checks = 0
 

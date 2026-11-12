@@ -458,6 +458,44 @@ def reconnect(funcs, cl, text):
           'the departure\'s hooks: CL_Disconnect 0x29029, svc_disconnect 0x30932')
 
 
+def player1_rejoin(funcs, cl, text):
+    """docs 15.19: player 1 departs and rejoins in its kept context 0; what its own CL_Disconnect leaves for the
+    reconnect (the server told, the connection's state cleared) and the code's order (src/game/native_split.cpp)"""
+    d = dict(funcs.get(0x28F20, []))
+    # connected: "dropclient\n" as a clc_stringcmd (3), sent three times on cls.netchan (0x7812E8) by Netchan_Transmit
+    check(d.get(0x28FC6) == 'mov edx, 0x32BA5C' and d.get(0x28FCD) == 'mov byte ptr [esp+0x0C], 0x03' and
+          all(d.get(a) == 'call 0x000698D0' for a in (0x28FEF, 0x29000, 0x29011)) and
+          all(d.get(a) == 'push 0x7812E8' for a in (0x28FE8, 0x28FFB, 0x2900C)),
+          'CL_Disconnect: the server told three times ("dropclient", clc_stringcmd, on cls.netchan 0x7812E8)')
+    # then the connection's own state: cls.state 1, cls.signon 0, CL_ClearState, the netchan cleared
+    check(d.get(0x2901F) == 'mov dword ptr [0x007812E0], 0x01' and d.get(0x29042) == 'mov [0x00784800], ebx' and
+          d.get(0x29048) == 'call 0x00028E60' and d.get(0x29050) == 'mov esi, 0x7812E8' and
+          d.get(0x29055) == 'call 0x00069630',
+          'CL_Disconnect: state 1, cls.signon 0, CL_ClearState 0x28E60, Netchan_Clear 0x69630 (cls.netchan): a '
+          'reconnect starts clean')
+    ccs = dict(funcs.get(0x28E60, []))
+    check(ccs.get(0x28E9F) == 'mov ecx, 0xA00' and ccs.get(0x28EA4) == 'rep stosd' and ccs.get(0x28E96) == 'mov eax, 0x787EE0',
+          'CL_ClearState clears the client state (0x787EE0, 0x2800 bytes and more)')
+    # the activation of a rejoined player 1: its context keeps the title's own prelude call (0x5D3A6)
+    order = dict(funcs.get(0x5D2E0, []))
+    check(order.get(0x5D3A6) == 'call 0x000269A0', 'player 1\'s activation 0x269A0 at 0x5D3A6, in its context')
+    src = open(os.path.join(ROOT, 'src', 'game', 'native_split.cpp')).read()
+    rj = src[src.find('bool RejoinPlayer1()'):]
+    rj = rj[:rj.find('\n}\n')]
+    check(rj.find('MayRejoin0(') >= 0 and rj.find('MayRejoin0(') < rj.find('g_players.Rejoin0()') and
+          'g_ch.Forget(0)' in rj and 'g_cmds.Drop(0)' in rj and 'g_watch[0] = {}' in rj and 'CallGuest' not in rj,
+          'RejoinPlayer1: the rule first; its watch, lines and packets cleared; no guest call (the title reconnects)')
+    dp = src[src.find('void DepartPlayer1('):]
+    dp = dp[:dp.find('\n}\n')]
+    check('ServerClientOf(0)' in dp and 'CleanupFn::DropClient' in dp and dp.find('CleanupFn::DropClient') <
+          dp.find('g_ch.Forget(0)') and 'RemovePlayer' not in dp and 'Released' not in dp,
+          'DepartPlayer1: a slot still naming port 0 dropped, then its packets; its context never removed')
+    fe = src[src.find('void NativeSplitFrameEnd('):]
+    check(re.search(r'for \(int k = 0; k < nsplit::kMaxPlayers; k\+\+\) \{\s*const nsplit::Player& p = g_players.At\(k\);'
+                    r'\s*if \(p.state != nsplit::State::Connecting\) continue;\s*if \(int\(PlayerDword\(k, kClsState\)\)', fe)
+          is not None, 'the frame\'s end: a connecting player 1 (its rejoin) joins when its live cls.state is active')
+
+
 def main():
     if not os.path.isdir(GEN) or not glob.glob(os.path.join(GEN, 'x86_recomp.*.cpp')):
         print('note: build/gen/game missing: the checks are skipped')
@@ -472,6 +510,7 @@ def main():
     lifecycle(funcs, cl, regs, text)
     shared_audit(funcs, cl, regs, text)
     reconnect(funcs, cl, text)
+    player1_rejoin(funcs, cl, text)
     print(f'native_split_turns_test: {checks} checks, {len(failures)} failed')
     return 1 if failures else 0
 

@@ -386,6 +386,13 @@ static void Lifecycle() {
           "players 2 and 4: their own slots, the registry untouched");
     Check(DeltaSlot(0x6000, 0x9000, 1, own, elem) == DeltaSlot(0x6000, 0x9000, 1, own, elem), "the same slot on a rejoin");
     Check(DeltaSlot(0, 0, 1, own, elem) == 0, "no slot from the lookup: left as it is");
+    // docs 15.19: player 1 rejoining the running server parses into its own slot (index 0), never the registry the
+    // server uses; its first registration of a new name still the shared slot; the process's (-1) always shared
+    Check(DeltaSlot(0x6000, 0x9000, 0, own, elem, true) == own, "player 1 rejoined: its own slot 0");
+    Check(DeltaSlot(0x6000, 0, 0, own, elem, true) == 0x6000, "player 1 rejoined, a new name: the shared slot");
+    Check(DeltaSlot(0x6000, 0x9000, -1, own, elem, true) == 0x6000 && DeltaSlot(0x6000, 0x9000, -1, own, elem) == 0x6000,
+          "the process's: the shared registry");
+    Check(DeltaSlot(0x6000, 0x9000, 1, own, elem, true) == own + 4, "player 2 unchanged by player 1's rejoin");
     // registrations: the game's own initialisation as the title; another player's reuses the first's
     Check(RegisterPolicy(false, true) == Registration::Register, "the game's own: registers");
     Check(RegisterPolicy(true, true) == Registration::ReuseExisting, "another player's: the existing one");
