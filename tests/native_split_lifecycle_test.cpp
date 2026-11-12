@@ -396,6 +396,44 @@ static void Player1Rejoin() {
     }
 }
 
+// docs 15.20: the title's temporary removals (0x108BB0's move to the front) told from permanent detachments
+static void LinkCycles() {
+    {
+        LinkTracker t;
+        t.Removed(0x909CC0, 0x909E50, kReorderRemoveReturn);
+        Check(t.Attached(0x909CC0, 0x909E50, Link::New, kReorderAddReturn) == Link::Cycle && t.Reorders() == 1 &&
+                  t.Cycles() == 1 && t.Pending() == 0,
+              "0x108BB0's remove (0x108BC5) and add (0x108BD6) of one child: one cycle, a move to the front");
+        t.Removed(0x909CC0, 0x909E50, 0x1234);
+        Check(t.Attached(0x909CC0, 0x909E50, Link::New, 0x5678) == Link::Cycle && t.Reorders() == 1 && t.Cycles() == 2,
+              "another removal re-added to the same parent in its frame: a cycle (not 0x108BB0's)");
+        t.Removed(0x909CC0, 0x0A9C1D0, 0x1234);
+        Check(t.Attached(0x0BBB000, 0x0A9C1D0, Link::New, 0x5678) == Link::Change && t.Cycles() == 2,
+              "re-added to another parent: a parent change");
+        Check(t.Attached(0x909CC0, 0x0CCC000, Link::New, 0x5678) == Link::New, "no pending removal: a new attachment");
+        Check(t.Attached(0x909CC0, 0x0CCC000, Link::Reattach, 0x5678) == Link::Reattach, "a no-op assignment stays one");
+        t.Removed(0x909CC0, 0x0A9C1D0, 0x1234);
+        Check(t.Pending() == 1 && t.Settle() == 1 && t.Permanent() == 1 && t.Pending() == 0,
+              "not re-added by the frame's end: one permanent detachment");
+        Check(t.Settle() == 0 && t.Permanent() == 1, "settled once");
+    }
+    {  // run 15's frames: the root's 0x909E50 moved to the front every frame, one viewport detached by the cleanup and
+       // one detached by the game in a frame of its own
+        LinkTracker t;
+        uint64_t links[kLinks] = {};
+        for (int frame = 0; frame < 300; frame++) {
+            t.Removed(0x909CC0, 0x909E50, kReorderRemoveReturn);
+            links[int(t.Attached(0x909CC0, 0x909E50, ClassifyLink(0, 0x909CC0, 0), kReorderAddReturn))]++;
+            if (frame == 150) t.Removed(0x909CC0, 0x2154000, 0x1AB000);
+            links[int(Link::Detach)] += t.Settle();
+        }
+        Check(links[int(Link::Cycle)] == 300 && links[int(Link::New)] == 0 && links[int(Link::Detach)] == 1 &&
+                  t.Reorders() == 300,
+              "run 15's pattern: 300 cycles (not 300 attachments and detachments), one permanent detachment");
+    }
+    Check(std::string(Name(Link::Cycle)).find("temporary") != std::string::npos && kLinks == 7, "the cycle's name, 7 kinds");
+}
+
 static void Sessions() {
     {  // player 2 leaves while player 1 plays
         SessionSim s;
@@ -1509,6 +1547,7 @@ static void GrowLeftBehind() {
 
 int main() {
     Player1Rejoin();
+    LinkCycles();
     Routing();
     Queues();
     OnceAndPerPlayer();

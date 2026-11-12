@@ -5,6 +5,7 @@
 #pragma once
 
 #include <array>
+#include <map>
 #include <cstddef>
 #include <cstdint>
 #include <set>
@@ -398,9 +399,11 @@ inline bool ClearFocus(bool panel, int value_owner, int leaving) { return leavin
 
 // what a call of a process-owned panel's setParent / addChild does to its children (classified at its entry; both
 // take the child off its old parent first, then append it once: 0xB5220 / the inline loop at 0x10AD1D)
-enum class Link { Nothing, New, Reattach, Change, Detach, Duplicate };
+enum class Link { Nothing, New, Reattach, Change, Detach, Duplicate, Cycle };
+inline constexpr int kLinks = 7;
 inline const char* Name(Link l) {
     switch (l) {
+        case Link::Cycle: return "a temporary remove / re-add (no net change)";
         case Link::Nothing: return "nothing";
         case Link::New: return "a new attachment";
         case Link::Reattach: return "a re-attachment (already its child: no change)";
@@ -426,6 +429,54 @@ inline bool PartOfLink(uint32_t ret) {
         if (r == ret) return true;
     return false;
 }
+
+// docs 15.20: the title's own temporary removals. 0x108BB0 moves a child to the end of its parent's children (to the
+// front): removeChild through the parent's slot 0x4C (0x108BC2, return 0x108BC5), then addChild of the same child
+// ([esi+0x1C] both times) through slot 0x44 (0x108BD3, return 0x108BD6). Every standalone removal from a process panel
+// is pending until the frame's end: the same child added to the same parent before then completes a temporary
+// remove / re-add (a cycle, no structural change: counted, not logged); to another parent, a parent change; still
+// pending at the frame's end, a permanent detachment. The cleanup's own detach is permanent at once (counted apart)
+inline constexpr uint32_t kReorderRemoveReturn = 0x108BC5, kReorderAddReturn = 0x108BD6;
+class LinkTracker {
+public:
+    // a standalone removal (not part of a setParent / addChild / insertChildAt) of child from a process panel
+    void Removed(uint32_t parent, uint32_t child, uint32_t ret) { pending_[child] = {parent, ret}; }
+    // an attachment of child to parent (a process panel), `base` as ClassifyLink saw it at the call: a pending removal
+    // of the child completes a cycle (same parent) or a parent change (another); otherwise `base`
+    Link Attached(uint32_t parent, uint32_t child, Link base, uint32_t ret) {
+        auto it = pending_.find(child);
+        if (it == pending_.end()) return base;
+        bool same = it->second.parent == parent;
+        bool reorder = same && it->second.ret == kReorderRemoveReturn && ret == kReorderAddReturn;
+        pending_.erase(it);
+        if (!same) return Link::Change;
+        cycles_++;
+        reorders_ += reorder;
+        return Link::Cycle;
+    }
+    // the frame's end: what is still pending was a permanent detachment; how many
+    size_t Settle() {
+        size_t n = pending_.size();
+        permanent_ += n;
+        pending_.clear();
+        return n;
+    }
+    // the removals still pending (in this frame), with their parent and return
+    template <class F> void ForEachPending(F f) const {
+        for (const auto& [child, p] : pending_) f(p.parent, child, p.ret);
+    }
+    size_t Pending() const { return pending_.size(); }
+    uint64_t Cycles() const { return cycles_; }
+    uint64_t Reorders() const { return reorders_; }
+    uint64_t Permanent() const { return permanent_; }
+
+private:
+    struct P {
+        uint32_t parent, ret;
+    };
+    std::map<uint32_t, P> pending_;
+    uint64_t cycles_ = 0, reorders_ = 0, permanent_ = 0;
+};
 
 // a retention root's evidence: verified (a field whose meaning the title's code establishes), unverified (a word inside
 // bytes no code reads as a pointer: a file's or a message's or a texture's bytes, or a block's never written tail), or

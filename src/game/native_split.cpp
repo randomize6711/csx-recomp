@@ -248,7 +248,8 @@ uint64_t g_vector_grows = 0, g_vector_free_skipped = 0, g_detached = 0, g_detach
 // what the process's panels' setParent / addChild / removeChild calls did (docs 15.18: nsplit::Link), each call once;
 // the cleanup's own detachments among the detachments; the App focus fields cleared at a leave; a leaving player's
 // objects among App's tick signals or surfaces (kept, reported)
-uint64_t g_links[6] = {};
+uint64_t g_links[nsplit::kLinks] = {};
+nsplit::LinkTracker g_track;  // docs 15.20: removals pending until re-added (a cycle) or the frame's end (permanent)
 uint64_t g_cleanup_detaches = 0, g_focus_cleared = 0, g_app_kept = 0;
 bool g_cleanup_detaching = false;
 std::set<uint32_t> g_shared_parents;
@@ -739,15 +740,22 @@ int ListedIn(uint32_t parent, uint32_t child) {
 // nsplit::ClassifyLink): every call counted once by what it does; a re-attachment (the child already the parent's:
 // the title takes it off and appends it again, no change) only counted; a structural change logged for the first few
 // when a player is involved, a duplicate attempt as a warning
-void PanelLink(uint32_t child, uint32_t old, uint32_t parent, const char* how) {
+void PanelLink(uint32_t child, uint32_t old, uint32_t parent, const char* how, uint32_t ret) {
     if (!child) return;
     bool shared_new = ProcessPanel(parent), shared_old = old && old != parent && ProcessPanel(old);
     if (!shared_new && !shared_old) return;
     nsplit::Link l = nsplit::ClassifyLink(old, parent, shared_new ? ListedIn(parent, child) : 0);
-    g_links[int(l)]++;
     if (shared_new) g_shared_parents.insert(parent);
     if (shared_old) g_shared_parents.insert(old);
-    if (l == nsplit::Link::Reattach || l == nsplit::Link::Nothing) return;
+    // docs 15.20: setParent(0) off a process panel is a removal pending until the frame's end; an attachment completes
+    // a pending removal of the same child (a temporary remove / re-add: counted, not logged)
+    if (l == nsplit::Link::Detach) {
+        g_track.Removed(old, child, ret);
+        return;
+    }
+    if (shared_new && l != nsplit::Link::Duplicate && l != nsplit::Link::Nothing) l = g_track.Attached(parent, child, l, ret);
+    g_links[int(l)]++;
+    if (l == nsplit::Link::Reattach || l == nsplit::Link::Nothing || l == nsplit::Link::Cycle) return;
     int acting = OwnerNow(), child_owner = OwnerOfHolding(child);
     uint32_t on = parent ? parent : old;
     uint32_t data = ReadOr0(on + nsplit::kPanelChildren + 8);
@@ -764,6 +772,20 @@ void PanelLink(uint32_t child, uint32_t old, uint32_t parent, const char* how) {
               OwnerName(acting).c_str(), how, child, OwnerName(child_owner).c_str(), nsplit::Name(l), old, parent, on,
               int32_t(ReadOr0(on + nsplit::kPanelChildren)), int32_t(ReadOr0(on + nsplit::kPanelChildren + 4)), data,
               OwnerName(OwnerOfHolding(data)).c_str());
+}
+
+// the frame's end (docs 15.20): the removals no re-add completed are permanent detachments: counted, a player's (or one
+// a player's turn made) logged for the first few
+void SettleLinks() {
+    g_track.ForEachPending([](uint32_t parent, uint32_t child, uint32_t ret) {
+        g_links[int(nsplit::Link::Detach)]++;
+        int child_owner = OwnerOfHolding(child);
+        if (child_owner < 0) return;  // the process's own tree: counted, not logged
+        LOG_FIRST(16, "native split: panel 0x%08X (%s's) permanently detached from the process's panel 0x%08X (removal "
+                      "returning to 0x%08X; not added again in its frame) [watch:shared-parent]",
+                  child, OwnerName(child_owner).c_str(), parent, ret);
+    });
+    g_track.Settle();
 }
 
 // the shared parents' children (native_split_lifecycle.h StaleChildren): a departed player's panel, one that is no
@@ -818,14 +840,15 @@ void Report() {
     {
         using L = nsplit::Link;
         auto n = [](L l) { return (unsigned long long)g_links[int(l)]; };
-        LOGI("native split: the VGUI hierarchy (the process's panels): %llu new attachments, %llu re-attachments (no "
-             "change), %llu parent changes, %llu detachments (%llu by the cleanup), %llu duplicate attachment attempts; "
+        LOGI("native split: the VGUI hierarchy (the process's panels): %llu new attachments, %llu permanent detachments "
+             "(%llu by the cleanup), %llu temporary remove / re-add cycles (%llu by 0x108BB0's move to the front), %llu "
+             "re-attachments (no change), %llu parent changes, %llu duplicate attachment attempts; "
              "%llu process-wide vectors grown as the process; failed ownership operations: %llu old buffers of a player "
              "kept, %llu viewports kept on their parent, %llu stale children; %llu viewports detached; %zu shared "
              "parents watched; App focus fields cleared %llu, a leaving player's objects kept among App's tick signals "
              "or surfaces %llu",
-             n(L::New), n(L::Reattach), n(L::Change), n(L::Detach), (unsigned long long)g_cleanup_detaches,
-             n(L::Duplicate), (unsigned long long)g_vector_grows, (unsigned long long)g_vector_free_skipped,
+             n(L::New), n(L::Detach), (unsigned long long)g_cleanup_detaches, n(L::Cycle),
+             (unsigned long long)g_track.Reorders(), n(L::Reattach), n(L::Change), n(L::Duplicate), (unsigned long long)g_vector_grows, (unsigned long long)g_vector_free_skipped,
              (unsigned long long)g_detach_kept, (unsigned long long)g_stale_children, (unsigned long long)g_detached,
              g_shared_parents.size(), (unsigned long long)g_focus_cleared, (unsigned long long)g_app_kept);
     }
@@ -1571,6 +1594,7 @@ void NativeSplitReference(X86Context& ctx, const std::vector<uint8_t>& state) {
 // client_context.cpp, after the last player's client turn: players added or removed between frames
 void NativeSplitFrameEnd(X86Context& ctx) {
     if (!NativeSplitOn() || !csx::ClientContextHasInitial() || g_reference.empty()) return;
+    SettleLinks();
     // the clients that left since the last frame (a kick, the server's disconnect, their own disconnect, a connect that
     // failed): removed here, from player 1's context, outside the turns (docs 15.12). Player 1's departs only while
     // another plays (alone, it is the title's own: its menus)
@@ -1840,33 +1864,34 @@ bool NativeSplitVectorGrow(X86Context& ctx, uint8_t*) {
 // [[hook]] at 0x10ACC0, a panel's setParent (thiscall: ecx the panel, [esp+4] the new parent; slot 0x40): counted
 // (docs 15.18), nothing changed
 void NativeSplitPanelSetParent(X86Context& ctx, uint8_t*) {
-    if (NativeSplitOn()) PanelLink(ctx.ecx, ReadOr0(ctx.ecx + nsplit::kPanelParent), R32(ctx.esp + 4), "sets the parent of");
+    if (NativeSplitOn())
+        PanelLink(ctx.ecx, ReadOr0(ctx.ecx + nsplit::kPanelParent), R32(ctx.esp + 4), "sets the parent of", R32(ctx.esp));
 }
 
 // [[hook]] at 0x10AD00, a panel's addChild (thiscall: ecx the parent, [esp+4] the child; slot 0x44): counted
 void NativeSplitPanelAddChild(X86Context& ctx, uint8_t*) {
     if (!NativeSplitOn()) return;
     uint32_t child = R32(ctx.esp + 4);
-    PanelLink(child, ReadOr0(child + nsplit::kPanelParent), ctx.ecx, "adds");
+    PanelLink(child, ReadOr0(child + nsplit::kPanelParent), ctx.ecx, "adds", R32(ctx.esp));
 }
 
 // [[hook]] at 0x10ADC0, a panel's removeChild (thiscall: ecx the parent, [esp+4] the child, [esp] the return; slot
-// 0x4C): a detachment from a process panel counted, unless it is setParent's / addChild's / insertChildAt's own first
-// step (nsplit::PartOfLink: counted there); the cleanup's own detach among them
+// 0x4C): a removal from a process panel, unless it is setParent's / addChild's / insertChildAt's own first step
+// (nsplit::PartOfLink: counted there). Pending until the frame's end (docs 15.20: a re-add of the same child makes it a
+// temporary cycle, such as 0x108BB0's move to the front); the cleanup's own detach permanent at once
 void NativeSplitPanelRemoveChild(X86Context& ctx, uint8_t*) {
     if (!NativeSplitOn()) return;
     uint32_t parent = ctx.ecx, child = R32(ctx.esp + 4);
     if (nsplit::PartOfLink(R32(ctx.esp)) || !ProcessPanel(parent) || !ListedIn(parent, child)) return;
-    g_links[int(nsplit::Link::Detach)]++;
     g_shared_parents.insert(parent);
     if (g_cleanup_detaching) {
+        g_links[int(nsplit::Link::Detach)]++;
         g_cleanup_detaches++;
         return;
     }
-    LOG_FIRST(16, "native split: %s's turn removes panel 0x%08X (%s's) from the process's panel 0x%08X (return 0x%08X) "
-                  "[watch:shared-parent]",
-              OwnerName(OwnerNow()).c_str(), child, OwnerName(OwnerOfHolding(child)).c_str(), parent, R32(ctx.esp));
+    g_track.Removed(parent, child, R32(ctx.esp));
 }
+
 
 // ---- before a destructor: another player's object is never destroyed --------------------------------------------
 

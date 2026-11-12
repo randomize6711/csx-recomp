@@ -287,6 +287,22 @@ def retention_checks(funcs, cl, r32, src, regs):
         check(at(fn, call) == 'call [eax+0x4C]' and nxt == ret, f'0x{fn:X}: removeChild at 0x{call:X}, returning to 0x{ret:X}')
         check(f'0x{ret:X}' in hdr, f'the header knows 0x{ret:X}')
     check(T.hooks().get(0x10ADC0, (None,))[0] == 'NativeSplitPanelRemoveChild', 'removeChild hooked (count only)')
+    # docs 15.20: 0x108BB0's move to the front: removeChild ([esi+0x1C]) through slot 0x4C, then addChild of the same
+    # child through slot 0x44 on its parent as fetched again; the header's two return addresses
+    seq(0x108BB0, [(0x108BB8, 'call [eax]'), (0x108BBA, 'mov ecx, [esi+0x1C]'), (0x108BBF, 'push ecx'),
+                   (0x108BC0, 'mov ecx, eax'), (0x108BC2, 'call [edx+0x4C]'), (0x108BC5, 'mov edx, [esi]'),
+                   (0x108BC9, 'call [edx]'), (0x108BCB, 'mov ecx, [esi+0x1C]'), (0x108BD0, 'push ecx'),
+                   (0x108BD1, 'mov ecx, eax'), (0x108BD3, 'call [edx+0x44]'), (0x108BD6, 'mov edx, [esi]')],
+          '0x108BB0: removeChild then addChild of [esi+0x1C] on its parent (returns 0x108BC5, 0x108BD6)')
+    check('kReorderRemoveReturn = 0x108BC5' in hdr and 'kReorderAddReturn = 0x108BD6' in hdr,
+          'the header\'s reorder returns are 0x108BB0\'s')
+    check(0x108BC5 not in (0x10ACD0, 0x10AD17, 0x10AD99), 'the reorder\'s removal is not one of the links\' own steps')
+    rmc = body_of(src, 'void NativeSplitPanelRemoveChild(X86Context& ctx, uint8_t*)')
+    check('g_track.Removed(parent, child, R32(ctx.esp))' in rmc and rmc.index('g_cleanup_detaching') <
+          rmc.index('g_track.Removed'), 'removeChild: the cleanup\'s detach counted at once, another pending')
+    fe = body_of(src, 'void NativeSplitFrameEnd(X86Context& ctx)')
+    check(fe.find('SettleLinks();') >= 0 and fe.find('SettleLinks();') < fe.find('RemovePlayer('),
+          'the frame\'s end settles the pending removals before any removal of a player')
     # the particle manager's pool: its singleton per player, its size, its entries' interior pointers, its destructor
     seq(0x1F9EC0, [(0x1F9ED6, 'mov eax, [0x00552CE4]'), (0x1F9EDF, 'push 0x10'), (0x1F9EE1, 'call 0x0022D86A'),
                    (0x1F9EFF, 'mov eax, 0x7530'), (0x1F9F04, 'call 0x001F9B90'), (0x1F9F09, 'mov [0x00552CE4], eax')],
