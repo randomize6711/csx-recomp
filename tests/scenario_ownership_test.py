@@ -99,6 +99,48 @@ PASSING = [
     "stale children",
     "native split:   kept through the word at 0x005D1748: 1 block(s), 637500 bytes (it names block 0x02400000, 637500 "
     "bytes from site 0x66943)",
+    # docs 15.18: the retention, focus, link and destructor lines of a passing leave
+    "native split: player 2's panel 0x0203D230 was the VGUI App's mouse focus (0x00384B74): cleared to 0 as App's "
+    "removeSurfaceBase (0x109B20) does, the panel not called [watch:app-focus]",
+    "[   33.400] [warn] [t49f3] native split: player 2's object 0x0203E000 is among the VGUI App's tick signals (2 of 3): "
+    "kept, no verified removal (App reaches it every tick) [watch:app-kept]",
+    "native split: player 2's turn sets the parent of panel 0x0203D230 (player 2's): a new attachment, parent 0x00000000 "
+    "-> 0x00909CC0; the process's panel 0x00909CC0: 2 of 4 children, buffer 0x00C93FF0 (the process's's) "
+    "[watch:shared-parent]",
+    "native split: player 1's turn removes panel 0x01EF0460 (the process's) from the process's panel 0x00909CC0 (return "
+    "0x001B0444) [watch:shared-parent]",
+    "native split: the VGUI hierarchy (the process's panels): 3 new attachments, 1600 re-attachments (no change), 0 "
+    "parent changes, 1 detachments (1 by the cleanup), 0 duplicate attachment attempts; 0 process-wide vectors grown as "
+    "the process; failed ownership operations: 0 old buffers of a player kept, 0 viewports kept on their parent, 0 stale "
+    "children; 1 viewports detached; 1 shared parents watched; App focus fields cleared 1, a leaving player's objects "
+    "kept among App's tick signals or surfaces 0",
+    "native split:   kept through the word at 0x0062DCA4, in the 32 KB message buffer's bytes (sizebuf 0x62DBC8) [a word "
+    "of the process's static data, unverified pointer-like bytes]: 1 block(s), 637500 bytes (it names block 0x02AF0060, "
+    "637500 bytes from site 0x1F9BBE, persistent by the original, at +0x1234 (0x02AF1294: an interior pointer)); the "
+    "longest chain 1 block(s): 0x02AF0060 (site 0x1F9BBE)",
+    "native split: player 2's cleanup: its kept blocks by their root's evidence (each under one root): verified 319 "
+    "(20610 bytes), unverified pointer-like bytes 1745 (785000 bytes), unclassified 500 (40000 bytes); every one kept",
+    "native split: player 2's memory at its leave: 2729 blocks (950000 bytes) live before its cleanup; released 22 (20000 "
+    "bytes); left behind: persistent by the original 3 (640208 bytes), reachable from verified roots 319 (20610 bytes), "
+    "kept conservatively 2200 (250000 bytes), named by nobody (no release mechanism) 185 (18537 bytes); earlier "
+    "departures' blocks still allocated 0 (0 bytes); each block counted once",
+    "native split:   left behind from site 0x1F9BBE: 1 block(s), 637500 bytes: the particle manager's memory pool "
+    "(never destroyed: its destructor frees pointers into the pool)",
+    "native split: the retention bound: 2788081 of 8388608 bytes left behind after 3 leave(s), 929360 a leave on "
+    "average: about 6 more leave(s) before it stops joins (a projection from the leaves so far, not a guaranteed outcome)",
+    "native split: player 2's cleanup: 0x552CA8's destructor (0x1BAD90) not considered: no object (0x00552CA8 holds 0)",
+    "native split: player 2's cleanup: 0x552CA8's destructor (0x1BAD90) for 0x02070A90 (player 2's, from 0x00552CA8) "
+    "considered, skipped: kept: named by another; the object kept",
+    "native split: player 2's cleanup: 0x552CA8's destructor (0x1BAD90) for 0x02070A90 entered (esi the object, 0 "
+    "argument(s))",
+    "native split: player 2's cleanup: 0x552CA8's destructor (0x1BAD90) for 0x02070A90 invoked and returned: 3 of its "
+    "blocks (400 bytes) freed through it, 0 frees of a named block kept; the object still allocated (its free follows)",
+    "native split: the cleanup's destructors: 3 not considered, 3 considered and skipped, 6 invoked and returned, 0 "
+    "invoked and failed; 66 of the leaving players' blocks (60000 bytes) freed by their cleanups",
+    "[   50.000] [warn] [t49f3] native split: player 1 frees 0x02079110: inside block 0x02079010 (+0x100 of its 637500 "
+    "bytes, player 1's, site 0x1F9BBE), not its start (return 0x001F9B46; not skipped) [watch:free-interior]",
+    "native split: ownership: 0 double frees skipped, 0 stale names of left-behind blocks in fresh contexts, 0 cleanup "
+    "calls refused, 0 frees inside a block (not its start)",
 ]
 
 
@@ -129,7 +171,8 @@ def main():
             check(bool(fails(rx[s], line)), f'{s}: a [own:{tag}] line fails it ({line[:90]})')
     tags = {t for t, _ in tagged_formats()}
     want = {'free-blocked', 'free-foreign', 'free-double', 'realloc-foreign', 'ui-free', 'destroy-foreign', 'protected',
-            'guard-write', 'not-own', 'boot-pointer', 'stale-left', 'cleanup-refused', 'vector-free', 'stale-child'}
+            'guard-write', 'not-own', 'boot-pointer', 'stale-left', 'cleanup-refused', 'vector-free', 'stale-child',
+            'cleanup-failed'}
     check(want <= tags, f'every ownership kind is tagged in the sources (missing {sorted(want - tags)})')
     docs = open(os.path.join(ROOT, 'docs', 'native_splitscreen.md')).read()
     check(all(f'[own:{t}]' in docs for t in tags), f'the docs list every tag ({sorted(t for t in tags if f"[own:{t}]" not in docs)})')
@@ -144,6 +187,11 @@ def main():
                     leave, re.M) is not None, 'the leave scenario expects player 2\'s viewport detached')
     kept = P + "native split: player 2's viewport 0x02B99870 not detached: not among its parent's children (parent 0x00909CC0 of the process, 3 of 4 children, listed 0)"
     check(bool(fails(rx['native_split_2p_leave.txt'], kept)), 'a viewport not detached fails the leave scenario')
+    # docs 15.18: a destructor that returned with its object not as its contract leaves it fails every scenario
+    failed = P + ("native split: player 2's cleanup: 0x552CA8's destructor (0x1BAD90) for 0x02070A90 invoked and failed: "
+                  "it returned with its object gone (it must leave it allocated) [own:cleanup-failed]")
+    for sc in SCENARIOS:
+        check(bool(fails(rx[sc], failed)), f'{sc}: a destructor invoked and failed fails it')
     for line in PASSING:
         check(not fails(rx['native_split_2p_leave.txt'], line), f'a passing leave\'s line does not fail it: {line[:80]}')
     print(f'scenario_ownership_test: {checks} checks, {len(failures)} failed')

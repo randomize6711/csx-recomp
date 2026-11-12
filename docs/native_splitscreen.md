@@ -1704,3 +1704,110 @@ fail on `not detached` and on a shared panel keeping a child.
   lines do not.
 
 None of this has run in the game: only `native_split_2p_leave` can show the detach and the grow's scope there.
+
+### 15.18 The fourteenth run's retention; the App's focus; the cleanup's destructors (2026-11-12; static only, not run)
+
+The fourteenth run (70783a9, `native_split_2p_leave`) passed all 42 steps. Each of player 2's three leaves detached its
+viewport from the root (3 -> 2 of 4 children); the root's vector never grew; no `[own:...]` tag was logged. Each leave
+still left about 929 KB behind (929,355 / 929,371 / 929,355 bytes; 2,788,081 in all). The investigation below is from
+the instructions (tests/guest_call_contract_test.py); nothing of it has run in the game.
+
+**Why a leaving player's blocks stay.** The cleanup frees only what a destructor it may run frees (0x552C70's, 0x552C9C's,
+0x1BAD90 with its free, the HUD list's nodes, the delta slot, the client entities). Every other block of the player is
+left behind, named or not: there is no bulk release (rollback freeing stays off). The retention plan's "kept through"
+roots explain which destructor frees are refused; they are not why the 929 KB stays.
+
+**The 637,500-byte block: the particle manager's memory pool.** Run 14 logged its site as 0x1F9BBE in every leave (not
+0x0); what the run did not show was the site in the leak line, cut at 400 characters.
+- CMiniMem::Instance 0x1F9EC0 (from the particle manager's function table 0x36578C, e.g. 0x1F8E40) makes the pool
+  on first use: a 16-byte CMiniMem (site 0x1F9EE6), then 0x1F9B90 with 30000 entries: (30000 >> 4) x ([0x552CE0] + 0x14)
+  bytes from site 0x1F9BBE. Run 14's 637,500 = 1875 x 340, an entry size of 320.
+- Its singleton 0x552CE4 and globals (0x5517F8.., 0x5BD8C4..) are in each player's regions: each player has its own
+  pool, made on its first use in that player's context, owned by it (run 14: player 2's). A rejoin starts from the boot image (0x552CE4 0), so each rejoin makes
+  a new one: genuinely a new allocation per join, as a fresh context needs one.
+- Only 0x1F9EC0 names 0x552CE4: the title never deletes it. Its destructor 0x1F9D10 (only through CMiniMem's vtable
+  0x365854, never called) runs each entry's destructor 0x1F9B30, which frees the entry's +4, a place inside the same
+  pool (0x1F9C25): 1875 frees of no block start. So it may never be called; the pool is persistent by the original, and
+  left behind at every leave by design.
+- The words that "named" it (0x540978, 0x5D1DC8, 0x62DCA4) changed every leave. Two are bytes: 0x5D1DC8 is in a 64x64
+  16-bit texture's texels written at 0xBEB70 (0x5D14C8, 0x2000 bytes, no other code names it); 0x62DCA4 is in the 32 KB
+  message buffer (sizebuf 0x62DBC8, data 0x62DBD4, maxsize 0x8000). The third, 0x540978, is in an array of 0x34-byte
+  records at 0x53FD20 (0x152180): unclassified. They are pointer-like values, not established references; the block is
+  kept whatever they are, since nothing may free it.
+
+**0x00384B74: the VGUI App's mouse focus.** The process's one App is the static object 0x384B58 (the static initialiser
+0x23CBF0 calls App's constructor 0x109530, which stores it at 0x552740; vtable 0x33A4A0). Its +0x14 key focus, +0x18
+previous mouse focus, +0x1C mouse focus (0x384B74), +0x20 mouse capture and +0x24 wanted key focus hold panels. App's
+tick (0x109EA0) sets the mouse focus each tick to the panel under the cursor through setMouseFocus 0x10A400, which calls
+the old focus's slot 0x1D0 and the new one's 0x1CC. So run 14's word was a genuine pointer, directly to the departed
+viewport, in process-owned state; its next tick, in whichever context ran it, called that left-behind viewport's code.
+App's removeSurfaceBase (0x109B20) zeroes +0x1C, +0x20 and +0x14 directly; the constructor zeroes all five.
+
+**The correction (ClearAppFocus, from RemovePlayer after the detach, before the plan).** Only when 0x552740 names
+0x384B58 and its vtable is App's: each focus field naming a panel of the leaving player (players 2-4,
+nsplit::ClearFocus) is set to 0, as removeSurfaceBase does; nothing of the title is called. Logged
+`[watch:app-focus]`. A leaving player's object among App's tick signals (+0x1D0, each called every tick) or surfaces
+(+0x8) is reported `[watch:app-kept]` and kept: no removal of either is verified. Other references not traced: input
+signals, message targets, HUD references.
+
+**Detachment and destruction stay separate.** The viewport is detached (15.17) and its focus cleared; it is never
+deleted. Its tree is left behind with it.
+
+**The other roots (unverified or unclassified, every one kept).**
+- **0x10829B**: 0x108230 reads a whole file into a buffer of its size rounded up to 2 KB (`lea edi, [eax+0x7FF]`,
+  `shr 11`, `shl 11`): file bytes, and a tail never written (the heap's earlier contents). Its words are pointer-like
+  bytes (kByteSites): unverified.
+- **0x66943**: 0x668A0's size + 0x10 allocation (0x48F30, a model-like +0x184 cache): unclassified. Run 14's roots of
+  this kind named player 2's VGUI panels, which no model holds: most likely stale bytes, not established.
+- **The rest**: words of the static data (unclassified unless a known area), another active player's block, a block an
+  earlier departed player left behind (handed to the process: left_by), a shared kind (verified by its kind's rule).
+
+**Diagnostics (native_split.cpp).**
+- **The roots** (LogRetention): each with its kind, its evidence (verified / unverified pointer-like bytes /
+  unclassified: nsplit::EvidenceOf), whether its word names the block's start or a place inside it (an interior
+  pointer, with the offset), the word's offset in its block, and its longest chain. Each kept block is counted under
+  one root (the first the scan reached it from), and a line sums the kept blocks by evidence.
+- **The memory at a leave**: its blocks live before the cleanup; released by it; left behind as persistent by the
+  original (kPersistentSites: the pool, its CMiniMem, a viewport), reachable from verified roots (heapown::ReachableFrom),
+  kept conservatively, or named by nobody (no release mechanism); earlier departures' blocks still allocated. Each
+  block counted once. The 12 sites that leave the most, by bytes.
+- **The bound**: LeakBudget::Projected, the leaves left at the average so far before joins stop (a projection, not a
+  guaranteed outcome): after run 14's three, about 6 (the bound unchanged at 8 MiB).
+- **The destructors** (RunDestructor; the contracts unchanged): each logged as not considered (no object), considered
+  and skipped (its reason, or its contract), entered (CallCleanup, just before the call), invoked and returned (the
+  blocks freed through it, the frees of a named block refused, the object's state), or invoked and failed: it
+  returned with its object not as its contract leaves it (0x1BAD90 leaves it allocated; a deleting destructor frees
+  it), `[own:cleanup-failed]`. A summary line counts the four.
+- **A free inside a block** (an address in a known block, not its start): reported `[watch:free-interior]` and counted;
+  the free is left as it is.
+- **The VGUI links**: setParent, addChild and removeChild (a new count-only hook at 0x10ADC0) on a process panel
+  classified at entry (nsplit::ClassifyLink): new attachments, re-attachments (already its child: the title takes it
+  off and appends it again, no change; run 14's ~15 a second were these), parent changes, detachments (the cleanup's
+  among them; removeChild inside setParent / addChild / insertChildAt, by its return address, is part of their link),
+  duplicate attempts. Only structural changes are logged, for the first few.
+
+**The grow's audit (0xB52B0).** Ownership, registers (CallGuest restores all; the title's own grow keeps ebx, esi, edi,
+ebp), the stack (no arguments; on_true `ret` pops the return address as its plain ret), reentrancy (g_vector_scope: the
+call into 0xB52B0 runs the title's code; nested grows run as the process), longjmp (Depth's destructor), three players
+(four children: no grow) and four (one grow, as the process) as in 15.17. One gap closed: a header inside a block a
+departed player left behind (owner the process, left_by set) was taken for the process's own vector; it is now left to
+the acting owner, so a free of its old buffer is refused and reported instead of done silently.
+
+| Tag | Meaning |
+|---|---|
+| `[own:cleanup-failed]` | a cleanup destructor returned with its object not as its contract leaves it |
+
+**Tests.**
+- **tests/native_split_lifecycle_test.cpp: simulated.** The focus clear (the run-14 build's next tick calling the
+  departed viewport, the fix calling nothing), the link classes (1600 re-adds: no structural change), the roots'
+  evidence for run 14's words, interior pointers recorded, reachability and single counting, the bound's projection
+  (run 14: 6 more), the pool's model (every entry's +4 inside it: its destructor never called; a new pool each join),
+  the four destructor outcomes, the left-behind grow, three and four players.
+- **tests/guest_call_contract_test.py: static.** App's construction, vtable slots, setMouseFocus, removeSurfaceBase and
+  tick; removeChild's return addresses inside the links; the pool's Instance, size, interior entries and destructors; the
+  texel and message areas; the file read's rounding; the persistent sites' malloc calls; the source's uses.
+- **tests/scenario_ownership_test.py.** `[own:cleanup-failed]` fails every scenario; the new lines of a passing leave
+  do not.
+
+Unproven until a run: the focus clear (whether the focus names the viewport at a leave), the destructors' outcomes, the
+accounting's numbers, whether App's tick signals hold a player's object.

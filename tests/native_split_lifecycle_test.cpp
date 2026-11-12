@@ -1133,6 +1133,243 @@ static void RepeatedLeaves() {
     Check(!d.WasFreed(0x3002000), "an address never known: not a double free");
 }
 
+
+// ---- retention, focus and the cleanup's destructors (docs 15.18) -------------------------------------------------
+// Simulated: the rules native_split.cpp applies, fed modelled guest words and blocks; no title code runs.
+static void FocusAndLinks() {
+    // a focus field cleared only for a panel of the leaving player (players 2..4)
+    Check(ClearFocus(true, 1, 1), "player 2's viewport as App's mouse focus at its leave: cleared");
+    Check(!ClearFocus(true, 0, 1), "player 1's panel: kept");
+    Check(!ClearFocus(true, heapown::kProcess, 1), "the process's panel: kept");
+    Check(!ClearFocus(false, 1, 1), "a value of the leaving player's that is no panel: not touched");
+    Check(!ClearFocus(true, 0, 0), "player 1's departure keeps its context: nothing cleared");
+    Check(sizeof kAppFocus / sizeof kAppFocus[0] == 5 && kAppFocus[2].offset == 0x1C && kApp + 0x1C == 0x384B74,
+          "the five focus fields; the mouse focus at 0x384B74 (run 14's word)");
+    // App modelled: its focus fields, a tick setting the mouse focus to the topmost viewport (setMouseFocus 0x10A400
+    // calls the old focus's exit), the leave clearing what names the leaving player's panel
+    vgui::World w;
+    uint32_t root = w.Panel(heapown::kProcess, 0x3447E4), p1 = w.Panel(heapown::kProcess), p2 = w.Panel(1);
+    w.SetParent(p1, root, heapown::kProcess);
+    w.SetParent(p2, root, 1);
+    std::map<uint32_t, uint32_t> app;  // offset -> value
+    app[0x1C] = p2, app[0x18] = p1, app[0x14] = p2, app[0x20] = 0, app[0x24] = root;
+    std::vector<std::pair<uint32_t, int>> exits;  // the panel whose exit ran, from whose code
+    auto set_focus = [&](uint32_t next) {
+        if (app[0x1C] == next) return;
+        uint32_t old = app[0x1C];
+        app[0x1C] = next, app[0x18] = old;
+        if (old) exits.push_back({old, w.b.At(old) ? w.b.At(old)->owner : -2});
+    };
+    auto leave = [&](int k, bool clear) {
+        w.Leave(p2, k);
+        if (clear)
+            for (const FocusField& f : kAppFocus) {
+                uint32_t v = app[f.offset];
+                const heapown::Block* b = v ? w.b.At(w.b.Holding(v)) : nullptr;
+                if (v && ClearFocus(w.R(v) != 0, b ? b->owner : heapown::Blocks::kNone, k)) app[f.offset] = 0;
+            }
+        w.b.Orphan(k);
+    };
+    {
+        auto saved = app;
+        leave(1, false);  // the run-14 build: the focus left on player 2's viewport
+        set_focus(p1);    // the next tick (player 1's turn)
+        Check(exits.size() == 1 && exits[0].first == p2 && w.b.At(p2)->left_by == 1,
+              "without the clear: the next tick calls the departed viewport's exit (a left-behind object's code)");
+        app = saved;
+    }
+    vgui::World w2;
+    w = w2;
+    root = w.Panel(heapown::kProcess, 0x3447E4), p1 = w.Panel(heapown::kProcess), p2 = w.Panel(1);
+    w.SetParent(p1, root, heapown::kProcess);
+    w.SetParent(p2, root, 1);
+    app.clear();
+    app[0x1C] = p2, app[0x18] = p1, app[0x14] = p2, app[0x24] = root;
+    exits.clear();
+    leave(1, true);
+    set_focus(p1);
+    Check(app[0x14] == 0 && app[0x1C] == p1 && app[0x18] == 0 && app[0x24] == root,
+          "with the clear: the key focus and mouse focus off player 2's panel; the process's root kept");
+    Check(exits.empty(), "the next tick calls no departed object's code (the old focus 0, as removeSurfaceBase leaves it)");
+
+    // links classified at a call's entry
+    Check(ClassifyLink(0, 0x909CC0, 0) == Link::New, "no parent, not listed: a new attachment");
+    Check(ClassifyLink(0x909CC0, 0x909CC0, 1) == Link::Reattach, "already its child: a re-attachment, no change");
+    Check(ClassifyLink(0x2000000, 0x909CC0, 0) == Link::Change, "from another parent: a parent change");
+    Check(ClassifyLink(0x909CC0, 0, 0) == Link::Detach && ClassifyLink(0, 0, 0) == Link::Nothing,
+          "setParent(0): a detachment (nothing when it had none)");
+    Check(ClassifyLink(0, 0x909CC0, 1) == Link::Duplicate && ClassifyLink(0x909CC0, 0x909CC0, 2) == Link::Duplicate,
+          "listed without being its child, or twice: a duplicate attempt");
+    Check(PartOfLink(0x10ACD0) && PartOfLink(0x10AD17) && PartOfLink(0x10AD99) && !PartOfLink(0x10ADC0),
+          "removeChild from setParent / addChild / insertChildAt: part of their link, not a detachment");
+    // run 14's pattern: player 1's turn re-adds the engine's child ~15 times a second: no structural change
+    uint64_t links[6] = {};
+    links[int(ClassifyLink(0, 0x909CC0, 0))]++;
+    for (int i = 0; i < 1600; i++) links[int(ClassifyLink(0x909CC0, 0x909CC0, 1))]++;
+    links[int(ClassifyLink(0, 0x909CC0, 0))]++;      // player 2's viewport
+    links[int(Link::Detach)]++;                       // its detach by the cleanup
+    Check(links[int(Link::New)] == 2 && links[int(Link::Reattach)] == 1600 && links[int(Link::Detach)] == 1 &&
+              links[int(Link::Change)] == 0 && links[int(Link::Duplicate)] == 0,
+          "1600 repeated adds are re-attachments; the structural count is 2 attachments and 1 detachment");
+}
+
+static void RetentionRules() {
+    // the roots' evidence
+    Check(EvidenceOf(RootKind::StaticWord, 0x384B74, 0) == Evidence::Verified, "App's mouse focus: a verified field");
+    Check(EvidenceOf(RootKind::StaticWord, 0x5622B0, 0) == Evidence::Verified, "the intern pool's search key: verified");
+    Check(EvidenceOf(RootKind::StaticWord, 0x62DCA4, 0) == Evidence::Unverified,
+          "run 14's third leave: a word of the 32 KB message buffer's bytes");
+    Check(EvidenceOf(RootKind::StaticWord, 0x5D1DC8, 0) == Evidence::Unverified,
+          "run 14's second leave: a word of the 64x64 texture's texels");
+    Check(EvidenceOf(RootKind::StaticWord, 0x540978, 0) == Evidence::Unclassified,
+          "run 14's first leave: a word of the 0x34-byte records at 0x53FD20 (not established either way)");
+    Check(EvidenceOf(RootKind::ProcessBlock, 0, 0x10829B) == Evidence::Unverified, "a whole file's bytes (0x108230)");
+    Check(EvidenceOf(RootKind::ProcessBlock, 0, 0x66943) == Evidence::Unclassified, "the model loader's block: unclassified");
+    Check(EvidenceOf(RootKind::SharedKind, 0, 0) == Evidence::Verified, "a shared kind: by its kind's rule");
+    Check(!StaticAreaOf(0x5D34C8) && StaticAreaOf(0x5D34C7) && !StaticAreaOf(0x635BD4) && StaticAreaOf(0x635BD3),
+          "the byte areas end where their buffers end (0x2000, 0x8000 bytes)");
+    Check(PersistentSiteOf(0x1F9BBE) && PersistentSiteOf(0x1F9EE6) && PersistentSiteOf(0x1BAF1A) &&
+              !PersistentSiteOf(0xB52DA) && !PersistentSiteOf(0),
+          "persistent by the original: the particle pool, its CMiniMem, a viewport; nothing else");
+    // categories: each block once
+    Check(Categorize(true, true, true) == Retained::Persistent && Categorize(false, false, true) == Retained::Unreferenced &&
+              Categorize(false, true, true) == Retained::Verified && Categorize(false, true, false) == Retained::Conservative,
+          "persistent first, then named by nobody, then verified reach, else conservative");
+    // reachability from verified roots, counted once: a verified root and an unverified one both reach a shared block
+    heapown::Blocks b;
+    std::map<uint32_t, uint32_t> mem;
+    auto rd = [&](uint32_t va) { auto it = mem.find(va); return it == mem.end() ? 0u : it->second; };
+    uint32_t vp = 0x2000000, child = 0x2001000, pool = 0x2100000, tail = 0x2002000, other = 0x2003000;
+    b.Allocated(vp, 0xA84, 1, 0x1BAF1A);
+    b.Allocated(child, 0x40, 1, 0x1B4DB1);
+    b.Allocated(pool, 637500, 1, 0x1F9BBE);
+    b.Allocated(tail, 0x10, 1, 0xB52DA);
+    b.Allocated(other, 0x10, 1, 0x1A6E0F);
+    b.Allocated(0x1000000, 0x800, heapown::kProcess, 0x10829B);  // a file buffer of the process's
+    mem[vp + 0x40] = child, mem[child + 4] = tail;
+    mem[0x384B74] = vp;                 // App's mouse focus (verified)
+    mem[0x62DCA4] = pool + 0x1234;      // message bytes naming the pool's inside (unverified, interior)
+    mem[0x1000000 + 0x7F0] = other;     // the file buffer's never written tail
+    mem[0x1000000 + 0x7F4] = child;     // and the same child a second time
+    auto plan = heapown::PlanRollback(
+        b, 1, [&](auto f) { for (auto& [a, v] : mem) if (a < 0x1000000) f(a, v); }, rd);
+    std::map<uint32_t, const heapown::RollbackItem*> by;
+    for (auto& r : plan.keep) by[r.va] = &r;
+    Check(plan.keep.size() == 5 && plan.release.empty(), "every one of its blocks named: all five kept");
+    Check(by.count(pool) && by[pool]->named_at == 0x62DCA4 && by[pool]->named_value == pool + 0x1234,
+          "the pool kept through the message buffer's word: an interior pointer (+0x1234) recorded");
+    Check(by.count(vp) && by[vp]->named_value == vp, "the viewport named directly");
+    auto reach = heapown::ReachableFrom(b, 1, {vp}, rd);
+    Check(reach.size() == 3 && reach.count(vp) && reach.count(child) && reach.count(tail) && !reach.count(pool),
+          "from App's focus alone: the viewport, its child and that child's buffer");
+    size_t total = 0, counted = 0;
+    size_t cat[5] = {};
+    b.ForEach([&](uint32_t va, const heapown::Block& x) {
+        if (x.owner != 1) return;
+        total++;
+        std::set<uint32_t> kept;
+        for (auto& r : plan.keep) kept.insert(r.va);
+        cat[int(Categorize(PersistentSiteOf(x.site) != nullptr, kept.count(va) > 0, reach.count(va) > 0))]++;
+    });
+    for (size_t c : cat) counted += c;
+    Check(counted == total && cat[int(Retained::Persistent)] == 2 && cat[int(Retained::Verified)] == 2 &&
+              cat[int(Retained::Conservative)] == 1,
+          "each block counted once: 2 persistent (viewport, pool), 2 verified (child, buffer), 1 conservative");
+    // the retention bound's projection (run 14: 929355, 929371, 929355 bytes)
+    LeakBudget lb;
+    Check(lb.Projected() == -1, "no leave yet: nothing to project");
+    for (size_t x : {929355u, 929371u, 929355u}) lb.Left(x);
+    Check(lb.left_behind == 2788081 && lb.Projected() == 6, "run 14: 2788081 bytes in 3 leaves: about 6 more leaves");
+    for (int i = 0; i < 6; i++) lb.Left(929360);
+    Check(lb.MayJoin() && lb.Projected() == 0, "nine leaves: still within 8 MiB, none more projected");
+    lb.Left(929360);
+    Check(!lb.MayJoin() && lb.Projected() == 0, "the tenth: past the bound, joins stop (the bound unchanged)");
+    Check(LeakBudget{}.limit == size_t(8) << 20, "the bound stays 8 MiB");
+}
+
+// the particle manager's pool (CMiniMem 0x1F9B90) modelled from its constructor: why its destructor is never called
+static void ParticlePool() {
+    heapown::Blocks b;
+    const uint32_t count = 0x7530 >> 4, elem = 320, pool = 0x2079010;
+    uint32_t size = count * (elem + 0x14);
+    Check(size == 637500, "30000 >> 4 entries of 320 + 0x14 bytes: run 14's 637500-byte block");
+    b.Allocated(pool, size, 1, 0x1F9BBE);
+    // each entry (16 bytes at the pool's start) keeps at +4 a place in the same block (0x1F9C10..0x1F9C25)
+    size_t interior = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t data = pool + (count << 4) + elem * i;
+        interior += b.Holding(data) == pool && data != pool;
+    }
+    Check(interior == count, "every entry's +4 is inside the pool, never a block start");
+    // the destructor 0x1F9D10 -> each entry's 0x1F9B30 frees its +4: 1875 frees of no block start
+    size_t not_start = 0;
+    for (uint32_t i = 0; i < count; i++) not_start += b.At(pool + (count << 4) + elem * i) == nullptr;
+    Check(not_start == count, "its destructor would free 1875 places inside a block: never called; the pool kept");
+    Check(PersistentSiteOf(0x1F9BBE) != nullptr, "reported as persistent by the original, not as a leak to reclaim");
+    // a fresh context's join: the singleton (0x552CE4, in each player's regions) 0, so a new pool on first use
+    std::map<int, uint32_t> singleton;  // per join
+    uint32_t next = 0x3000000;
+    for (int join = 0; join < 3; join++) {
+        if (!singleton[join]) {
+            b.Allocated(next, size, 1, 0x1F9BBE);
+            singleton[join] = next;
+            next += 0x100000;
+        }
+        b.Orphan(1);
+    }
+    size_t pools = 0;
+    b.ForEach([&](uint32_t, const heapown::Block& x) { pools += x.site == 0x1F9BBE && x.left_by == 1; });
+    Check(pools == 4, "each rejoin's fresh context makes its own pool: one more 637500-byte block each leave");
+}
+
+static void DestructorSteps() {
+    Check(AfterCall(false, Post::Keeps, true) == Step::Skipped, "not called (its contract refused): skipped");
+    Check(AfterCall(true, Post::Keeps, true) == Step::Returned, "0x1BAD90 returned, its object still allocated: returned");
+    Check(AfterCall(true, Post::Keeps, false) == Step::Failed, "0x1BAD90 returned, its object gone: failed");
+    Check(AfterCall(true, Post::Deletes, false) == Step::Returned, "a deleting destructor freed its object: returned");
+    Check(AfterCall(true, Post::Deletes, true) == Step::Failed, "a deleting destructor left its object: failed");
+    Check(AfterCall(true, Post::NotABlock, false) == Step::Returned, "a static slot's free: returned");
+    Check(std::string(Name(Step::NotConsidered)) != Name(Step::Skipped) &&
+              std::string(Name(Step::Returned)) != Name(Step::Failed),
+          "four distinct outcomes, each logged by its name");
+    const CleanupCall& d = Contract(CleanupFn::Destroy552CA8);
+    Check(d.fn == 0x1BAD90 && d.regs == kRegEsi && d.args == 0, "the contract unchanged: esi the object, no argument");
+    // the four outcomes over a modelled cleanup: no object; another's object; its own (returned); one it frees itself
+    heapown::Blocks b;
+    b.Allocated(0x2000000, 64, 1);
+    b.Allocated(0x2100000, 64, 0);
+    auto outcome = [&](uint32_t obj, bool frees_itself) {
+        if (!obj) return Step::NotConsidered;
+        const heapown::Block* x = b.At(obj);
+        if (ReleaseCheck(x != nullptr, x ? x->owner : -2, true, 1, false) != Release::Release) return Step::Skipped;
+        if (frees_itself) b.Freed(obj);
+        return AfterCall(true, Post::Keeps, b.At(obj) != nullptr);
+    };
+    Check(outcome(0, false) == Step::NotConsidered, "0x552CA8 empty: not considered");
+    Check(outcome(0x2100000, false) == Step::Skipped && b.At(0x2100000), "player 1's object: skipped, kept");
+    Check(outcome(0x2000000, false) == Step::Returned, "its own: invoked and returned (its free follows)");
+    Check(outcome(0x2000000, true) == Step::Failed, "an object the destructor itself freed: failed, not freed again");
+}
+
+static void GrowLeftBehind() {
+    Check(VectorGrowOwner(5, 4, true, heapown::kProcess, false, false, 1, true) == GrowAs::Acting,
+          "a vector in a block a departed player left behind: not grown as the process (the guard reports its free)");
+    Check(VectorGrowOwner(5, 4, true, heapown::kProcess, false, false, 1, false) == GrowAs::Process,
+          "the process's own block: as the process (unchanged)");
+    // three and four players over the root, its old buffer freed by its owner each time
+    for (int players = 3; players <= 4; players++) {
+        vgui::World f;
+        uint32_t r = f.Panel(heapown::kProcess, 0x3447E4);
+        f.SetParent(f.Panel(heapown::kProcess, 0x3447E4), r, heapown::kProcess);
+        f.SetParent(f.Panel(heapown::kProcess), r, heapown::kProcess);
+        for (int k = 1; k < players; k++) f.SetParent(f.Panel(k), r, k);
+        const heapown::Block* buf = f.b.At(f.R(r + kPanelChildren + 8));
+        Check(f.foreign == 0 && buf && buf->owner == heapown::kProcess &&
+                  f.process_grows == (players == 4 ? 1u : 0u),
+              players == 3 ? "three players: four children, no grow" : "four players: one grow, as the process");
+    }
+}
+
 int main() {
     Routing();
     Queues();
@@ -1148,6 +1385,11 @@ int main() {
     SharedParentRules();
     SharedParentCycles();
     Voice();
+    FocusAndLinks();
+    RetentionRules();
+    ParticlePool();
+    DestructorSteps();
+    GrowLeftBehind();
     std::printf("%d checks, %d failed\n", checks, failed);
     return failed ? 1 : 0;
 }

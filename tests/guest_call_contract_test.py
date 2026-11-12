@@ -236,8 +236,104 @@ def main():
     watch = body_of(src, 'void WatchSharedVectors()')
     check(all(f'0x{h:X}' in watch for h in heads), 'WatchSharedVectors watches each of them')
     vgui_checks(funcs, cl, r32, table, src, memo, regs)
+    retention_checks(funcs, cl, r32, src, regs)
     print(f'guest_call_contract_test: {checks} checks, {len(failures)} failed')
     return 1 if failures else 0
+
+
+def retention_checks(funcs, cl, r32, src, regs):
+    """docs 15.18: the facts the retention findings and the focus clear rest on, read from the original instructions"""
+    import native_split_turns_test as T
+
+    def at(fn, a):
+        return dict(funcs.get(fn, [])).get(a)
+
+    def seq(fn, pairs, what):
+        bad = [f'0x{a:X}: {at(fn, a)!r} != {t!r}' for a, t in pairs if at(fn, a) != t]
+        check(not bad, f'{what} ({"; ".join(bad)})')
+
+    hdr = open(os.path.join(ROOT, 'src', 'game', 'native_split_lifecycle.h')).read()
+    # the VGUI App: one static object, App's constructor stores it at 0x552740; its vtable
+    seq(0x23CBF0, [(0x23CC20, 'mov ecx, 0x384B58'), (0x23CC25, 'call 0x00109530'),
+                   (0x23CC2A, 'mov dword ptr [0x00384B58], 0x33A4A0')], 'the static App 0x384B58: built, its vtable')
+    seq(0x109530, [(0x109551, 'mov [0x00552740], edi'), (0x10955D, 'mov [edi+0x14], ebx'),
+                   (0x109560, 'mov [edi+0x18], ebx'), (0x109563, 'mov [edi+0x1C], ebx'), (0x109566, 'mov [edi+0x20], ebx'),
+                   (0x109569, 'mov [edi+0x24], ebx')], 'App\'s constructor: 0x552740 the instance; the five focus fields 0')
+    check(r32(0x33A4A0 + 0xC8) == 0x10A400 and r32(0x33A4A0 + 0xD0) == 0x109B20 and r32(0x33A4A0 + 0xD8) == 0x109EA0,
+          'App\'s vtable: setMouseFocus 0xC8, removeSurfaceBase 0xD0, its tick 0xD8')
+    seq(0x10A400, [(0x10A403, 'mov eax, [esi+0x1C]'), (0x10A40E, 'mov [esi+0x1C], ecx'), (0x10A415, 'mov [esi+0x18], eax'),
+                   (0x10A41C, 'call [eax+0x1D0]'), (0x10A42B, 'call [edx+0x1CC]')],
+          'setMouseFocus: the old focus kept at +0x18, its slot 0x1D0 called, the new one\'s 0x1CC')
+    seq(0x109B20, [(0x109B33, 'mov [esi+0x1C], eax'), (0x109B36, 'mov [esi+0x20], eax'), (0x109B39, 'mov [esi+0x14], eax')],
+          'removeSurfaceBase: the mouse focus, capture and key focus zeroed directly (nothing called)')
+    seq(0x109EA0, [(0x109F63, 'push 0x00'), (0x109F67, 'call [edx+0xC8]'), (0x109F7C, 'mov eax, [esi+0x1D0]'),
+                   (0x109FA3, 'call [edx]')], 'App\'s tick: the mouse focus set each tick; every tick signal called')
+    check(not T.in_regions(0x384B74, regs) and not T.in_regions(0x552740, regs), 'App and its instance are the process\'s')
+    check(not [x for fn, ins in funcs.items() for a, x in ins if re.search(r'0x00384B(6C|7[0-9A-F])\b', x)],
+          'no instruction names App\'s focus fields directly (only through App)')
+    check('kApp = 0x384B58, kAppInstance = 0x552740, kAppVtable = 0x33A4A0' in hdr and 'kAppTickSignals = 0x1D0' in hdr,
+          'the header\'s App constants')
+    cf = body_of(src, 'void ClearAppFocus(int k)')
+    check('nsplit::kAppInstance) != nsplit::kApp' in cf and 'nsplit::kAppVtable' in cf and 'W32(va, 0)' in cf and
+          'CallCleanup' not in cf and 'CallGuest' not in cf,
+          'ClearAppFocus: only the known App, a store of 0, nothing of the title called')
+    rp = body_of(src, 'void RemovePlayer(X86Context& ctx, int k)')
+    check(rp.index('DetachViewport(ctx, k, p.context)') < rp.index('ClearAppFocus(k)') < rp.index('NamedElsewhere('),
+          'the focus cleared after the detach and before the reference plan')
+    # removeChild's callers inside the links (nsplit::kLinkRemoveReturns)
+    for fn, call, ret in ((0x10ACC0, 0x10ACCD, 0x10ACD0), (0x10AD00, 0x10AD14, 0x10AD17), (0x10AD60, 0x10AD96, 0x10AD99)):
+        names = [a for a, _ in funcs.get(fn, [])]
+        nxt = names[names.index(call) + 1] if call in names else None
+        check(at(fn, call) == 'call [eax+0x4C]' and nxt == ret, f'0x{fn:X}: removeChild at 0x{call:X}, returning to 0x{ret:X}')
+        check(f'0x{ret:X}' in hdr, f'the header knows 0x{ret:X}')
+    check(T.hooks().get(0x10ADC0, (None,))[0] == 'NativeSplitPanelRemoveChild', 'removeChild hooked (count only)')
+    # the particle manager's pool: its singleton per player, its size, its entries' interior pointers, its destructor
+    seq(0x1F9EC0, [(0x1F9ED6, 'mov eax, [0x00552CE4]'), (0x1F9EDF, 'push 0x10'), (0x1F9EE1, 'call 0x0022D86A'),
+                   (0x1F9EFF, 'mov eax, 0x7530'), (0x1F9F04, 'call 0x001F9B90'), (0x1F9F09, 'mov [0x00552CE4], eax')],
+          'CMiniMem::Instance: made on first use (16 bytes, site 0x1F9EE6), 30000 entries, kept at 0x552CE4')
+    check(all(T.in_regions(v, regs) for v in (0x552CE0, 0x552CE4, 0x5517F8, 0x5517FC, 0x551804, 0x5BD8C4, 0x5BD8CC)),
+          'the pool\'s singleton and globals are in each player\'s regions (a pool per player)')
+    seq(0x1F9B90, [(0x1F9B9E, 'shr eax, 0x04'), (0x1F9BA1, 'add ecx, 0x14'), (0x1F9BA4, 'imul ecx, eax'),
+                   (0x1F9BB9, 'call 0x0022D86A'), (0x1F9BBE, 'mov ebp, eax'), (0x1F9BDC, 'mov [0x005517FC], ebp')],
+          'the pool: (count >> 4) * (size + 0x14) bytes from site 0x1F9BBE')
+    seq(0x1F9B90, [(0x1F9C12, 'shl edi, 0x04'), (0x1F9C15, 'add edx, ebp'), (0x1F9C17, 'add edi, edx'),
+                   (0x1F9C25, 'mov [esi+0x04], edi')], 'each entry\'s +4: a place inside the pool (ebp + its offset)')
+    seq(0x1F9B30, [(0x1F9B33, 'mov eax, [esi+0x04]'), (0x1F9B40, 'push eax'), (0x1F9B41, 'call 0x0022C609')],
+          'the entry\'s destructor frees its +4')
+    seq(0x1F9D10, [(0x1F9D85, 'mov edx, [esi+eax*1]'), (0x1F9D8B, 'push ebx'), (0x1F9D8C, 'call [edx]'),
+                   (0x1F9DCB, 'push eax'), (0x1F9DCC, 'call 0x0022C609')],
+          'the pool\'s destructor runs each entry\'s destructor, then frees the pool: interior frees')
+    check(r32(0x365850) == 0x1F9B30 and r32(0x365854) == 0x1F9CE0, 'the entries\' and CMiniMem\'s vtables')
+    check(set(f for f, _ in cl.get(0x1F9D10, ())) == {0x1F9CE0} and not cl.get(0x1F9CE0),
+          'the pool\'s destructor only through CMiniMem\'s deleting destructor, which nothing calls directly')
+    readers = {fn for fn, ins in funcs.items() for _, x in ins if '0x00552CE4' in x}
+    check(readers == {0x1F9EC0}, f'only Instance names the singleton: never deleted ({sorted(map(hex, readers))})')
+    check(637500 % (0x7530 >> 4) == 0 and 637500 // (0x7530 >> 4) - 0x14 == 320, 'run 14\'s 637500: 1875 x (320 + 0x14)')
+    # the byte areas and the file buffer
+    seq(0x9FEF0, [(0xA0395, 'mov dword ptr [0x0062DBC8], 0x62DBD4'), (0xA039F, 'mov dword ptr [0x0062DBCC], 0x8000')],
+          'the sizebuf 0x62DBC8: data 0x62DBD4, 0x8000 bytes')
+    seq(0xBEB70, [(0xBED78, 'mov ecx, 0x5D14C8'), (0xBED96, 'add ecx, 0x02'), (0xBEDA0, 'cmp eax, 0x40'),
+                  (0xBEDA6, 'cmp edi, 0x40'), (0xBEDE5, 'push 0x5D14C8')], 'the 64x64 16-bit texels at 0x5D14C8')
+    named = {fn for fn, ins in funcs.items() for _, x in ins
+             if any(0x5D14C8 <= int(m, 16) < 0x5D34C8 for m in re.findall(r'0x([0-9A-F]{6,8})\b', x))}
+    check(named <= {0xBEB70, 0xBEBBA, 0xBED8A}, f'no other code names the texel area ({sorted(map(hex, named))})')
+    seq(0x108230, [(0x108289, 'lea edi, [eax+0x7FF]'), (0x10828F, 'shr edi, 0x0B'), (0x108292, 'shl edi, 0x0B'),
+                   (0x108296, 'call 0x0022D86A'), (0x10829B, 'mov ebx, eax')],
+          'the file read 0x108230: its size rounded up to 2 KB, malloc returning to 0x10829B')
+    # the persistent sites are the allocating calls' return addresses
+    for fn, call, ret in ((0x1F9B90, 0x1F9BB9, 0x1F9BBE), (0x1F9EC0, 0x1F9EE1, 0x1F9EE6), (0x1BAE90, 0x1BAF15, 0x1BAF1A)):
+        names = [a for a, _ in funcs.get(fn, [])]
+        nxt = names[names.index(call) + 1] if call in names else None
+        check(at(fn, call) == 'call 0x0022D86A' and nxt == ret, f'persistent site 0x{ret:X}: malloc at 0x{call:X}')
+        check(f'{{0x{ret:X}, "' in hdr, f'the header lists 0x{ret:X} as persistent')
+    # the source: destructor outcomes logged, the free counted, the grow's left-behind case
+    rd = body_of(src, 'bool RunDestructor(X86Context& ctx')
+    check(all(t in rd for t in ('Step::NotConsidered', 'Step::Skipped', 'AfterCall(', 'CallCleanup(ctx, id, obj, args, k)',
+                                '[own:cleanup-failed]')), 'RunDestructor logs every outcome and calls only through CallCleanup')
+    check('RunDestructor(ctx, k, nsplit::CleanupFn::Destroy552CA8' in rp and 'nsplit::Post::Keeps' in rp,
+          '0x1BAD90 run through RunDestructor (its object left allocated, then freed)')
+    vg = body_of(src, 'bool NativeSplitVectorGrow(X86Context& ctx')
+    check('hb->left_by >= 0' in vg, 'the grow: a left-behind header not grown as the process')
 
 
 def vgui_checks(funcs, cl, r32, table, src, memo, regs):
