@@ -62,6 +62,7 @@ class Blocks {
 public:
     void Allocated(uint32_t va, uint32_t size, int owner, uint32_t site = 0, Kind kind = Kind::Owned) {
         if (!va) return;
+        if (auto it = blocks_.find(va); it != blocks_.end()) Unleft(it->second);  // the heap reused it: freed unseen
         blocks_[va] = {size ? size : 1, owner, ++serial_, site, kind};
         freed_.erase(va);
     }
@@ -71,6 +72,7 @@ public:
         auto it = blocks_.find(va);
         if (it == blocks_.end()) return kNone;
         int owner = it->second.owner;
+        Unleft(it->second);
         blocks_.erase(it);
         freed_.insert(va);
         return owner;
@@ -117,10 +119,13 @@ public:
             return false;
         }
         Block b = it->second;
+        Unleft(b);
         blocks_.erase(it);
         if (old_va != new_va) freed_.insert(old_va);
         freed_.erase(new_va);
+        if (auto at = blocks_.find(new_va); at != blocks_.end()) Unleft(at->second);
         b.size = size ? size : 1;
+        if (b.left_by >= 0) left_n_++, left_bytes_ += b.size;  // still a leaving player's, at its new size
         b.serial = ++serial_;
         blocks_[new_va] = b;
         return true;
@@ -134,15 +139,28 @@ public:
                 n++;
                 bytes += b.size;
                 b.owner = kProcess;
+                if (b.left_by < 0) left_n_++, left_bytes_ += b.size;
                 b.left_by = owner;
             }
         return {n, bytes};
     }
+    // docs 15.20: the blocks leaving players left behind that are still allocated (Orphan's, less what the game freed
+    // or moved since): kept as they change, so reading it costs nothing. An upper bound of what they still hold: a
+    // record goes only at a free the hooks saw (or the heap giving its address out again, which it cannot while the
+    // block is live); a free the hooks did not see leaves the record, counted still
+    size_t LeftBehindCount() const { return left_n_; }
+    size_t LeftBehindBytes() const { return left_bytes_; }
 
 private:
+    void Unleft(const Block& b) {
+        if (b.left_by < 0) return;
+        left_n_--;
+        left_bytes_ -= b.size;
+    }
     std::map<uint32_t, Block> blocks_;
     std::set<uint32_t> freed_;  // known blocks' starts freed since and not allocated again
     uint64_t serial_ = 0;
+    size_t left_n_ = 0, left_bytes_ = 0;
 };
 
 // a free by player `freeing` (kProcess: outside the players' turns) of a block owned by `owner`: a problem when a

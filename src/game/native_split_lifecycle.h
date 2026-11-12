@@ -353,20 +353,37 @@ std::vector<ChildFinding> StaleChildren(uint32_t parent, const heapown::Blocks& 
 // (each join and leave would otherwise add its residue without end)
 struct LeakBudget {
     size_t limit = size_t(8) << 20;  // bytes
-    size_t left_behind = 0;
+    size_t left_behind = 0;          // historical: everything the leaves left, summed at each leave
+    size_t outstanding = 0;          // docs 15.20: of that, still allocated now (heap_owner.h LeftBehindBytes)
     int leaves = 0;
-    void Left(size_t bytes) {
+    // a leave that left `bytes`; `now`: the blocks every leave left still allocated after it (the heap's count)
+    void Left(size_t bytes, size_t now) {
         left_behind += bytes;
         leaves++;
+        outstanding = now;
     }
-    bool MayJoin() const { return left_behind <= limit; }
-    // how many more leaves at the average so far keep joins open (left_behind stays within the limit): a projection
-    // from the leaves so far, not a guaranteed outcome; -1 with nothing to average yet
+    // without a heap to ask (the simulations): nothing left is ever freed again
+    void Left(size_t bytes) { Left(bytes, outstanding + bytes); }
+    // a failed initialisation's leftovers (not a leave: no player had joined): in the history and the count too
+    void Abandoned(size_t bytes, size_t now) {
+        left_behind += bytes;
+        outstanding = now;
+    }
+    // the heap's count between leaves (the game freeing what a leave left)
+    void Observe(size_t now) { outstanding = now; }
+    // the bound is on what leaving players still hold (docs 15.20); never on less than the heap's own count
+    bool MayJoin() const { return outstanding <= limit; }
+    // the outstanding count above the historical sum: the two disagree (an accounting fault): reported
+    bool Consistent() const { return outstanding <= left_behind; }
+    // released by the game since (the historical sum less what is outstanding)
+    size_t ReleasedSince() const { return Consistent() ? left_behind - outstanding : 0; }
+    // how many more leaves at the average still held so far keep joins open (outstanding stays within the limit): a
+    // projection from the leaves so far, not a guaranteed outcome; -1 with nothing to average yet
     long Projected() const {
-        if (!leaves || !left_behind) return -1;
-        if (left_behind > limit) return 0;
-        size_t avg = left_behind / size_t(leaves);
-        return avg ? long((limit - left_behind) / avg) : -1;
+        if (!leaves || !outstanding) return -1;
+        if (outstanding > limit) return 0;
+        size_t avg = outstanding / size_t(leaves);
+        return avg ? long((limit - outstanding) / avg) : -1;
     }
 };
 

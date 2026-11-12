@@ -301,6 +301,13 @@ def retention_checks(funcs, cl, r32, src, regs):
     check('g_track.Removed(parent, child, R32(ctx.esp))' in rmc and rmc.index('g_cleanup_detaching') <
           rmc.index('g_track.Removed'), 'removeChild: the cleanup\'s detach counted at once, another pending')
     fe = body_of(src, 'void NativeSplitFrameEnd(X86Context& ctx)')
+    # docs 15.20: the bound on what leaving players still hold, read from the heap's count just before the add gate
+    check(0 <= fe.find('g_leaks.Observe(g_blocks.LeftBehindBytes())') < fe.find('g_leaks.MayJoin()') and
+          fe.find('!g_add_failed && g_leaks.MayJoin()') >= 0, 'the add gate: the heap\'s count observed first, the latch kept')
+    rp2 = body_of(src, 'void RemovePlayer(X86Context& ctx, int k)')
+    check(rp2.find('g_blocks.Orphan(k)') < rp2.find('g_leaks.Left(leaked_bytes, g_blocks.LeftBehindBytes())') <
+          rp2.find('!g_leaks.MayJoin() && !g_add_failed'), 'a leave: orphaned, counted, then the latch')
+    check('size_t limit = size_t(8) << 20;' in hdr, 'the bound stays 8 MiB')
     check(fe.find('SettleLinks();') >= 0 and fe.find('SettleLinks();') < fe.find('RemovePlayer('),
           'the frame\'s end settles the pending removals before any removal of a player')
     # the particle manager's pool: its singleton per player, its size, its entries' interior pointers, its destructor

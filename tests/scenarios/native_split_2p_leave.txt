@@ -44,7 +44,7 @@ expect nolog native split: .* frees block 0x[0-9A-F]+ a second time
 expect nolog native split: the cleanup does not call
 expect nolog client context guard: the server frame wrote
 expect nolog native split: player [0-9].s initialisation (changed protected start-up state|broke the string-intern pool)
-expect nolog native split: leaving players have left
+expect nolog native split: leaving players (have left|still hold)
 expect nolog native split: player [0-9].s initialisation (failed|was cut short)
 expect nolog native split: the world \(spawn count [0-9]+, model 0x[0-9A-F]+\) built by R_NewMap in player 2's
 expect nolog local server: starting

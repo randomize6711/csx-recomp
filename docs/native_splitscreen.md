@@ -1884,3 +1884,51 @@ Unproven until a run: that player 1's departure is clean at runtime at all (nati
 that its client reconnects in place and reaches state 5, that the server gives it a slot, that its second signon is
 "its own part only", that its own delta slot decodes as the shared one did.
 
+### 15.20 The VGUI hierarchy's temporary removals; retention counted as it is still held (2026-11-12; static only, not run)
+
+**Temporary removals.** The fifteenth run counted 1,686 attachments and 1,669 detachments of the process's panels:
+0x909E50, a child of the root 0x909CC0, taken off and appended again about fifteen times a second. 0x108BB0 does it
+(a move to the end of the children, i.e. to the front): its parent fetched through its own slot 0, then removeChild of
+[esi+0x1C] through the parent's slot 0x4C (0x108BC2, returning to 0x108BC5), the parent fetched again, then addChild of
+the same [esi+0x1C] through slot 0x44 (0x108BD3, returning to 0x108BD6). This is the title's own behaviour, left
+exactly as it is. The counts now tell it apart (native_split_lifecycle.h LinkTracker): a standalone removal from a
+process panel (removeChild not inside setParent / addChild / insertChildAt, or setParent(0)) is pending until the
+frame's end. The same child attached to the same parent before then completes a temporary remove / re-add (Link::Cycle:
+counted, not logged; those from 0x108BC5 then 0x108BD6 counted again as 0x108BB0's moves to the front); attached to
+another parent, a parent change; still pending at the frame's end (SettleLinks, at the start of NativeSplitFrameEnd,
+before any player is removed), a permanent detachment, logged when a player's panel. The cleanup's own detach is
+permanent at once and counted apart. The summary line now reads: new attachments, permanent detachments (by the
+cleanup), temporary cycles (by 0x108BB0), re-attachments (no-op assignments), parent changes, duplicate attempts, the
+process-wide vectors grown as the process. Nothing is suppressed: duplicates, stale children and failed detaches are
+reported as before; a cycle never touches the ownership checks (the hooks only count).
+
+**Retention, historical and outstanding.** The fifteenth run's bound summed what each leave left (929,355 bytes a
+leave), while the game freed some of it afterwards (17,703 bytes of the first leave's by the second leave, 35,406 by the
+third). heap_owner.h Blocks now keeps the blocks leaving players left that are still allocated (LeftBehindCount /
+LeftBehindBytes), updated as they change: Orphan adds a block once; a free the hooks see removes it; realloc keeps it
+at its new size (a failed realloc changes nothing); the heap giving a held block's address out again (an allocation or
+a move onto it) means it was freed unseen, so it is removed. A record only ever goes at a real free (the free hook
+records Freed only after every refusal returned), and a free the hooks miss leaves the record: the count is never
+less than what is really still allocated of what the hooks saw, so the bound on it is not weaker than the bound on
+the real memory. LeakBudget now has both: `left_behind` (the history, summed at each leave, and a failed
+initialisation's leftovers via Abandoned) and `outstanding` (the heap's count after each leave and before each frame's
+add gate, Observe). MayJoin is `outstanding <= 8 MiB` (the limit unchanged); the latch is unchanged (a leave past the
+bound stops joins for the session); `Consistent()` (outstanding never above the history) is checked and reported
+once (`[watch:leak-accounting]`), the gate using the heap's count, the larger. The projection averages what is held.
+Each block is in at most one record, so counted once.
+
+Expected effect on the fifteenth run's figures: after three leaves 2,752,659 bytes held of 2,788,065 left (the
+projection about 6 more leaves either way): the change makes the bound accurate, not looser in practice.
+
+**Tests.** native_split_lifecycle_test LinkCycles (0x108BB0's pair a cycle; a same-parent re-add a cycle; another
+parent a change; no pending removal: the base class; settled once; run 15's pattern: 300 frames give 300 cycles, no
+attachments, one permanent detachment), LiveRetention (orphan, free, double free, grow, shrink, reuse of an address,
+a move onto a held address, a failed realloc; the budget's history, count, release, consistency, projection, the
+latch's input, a failed initialisation, the simulations' one-argument Left; the 8 MiB limit); guest_call_contract_test
+(0x108BB0's instructions and the header's return addresses; removeChild: the cleanup's detach counted at once, others
+pending; the frame's end settles before removing; the add gate observes the heap's count first; a leave orphans,
+counts, then latches; the limit). The scenarios' "leaving players have left" failure line now also matches the new
+wording ("leaving players still hold").
+
+Unproven until a run: the cycle counts against the game (that 0x108BB0 is the only source of run 15's churn), the
+outstanding figures.

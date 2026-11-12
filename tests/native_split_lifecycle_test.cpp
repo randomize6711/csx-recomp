@@ -434,6 +434,64 @@ static void LinkCycles() {
     Check(std::string(Name(Link::Cycle)).find("temporary") != std::string::npos && kLinks == 7, "the cycle's name, 7 kinds");
 }
 
+// docs 15.20: what leaving players still hold, kept by the heap's map as blocks are freed, moved or reused, and the
+// bound on it
+static void LiveRetention() {
+    heapown::Blocks b;
+    b.Allocated(0x1000, 100, 1, 0x1F9BBE);
+    b.Allocated(0x2000, 200, 1, 0x1CFD0);
+    b.Allocated(0x3000, 300, 1, 0x1CFD0);
+    b.Allocated(0x4000, 400, 0, 0x1CFD0);  // player 1's: never left behind
+    Check(b.LeftBehindBytes() == 0 && b.LeftBehindCount() == 0, "nothing left behind before a leave");
+    auto [n, bytes] = b.Orphan(1);
+    Check(n == 3 && bytes == 600 && b.LeftBehindBytes() == 600 && b.LeftBehindCount() == 3, "a leave: 600 bytes held");
+    b.Orphan(1);
+    Check(b.LeftBehindBytes() == 600, "orphaned again: counted once");
+    b.Freed(0x2000);
+    Check(b.LeftBehindBytes() == 400 && b.LeftBehindCount() == 2, "the game frees one: 400 held");
+    b.Freed(0x2000);
+    Check(b.LeftBehindBytes() == 400, "a second free of it: nothing more");
+    b.Moved(0x3000, 0x5000, 500, -1);
+    Check(b.LeftBehindBytes() == 600 && b.At(0x5000) && b.At(0x5000)->left_by == 1, "moved and grown: held at its size");
+    b.Moved(0x5000, 0x5000, 50, -1);
+    Check(b.LeftBehindBytes() == 150, "shrunk in place: held at its size");
+    b.Allocated(0x5000, 70, -1, 0x22);  // the heap gave its address out again: it was freed unseen
+    Check(b.LeftBehindBytes() == 100 && b.LeftBehindCount() == 1, "its address reused: it was freed, no longer held");
+    b.Moved(0x6000, 0x1000, 10, -1);  // an unknown block moved onto a held one's address: that one was freed unseen
+    Check(b.LeftBehindBytes() == 0, "a move onto a held block's address: freed, no longer held");
+    b.Allocated(0x7000, 80, 2);
+    b.Orphan(2);
+    b.Moved(0x7000, 0, 90, 2);
+    Check(b.LeftBehindBytes() == 80, "a failed realloc: the old block still held");
+
+    LeakBudget lb;
+    lb.Left(929355, 929355);
+    lb.Observe(929355 - 17703);
+    lb.Left(929355, 2 * 929355 - 17703);
+    Check(lb.left_behind == 1858710 && lb.outstanding == 1841007 && lb.ReleasedSince() == 17703 && lb.Consistent(),
+          "run 15's leaves: 1,858,710 left in all, 17,703 freed by the game since, 1,841,007 held");
+    Check(lb.MayJoin() && lb.Projected() == long((lb.limit - lb.outstanding) / (lb.outstanding / 2)),
+          "the projection from what is held");
+    LeakBudget over;
+    over.Left(9u << 20, 9u << 20);
+    Check(!over.MayJoin() && over.Projected() == 0, "held over the bound: no join");
+    over.Observe(1u << 20);
+    Check(over.MayJoin(), "the game freed most of it: joins open (the session's latch is the caller's)");
+    LeakBudget bad;
+    bad.Left(100, 500);
+    Check(!bad.Consistent() && bad.ReleasedSince() == 0 && bad.outstanding == 500,
+          "the heap's count above the history: inconsistent, the gate on the larger");
+    LeakBudget ab;
+    ab.Abandoned(300, 300);
+    Check(ab.leaves == 0 && ab.left_behind == 300 && ab.outstanding == 300 && ab.Consistent(),
+          "a failed initialisation's leftovers: in both, not a leave");
+    LeakBudget sim;
+    sim.Left(1000);
+    sim.Left(2000);
+    Check(sim.outstanding == 3000 && sim.left_behind == 3000, "without a heap: nothing ever freed again");
+    Check(LeakBudget{}.limit == size_t(8) << 20, "the bound stays 8 MiB");
+}
+
 static void Sessions() {
     {  // player 2 leaves while player 1 plays
         SessionSim s;
@@ -1548,6 +1606,7 @@ static void GrowLeftBehind() {
 int main() {
     Player1Rejoin();
     LinkCycles();
+    LiveRetention();
     Routing();
     Queues();
     OnceAndPerPlayer();

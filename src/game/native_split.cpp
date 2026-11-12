@@ -464,6 +464,7 @@ void AddPlayer(X86Context& ctx, int k) {
             g_players.InitFailed(k);
             g_add_failed = true;
             auto [n, bytes] = g_blocks.Orphan(k);
+            g_leaks.Abandoned(bytes, g_blocks.LeftBehindBytes());
             LOGE("native split: player %d's initialisation was cut short (a longjmp through its steps): not added, its "
                  "context removed; %zu of its objects (%zu bytes) left behind", k + 1, n, bytes);
         }
@@ -623,6 +624,7 @@ void AddPlayer(X86Context& ctx, int k) {
         g_add_failed = true;
         size_t released = Rollback(ctx, k);
         auto [n, bytes] = g_blocks.Orphan(k);
+        g_leaks.Abandoned(bytes, g_blocks.LeftBehindBytes());
         LOGE("native split: player %d's initialisation failed its checks (%zu inherited, %zu missing, %zu not its own, "
              "%zu start-up links lacking, %zu protected changes): not added; %zu of its objects released, %zu (%zu "
              "bytes) left behind",
@@ -893,11 +895,12 @@ void Report() {
              (unsigned long long)g_cmd_dropped);
     }
     LOGI("native split: the lifecycle: %llu frames cut short in a player's turn, %llu server shutdowns refused in a "
-         "player's turn, %llu departures of player 1, %d leaves (%zu bytes left behind, the bound %zu); the voice channels "
+         "player's turn, %llu departures of player 1, %d leaves (%zu bytes left behind in all, %zu still allocated, the "
+         "bound %zu on those); the voice channels "
          "run as the process %llu times, withheld in another context's turn %llu; cleanup frees of a named block kept %llu; "
          "IN_Init's stores to the shared pad bridge skipped in another player's initialisation %llu",
          (unsigned long long)g_aborts, (unsigned long long)g_refused_shutdowns, (unsigned long long)g_departures,
-         g_leaks.leaves, g_leaks.left_behind, g_leaks.limit, (unsigned long long)g_voice_shared,
+         g_leaks.leaves, g_leaks.left_behind, g_leaks.outstanding, g_leaks.limit, (unsigned long long)g_voice_shared,
          (unsigned long long)g_voice_withheld, (unsigned long long)g_release_kept,
          (unsigned long long)g_pad_stores_kept);
     LOGI("native split: player 1: %s; departures %llu (its server slot dropped by the cleanup %llu: its own "
@@ -1250,6 +1253,17 @@ bool RunDestructor(X86Context& ctx, int k, nsplit::CleanupFn id, uint32_t holder
     return st == nsplit::Step::Returned;
 }
 
+// docs 15.20: the heap's count of what leaving players left that is still allocated can never be more than what they
+// left; if it is, the two disagree (an accounting fault): reported once, and the gate still uses the heap's count (the
+// larger)
+void CheckLeakAccounting() {
+    static bool told = false;
+    if (g_leaks.Consistent() || told) return;
+    told = true;
+    LOGW("native split: the retention accounting disagrees: %zu bytes still allocated of %zu left behind (the bound uses "
+         "the larger) [watch:leak-accounting]", g_leaks.outstanding, g_leaks.left_behind);
+}
+
 void RemovePlayer(X86Context& ctx, int k) {
     const nsplit::Player p = g_players.At(k);
     if (!g_players.Leave(k)) return;
@@ -1416,19 +1430,23 @@ void RemovePlayer(X86Context& ctx, int k) {
     g_watch[k] = {};
     g_departing.Clear(k);  // the slot empty: a later join there is a fresh player, its client the title's own again
     if (size_t n = g_cmds.Drop(k)) g_cmd_dropped += n;  // nothing of it survives its removal
-    g_leaks.Left(leaked_bytes);
+    g_leaks.Left(leaked_bytes, g_blocks.LeftBehindBytes());
     LOGI("native split: player %d left: its server slot dropped, %zu of its objects released, %zu left (%zu bytes), its "
-         "context removed; left behind by leaving players so far %zu bytes in %d leave(s)",
-         k + 1, released, leaked, leaked_bytes, g_leaks.left_behind, g_leaks.leaves);
+         "context removed; left behind by leaving players so far %zu bytes in %d leave(s), %zu of them (%zu blocks) "
+         "still allocated, %zu released by the game since",
+         k + 1, released, leaked, leaked_bytes, g_leaks.left_behind, g_leaks.leaves, g_leaks.outstanding,
+         g_blocks.LeftBehindCount(), g_leaks.ReleasedSince());
+    CheckLeakAccounting();
     if (long more = g_leaks.Projected(); more >= 0)
-        LOGI("native split: the retention bound: %zu of %zu bytes left behind after %d leave(s), %zu a leave on average: "
-             "about %ld more leave(s) before it stops joins (a projection from the leaves so far, not a guaranteed "
-             "outcome)", g_leaks.left_behind, g_leaks.limit, g_leaks.leaves, g_leaks.left_behind / size_t(g_leaks.leaves),
-             more);
+        LOGI("native split: the retention bound: %zu of %zu bytes still held by leaving players after %d leave(s) (%zu "
+             "left in all), %zu a leave on average: about %ld more leave(s) before it stops joins (a projection from "
+             "the leaves so far, not a guaranteed outcome)",
+             g_leaks.outstanding, g_leaks.limit, g_leaks.leaves, g_leaks.left_behind,
+             g_leaks.outstanding / size_t(g_leaks.leaves), more);
     if (!g_leaks.MayJoin() && !g_add_failed) {
         g_add_failed = true;
-        LOGE("native split: leaving players have left %zu bytes behind (the bound %zu): no player joins again this "
-             "session", g_leaks.left_behind, g_leaks.limit);
+        LOGE("native split: leaving players still hold %zu bytes (the bound %zu; %zu left in all): no player joins again "
+             "this session", g_leaks.outstanding, g_leaks.limit, g_leaks.left_behind);
     }
     // player 1 departed and nobody plays any more: the session ends between frames (as the process)
     if (g_players.At(0).state == nsplit::State::Departed && g_players.Playing() == 0) g_end_session = true;
@@ -1647,7 +1665,10 @@ void NativeSplitFrameEnd(X86Context& ctx) {
                  "%u)", k + 1, SlotOf(cl), cl ? R32(cl + 0x4BA4) : 0, PlayerDword(k, kClPlayernum), R32(kClPlayernum));
         }
     }
-    // player 1 in its match with the built-in server: the others added, one a frame
+    // player 1 in its match with the built-in server: the others added, one a frame; the bound on what leaving players
+    // still hold (docs 15.20), read from the heap's count now
+    g_leaks.Observe(g_blocks.LeftBehindBytes());
+    CheckLeakAccounting();
     if (!g_add_failed && g_leaks.MayJoin() && nsplit::MayAddPlayers(g_timer_once) && R32(kSvActive) &&
         int(R32(kClsState)) == kClsActive && g_players.Count() < Wanted() && g_players.Initialising() < 0) {
         if (int k = g_players.FreeSlot(); k > 0) AddPlayer(ctx, k);

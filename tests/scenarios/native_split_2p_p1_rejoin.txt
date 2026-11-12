@@ -58,7 +58,7 @@ expect nolog native split: the cleanup does not call
 expect nolog client context guard: the server frame wrote
 expect nolog native split: player [0-9].s initialisation (changed protected start-up state|broke the string-intern pool)
 expect nolog native split: player [0-9].s initialisation (failed|was cut short)
-expect nolog native split: leaving players have left
+expect nolog native split: leaving players (have left|still hold)
 # the world built once (player 1's first connect); its rejoins do their own part only (docs 15.19)
 expect log native split: player 1's R_NewMap: the world \(spawn count [0-9]+\) is built; its own part only
 expect nolog native split: the renderer's world \(R_NewMap\): built [2-9]
