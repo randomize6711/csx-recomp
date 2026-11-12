@@ -356,6 +356,203 @@ struct LeakBudget {
         leaves++;
     }
     bool MayJoin() const { return left_behind <= limit; }
+    // how many more leaves at the average so far keep joins open (left_behind stays within the limit): a projection
+    // from the leaves so far, not a guaranteed outcome; -1 with nothing to average yet
+    long Projected() const {
+        if (!leaves || !left_behind) return -1;
+        if (left_behind > limit) return 0;
+        size_t avg = left_behind / size_t(leaves);
+        return avg ? long((limit - left_behind) / avg) : -1;
+    }
 };
+
+// ---- retention, focus and the cleanup's destructors (docs 15.18) ---------------------------------------------------
+
+// The VGUI App (one static object of the process: 0x384B58, built by the static initialiser 0x23CBF0 with App's
+// constructor 0x109530, which stores it at 0x552740; vtable 0x33A4A0). Its focus fields hold panels: +0x14 the key
+// focus, +0x18 the previous mouse focus, +0x1C the mouse focus, +0x20 the mouse capture, +0x24 the wanted key focus.
+// App's tick (0x109EA0, slot 0xD8) sets the mouse focus each tick to the panel under the cursor (0x109B40 ->
+// setMouseFocus 0x10A400, which calls the old focus's slot 0x1D0 and the new one's slot 0x1CC); removeSurfaceBase
+// (0x109B20) zeroes +0x1C, +0x20 and +0x14 directly, the constructor zeroes all five. A leaving player's panel left
+// there (run 14: its viewport at +0x1C, 0x384B74) would have that player's code called at the next tick, in whatever
+// context runs it: cleared to 0 as the title's own removal does, without calling it.
+constexpr uint32_t kApp = 0x384B58, kAppInstance = 0x552740, kAppVtable = 0x33A4A0;
+struct FocusField {
+    uint32_t offset;
+    const char* name;
+};
+inline constexpr FocusField kAppFocus[] = {{0x14, "key focus"},
+                                           {0x18, "previous mouse focus"},
+                                           {0x1C, "mouse focus"},
+                                           {0x20, "mouse capture"},
+                                           {0x24, "wanted key focus"}};
+// App's tick signals {count +0x1D0, capacity, data +0x1D8} (each called every tick: 0x109F7C) and its surfaces (+0x8):
+// reported when a leaving player's object is among them (no verified removal: kept)
+constexpr uint32_t kAppTickSignals = 0x1D0, kAppSurfaces = 0x08;
+// a focus field cleared at a leave: it names a panel of the leaving player (one of players 2..4: player 1's departure
+// keeps its context and its panels)
+inline bool ClearFocus(bool panel, int value_owner, int leaving) { return leaving >= 1 && panel && value_owner == leaving; }
+
+// what a call of a process-owned panel's setParent / addChild does to its children (classified at its entry; both
+// take the child off its old parent first, then append it once: 0xB5220 / the inline loop at 0x10AD1D)
+enum class Link { Nothing, New, Reattach, Change, Detach, Duplicate };
+inline const char* Name(Link l) {
+    switch (l) {
+        case Link::Nothing: return "nothing";
+        case Link::New: return "a new attachment";
+        case Link::Reattach: return "a re-attachment (already its child: no change)";
+        case Link::Change: return "a parent change";
+        case Link::Detach: return "a detachment";
+        case Link::Duplicate: return "a duplicate attachment attempt";
+    }
+    return "?";
+}
+// old: the child's parent (+0x38) before the call; parent: the new one (0: setParent(0)); listed: how many times the
+// child is among the new parent's children before the call
+inline Link ClassifyLink(uint32_t old, uint32_t parent, int listed) {
+    if (!parent) return old ? Link::Detach : Link::Nothing;
+    if (listed > 1 || (listed == 1 && old != parent)) return Link::Duplicate;
+    if (old == parent) return Link::Reattach;
+    return old ? Link::Change : Link::New;
+}
+// removeChild 0x10ADC0's own callers inside setParent (0x10ACCD), addChild (0x10AD14), insertChildAt (0x10AD96):
+// part of a link, not a detachment of its own (their return addresses)
+inline constexpr uint32_t kLinkRemoveReturns[] = {0x10ACD0, 0x10AD17, 0x10AD99};
+inline bool PartOfLink(uint32_t ret) {
+    for (uint32_t r : kLinkRemoveReturns)
+        if (r == ret) return true;
+    return false;
+}
+
+// a retention root's evidence: verified (a field whose meaning the title's code establishes), unverified (a word inside
+// bytes no code reads as a pointer: a file's or a message's or a texture's bytes, or a block's never written tail), or
+// unclassified (not established either way). Every kind stays conservatively kept: the evidence only explains it.
+enum class Evidence { Verified, Unverified, Unclassified };
+inline const char* Name(Evidence e) {
+    switch (e) {
+        case Evidence::Verified: return "verified";
+        case Evidence::Unverified: return "unverified pointer-like bytes";
+        case Evidence::Unclassified: return "unclassified";
+    }
+    return "?";
+}
+struct StaticArea {
+    uint32_t lo, hi;
+    Evidence evidence;
+    const char* what;
+};
+inline constexpr StaticArea kStaticAreas[] = {
+    {kApp + 0x14, kApp + 0x28, Evidence::Verified, "the VGUI App's focus fields"},
+    {0x5622B0, 0x5622B4, Evidence::Verified, "the string-intern pool's search key"},
+    // 0xBEB70: 64 x 64 16-bit texels written from 0x5D14C8 (add ecx, 2), then handed to the texture's creation
+    // (0x2D0D01); no other instruction names the area
+    {0x5D14C8, 0x5D34C8, Evidence::Unverified, "a 64x64 16-bit texture's texels (0xBEB70)"},
+    // 0x9FEF0: the sizebuf 0x62DBC8 {data 0x62DBD4, maxsize 0x8000, cursize}: message bytes
+    {0x62DBD4, 0x635BD4, Evidence::Unverified, "the 32 KB message buffer's bytes (sizebuf 0x62DBC8)"},
+};
+inline const StaticArea* StaticAreaOf(uint32_t va) {
+    for (const StaticArea& a : kStaticAreas)
+        if (va >= a.lo && va < a.hi) return &a;
+    return nullptr;
+}
+// blocks whose words are bytes no code reads as a pointer (by their allocation site)
+struct ByteSite {
+    uint32_t site;
+    const char* what;
+};
+inline constexpr ByteSite kByteSites[] = {
+    // 0x108230: CreateFile, GetFileSize, the size rounded up to 2 KB (lea edi, [eax+0x7FF]; shr 11; shl 11), malloc,
+    // ReadFile: a whole file's bytes, the tail past the file never written (the heap's earlier contents)
+    {0x10829B, "a whole file read by 0x108230 (its size rounded up to 2 KB: the tail never written)"},
+};
+inline const ByteSite* ByteSiteOf(uint32_t site) {
+    for (const ByteSite& b : kByteSites)
+        if (b.site == site) return &b;
+    return nullptr;
+}
+// where a root word is
+enum class RootKind { StaticWord, RegionWord, ProcessBlock, PlayerBlock, LeftBehindBlock, SharedKind };
+inline const char* Name(RootKind r) {
+    switch (r) {
+        case RootKind::StaticWord: return "a word of the process's static data";
+        case RootKind::RegionWord: return "a word of an active player's regions";
+        case RootKind::ProcessBlock: return "a live process block";
+        case RootKind::PlayerBlock: return "another active player's block";
+        case RootKind::LeftBehindBlock: return "a block an earlier departed player left behind";
+        case RootKind::SharedKind: return "a shared kind";
+    }
+    return "?";
+}
+inline Evidence EvidenceOf(RootKind r, uint32_t at, uint32_t site) {
+    if (r == RootKind::SharedKind) return Evidence::Verified;
+    if (r == RootKind::StaticWord) {
+        const StaticArea* a = StaticAreaOf(at);
+        return a ? a->evidence : Evidence::Unclassified;
+    }
+    if ((r == RootKind::ProcessBlock || r == RootKind::PlayerBlock || r == RootKind::LeftBehindBlock) && ByteSiteOf(site))
+        return Evidence::Unverified;
+    return Evidence::Unclassified;
+}
+
+// a player's allocations the title itself keeps for its whole life (no destructor, or none that may run): left
+// behind at every leave by design, reported as such (their sites: the allocating call's return address)
+struct PersistentSite {
+    uint32_t site;
+    const char* what;
+};
+inline constexpr PersistentSite kPersistentSites[] = {
+    // CMiniMem 0x1F9B90 (from its Instance 0x1F9EC0: 30000 >> 4 entries of [0x552CE0] + 0x14 bytes; run 14: 637500 =
+    // 1875 x 340). Its destructor 0x1F9D10 (only through the vtable 0x365854, never called by the title) runs each
+    // entry's destructor 0x1F9B30, which frees the entry's +4: a pointer into this same block (0x1F9C25)
+    {0x1F9BBE, "the particle manager's memory pool (never destroyed: its destructor frees pointers into the pool)"},
+    {0x1F9EE6, "the particle manager's CMiniMem object (its singleton 0x552CE4, made on first use, never deleted)"},
+    {0x1BAF1A, "a viewport (VGui_Startup's: no destructor; detached, never deleted)"},
+};
+inline const PersistentSite* PersistentSiteOf(uint32_t site) {
+    for (const PersistentSite& p : kPersistentSites)
+        if (p.site == site) return &p;
+    return nullptr;
+}
+
+// a leaving player's block after its cleanup, counted once, in this order: freed by the cleanup, kept by the original
+// for its whole life, reachable from a verified root, kept conservatively (only unverified or unclassified roots),
+// named by nobody (no release mechanism: no destructor the cleanup may run frees it)
+enum class Retained { Released, Persistent, Verified, Conservative, Unreferenced };
+inline const char* Name(Retained r) {
+    switch (r) {
+        case Retained::Released: return "released";
+        case Retained::Persistent: return "persistent by the original";
+        case Retained::Verified: return "reachable from verified roots";
+        case Retained::Conservative: return "kept conservatively";
+        case Retained::Unreferenced: return "named by nobody (no release mechanism)";
+    }
+    return "?";
+}
+inline Retained Categorize(bool persistent, bool kept, bool verified_reach) {
+    if (persistent) return Retained::Persistent;
+    if (!kept) return Retained::Unreferenced;
+    return verified_reach ? Retained::Verified : Retained::Conservative;
+}
+
+// a cleanup destructor's outcome (logged each time): not considered (no object), considered and skipped (the reason),
+// invoked and returned (its object as its contract leaves it), invoked and failed (it returned, its object not as the
+// contract leaves it: a deleting destructor's object still allocated, a destructor's own object gone)
+enum class Step { NotConsidered, Skipped, Returned, Failed };
+inline const char* Name(Step s) {
+    switch (s) {
+        case Step::NotConsidered: return "not considered";
+        case Step::Skipped: return "considered, skipped";
+        case Step::Returned: return "invoked and returned";
+        case Step::Failed: return "invoked and failed";
+    }
+    return "?";
+}
+enum class Post { Deletes, Keeps, NotABlock };  // what the call does to its object's block
+inline Step AfterCall(bool called, Post post, bool object_after) {
+    if (!called) return Step::Skipped;
+    if (post == Post::Deletes) return object_after ? Step::Failed : Step::Returned;
+    if (post == Post::Keeps) return object_after ? Step::Returned : Step::Failed;
+    return Step::Returned;
+}
 
 }  // namespace nsplit

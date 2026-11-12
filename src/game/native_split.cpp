@@ -236,8 +236,18 @@ uint64_t g_foreign_frees = 0, g_skipped_frees = 0, g_double_frees = 0, g_stale_n
 // leaving player's viewport detached from its parent or kept on it, a shared parent's stale children reported
 int g_vector_scope = 0;
 uint64_t g_vector_grows = 0, g_vector_free_skipped = 0, g_detached = 0, g_detach_kept = 0, g_stale_children = 0;
-uint64_t g_parent_links = 0;
+// what the process's panels' setParent / addChild / removeChild calls did (docs 15.18: nsplit::Link), each call once;
+// the cleanup's own detachments among the detachments; the App focus fields cleared at a leave; a leaving player's
+// objects among App's tick signals or surfaces (kept, reported)
+uint64_t g_links[6] = {};
+uint64_t g_cleanup_detaches = 0, g_focus_cleared = 0, g_app_kept = 0;
+bool g_cleanup_detaching = false;
 std::set<uint32_t> g_shared_parents;
+// the cleanup's destructors by outcome (nsplit::Step) and the frees made through them: the leaving player's own blocks
+// freed while its cleanup runs; frees of a block that is no block start but inside one (reported, never seen by the
+// planner's rules: docs 15.18)
+uint64_t g_steps[4] = {};
+uint64_t g_released_blocks = 0, g_released_bytes = 0, g_interior_frees = 0;
 uint64_t g_moves = 0, g_foreign_moves = 0;  // realloc's moves tracked; of another owner's block (an error, docs 15.8)
 bool g_add_failed = false;  // a player's initialisation failed its checks: no further players added this session
 // the shared front end (docs 15.10): its driver, the depth of its scope (its maintenance running as the process), and
@@ -691,22 +701,52 @@ std::string OwnerName(int owner) {
     return owner == heapown::kProcess ? "the process" : "no known block";
 }
 
-// a player's panel given a parent of the process's (setParent 0x10ACC0, addChild 0x10AD00), seen at the call: the
-// parent remembered (the shared parents watched), logged for the first few
-void SharedParentLink(uint32_t child, uint32_t parent, const char* how) {
-    if (!child || !parent) return;
-    int acting = OwnerNow(), child_owner = OwnerOfHolding(child), parent_owner = OwnerOfHolding(parent);
-    bool process_parent = parent_owner == heapown::kProcess || (parent_owner == heapown::Blocks::kNone &&
-                                                                heapown::IsImageAddress(parent));
-    if (!process_parent || (acting < 0 && child_owner < 0) || !IsPanel(parent)) return;
-    g_shared_parents.insert(parent);
-    g_parent_links++;
+// a panel of the process's (a process block, or one in the image): the shared parents (docs 15.17)
+bool ProcessPanel(uint32_t p) {
+    if (!p) return false;
+    int o = OwnerOfHolding(p);
+    return (o == heapown::kProcess || (o == heapown::Blocks::kNone && heapown::IsImageAddress(p))) && IsPanel(p);
+}
+
+// how many times child is among parent's children (0 when the vector is not sane)
+int ListedIn(uint32_t parent, uint32_t child) {
+    int32_t n = int32_t(ReadOr0(parent + nsplit::kPanelChildren)), cap = int32_t(ReadOr0(parent + nsplit::kPanelChildren + 4));
     uint32_t data = ReadOr0(parent + nsplit::kPanelChildren + 8);
-    LOG_FIRST(16, "native split: %s's turn %s panel 0x%08X (%s's) to the process's panel 0x%08X: %d of %d children, buffer "
-                  "0x%08X (%s's) [watch:shared-parent]",
-              OwnerName(acting).c_str(), how, child, OwnerName(child_owner).c_str(), parent,
-              int32_t(ReadOr0(parent + nsplit::kPanelChildren)), int32_t(ReadOr0(parent + nsplit::kPanelChildren + 4)),
-              data, OwnerName(OwnerOfHolding(data)).c_str());
+    if (n <= 0 || n > cap || cap > 4096 || !data || !Readable(data) || !Readable(data + 4 * uint32_t(n - 1))) return 0;
+    int listed = 0;
+    for (int32_t i = 0; i < n; i++) listed += R32(data + 4 * uint32_t(i)) == child;
+    return listed;
+}
+
+// a setParent / addChild of a panel whose old or new parent is the process's, classified at its entry (docs 15.18:
+// nsplit::ClassifyLink): every call counted once by what it does; a re-attachment (the child already the parent's:
+// the title takes it off and appends it again, no change) only counted; a structural change logged for the first few
+// when a player is involved, a duplicate attempt as a warning
+void PanelLink(uint32_t child, uint32_t old, uint32_t parent, const char* how) {
+    if (!child) return;
+    bool shared_new = ProcessPanel(parent), shared_old = old && old != parent && ProcessPanel(old);
+    if (!shared_new && !shared_old) return;
+    nsplit::Link l = nsplit::ClassifyLink(old, parent, shared_new ? ListedIn(parent, child) : 0);
+    g_links[int(l)]++;
+    if (shared_new) g_shared_parents.insert(parent);
+    if (shared_old) g_shared_parents.insert(old);
+    if (l == nsplit::Link::Reattach || l == nsplit::Link::Nothing) return;
+    int acting = OwnerNow(), child_owner = OwnerOfHolding(child);
+    uint32_t on = parent ? parent : old;
+    uint32_t data = ReadOr0(on + nsplit::kPanelChildren + 8);
+    if (l == nsplit::Link::Duplicate) {
+        LOG_FIRST(16, "native split: %s's turn %s panel 0x%08X (%s's) to the process's panel 0x%08X: %s (its parent "
+                      "0x%08X, listed %d) [watch:shared-parent]",
+                  OwnerName(acting).c_str(), how, child, OwnerName(child_owner).c_str(), parent, nsplit::Name(l), old,
+                  ListedIn(parent, child));
+        return;
+    }
+    if (acting < 0 && child_owner < 0) return;  // the process's own tree: counted, not logged
+    LOG_FIRST(24, "native split: %s's turn %s panel 0x%08X (%s's): %s, parent 0x%08X -> 0x%08X; the process's panel "
+                  "0x%08X: %d of %d children, buffer 0x%08X (%s's) [watch:shared-parent]",
+              OwnerName(acting).c_str(), how, child, OwnerName(child_owner).c_str(), nsplit::Name(l), old, parent, on,
+              int32_t(ReadOr0(on + nsplit::kPanelChildren)), int32_t(ReadOr0(on + nsplit::kPanelChildren + 4)), data,
+              OwnerName(OwnerOfHolding(data)).c_str());
 }
 
 // the shared parents' children (native_split_lifecycle.h StaleChildren): a departed player's panel, one that is no
@@ -758,15 +798,27 @@ void Report() {
          (unsigned long long)g_ch.Dropped(), (unsigned long long)g_read_outside_turn,
          (unsigned long long)g_foreign_frees, (unsigned long long)g_skipped_frees, (unsigned long long)g_moves,
          (unsigned long long)g_foreign_moves, g_blocks.Count());
-    LOGI("native split: the VGUI hierarchy: %llu process-wide vectors grown as the process (%llu old buffers of a player "
-         "kept), %llu panels given a parent of the process's, %llu viewports detached (%llu kept on their parent), %zu "
-         "shared parents watched, %llu stale children",
-         (unsigned long long)g_vector_grows, (unsigned long long)g_vector_free_skipped, (unsigned long long)g_parent_links,
-         (unsigned long long)g_detached, (unsigned long long)g_detach_kept, g_shared_parents.size(),
-         (unsigned long long)g_stale_children);
+    {
+        using L = nsplit::Link;
+        auto n = [](L l) { return (unsigned long long)g_links[int(l)]; };
+        LOGI("native split: the VGUI hierarchy (the process's panels): %llu new attachments, %llu re-attachments (no "
+             "change), %llu parent changes, %llu detachments (%llu by the cleanup), %llu duplicate attachment attempts; "
+             "%llu process-wide vectors grown as the process; failed ownership operations: %llu old buffers of a player "
+             "kept, %llu viewports kept on their parent, %llu stale children; %llu viewports detached; %zu shared "
+             "parents watched; App focus fields cleared %llu, a leaving player's objects kept among App's tick signals "
+             "or surfaces %llu",
+             n(L::New), n(L::Reattach), n(L::Change), n(L::Detach), (unsigned long long)g_cleanup_detaches,
+             n(L::Duplicate), (unsigned long long)g_vector_grows, (unsigned long long)g_vector_free_skipped,
+             (unsigned long long)g_detach_kept, (unsigned long long)g_stale_children, (unsigned long long)g_detached,
+             g_shared_parents.size(), (unsigned long long)g_focus_cleared, (unsigned long long)g_app_kept);
+    }
     LOGI("native split: ownership: %llu double frees skipped, %llu stale names of left-behind blocks in fresh contexts, "
-         "%llu cleanup calls refused", (unsigned long long)g_double_frees, (unsigned long long)g_stale_names,
-         (unsigned long long)g_cleanup_refused);
+         "%llu cleanup calls refused, %llu frees inside a block (not its start)", (unsigned long long)g_double_frees,
+         (unsigned long long)g_stale_names, (unsigned long long)g_cleanup_refused, (unsigned long long)g_interior_frees);
+    LOGI("native split: the cleanup's destructors: %llu not considered, %llu considered and skipped, %llu invoked and "
+         "returned, %llu invoked and failed; %llu of the leaving players' blocks (%llu bytes) freed by their cleanups",
+         (unsigned long long)g_steps[0], (unsigned long long)g_steps[1], (unsigned long long)g_steps[2],
+         (unsigned long long)g_steps[3], (unsigned long long)g_released_blocks, (unsigned long long)g_released_bytes);
     WatchSharedVectors();
     WatchSharedParents();
     std::string gates;
@@ -820,52 +872,120 @@ void Report() {
              (unsigned long long)g_world.Failed(op), (unsigned long long)g_world.TitleRuns(op));
 }
 
-// why a leaving player's blocks are kept (docs 15.16): each kept block followed back through the kept blocks of its own
-// that name it to its root: a word of the shared data or of another context's regions (its address), another owner's
-// block (that block's allocation site and owner), or a shared kind; the roots that keep the most logged with what they
-// keep. The string-intern pool's search key (0x5622B0, the last find's string) named on its own line
-void LogRetention(int k, const heapown::RollbackPlan& plan) {
+// why a leaving player's blocks are kept (docs 15.16, 15.18): each kept block followed back through the kept blocks of
+// its own that name it to its root, the word that names the first of them: a word of the shared data or of an active
+// player's regions, a live process block, another active player's block, a block an earlier departed player left
+// behind, or a shared kind. Each root logged with its evidence (nsplit::EvidenceOf: verified, unverified pointer-like
+// bytes, unclassified), whether its word names the block's start (direct) or a place inside it (interior), and the
+// longest chain from it; each kept block is counted under one root only (the first the scan reached it from). The
+// verified roots' directly named blocks are returned (`verified`): what they keep alive is counted apart. The
+// string-intern pool's search key (0x5622B0, the last find's string) named on its own line
+void LogRetention(int k, const heapown::RollbackPlan& plan, std::vector<uint32_t>& verified) {
     std::map<uint32_t, const heapown::RollbackItem*> by;
     for (const heapown::RollbackItem& r : plan.keep) by[r.va] = &r;
     struct Root {
         size_t blocks = 0, bytes = 0;
-        // the first block it keeps directly (docs 15.17): what the root names, and whether it is a VGUI panel
-        uint32_t va = 0, size = 0, site = 0;
-        bool panel = false;
+        const heapown::RollbackItem* first = nullptr;  // the block it names directly (the first found)
+        nsplit::RootKind kind = nsplit::RootKind::StaticWord;
+        nsplit::Evidence evidence = nsplit::Evidence::Unclassified;
+        uint32_t container = 0, container_size = 0, container_site = 0;  // a block root: the block holding the word
+        std::vector<uint32_t> chain;  // the longest: from the block it names to the deepest it keeps
     };
     std::map<std::string, Root> roots;
     std::map<std::string, Root> reasons;
+    size_t by_evidence[3][2] = {};
+    std::set<uint32_t> seeds;
     for (const heapown::RollbackItem& r : plan.keep) {
         const heapown::RollbackItem* at = &r;
+        std::vector<uint32_t> path = {r.va};
         for (int hops = 0; hops < 4096 && at->reason && std::strstr(at->reason, "kept block of its own"); hops++) {
             auto it = by.find(g_blocks.Holding(at->named_at));
             if (it == by.end() || it->second == at) break;
             at = it->second;
+            path.push_back(at->va);
         }
-        char key[96];
-        if (!at->reason || std::strstr(at->reason, "shared kind"))
+        nsplit::RootKind kind;
+        uint32_t site = at->site, cstart = 0;
+        const heapown::Block* cb = nullptr;
+        char key[160];
+        if (!at->reason || std::strstr(at->reason, "shared kind")) {
+            kind = nsplit::RootKind::SharedKind;
             std::snprintf(key, sizeof key, "a shared kind (site 0x%X)", at->site);
-        else if (std::strstr(at->reason, "shared data"))
-            std::snprintf(key, sizeof key, "the word at 0x%08X%s", at->named_at,
-                          at->named_at == 0x5622B0 ? " (the string-intern pool's search key)" : "");
-        else if (const heapown::Block* b = g_blocks.At(g_blocks.Holding(at->named_at)))
-            std::snprintf(key, sizeof key, "a block of %s%d (site 0x%X)", b->owner >= 0 ? "player " : "owner ",
-                          b->owner >= 0 ? b->owner + 1 : b->owner, b->site);
-        else
+        } else if (std::strstr(at->reason, "shared data")) {
+            kind = csx::ClientContextOffsetOf(at->named_at) >= 0 ? nsplit::RootKind::RegionWord : nsplit::RootKind::StaticWord;
+            const nsplit::StaticArea* area = nsplit::StaticAreaOf(at->named_at);
+            std::snprintf(key, sizeof key, "the word at 0x%08X%s%s%s", at->named_at,
+                          at->named_at == 0x5622B0 ? " (the string-intern pool's search key)" : "",
+                          area && at->named_at != 0x5622B0 ? ", in " : "",
+                          area && at->named_at != 0x5622B0 ? area->what : "");
+        } else if ((cb = g_blocks.At(cstart = g_blocks.Holding(at->named_at)))) {
+            kind = cb->owner >= 0     ? nsplit::RootKind::PlayerBlock
+                   : cb->left_by >= 0 ? nsplit::RootKind::LeftBehindBlock
+                                      : nsplit::RootKind::ProcessBlock;
+            site = cb->site;
+            if (kind == nsplit::RootKind::PlayerBlock)
+                std::snprintf(key, sizeof key, "a block of player %d (site 0x%X)", cb->owner + 1, cb->site);
+            else if (kind == nsplit::RootKind::LeftBehindBlock)
+                std::snprintf(key, sizeof key, "a block player %d left behind (site 0x%X)", cb->left_by + 1, cb->site);
+            else
+                std::snprintf(key, sizeof key, "a process block (site 0x%X)", cb->site);
+        } else {
+            kind = nsplit::RootKind::StaticWord;
             std::snprintf(key, sizeof key, "0x%08X", at->named_at);
+        }
         Root& root = roots[key];
-        if (!root.va) root.va = at->va, root.size = at->size, root.site = at->site, root.panel = IsPanel(at->va);
+        if (!root.first) {
+            root.first = at, root.kind = kind;
+            root.evidence = nsplit::EvidenceOf(kind, at->named_at, site);
+            if (cb) root.container = cstart, root.container_size = cb->size, root.container_site = cb->site;
+        }
+        if (path.size() > root.chain.size()) root.chain.assign(path.rbegin(), path.rend());
         root.blocks++, root.bytes += r.size;
+        by_evidence[int(root.evidence)][0]++, by_evidence[int(root.evidence)][1] += r.size;
+        if (root.evidence == nsplit::Evidence::Verified) seeds.insert(at->va);
         reasons[r.reason ? r.reason : "?"].blocks++, reasons[r.reason ? r.reason : "?"].bytes += r.size;
     }
+    verified.assign(seeds.begin(), seeds.end());
     for (const auto& [why, n] : reasons)
         LOGI("native split: player %d's cleanup keeps %zu block(s), %zu bytes: %s", k + 1, n.blocks, n.bytes, why.c_str());
+    LOGI("native split: player %d's cleanup: its kept blocks by their root's evidence (each under one root): verified %zu "
+         "(%zu bytes), unverified pointer-like bytes %zu (%zu bytes), unclassified %zu (%zu bytes); every one kept",
+         k + 1, by_evidence[0][0], by_evidence[0][1], by_evidence[1][0], by_evidence[1][1], by_evidence[2][0],
+         by_evidence[2][1]);
     std::vector<std::pair<std::string, Root>> top(roots.begin(), roots.end());
     std::sort(top.begin(), top.end(), [](const auto& a, const auto& b) { return a.second.bytes > b.second.bytes; });
-    for (size_t i = 0; i < top.size() && i < 12; i++)
-        LOGI("native split:   kept through %s: %zu block(s), %zu bytes (it names block 0x%08X, %u bytes from site 0x%X%s)",
-             top[i].first.c_str(), top[i].second.blocks, top[i].second.bytes, top[i].second.va, top[i].second.size,
-             top[i].second.site, top[i].second.panel ? ", a VGUI panel" : "");
+    for (size_t i = 0; i < top.size() && i < 12; i++) {
+        const Root& r = top[i].second;
+        const heapown::RollbackItem* f = r.first;
+        char how[96], where[96] = "", chain[200] = "";
+        if (r.kind == nsplit::RootKind::SharedKind)
+            std::snprintf(how, sizeof how, "its kind");
+        else if (f->named_value == f->va)
+            std::snprintf(how, sizeof how, "directly (0x%08X)", f->named_value);
+        else
+            std::snprintf(how, sizeof how, "at +0x%X (0x%08X: an interior pointer)", f->named_value - f->va, f->named_value);
+        if (r.container)
+            std::snprintf(where, sizeof where, "; the word at 0x%08X, +0x%X of its %u-byte block%s", f->named_at,
+                          f->named_at - r.container, r.container_size,
+                          nsplit::ByteSiteOf(r.container_site) ? " (file bytes)" : "");
+        size_t used = 0;
+        for (size_t j = 0; j < r.chain.size() && used + 40 < sizeof chain; j++) {
+            if (r.chain.size() > 5 && j == 3) {
+                used += size_t(std::snprintf(chain + used, sizeof chain - used, " -> ..."));
+                j = r.chain.size() - 2;
+                continue;
+            }
+            const heapown::Block* cbk = g_blocks.At(r.chain[j]);
+            used += size_t(std::snprintf(chain + used, sizeof chain - used, "%s0x%08X (site 0x%X)", j ? " -> " : "",
+                                         r.chain[j], cbk ? cbk->site : 0));
+        }
+        const nsplit::PersistentSite* ps = nsplit::PersistentSiteOf(f->site);
+        LOGI("native split:   kept through %s [%s, %s]: %zu block(s), %zu bytes (it names block 0x%08X, %u bytes from "
+             "site 0x%X%s%s, %s%s); the longest chain %zu block(s): %s",
+             top[i].first.c_str(), nsplit::Name(r.kind), nsplit::Name(r.evidence), r.blocks, r.bytes, f->va, f->size,
+             f->site, IsPanel(f->va) ? ", a VGUI panel" : "", ps ? ", persistent by the original" : "", how, where,
+             r.chain.size(), chain);
+    }
     const heapown::Block* key = g_blocks.At(g_blocks.Holding(R32(0x5622B0)));
     LOGI("native split: player %d's cleanup: the string-intern pool's search key names %s", k + 1,
          !key ? "no heap block" : key->owner == k ? "one of its blocks (kept: named)" : "another owner's block");
@@ -874,7 +994,8 @@ void LogRetention(int k, const heapown::RollbackPlan& plan) {
 // what of player k's own blocks someone else names (heap_owner.h PlanRollback): the shared data (the image's .data with
 // player 1's live regions: called from player 1's context), every other context's saved copy, another owner's block;
 // followed through its own blocks. Those its cleanup must not free (its destructors' frees of them are skipped)
-std::set<uint32_t> NamedElsewhere(int k, int context, size_t& released_bytes, size_t& kept_bytes) {
+std::set<uint32_t> NamedElsewhere(int k, int context, size_t& released_bytes, size_t& kept_bytes,
+                                  std::vector<uint32_t>& verified) {
     constexpr uint32_t kDataLo = 0x36C8A0, kDataHi = 0x7D6F20;
     std::vector<heapown::Span> spans = Spans();
     heapown::RollbackPlan plan = heapown::PlanRollback(
@@ -900,7 +1021,7 @@ std::set<uint32_t> NamedElsewhere(int k, int context, size_t& released_bytes, si
         kept_bytes += r.size;
     }
     released_bytes = plan.ReleaseBytes();
-    LogRetention(k, plan);
+    LogRetention(k, plan, verified);
     return keep;
 }
 
@@ -908,7 +1029,8 @@ std::set<uint32_t> NamedElsewhere(int k, int context, size_t& released_bytes, si
 // `object` and exactly its arguments pushed; a call through a vtable made only when the object's vtable is its
 // constructor's, to the contract's function (never a target read from guest memory). False (nothing called; the
 // object kept and reported) when the call would not meet its contract
-bool CallCleanup(X86Context& ctx, nsplit::CleanupFn id, uint32_t object, std::initializer_list<uint32_t> args) {
+bool CallCleanup(X86Context& ctx, nsplit::CleanupFn id, uint32_t object, std::initializer_list<uint32_t> args,
+                 int log_player = -1) {
     const nsplit::CleanupCall& c = nsplit::Contract(id);
     uint8_t set = 0;
     uint32_t saved[6] = {ctx.eax, ctx.ecx, ctx.edx, ctx.ebx, ctx.esi, ctx.edi};
@@ -923,6 +1045,11 @@ bool CallCleanup(X86Context& ctx, nsplit::CleanupFn id, uint32_t object, std::in
     uint32_t entry = c.slot >= 0 && heapown::IsImageAddress(vt) ? ReadOr0(vt + uint32_t(c.slot)) : 0;
     if (ok && !nsplit::VtableMatches(c, vt)) ok = false;
     if (ok && !nsplit::SlotMatches(c, entry)) ok = false;
+    if (ok && log_player >= 0)  // docs 15.18: the call entered (its contract met); "returned" is logged after it
+        LOGI("native split: player %d's cleanup: %s (0x%X) for 0x%08X entered (%s the object, %zu argument(s))",
+             log_player + 1, c.name, c.fn, object,
+             c.regs & nsplit::kRegEcx ? "ecx" : c.regs & nsplit::kRegEsi ? "esi" : c.regs & nsplit::kRegEax ? "eax"
+             : c.regs ? "a register" : "no register:", args.size());
     if (ok) kernel::CallGuest(ctx, c.fn, args.begin(), args.size());
     ctx.eax = saved[0], ctx.ecx = saved[1], ctx.edx = saved[2], ctx.ebx = saved[3], ctx.esi = saved[4], ctx.edi = saved[5];
     if (!ok) {
@@ -967,7 +1094,13 @@ void DetachViewport(X86Context& ctx, int k, int context) {
     }
     nsplit::Detach d = nsplit::DetachCheck(vp, v, k);
     if (d == nsplit::Detach::None) return;
-    if (d == nsplit::Detach::Detach && CallCleanup(ctx, nsplit::CleanupFn::DetachChild, v.parent, {vp})) {
+    bool called = false;
+    if (d == nsplit::Detach::Detach) {
+        g_cleanup_detaching = true;
+        called = CallCleanup(ctx, nsplit::CleanupFn::DetachChild, v.parent, {vp});
+        g_cleanup_detaching = false;
+    }
+    if (called) {
         int32_t after = int32_t(R32(v.parent + nsplit::kPanelChildren));
         int still = 0;
         for (int32_t i = 0; i < after && i < v.capacity; i++) still += R32(data + 4 * uint32_t(i)) == vp;
@@ -993,6 +1126,82 @@ void DetachViewport(X86Context& ctx, int k, int context) {
          k + 1, vp, nsplit::Name(d), v.parent, OwnerName(v.parent_owner).c_str(), v.count, v.capacity, v.listed);
 }
 
+// the VGUI App's focus fields naming a panel of the leaving player reported (docs 15.18: nsplit::ClearFocus), and its
+// objects among App's tick signals or surfaces reported
+// (kept: no verified removal). The App is the static object 0x384B58 only when 0x552740 names it with App's vtable
+void ClearAppFocus(int k) {
+    if (R32(nsplit::kAppInstance) != nsplit::kApp || R32(nsplit::kApp) != nsplit::kAppVtable) {
+        LOGW("native split: player %d's cleanup: the VGUI App is not the known one (0x552740 0x%08X, vtable 0x%08X): its "
+             "focus fields not read", k + 1, R32(nsplit::kAppInstance), R32(nsplit::kApp));
+        return;
+    }
+    for (const nsplit::FocusField& f : nsplit::kAppFocus) {
+        uint32_t va = nsplit::kApp + f.offset, v = R32(va);
+        if (!v || !nsplit::ClearFocus(IsPanel(v), OwnerOfHolding(v), k)) continue;
+        LOGW("native split: player %d's panel 0x%08X is the VGUI App's %s (0x%08X): left as it is (App's next tick "
+             "reaches it) [watch:app-focus]", k + 1, v, f.name, va);
+    }
+    for (auto [off, what] : {std::pair{nsplit::kAppTickSignals, "tick signals"}, std::pair{nsplit::kAppSurfaces, "surfaces"}}) {
+        uint32_t hdr = nsplit::kApp + off;
+        int32_t n = int32_t(R32(hdr)), cap = int32_t(R32(hdr + 4));
+        uint32_t data = R32(hdr + 8);
+        if (n <= 0 || n > cap || cap > 4096 || !Readable(data) || !Readable(data + 4 * uint32_t(n - 1))) continue;
+        for (int32_t i = 0; i < n; i++) {
+            uint32_t v = R32(data + 4 * uint32_t(i));
+            if (OwnerOfHolding(v) != k) continue;
+            g_app_kept++;
+            LOGW("native split: player %d's object 0x%08X is among the VGUI App's %s (%d of %d): kept, no verified "
+                 "removal (App reaches it every tick) [watch:app-kept]",
+                 k + 1, v, what, i + 1, n);
+        }
+    }
+}
+
+// a cleanup destructor run and its outcome logged (docs 15.18, nsplit::Step): not considered (no object at `holder`),
+// considered and skipped (`skip`: why; or its call's contract not met), invoked (CallCleanup logs "entered") and
+// returned with its object as its contract leaves it (what it freed counted), or invoked and failed (an error). Never
+// reported as run because the cleanup around it completed. True: invoked and returned
+bool RunDestructor(X86Context& ctx, int k, nsplit::CleanupFn id, uint32_t holder, uint32_t obj, const char* skip,
+                   std::initializer_list<uint32_t> args, nsplit::Post post) {
+    const nsplit::CleanupCall& c = nsplit::Contract(id);
+    if (!obj) {
+        g_steps[int(nsplit::Step::NotConsidered)]++;
+        LOGI("native split: player %d's cleanup: %s (0x%X) not considered: no object (0x%08X holds 0)", k + 1, c.name,
+             c.fn, holder);
+        return false;
+    }
+    const heapown::Block* b = g_blocks.At(obj);
+    std::string whose = b ? OwnerName(b->owner) : heapown::IsImageAddress(obj) ? "the image" : "no known block";
+    if (skip) {
+        g_steps[int(nsplit::Step::Skipped)]++;
+        LOGI("native split: player %d's cleanup: %s (0x%X) for 0x%08X (%s's, from 0x%08X) considered, skipped: %s; the "
+             "object kept", k + 1, c.name, c.fn, obj, whose.c_str(), holder, skip);
+        return false;
+    }
+    uint64_t n0 = g_released_blocks, b0 = g_released_bytes, kept0 = g_release_kept;
+    if (!CallCleanup(ctx, id, obj, args, k)) {
+        g_steps[int(nsplit::Step::Skipped)]++;
+        LOGI("native split: player %d's cleanup: %s (0x%X) for 0x%08X considered, skipped: its call would not meet its "
+             "contract; the object kept", k + 1, c.name, c.fn, obj);
+        return false;
+    }
+    bool after = post != nsplit::Post::NotABlock && g_blocks.At(obj) != nullptr;
+    nsplit::Step st = nsplit::AfterCall(true, post, after);
+    g_steps[int(st)]++;
+    if (st == nsplit::Step::Returned)
+        LOGI("native split: player %d's cleanup: %s (0x%X) for 0x%08X invoked and returned: %llu of its blocks (%llu "
+             "bytes) freed through it, %llu frees of a named block kept; the object %s",
+             k + 1, c.name, c.fn, obj, (unsigned long long)(g_released_blocks - n0),
+             (unsigned long long)(g_released_bytes - b0), (unsigned long long)(g_release_kept - kept0),
+             post == nsplit::Post::NotABlock ? "a static slot" : after ? "still allocated (its free follows)" : "freed");
+    else
+        LOGE("native split: player %d's cleanup: %s (0x%X) for 0x%08X invoked and failed: it returned with its object %s "
+             "(%s) [own:cleanup-failed]",
+             k + 1, c.name, c.fn, obj, after ? "still allocated" : "gone",
+             post == nsplit::Post::Deletes ? "a deleting destructor frees it" : "it must leave it allocated");
+    return st == nsplit::Step::Returned;
+}
+
 void RemovePlayer(X86Context& ctx, int k) {
     const nsplit::Player p = g_players.At(k);
     if (!g_players.Leave(k)) return;
@@ -1010,11 +1219,25 @@ void RemovePlayer(X86Context& ctx, int k) {
     if (int was = g_ui.driver; g_ui.Left(k, g_players) != was)
         LOGI("native split: the shared front end is driven by player %d now (player %d leaves)", g_ui.driver + 1, k + 1);
     g_session.host = nsplit::SessionHost(g_players);
-    // its viewport off the process's root panel (docs 15.17), from player 1's context
+    // its viewport off the process's root panel (docs 15.17), from player 1's context; the VGUI App's focus on a panel
+    // of its own reported (docs 15.18)
     DetachViewport(ctx, k, p.context);
-    // what of its own another names, from player 1's context (before its own is made live)
+    ClearAppFocus(k);
+    // its memory before its cleanup (docs 15.18): its own blocks, and what earlier leaves left that is still allocated
+    size_t live_n = 0, live_bytes = 0, earlier_n = 0, earlier_bytes = 0;
+    g_blocks.ForEach([&](uint32_t, const heapown::Block& b) {
+        if (b.owner == k) live_n++, live_bytes += b.size;
+        else if (b.left_by >= 0) earlier_n++, earlier_bytes += b.size;
+    });
+    uint64_t released0 = g_released_blocks, released_bytes0 = g_released_bytes;
+    // what of its own another names, from player 1's context (before its own is made live); what the verified roots
+    // keep alive on their own
     size_t plan_free = 0, plan_kept = 0;
-    g_release_keep = NamedElsewhere(k, p.context, plan_free, plan_kept);
+    std::vector<uint32_t> verified_seeds;
+    g_release_keep = NamedElsewhere(k, p.context, plan_free, plan_kept, verified_seeds);
+    const std::set<uint32_t> kept_by_plan = g_release_keep;
+    const std::set<uint32_t> verified_reach =
+        heapown::ReachableFrom(g_blocks, k, verified_seeds, [](uint32_t va) { return ReadOr0(va); });
     LOGI("native split: player %d's cleanup: %zu of its blocks (%zu bytes) named by another (kept), %zu bytes named by "
          "nobody else", k + 1, g_release_keep.size(), plan_kept, plan_free);
     // its objects, released by the title's own code in its own context, each checked to be its own first
@@ -1035,6 +1258,10 @@ void RemovePlayer(X86Context& ctx, int k) {
         return nsplit::ReleaseCheck(b != nullptr, b ? b->owner : heapown::Blocks::kNone,
                                     b && b->kind == heapown::Kind::Owned, k, g_release_keep.count(obj) > 0);
     };
+    auto skip_of = [&](uint32_t obj) -> const char* {  // why a destructor of obj may not run (nullptr: it may)
+        nsplit::Release r = release(obj);
+        return r == nsplit::Release::Release ? nullptr : nsplit::Name(r);
+    };
     if (uint32_t ents = R32(kClientEntities); own(ents)) {  // its client entities (0x2E2E0)
         if (CallCleanup(ctx, nsplit::CleanupFn::Free, 0, {ents})) {
             W32(kClientEntities, 0);
@@ -1046,24 +1273,23 @@ void RemovePlayer(X86Context& ctx, int k) {
     for (auto [va, id] : {std::pair{0x552C70u, nsplit::CleanupFn::Delete552C70},
                           std::pair{0x552C9Cu, nsplit::CleanupFn::Delete552C9C}}) {
         uint32_t obj = R32(va);
-        if (!own(obj)) continue;
-        if (id == nsplit::CleanupFn::Delete552C70) {
+        const char* skip = obj ? skip_of(obj) : nullptr;
+        if (obj && !skip && id == nsplit::CleanupFn::Delete552C70) {
             nsplit::Release each[nsplit::k552C70ChildCount];
             for (uint32_t i = 0; i < nsplit::k552C70ChildCount; i++)
                 each[i] = release(R32(obj + nsplit::k552C70Children + 4 * i));
-            if (!nsplit::ChildrenReleasable(each, nsplit::k552C70ChildCount)) {
-                LOGI("native split: player %d's object 0x%08X kept: an object it deletes is not released (%s)", k + 1, obj,
-                     "named by another, not its own or a shared kind");
-                continue;
-            }
+            if (!nsplit::ChildrenReleasable(each, nsplit::k552C70ChildCount))
+                skip = "an object it deletes is not released (named by another, not its own or a shared kind)";
         }
-        if (CallCleanup(ctx, id, obj, {1})) {
+        if (RunDestructor(ctx, k, id, va, obj, skip, {1}, nsplit::Post::Deletes)) {
             W32(va, 0);
             released++;
         }
     }
-    // its destructor 0x1BAD90 (esi the object, as 0x1BAE40 / 0x1A6C80) and its free
-    if (uint32_t obj = R32(0x552CA8); own(obj) && CallCleanup(ctx, nsplit::CleanupFn::Destroy552CA8, obj, {})) {
+    // its destructor 0x1BAD90 (esi the object, as 0x1BAE40 / 0x1A6C80; it leaves the object allocated) and its free
+    if (uint32_t obj = R32(0x552CA8);
+        RunDestructor(ctx, k, nsplit::CleanupFn::Destroy552CA8, 0x552CA8, obj, obj ? skip_of(obj) : nullptr, {},
+                      nsplit::Post::Keeps)) {
         CallCleanup(ctx, nsplit::CleanupFn::Free, 0, {obj});
         W32(0x552CA8, 0);
         released++;
@@ -1077,8 +1303,10 @@ void RemovePlayer(X86Context& ctx, int k) {
     W32(0x5623D0, 0);
     {  // its delta descriptions' slot (0x45670 frees a slot's description, esi the slot, as 0x2FBAD)
         const guest_tables::Table& t = guest_tables::kTables[guest_tables::k_native_split_delta_slots];
-        uint32_t slot = t.va + uint32_t(k) * t.elem;
-        if (own(R32(slot)) && CallCleanup(ctx, nsplit::CleanupFn::FreeDeltaSlot, slot, {})) released++;
+        uint32_t slot = t.va + uint32_t(k) * t.elem, desc = R32(slot);
+        if (RunDestructor(ctx, k, nsplit::CleanupFn::FreeDeltaSlot, slot, desc ? slot : 0, desc ? skip_of(desc) : nullptr,
+                          {}, nsplit::Post::NotABlock))
+            released++;
     }
     g_releasing = false;
     g_release_keep.clear();
@@ -1089,6 +1317,38 @@ void RemovePlayer(X86Context& ctx, int k) {
     g_blocks.ForEach([&](uint32_t, const heapown::Block& b) {
         if (b.kind == heapown::Kind::Owned && b.owner == k) sites[b.site]++;
     });
+    // its memory accounted (docs 15.18: nsplit::Retained, each block once): released by its cleanup; left behind as
+    // persistent by the original, reachable from verified roots, kept conservatively, or named by nobody; with the
+    // sites that leave the most
+    {
+        size_t cat[5][2] = {};
+        cat[int(nsplit::Retained::Released)][0] = size_t(g_released_blocks - released0);
+        cat[int(nsplit::Retained::Released)][1] = size_t(g_released_bytes - released_bytes0);
+        std::map<uint32_t, std::pair<size_t, size_t>> by_site;
+        g_blocks.ForEach([&](uint32_t va, const heapown::Block& b) {
+            if (b.owner != k) return;
+            nsplit::Retained r = nsplit::Categorize(nsplit::PersistentSiteOf(b.site) != nullptr, kept_by_plan.count(va) > 0,
+                                                    verified_reach.count(va) > 0);
+            cat[int(r)][0]++, cat[int(r)][1] += b.size;
+            by_site[b.site].first++, by_site[b.site].second += b.size;
+        });
+        using R = nsplit::Retained;
+        LOGI("native split: player %d's memory at its leave: %zu blocks (%zu bytes) live before its cleanup; released %zu "
+             "(%zu bytes); left behind: persistent by the original %zu (%zu bytes), reachable from verified roots %zu "
+             "(%zu bytes), kept conservatively %zu (%zu bytes), named by nobody (no release mechanism) %zu (%zu bytes); "
+             "earlier departures' blocks still allocated %zu (%zu bytes); each block counted once",
+             k + 1, live_n, live_bytes, cat[int(R::Released)][0], cat[int(R::Released)][1], cat[int(R::Persistent)][0],
+             cat[int(R::Persistent)][1], cat[int(R::Verified)][0], cat[int(R::Verified)][1],
+             cat[int(R::Conservative)][0], cat[int(R::Conservative)][1], cat[int(R::Unreferenced)][0],
+             cat[int(R::Unreferenced)][1], earlier_n, earlier_bytes);
+        std::vector<std::pair<uint32_t, std::pair<size_t, size_t>>> top(by_site.begin(), by_site.end());
+        std::sort(top.begin(), top.end(), [](const auto& a, const auto& b) { return a.second.second > b.second.second; });
+        for (size_t i = 0; i < top.size() && i < 12; i++) {
+            const nsplit::PersistentSite* ps = nsplit::PersistentSiteOf(top[i].first);
+            LOGI("native split:   left behind from site 0x%X: %zu block(s), %zu bytes%s%s", top[i].first,
+                 top[i].second.first, top[i].second.second, ps ? ": " : "", ps ? ps->what : "");
+        }
+    }
     auto [leaked, leaked_bytes] = g_blocks.Orphan(k);
     if (leaked) {
         std::string where;
@@ -1112,6 +1372,11 @@ void RemovePlayer(X86Context& ctx, int k) {
     LOGI("native split: player %d left: its server slot dropped, %zu of its objects released, %zu left (%zu bytes), its "
          "context removed; left behind by leaving players so far %zu bytes in %d leave(s)",
          k + 1, released, leaked, leaked_bytes, g_leaks.left_behind, g_leaks.leaves);
+    if (long more = g_leaks.Projected(); more >= 0)
+        LOGI("native split: the retention bound: %zu of %zu bytes left behind after %d leave(s), %zu a leave on average: "
+             "about %ld more leave(s) before it stops joins (a projection from the leaves so far, not a guaranteed "
+             "outcome)", g_leaks.left_behind, g_leaks.limit, g_leaks.leaves, g_leaks.left_behind / size_t(g_leaks.leaves),
+             more);
     if (!g_leaks.MayJoin() && !g_add_failed) {
         g_add_failed = true;
         LOGE("native split: leaving players have left %zu bytes behind (the bound %zu): no player joins again this "
@@ -1401,6 +1666,19 @@ bool NativeSplitHeapFree(X86Context& ctx, uint8_t*) {
         if (g_double_frees <= 8) kernel::LogGuestStack(ctx, 48);
         return true;
     }
+    // a free of a place inside a known block, not its start (docs 15.18: what the particle pool's destructor would do):
+    // reported, the title's own free left as it is
+    if (!b) {
+        if (uint32_t in = g_blocks.Holding(va)) {
+            const heapown::Block* h = g_blocks.At(in);
+            g_interior_frees++;
+            LOG_FIRST(16, "native split: %s frees 0x%08X: inside block 0x%08X (+0x%X of its %u bytes, %s's, site 0x%X), "
+                          "not its start (return 0x%08X; not skipped) [watch:free-interior]",
+                      OwnerName(freeing).c_str(), va, in, va - in, h->size, OwnerName(h->owner).c_str(), h->site,
+                      R32(ctx.esp));
+        }
+    }
+    if (g_releasing && b && g_init_owner >= 0 && owner == g_init_owner) g_released_blocks++, g_released_bytes += b->size;
     g_blocks.Freed(va);
     return false;
 }
@@ -1445,14 +1723,35 @@ bool NativeSplitVectorGrow(X86Context& ctx, uint8_t*) {
     return true;
 }
 
-// [[hook]] at 0x10ACC0, a panel's setParent (thiscall: ecx the panel, [esp+4] the new parent; slot 0x40): log only
+// [[hook]] at 0x10ACC0, a panel's setParent (thiscall: ecx the panel, [esp+4] the new parent; slot 0x40): counted
+// (docs 15.18), nothing changed
 void NativeSplitPanelSetParent(X86Context& ctx, uint8_t*) {
-    if (NativeSplitOn()) SharedParentLink(ctx.ecx, R32(ctx.esp + 4), "sets the parent of");
+    if (NativeSplitOn()) PanelLink(ctx.ecx, ReadOr0(ctx.ecx + nsplit::kPanelParent), R32(ctx.esp + 4), "sets the parent of");
 }
 
-// [[hook]] at 0x10AD00, a panel's addChild (thiscall: ecx the parent, [esp+4] the child; slot 0x44): log only
+// [[hook]] at 0x10AD00, a panel's addChild (thiscall: ecx the parent, [esp+4] the child; slot 0x44): counted
 void NativeSplitPanelAddChild(X86Context& ctx, uint8_t*) {
-    if (NativeSplitOn()) SharedParentLink(R32(ctx.esp + 4), ctx.ecx, "adds");
+    if (!NativeSplitOn()) return;
+    uint32_t child = R32(ctx.esp + 4);
+    PanelLink(child, ReadOr0(child + nsplit::kPanelParent), ctx.ecx, "adds");
+}
+
+// [[hook]] at 0x10ADC0, a panel's removeChild (thiscall: ecx the parent, [esp+4] the child, [esp] the return; slot
+// 0x4C): a detachment from a process panel counted, unless it is setParent's / addChild's / insertChildAt's own first
+// step (nsplit::PartOfLink: counted there); the cleanup's own detach among them
+void NativeSplitPanelRemoveChild(X86Context& ctx, uint8_t*) {
+    if (!NativeSplitOn()) return;
+    uint32_t parent = ctx.ecx, child = R32(ctx.esp + 4);
+    if (nsplit::PartOfLink(R32(ctx.esp)) || !ProcessPanel(parent) || !ListedIn(parent, child)) return;
+    g_links[int(nsplit::Link::Detach)]++;
+    g_shared_parents.insert(parent);
+    if (g_cleanup_detaching) {
+        g_cleanup_detaches++;
+        return;
+    }
+    LOG_FIRST(16, "native split: %s's turn removes panel 0x%08X (%s's) from the process's panel 0x%08X (return 0x%08X) "
+                  "[watch:shared-parent]",
+              OwnerName(OwnerNow()).c_str(), child, OwnerName(OwnerOfHolding(child)).c_str(), parent, R32(ctx.esp));
 }
 
 // ---- before a destructor: another player's object is never destroyed --------------------------------------------

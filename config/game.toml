@@ -1266,7 +1266,8 @@ on_true = "ret"
 # the process, another player's turn does not; front-end commands of another player's turn withheld; its element code
 # reached in another player's turn logged
 # native split-screen (docs/native_splitscreen.md 15.17): a process-wide vector's grow from a player's turn run as the
-# process (its buffer its header's owner's); a panel given a parent of the process's, logged
+# process (its buffer its header's owner's); a panel given a parent of the process's, logged; the process's panels'
+# setParent / addChild / removeChild counted by what they change (15.18: a re-attachment is no change)
 [[hook]]
 at = 0xB52B0
 call = "NativeSplitVectorGrow"
@@ -1279,6 +1280,10 @@ call = "NativeSplitPanelSetParent"
 [[hook]]
 at = 0x10AD00
 call = "NativeSplitPanelAddChild"
+
+[[hook]]
+at = 0x10ADC0
+call = "NativeSplitPanelRemoveChild"
 
 [[hook]]
 at = 0x1B9359

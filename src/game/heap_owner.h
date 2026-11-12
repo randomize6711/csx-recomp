@@ -375,6 +375,7 @@ struct RollbackItem {
     Kind kind = Kind::Owned;
     const char* reason = "";  // kept: why; released: ""
     uint32_t named_at = 0;    // kept: the address of the word naming it (0: its kind)
+    uint32_t named_value = 0; // kept: that word's value (the block's start: a direct pointer; past it: an interior one)
 };
 struct RollbackPlan {
     std::vector<RollbackItem> release, keep;
@@ -389,7 +390,7 @@ template <typename SharedWords, typename Read>
 RollbackPlan PlanRollback(const Blocks& blocks, int failed, SharedWords shared_words, Read read) {
     std::map<uint32_t, RollbackItem> mine;  // the failed player's blocks, by start
     blocks.ForEach([&](uint32_t va, const Block& b) {
-        if (b.owner == failed) mine[va] = {va, b.size, b.site, b.kind, nullptr, 0};
+        if (b.owner == failed) mine[va] = {va, b.size, b.site, b.kind, nullptr, 0, 0};
     });
     auto holder = [&](uint32_t v) -> RollbackItem* {
         if (v < 0x10000) return nullptr;
@@ -398,24 +399,31 @@ RollbackPlan PlanRollback(const Blocks& blocks, int failed, SharedWords shared_w
         return it == mine.end() ? nullptr : &it->second;
     };
     std::vector<uint32_t> todo;  // kept blocks whose own words are still to be followed
-    auto keep = [&](RollbackItem* r, const char* why, uint32_t at) {
+    auto keep = [&](RollbackItem* r, const char* why, uint32_t at, uint32_t v) {
         if (!r || r->reason) return;
         r->reason = why;
         r->named_at = at;
+        r->named_value = v;
         todo.push_back(r->va);
     };
     for (auto& [va, r] : mine)
-        if (r.kind != Kind::Owned) keep(&r, "a shared kind (the shared code that made it holds it)", 0);
-    shared_words([&](uint32_t at, uint32_t v) { keep(holder(v), "named by the shared data", at); });
+        if (r.kind != Kind::Owned) keep(&r, "a shared kind (the shared code that made it holds it)", 0, 0);
+    shared_words([&](uint32_t at, uint32_t v) { keep(holder(v), "named by the shared data", at, v); });
     blocks.ForEach([&](uint32_t va, const Block& b) {
         if (b.owner == failed) return;
-        for (uint32_t k = 0; k + 4 <= b.size; k += 4) keep(holder(read(va + k)), "named by another owner's block", va + k);
+        for (uint32_t k = 0; k + 4 <= b.size; k += 4) {
+            uint32_t v = read(va + k);
+            keep(holder(v), "named by another owner's block", va + k, v);
+        }
     });
     while (!todo.empty()) {
         uint32_t va = todo.back();
         todo.pop_back();
         const RollbackItem& r = mine[va];
-        for (uint32_t k = 0; k + 4 <= r.size; k += 4) keep(holder(read(va + k)), "named by a kept block of its own", va + k);
+        for (uint32_t k = 0; k + 4 <= r.size; k += 4) {
+            uint32_t v = read(va + k);
+            keep(holder(v), "named by a kept block of its own", va + k, v);
+        }
     }
     RollbackPlan plan;
     for (auto& [va, r] : mine) {
@@ -427,6 +435,26 @@ RollbackPlan PlanRollback(const Blocks& blocks, int failed, SharedWords shared_w
         }
     }
     return plan;
+}
+
+// the blocks of `owner` reachable from the seeds (block starts) through their own words, the seeds included: what a
+// set of roots keeps alive on its own (docs 15.18: the verified roots' share of a leaving player's kept blocks, each
+// block counted once whatever else names it)
+template <typename Read>
+std::set<uint32_t> ReachableFrom(const Blocks& blocks, int owner, std::vector<uint32_t> todo, Read read) {
+    std::set<uint32_t> seen;
+    while (!todo.empty()) {
+        uint32_t va = todo.back();
+        todo.pop_back();
+        const Block* b = blocks.At(va);
+        if (!b || b->owner != owner || !seen.insert(va).second) continue;
+        for (uint32_t k = 0; k + 4 <= b->size; k += 4) {
+            uint32_t v = read(va + k);
+            uint32_t start = v < 0x10000 ? 0 : blocks.Holding(v);
+            if (start && !seen.count(start)) todo.push_back(start);
+        }
+    }
+    return seen;
 }
 
 }  // namespace heapown
