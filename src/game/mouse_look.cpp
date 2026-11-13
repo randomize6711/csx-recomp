@@ -17,6 +17,7 @@
 #include <cstring>
 
 #include "common/csx.h"
+#include "game/client_context.h"
 #include "core/log.h"
 #include "cpu/x86_context.h"
 #include "common/pc_settings.h"
@@ -66,6 +67,9 @@ float ZoomScale() {
 
 // [[hook]] at 0x19E4EB (config/game.toml): the game thread, once per pass through the look routine
 void MouseLookApply(X86Context&, uint8_t*) {
+    // native split-screen: the mouse is player 1's; another player's turn (its own controller's look) leaves it for
+    // player 1's next turn (docs/native_splitscreen.md 16)
+    if (csx::ClientContextActive() != 0) return;
     float right = csx::g_right.exchange(0), up = csx::g_up.exchange(0);
     if (right != 0 || up != 0) {
         float zoom = ZoomScale();

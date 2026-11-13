@@ -779,10 +779,68 @@ namespace input {
 
 void Init() {}
 
+namespace {
+// native split-screen (docs/native_splitscreen.md 16; one process, CSX_NATIVE_SPLIT=N): the controllers are the
+// players' in connection order, as the multi-process split's (docs/splitscreen.md 7): player 1 has the keyboard and
+// mouse (port 0), and the first controller too with Split Screen > Player 1 > Also a Controller (split_p1_pad 1);
+// player k+1 reads port k, the next controller
+int NativePlayers() {
+    static const int n = [] {
+        const char* v = std::getenv("CSX_NATIVE_SPLIT");
+        int x = v ? std::atoi(v) : 0;
+        return x >= 2 && x <= 4 ? x : 0;
+    }();
+    return n;
+}
+bool NativeP1Pad() { return pc::Get("split_p1_pad", "0") == "1"; }
+// the controller on port `port` (g_lock held): null when none
+SDL_Gamepad* NativePad(int port) {
+    if (port <= 0 || port >= NativePlayers()) return nullptr;
+    if (NativeP1Pad()) return size_t(port) <= g_other_pads.size() ? g_other_pads[size_t(port) - 1] : nullptr;
+    if (port == 1) return g_pad;
+    return size_t(port - 1) <= g_other_pads.size() ? g_other_pads[size_t(port) - 2] : nullptr;
+}
+// one controller's state as the console's pad (SDL's y axes point down, the console's up)
+Pad PadOf(SDL_Gamepad* gp) {
+    Pad p;
+    p.connected = true;
+    auto axis = [&](SDL_GamepadAxis a) { return float(SDL_GetGamepadAxis(gp, a)); };
+    auto btn = [&](SDL_GamepadButton b) { return SDL_GetGamepadButton(gp, b); };
+    auto clamp16 = [](float v) { return int16_t(std::clamp(v, -32768.0f, 32767.0f)); };
+    p.lx = clamp16(axis(SDL_GAMEPAD_AXIS_LEFTX));
+    p.ly = clamp16(-axis(SDL_GAMEPAD_AXIS_LEFTY));
+    p.rx = clamp16(axis(SDL_GAMEPAD_AXIS_RIGHTX));
+    p.ry = clamp16(-axis(SDL_GAMEPAD_AXIS_RIGHTY));
+    const struct {
+        SDL_GamepadButton b;
+        uint16_t bit;
+    } digital[] = {{SDL_GAMEPAD_BUTTON_DPAD_UP, 1},      {SDL_GAMEPAD_BUTTON_DPAD_DOWN, 2},
+                   {SDL_GAMEPAD_BUTTON_DPAD_LEFT, 4},    {SDL_GAMEPAD_BUTTON_DPAD_RIGHT, 8},
+                   {SDL_GAMEPAD_BUTTON_START, 16},       {SDL_GAMEPAD_BUTTON_BACK, 32},
+                   {SDL_GAMEPAD_BUTTON_LEFT_STICK, 64},  {SDL_GAMEPAD_BUTTON_RIGHT_STICK, 128}};
+    for (const auto& d : digital)
+        if (btn(d.b)) p.buttons |= d.bit;
+    const SDL_GamepadButton analog[6] = {SDL_GAMEPAD_BUTTON_SOUTH,          SDL_GAMEPAD_BUTTON_EAST,
+                                         SDL_GAMEPAD_BUTTON_WEST,           SDL_GAMEPAD_BUTTON_NORTH,
+                                         SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER,  // black
+                                         SDL_GAMEPAD_BUTTON_LEFT_SHOULDER};  // white
+    for (int i = 0; i < 6; i++)
+        if (btn(analog[i])) p.analog[i] = 255;
+    p.analog[6] = uint8_t(std::clamp(axis(SDL_GAMEPAD_AXIS_LEFT_TRIGGER) * 255 / 32767, 0.0f, 255.0f));
+    p.analog[7] = uint8_t(std::clamp(axis(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) * 255 / 32767, 0.0f, 255.0f));
+    return p;
+}
+}  // namespace
+
 Pad Poll(int port) {
     Pad p;
     p.connected = port == 0;
-    if (port != 0) return p;
+    if (port != 0) {
+        if (!NativePlayers()) return p;
+        std::lock_guard<std::mutex> lock(g_lock);
+        if (SDL_Gamepad* gp = NativePad(port)) return PadOf(gp);
+        return p;
+    }
     std::lock_guard<std::mutex> lock(g_lock);
     // play resumed: keys still down from the menu leave the pad. (Engine keys held when a menu opens stay engine
     // keys until released: +showscores opens the Scoreboard screen and lasts while its key is held.)
@@ -829,7 +887,9 @@ Pad Poll(int port) {
     if (g_mouse_buttons & (1u << SDL_BUTTON_LEFT)) p.analog[7] = 255;
     // the gamepad on top: SDL's y axes point down, the console's up
     // (on a party screen, the game alone, a controller that is not player 1's only asks to join: not player 1's input)
-    if (g_pad && !(csx::PartyScreenOpen() && !splitp::Active() && !PartyPadIsPlayerOnes(SDL_GetGamepadID(g_pad)))) {
+    // native split-screen: the first controller is player 2's unless player 1 also has one (NativePad)
+    if (g_pad && !(NativePlayers() && !NativeP1Pad()) &&
+        !(csx::PartyScreenOpen() && !splitp::Active() && !PartyPadIsPlayerOnes(SDL_GetGamepadID(g_pad)))) {
         auto axis = [](SDL_GamepadAxis a) { return float(SDL_GetGamepadAxis(g_pad, a)); };
         auto btn = [](SDL_GamepadButton b) { return SDL_GetGamepadButton(g_pad, b); };
         lx += axis(SDL_GAMEPAD_AXIS_LEFTX);

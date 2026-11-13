@@ -281,8 +281,19 @@ void ClientContextsReference(X86Context& ctx, uint8_t*) {
     NativeSplitReference(ctx, state);
 }
 
-// [[hook]] at 0x5D3F0 in _Host_Frame: a player's client half starts
-void ClientContextsTurnBegin(X86Context&, uint8_t*) { g_in_turn = true; }
+void NativeSplitClientTurn(X86Context& ctx);  // native_split.cpp: the turn's view of the window frame (M3)
+void NativeSplitClientTurnEnd();               // native_split.cpp
+void NativeSplitPadTurnBegin();                // native_split.cpp: an added player's own controller in its turn
+void NativeSplitPadTurnEnd();                  // native_split.cpp
+
+// [[hook]] at 0x5D3F0 in _Host_Frame: a player's client half starts (with native split-screen: its view, its pad)
+void ClientContextsTurnBegin(X86Context& ctx, uint8_t*) {
+    g_in_turn = true;
+    if (NativeSplitOn()) {
+        NativeSplitClientTurn(ctx);
+        NativeSplitPadTurnBegin();
+    }
+}
 
 void NativeSplitFrameEnd(X86Context& ctx);     // native_split.cpp
 void NativeSplitTurnPrelude(X86Context& ctx);  // native_split.cpp
@@ -295,7 +306,10 @@ void NativeSplitAborted(int context);          // native_split.cpp
 void ClientContextsMoveBegin(X86Context& ctx, uint8_t*) {
     g_in_turn = true;
     g_in_server_frame = false;
-    if (NativeSplitOn()) NativeSplitTurnPrelude(ctx);
+    if (NativeSplitOn()) {
+        NativeSplitPadTurnBegin();
+        NativeSplitTurnPrelude(ctx);
+    }
 }
 
 // [[hook]] at 0x5D2F4 in _Host_Frame and 0x5D5F0 in Host_Frame, the `test eax, eax` after their setjmp (0x6CE000,
@@ -309,6 +323,7 @@ void ClientContextsAbortLanding(X86Context& ctx, uint8_t*) {
     Switcher& s = Contexts();
     int was = s.Active();
     bool in_turn = g_in_turn;
+    if (NativeSplitOn()) NativeSplitPadTurnEnd();
     g_in_turn = false;
     if (s.Count() > 1 && was != 0) csx::ClientContextSwitch(0);
     if (NativeSplitOn() && (was != 0 || in_turn)) NativeSplitAborted(was);
@@ -317,6 +332,7 @@ void ClientContextsAbortLanding(X86Context& ctx, uint8_t*) {
 // [[hook]] at 0x5D3C2 in _Host_Frame, after a player's CL_Move: the next player's turn (false: back to 0x5D3B5), or
 // player 0 again and on to SV_Frame (true)
 bool ClientContextsMoveNext(X86Context&, uint8_t*) {
+    if (NativeSplitOn()) NativeSplitPadTurnEnd();
     Switcher& s = Contexts();
     LOG_FIRST(1, "client context: the players' input turns run (%d player%s)", s.Count(), s.Count() == 1 ? "" : "s");
     if (s.Count() > 1) {
@@ -331,6 +347,10 @@ bool ClientContextsMoveNext(X86Context&, uint8_t*) {
 // [[hook]] at 0x5D54A in _Host_Frame, after a player's client half: the next player's turn (false: back to 0x5D3F0),
 // or player 0 again and on to the frame's end (true)
 bool ClientContextsFrameNext(X86Context& ctx, uint8_t*) {
+    if (NativeSplitOn()) {
+        NativeSplitPadTurnEnd();
+        NativeSplitClientTurnEnd();
+    }
     Switcher& s = Contexts();
     LOG_FIRST(1, "client context: the players' client turns run (%d player%s)", s.Count(), s.Count() == 1 ? "" : "s");
     if (s.Count() > 1) {

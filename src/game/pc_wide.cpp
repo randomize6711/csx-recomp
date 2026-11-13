@@ -24,6 +24,8 @@
 
 #include "common/csx.h"
 #include "common/pc_settings.h"
+#include "game/native_split_view.h"
+#include "game/net_engine.h"
 #include "core/log.h"
 #include "cpu/x86_context.h"
 #include "kernel/kernel.h"
@@ -55,9 +57,18 @@ uint32_t FrameWidth() {
     else if (name == "21:9") aspect = 64.0f / 27.0f;  // 2560x1080 / 3440x1440 panels sold as 21:9
     else if (name == "auto")  // the display's (the window sets it), 4:3 headless
         if (const char* d = std::getenv("CSX_DISPLAY_ASPECT")) aspect = float(std::atof(d));
+    // native split-screen (docs/native_splitscreen.md 16): every local player draws into the one device's back buffer,
+    // so its aspect is one view's of the configured layout (two top and bottom in a 16:9 window: 32:9), chosen here
+    // once; a player alone later shows that frame fitted in the whole window
+    int native = 0;
+    if (const char* n = std::getenv("CSX_NATIVE_SPLIT")) native = std::atoi(n);
+    const char* render = std::getenv("CSX_NATIVE_SPLIT_RENDER");
+    if (native >= 2 && native <= nsplit::kMaxPlayers && !csx::Dedicated() && !(render && render[0] == '0') &&
+        aspect > 0.0f)
+        aspect = nsplit::ViewAspect(aspect, native, pc::Get("split_layout", "horizontal") == "vertical");
     // 32:9 gets 2.5:1, letterboxed; a split-screen player's wide viewport (two players top and bottom: 32:9 halves of
     // a 16:9 window) up to 4:1, so it fills its viewport
-    const float widest = csx::SplitPlayer() ? 4.0f : 2.5f;
+    const float widest = csx::SplitPlayer() || native >= 2 ? 4.0f : 2.5f;
     aspect = aspect > 0.0f ? std::clamp(aspect, 4.0f / 3.0f, widest) : 4.0f / 3.0f;
     width = uint32_t(std::lround(480.0f * aspect / 2.0f)) * 2;
     LOGI("pc wide: aspect %s (%.4f), frame %ux480", name.c_str(), aspect, width);

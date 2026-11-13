@@ -54,6 +54,10 @@
 #include "game/shared_once.h"
 #include "game/table_fingerprint.h"
 #include "kernel/kernel.h"
+#include "common/pc_settings.h"
+#include "core/input.h"
+#include "game/native_split_view.h"
+#include "xdk/d3d8.h"
 
 namespace dispatch {
 X86Func* Find(uint32_t guest);  // the recompiler's function entries (sdk/runtime/cpu/dispatch.cpp)
@@ -850,6 +854,9 @@ void WatchSharedParents() {
     }
 }
 
+void ReportRender();  // the views' diagnostics (M3, below)
+void FinishViews();   // the window frame's end (M3, below)
+
 void Report() {
     for (int k = 0; k < nsplit::kMaxPlayers; k++) {
         const nsplit::Player& p = g_players.At(k);
@@ -865,6 +872,7 @@ void Report() {
     double switch_ms = csx::ClientContextSwitchMs(switches);
     LOGI("native split: context switches %llu, %.4f ms each on average", (unsigned long long)switches,
          switches ? switch_ms / double(switches) : 0.0);
+    ReportRender();
     LOGI("native split: %llu packets dropped by full channels, %llu read outside their player's turn, %llu foreign frees "
          "(%llu skipped), %llu reallocs moved (%llu of another owner's block), %zu heap blocks tracked",
          (unsigned long long)g_ch.Dropped(), (unsigned long long)g_read_outside_turn,
@@ -1763,6 +1771,7 @@ void NativeSplitReference(X86Context& ctx, const std::vector<uint8_t>& state) {
 
 // client_context.cpp, after the last player's client turn: players added or removed between frames
 void NativeSplitFrameEnd(X86Context& ctx) {
+    if (NativeSplitOn()) FinishViews();
     if (!NativeSplitOn() || !csx::ClientContextHasInitial() || g_reference.empty()) return;
     SettleLinks();
     // the clients that left since the last frame (a kick, the server's disconnect, their own disconnect, a connect that
@@ -2396,13 +2405,230 @@ void NativeSplitUiElements(X86Context& ctx, uint8_t*) {
 
 bool AddedPlayersTurn() { return NativeSplitOn() && csx::ClientContextActive() != 0; }
 
-// [[hook]] at 0x5D51B in _Host_Frame, before SCR_UpdateScreen's call: false (on_false 0x5D535) skips it
-bool NativeSplitScreen(X86Context&, uint8_t*) { return !AddedPlayersTurn(); }
+// ---- M3: every drawing player's own view (docs 16; native_split_view.h) ---------------------------------------------
+
+namespace {
+// on unless CSX_NATIVE_SPLIT_RENDER=0 (M2's: player 1's view only, the window's)
+bool RenderViews() {
+    static const bool on = [] {
+        const char* v = std::getenv("CSX_NATIVE_SPLIT_RENDER");
+        return !(v && v[0] == '0');
+    }();
+    return on;
+}
+// two views side by side instead of top and bottom (pc_settings "split_layout", the multi-process split's setting)
+bool VerticalViews() {
+    static const bool v = pc::Get("split_layout", "horizontal") == "vertical";
+    return v;
+}
+
+std::array<int, nsplit::kMaxPlayers> ContextsOfPlayers() {
+    std::array<int, nsplit::kMaxPlayers> c{};
+    for (int k = 0; k < nsplit::kMaxPlayers; k++)
+        c[size_t(k)] = g_players.At(k).state == nsplit::State::Empty ? -1 : g_players.At(k).context;
+    return c;
+}
+nsplit::View ViewNow() { return nsplit::ViewOf(g_players, ContextsOfPlayers(), csx::ClientContextActive(), VerticalViews()); }
+
+// this frame's view (set at each client turn's start), the render diagnostics
+nsplit::View g_view_now;
+int g_view_player = -1;
+struct RenderStats {
+    uint64_t frames = 0, views = 0, hidden = 0, finished = 0, skipped_draws = 0, shared_skipped = 0, panels_skipped = 0;
+    uint64_t by_views[nsplit::kMaxPlayers + 1] = {};
+    double turn_ms[nsplit::kMaxPlayers] = {};
+    uint64_t turns[nsplit::kMaxPlayers] = {};
+    std::chrono::steady_clock::time_point turn_start{};
+    int last_views = -1;
+} g_render;
+
+}  // namespace
+
+// client_context.cpp, at each player's client half (0x5D3F0): its view of the window frame. A player that draws: its
+// viewport, first / last of the frame (d3d::SetSplitView: its Swap is placed there, the last one presents); one that
+// does not (departed, initialising): a view placed nowhere, so nothing its turn presents reaches the window
+void NativeSplitClientTurn(X86Context&) {
+    if (!NativeSplitOn() || !RenderViews()) return;
+    nsplit::View v = ViewNow();
+    g_view_now = v;
+    g_view_player = PlayerOfContext(csx::ClientContextActive());
+    gpu::SplitView sv;
+    sv.on = true;
+    sv.player = g_view_player < 0 ? 0 : g_view_player;
+    sv.views = v.views;
+    nsplit::Rect conf = nsplit::ConfiguredView(Wanted(), VerticalViews());
+    sv.frame_w = conf.w;
+    sv.frame_h = conf.h;
+    if (v.draws) {
+        sv.first = v.first;
+        sv.last = v.last;
+        sv.x = v.rect.x;
+        sv.y = v.rect.y;
+        sv.w = v.rect.w;
+        sv.h = v.rect.h;
+        g_render.views++;
+    } else {
+        sv.first = sv.last = false;
+        sv.w = sv.h = 0;
+        g_render.hidden++;
+    }
+    d3d::SetSplitView(sv);
+    g_render.turn_start = std::chrono::steady_clock::now();
+    if (v.views != g_render.last_views) {
+        g_render.last_views = v.views;
+        LOGI("native split: the window shows %d view(s) (%s)%s", v.views,
+             v.views == 2 ? (VerticalViews() ? "side by side" : "top and bottom") : v.views <= 1 ? "the whole window" : "2x2",
+             v.views == 0 ? ": nobody draws" : "");
+    }
+}
+
+// client_context.cpp, after each player's client half (0x5D54A): its turn's time (its view's drawing with the rest of
+// its client half)
+void NativeSplitClientTurnEnd() {
+    if (!NativeSplitOn() || !RenderViews() || g_view_player < 0) return;
+    int k = g_view_player;
+    g_render.turn_ms[k] += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - g_render.turn_start).count();
+    g_render.turns[k]++;
+    g_view_player = -1;
+}
+
+namespace {
+// the frame's end: a window frame whose last view never swapped presented as it stands (d3d::FinishSplitFrame)
+void FinishViews() {
+    if (!RenderViews()) return;
+    g_render.frames++;
+    if (g_render.last_views >= 0 && g_render.last_views <= nsplit::kMaxPlayers) g_render.by_views[g_render.last_views]++;
+    if (d3d::FinishSplitFrame()) {
+        g_render.finished++;
+        LOG_FIRST(8, "native split: the window frame's last view did not swap: presented as it stood [watch:view-missing]");
+    }
+}
+
+void ReportRender() {
+    if (!RenderViews()) return;
+    d3d::SplitCounters c = d3d::SplitStats();
+    std::string per;
+    for (int k = 0; k < nsplit::kMaxPlayers; k++)
+        if (g_render.turns[k]) {
+            char b[96];
+            std::snprintf(b, sizeof b, "%splayer %d %.3f ms a turn (%llu)", per.empty() ? "" : ", ", k + 1,
+                          g_render.turn_ms[k] / double(g_render.turns[k]), (unsigned long long)g_render.turns[k]);
+            per += b;
+        }
+    nsplit::Rect conf = nsplit::ConfiguredView(Wanted(), VerticalViews());
+    LOGI("native split: views: %llu frames (%llu of 1 view, %llu of 2, %llu of 3-4, %llu of none); %llu views placed, "
+         "%llu hidden turns; swaps: %llu placed, %llu window frames presented at their last view, %llu finished "
+         "without it, %llu repeated in one view, %llu not shown (a backend that does not compose); draws skipped: %llu "
+         "SCR_UpdateScreen, %llu shared, %llu other players' panels; the configured view %.3f x %.3f of the window; %s",
+         (unsigned long long)g_render.frames, (unsigned long long)g_render.by_views[1],
+         (unsigned long long)g_render.by_views[2],
+         (unsigned long long)(g_render.by_views[3] + g_render.by_views[4]), (unsigned long long)g_render.by_views[0],
+         (unsigned long long)g_render.views, (unsigned long long)g_render.hidden, (unsigned long long)c.views,
+         (unsigned long long)c.frames, (unsigned long long)c.finished, (unsigned long long)c.repeats,
+         (unsigned long long)c.skipped, (unsigned long long)g_render.skipped_draws,
+         (unsigned long long)g_render.shared_skipped, (unsigned long long)g_render.panels_skipped, conf.w, conf.h,
+         per.empty() ? "no turns timed" : per.c_str());
+}
+}  // namespace
+
+// [[hook]] at 0x5D51B in _Host_Frame, before SCR_UpdateScreen's call: false (on_false 0x5D535) skips it. M3: a player
+// that draws (native_split_view.h Draws) runs it in its turn; M2 (CSX_NATIVE_SPLIT_RENDER=0): player 1's only
+bool NativeSplitScreen(X86Context&, uint8_t*) {
+    if (!NativeSplitOn()) return true;
+    if (!RenderViews()) return !AddedPlayersTurn();
+    bool draws = ViewNow().draws;
+    if (!draws) g_render.skipped_draws++;
+    return draws;
+}
+
+// [[hook]] at 0x55F87 and 0xB4660 (Con_Draw), 0x55F94 (the game menus 0xCD7D0) and 0x55FA7 (the front end's screens
+// 0xF4400, ecx 0x5616D0): the shared console and front end drawn once a window frame, in the driver's turn
+// (native_split_view.h DrawsShared); on_true skips the call
+bool NativeSplitSharedDraw(X86Context&, uint8_t*) {
+    if (!NativeSplitOn() || !RenderViews() || !csx::ClientContextInTurn()) return false;
+    if (nsplit::DrawsShared(g_view_now.views, TurnPlayer(), g_ui.driver)) return false;
+    g_render.shared_skipped++;
+    return true;
+}
+bool NativeSplitDrawsShared() {
+    return !NativeSplitOn() || !RenderViews() || !csx::ClientContextInTurn() ||
+           nsplit::DrawsShared(g_view_now.views, TurnPlayer(), g_ui.driver);
+}
+
+// [[hook]] at 0x10A830, a VGUI panel's paint traverse (thiscall, one bool: ret 4 at 0x10A98D): another player's viewport
+// (vtable 0x35FD10) is not painted in this player's turn: its paint (0x1B4E70) draws the 3D view and the HUD of
+// whoever's turn runs it (native_split_view.h PaintsPanel)
+bool NativeSplitPaint(X86Context& ctx, uint8_t*) {
+    if (!NativeSplitOn() || !RenderViews()) return false;
+    uint32_t panel = ctx.ecx;
+    bool viewport = panel && Readable(panel) && R32(panel) == nsplit::kViewportVtable;
+    if (nsplit::PaintsPanel(csx::ClientContextInTurn(), viewport, panel, R32(nsplit::kViewport))) return false;
+    g_render.panels_skipped++;
+    return true;
+}
+
+// ---- M4's minimum: an added player's own controller in its turn (docs 16) ----------------------------------------------
+// The look routine (0x19E160) and the pad bridge (0x19DFD0) read the title's one active pad, [0x3852F8] (an index into
+// the pads the title polls, 0x384F9C + 0xE0 each). In an added player's turns its own port is set there (the window's
+// port k: its kth other controller; native_split_view.h PadPort) and the bridge's previous-button mask 0x5439B8 (the
+// process's, not in a player's regions) is that player's own, swapped in for the turn and back after it; player 1's
+// stay the title's. Without a controller on its port the player reads nothing, as in M2. The look routine's own state
+// (0x5439A0.., 0x5437D0..) is already in each player's regions. Off with CSX_NATIVE_SPLIT_INPUT=0.
+namespace {
+constexpr uint32_t kActivePad = 0x3852F8, kBridgeMask = 0x5439B8;
+bool InputRouted() {
+    static const bool on = [] {
+        const char* v = std::getenv("CSX_NATIVE_SPLIT_INPUT");
+        return !(v && v[0] == '0');
+    }();
+    return on;
+}
+struct PadTurn {
+    bool routed = false;   // this turn is an added player's with its controller connected
+    int player = -1;
+    uint32_t title_pad = 0, title_mask = 0;  // the process's values, put back after the turn
+    uint32_t mask[nsplit::kMaxPlayers] = {};  // each added player's bridge mask between its turns
+    uint64_t turns = 0, unrouted = 0;
+} g_pad_turn;
+}  // namespace
+
+// client_context.cpp, at each input or client turn's start (after the switch): an added player's port and mask in
+void NativeSplitPadTurnBegin() {
+    g_pad_turn.routed = false;
+    if (!NativeSplitOn() || !InputRouted()) return;
+    int k = PlayerOfContext(csx::ClientContextActive());
+    if (k <= 0 || !nsplit::AddedPlayerReadsPad(true, csx::ClientContextInTurn())) return;
+    uint32_t port = nsplit::PadPort(k, R32(kActivePad));
+    if (!input::Poll(int(port)).connected) {
+        g_pad_turn.unrouted++;
+        return;
+    }
+    g_pad_turn.routed = true;
+    g_pad_turn.player = k;
+    g_pad_turn.title_pad = R32(kActivePad);
+    g_pad_turn.title_mask = R32(kBridgeMask);
+    W32(kActivePad, port);
+    W32(kBridgeMask, g_pad_turn.mask[k]);
+    g_pad_turn.turns++;
+    LOG_FIRST(4, "native split: player %d reads its own controller (port %u) in its turns", k + 1, port);
+}
+// at the turn's end (before the next switch), and when a turn is cut short: the process's values back
+void NativeSplitPadTurnEnd() {
+    if (!g_pad_turn.routed) return;
+    g_pad_turn.mask[g_pad_turn.player] = R32(kBridgeMask);
+    W32(kActivePad, g_pad_turn.title_pad);
+    W32(kBridgeMask, g_pad_turn.title_mask);
+    g_pad_turn.routed = false;
+}
 
 // [[hook]] at 0x19E160, the look routine's entry (the right stick and the mouse's look), and 0x19DFD0, the pad's
-// buttons as keys: on_true "ret" skips them
-bool NativeSplitLook(X86Context&, uint8_t*) { return AddedPlayersTurn() && csx::ClientContextInTurn(); }
-bool NativeSplitPadKeys(X86Context&, uint8_t*) { return AddedPlayersTurn() && csx::ClientContextInTurn(); }
+// buttons as keys: on_true "ret" skips them in an added player's turn unless its own controller is routed in
+bool NativeSplitLook(X86Context&, uint8_t*) {
+    return AddedPlayersTurn() && csx::ClientContextInTurn() && !g_pad_turn.routed;
+}
+bool NativeSplitPadKeys(X86Context&, uint8_t*) {
+    return AddedPlayersTurn() && csx::ClientContextInTurn() && !g_pad_turn.routed;
+}
 
 // [[hook]] at 0x100F10, S_StartDynamicSound's entry: on_true "ret" skips it
 bool NativeSplitSound(X86Context&, uint8_t*) { return AddedPlayersTurn() && csx::ClientContextInTurn(); }

@@ -1211,6 +1211,37 @@ at = 0x5D51B
 call = "NativeSplitScreen"
 on_false = 0x5D535
 
+# M3 (docs/native_splitscreen.md 16): another player's VGUI viewport not painted in this player's turn (its paint draws
+# the 3D view and HUD of whoever's turn runs it); 0x10A830 is the panels' paint traverse (thiscall, one bool), 0x10A98D
+# its `ret 4`
+[[hook]]
+at = 0x10A830
+call = "NativeSplitPaint"
+on_true = 0x10A98D
+
+# M3: the shared console and front end drawn once a window frame, in the shared front end's driver's turn: Con_Draw at
+# 0x55F87 (SCR_UpdateScreen) and 0xB4660 (the 3D view's paint), the game menus 0xCD7D0 at 0x55F94, the front end's
+# screens 0xF4400 at 0x55FA7; each skipped to the next instruction
+[[hook]]
+at = 0x55F87
+call = "NativeSplitSharedDraw"
+on_true = 0x55F8C
+
+[[hook]]
+at = 0xB4660
+call = "NativeSplitSharedDraw"
+on_true = 0xB4665
+
+[[hook]]
+at = 0x55F94
+call = "NativeSplitSharedDraw"
+on_true = 0x55F99
+
+[[hook]]
+at = 0x55FA7
+call = "NativeSplitSharedDraw"
+on_true = 0x55FAC
+
 # the world's shared-once operations and a connection's lifecycle (docs/native_splitscreen.md 15)
 [[hook]]
 at = 0x4F8D0

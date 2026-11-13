@@ -2028,3 +2028,99 @@ CSX_NATIVE_SPLIT_LEAVE_AFTER (nsplit::DiagLeaveDue). native_split_2p_leave asks 
 p1_rejoin for 2 (its two cycles, and a check that no third departure happens), native_split_2p_p1_leaves the default.
 Tests: native_split_lifecycle_test Player1Memory (18 checks: the baseline, growth never negative, the bound with leaves
 and growth summed, about 80 simulated rejoins then refused within the bound, the leave count, the site summary).
+
+## 16. M3: every local player's own view in one window (2026-11-13; static only, not run)
+
+Nothing here has been run: compiled, unit-tested with simulated frames (tests/native_split_view_test.py) and checked
+against the disassembly. Statements marked as in section 0: (P) proved from the code, (I) inferred, (R) needs a run.
+
+### 16.1 The design: a pass per player, one present per window frame
+
+Each player that draws runs the title's **own SCR_UpdateScreen in its own client turn**, with its own context live
+(its `cl`, its HUD `gHUD` 0x5623D0, its view model, its screen fade `cl` 0x74A244.., its FOV 0x377668, its particles:
+all in its regions, P), into the device's one back buffer. Its Swap (SCR_UpdateScreen's `call [0x5EF674]` at 0x55FD9
+-> 0xACFE0 -> D3DDevice_Swap at 0xAD001, P) becomes **one view of the window frame**: the host places the finished frame
+(its glow pass, its gamma ramp, its fades, its HUD already in it) in that player's viewport of a window-sized image,
+and presents the window once, after the frame's last view. The world is simulated once (SV_Frame, unchanged); the
+recorded world push buffer (0x552C04) is replayed per view with the camera R_SetupGL just set (the device's matrices
+into vertex constants 3..6 at 0x198A54, P): nothing is recorded per view. Nothing of the renderer is made per player.
+
+Why a full pass per player rather than sub-viewports in one pass: the title's full-frame effects (the bloom 0xC2160,
+reading and adding over the whole back buffer; the dynamic gamma's 40x60 measurement 0xBE1D0 and its one ramp; the
+flashbang's R_PolyBlend 0x4D860 over the GL size; the scope at 0..640 x 0..480 in screen pixels) all assume the
+frame is the player's. With a pass each, every one of them is correct for its player with no change.
+
+### 16.2 The host side (SDK patch 0047, src/vulkan/vk_backend.cpp)
+
+- `gpu::SplitView` (backend.h): on, player, views, first, last, the viewport (fractions), the configured view size.
+  `d3d::SetSplitView` sets the view the next Swaps are; `d3d::FinishSplitFrame` presents a window frame whose last
+  view never swapped; `d3d::SplitStats` counts views, frames, finished frames, repeats in one view, views not shown.
+- **Swap** with a view: the backend's SetSplitView then Present; the title's pacing (app::Pace) only at the last
+  view (once a window frame); a backend that does not compose (the software window) presents the last view only.
+  Without a view (CSX_NATIVE_SPLIT unset, or outside the turns) a Swap is a whole frame exactly as before.
+- **Vulkan**: PlaceView blits the presented target (after ApplyGamma, ComposeOverlay) into `compose_` (the window's
+  size; cleared black at a frame's first view) at split::PlaceInViewport's rectangles (split_ipc.h: the frame placed
+  as FrameRect places it, clipped to the viewport, the source cut to match: no view ever draws over another, no
+  stretching); a view that is not the last submits its work in queue order (the next player draws into the same back
+  buffer after it); the last acquires the swapchain image and presents `compose_` whole (PresentTail, the window's
+  present path factored out). The internal resolution follows the configured layout's view (UpdateResolution), the
+  same for every view and kept while a player is away, so no target is made again at a departure.
+- **Headless** (null_backend.cpp): composes (counts); a REF capture is written per view (`cap/ref_N_pK.tga`) and the
+  log says whose view each snap is.
+
+### 16.3 The game side (native_split.cpp, native_split_view.h, client_context.cpp)
+
+- At each client turn's start (0x5D3F0) the player's view: `nsplit::ViewOf` over the players that draw (Active or
+  Connecting: a departed player 1, an initialising player, an empty slot draw nothing), in turn order, laid out by
+  `nsplit::Layout` for that many: one, the whole window; two, top and bottom (pc_settings split_layout vertical: side
+  by side); three and four, a 2x2 grid. A player alone (the other departed or gone) gets the whole window.
+- SCR_UpdateScreen (0x5D51B) runs in the turn of a player that draws; a turn that does not gets a view placed
+  nowhere (anything it swaps reaches nothing).
+- **Another player's viewport is not painted** (hook 0x10A830, the panels' paint traverse; skipped to its `ret 4` at
+  0x10A98D): the VGUI root is the process's and every player's viewport (vtable 0x35FD10) its child (15.17), and a
+  viewport's paint (0x1B4E70 -> 0xB4560) draws the 3D view and calls HUD_Redraw for **whoever's turn runs it** (P):
+  without this, each player's pass drew its own view twice (once through the other's panel) and the other's panels
+  (scoreboard) with this player's state.
+- **The shared console and front end drawn once** (in the driver's turn, nsplit::DrawsShared): Con_Draw at 0x55F87 and
+  0xB4660, the game menus 0xCD7D0 at 0x55F94, the front end's screens 0xF4400 at 0x55FA7, and pc_console's console
+  over the menus.
+- **The back buffer's aspect** (pc_wide.cpp FrameWidth): one view's of the configured layout (CSX_NATIVE_SPLIT=N:
+  two top and bottom in 16:9, 32:9; the 4:1 cap as for a multi-process player), once at the boot (the title makes
+  its device once). A player alone shows that frame in the whole window at full height with the sides cut
+  (FrameRect: the 4:3 middle with the HUD whole); side by side at 16:9 the views are 8:9, narrower than 4:3, and
+  show the 4:3 frame letterboxed (as the multi-process split).
+- CSX_NATIVE_SPLIT_RENDER=0 gives M2's behaviour back (player 1's view only).
+- Diagnostics: "the window shows N view(s)" at each change; in the 10 s report "views: ..." (frames by view count,
+  views placed, hidden turns, swaps placed / presented at the last view / finished without it / repeated / not
+  shown, the draws skipped, the configured view, each player's client turn time); `[watch:view-missing]` when a
+  frame's last view did not swap.
+
+### 16.4 Input: each player's own controller (the minimum of M4)
+
+- The look routine (0x19E160) and the pad bridge (0x19DFD0) read the title's one active pad index [0x3852F8] (P). In
+  an added player's turns (its input turn and its client half) its own port is set there (player k+1 reads port k)
+  and the bridge's previous-button mask 0x5439B8 (the process's) is that player's own, put back after the turn (and
+  at a turn cut short); the look routine's state is already per player (0x5439A0.., 0x5437D0.. in the regions). Its
+  pad's button presses become key events whose bindings, added in its turn, go to its own console lines (15.12):
+  `+attack` is its own. Without a controller on its port nothing changes from M2. Off with CSX_NATIVE_SPLIT_INPUT=0.
+- The mouse look (MouseLookApply 0x19E4EB) is player 1's only; the keyboard's commands run at the frame's start in
+  player 1's context (as before).
+- The window (window_input.cpp): with CSX_NATIVE_SPLIT=N port 0 is the keyboard and mouse (and the first controller
+  with split_p1_pad 1), port k the next controller in connection order. Headless there is no port but 0.
+- Not done: rumble on ports 1-3; START on player 2's controller (it reaches the shared front end through player 2's
+  turn, withheld: M4's menus); the sound stays player 1's (dynamic sounds skipped in other turns, one listener).
+
+### 16.5 Not verified (R), and the risks
+
+- **Nothing drew yet**: the views' placement, the per-view passes, the one present, the paint gate, the shared draws
+  and the aspect need a run. Headless can show the two views' frames (REF captures per view) but not the window.
+- **Shared renderer state between passes**: the GL size, vid and r_refdef are process-wide and re-derived every pass
+  (P); the leaf visibility marks (r_visframecount and the old view leaf, for the entities' efrags) were not traced:
+  a missing or extra entity in one view would show it.
+- **The dynamic gamma's adaptation** (its state 0x5BD990, process-wide) and its late measurement (a frame or two
+  old, possibly the other player's) are shared: both views converge on about the same exposure. cl_dynamicgamma 0
+  removes it.
+- The VGUI root's other children (the process's panels) are painted in every pass: a process-wide panel that shows
+  would show in every view.
+- Cost: two full passes a frame (bloom and gamma included) and a blit each: measured only by a run.
+- Three and four players use a 2x2 grid with one back buffer aspect; untested (no four-player run).

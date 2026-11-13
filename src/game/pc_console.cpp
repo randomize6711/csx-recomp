@@ -209,6 +209,7 @@ void PcConsoleFrame(X86Context& ctx) {
 // [[hook]] at 0x55F99 (SCR_UpdateScreen, after the game's menus are drawn by 0xCD7D0): SCR_UpdateScreen draws the
 // console (0x55F87) before the menus, which cover it with their backdrop; with a menu open the console's own Con_Draw
 // (0x40B20) runs once more on top, so it can be read and typed into from the pause menu and the front end
+bool NativeSplitDrawsShared();  // native_split.cpp: the shared console drawn in this turn (M3: the driver's)
 void PcConsoleOverMenus(X86Context& ctx, uint8_t*) {
-    if (R32(kConsoleShown) && R32(kCurrentScreen)) kernel::CallGuest(ctx, kConDraw, {});
+    if (R32(kConsoleShown) && R32(kCurrentScreen) && NativeSplitDrawsShared()) kernel::CallGuest(ctx, kConDraw, {});
 }
