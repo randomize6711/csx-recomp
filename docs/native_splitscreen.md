@@ -2428,3 +2428,25 @@ format strings and runs 17-19's logs), `run_window_tests.py --tag run20 vk_nativ
   then player 2 closes it with its controller's B (seen closed) and walks. The controller's buy binding lives in the
   title's compressed UI data (no readable binding: config.cfg binds nothing, +buymenu has no pad action in
   pc_bindings), so the game's own spawn opening is used instead of a guessed button; no menu state is set directly.
+
+### 17.13 Run 21 (2026-11-13, permitted once): TIMEOUT at step 81 of the scenario (player 2's buy menu came earlier)
+At bb54799 (window 8c2a81b3…, harness 877a63b9…, server 876738a8…; preflight: the 27 suites, check_tables ok on all
+three, the fingerprints unchanged, CSX_CTX_GUARD=1, rollback 0, the pool reclamation off),
+`run_window_tests.py --tag run21 vk_native_split_2p_play.txt`.
+- **Passed (80 steps).** Player 2 on CT before player 1's menu input; player 1's DOWN, DOWN, A on the original team
+  screen (T); the restart's "Round_Start", the freeze over, both alive on their teams; player 1's spawn buy menu closed
+  with B and seen closed. Player 2's left stick 394 units (player 1 still); player 1's W 280 units (player 2 still);
+  player 1's mouse 90.0 degrees of yaw (player 2 still); player 2's right stick 129.2 degrees (player 1 still); both
+  alive on their teams after. Player 1 left at 84.1 s (its memory at departure 429,687 bytes, the bound 8 MiB; the
+  server's shutdown refused in its turn, 2 players playing), the window showed 1 view, player 2 walked 186 units
+  alone; player 1 rejoined in its kept context at 94.2 s (2 views), chose T itself (95.3 s; its "open spectator"
+  withheld: the front end is player 2's). Shots gp_team, gp_spawned, gp_p2_moved, gp_p1_aims, gp_p2_aims, gp_both,
+  gp_alone: each view its own camera, HUD and weapon, the split FOV, no visual defect. 17,535 split views placed, none
+  missing; GPU 0.95 ms, CPU recording 2.8 ms a frame, 60 movement commands/s; no error, ownership tag, guard write,
+  Host_Error, trap, missing view or auto-join warning in the 300 s.
+- **17.12 held:** the title opened player 2's buy menu (the driver's, in its turn) at 95.25 s as player 1 came back, and
+  pc_keys logged "playing on: the screen CT_BuyMenuRoot is player 2's ..., the keyboard and mouse stay player 1's
+  game's" (95.32 s); player 1 never entered menu mode after 18.6 s; the menu stayed open through the restart.
+- **The failure was the scenario's order:** it waited for that line after the restart (newlog), but it came before.
+  It now waits for it (any time after the rejoin) before the restart, and checks the menu still open. Not reached:
+  player 1's walk and aim with player 2's menu open, player 2's B closing it, player 2's walk after it.

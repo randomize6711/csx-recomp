@@ -109,11 +109,12 @@ windowshot gp_alone
 wait log native split: player 1 is in the match
 wait log native split: player 1's automatic team choice \(development\): on its team
 wait newlog native split: the window shows 2 view\(s\)
+# the title opens player 2's buy menu (the shared front end's driver now; its own client's open, in its turn) as
+# player 1 comes back (run 21: 95.25 s, before the restart), and it stays open through the restart. The controller's
+# buy binding is the title's data's (not readable statically), so the game's own opening is used; no menu state is
+# touched. Player 1's own is withheld (not the driver)
+wait log pc keys: playing on: the screen CT_BuyMenu[A-Za-z]* is player 2's
 pckey cmd sv_restartround 1
-# the restart spawns both; the title opens the spawn's buy menu for the shared front end's driver, player 2 now (its
-# own client's open, in its turn; player 1's is withheld: not the driver). The controller's buy binding is the title's
-# data's (not readable statically), so the game's own spawn opening is used, no menu state is touched
-wait newlog pc keys: playing on: the screen CT_BuyMenu[A-Za-z]* is player 2's
 wait newlog game: World triggered "Round_Start"
 sleep 1
 players rejoined
@@ -122,6 +123,7 @@ expect alive rejoined 0 T
 expect alive rejoined 1 CT
 expect apart rejoined 0 1 1 100000
 expect nonewlog pc keys: menu
+expect nolog pc keys: player 2's screen closed
 windowshot gp_rejoined
 # player 2's buy menu open: player 1's keyboard and mouse are still its own game's (docs 17.12; run 20's finding)
 key w 1
