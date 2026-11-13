@@ -2250,3 +2250,19 @@ restart (sv_restartround) spawns both; each walks and turns through its own inpu
 player 2 the test controller), the server's positions and view angles checked after each (`players` steps,
 `expect bodymoved / bodyturned / bodystill`: one moved, the other did not); player 1 leaves and rejoins once, chooses
 its team automatically and spawns at a restart; seven window shots.
+
+### 17.7 Player 1's retained memory: the sites (static)
+
+The sites run 17 logged at player 1's departure (its first connection's blocks; return addresses of malloc 0x22D86A):
+- **0x1CFD0** (32 blocks, 80 864 bytes): the engine's sprite list loader (SPR_GetList: the file read by COM_LoadFile,
+  its count by atoi 0x22C9B6 at 0x1CFB0, then malloc(count x 0x98) at 0x1CFCB; 0x98 is client_sprite_t's size: two
+  64-byte names, the sprite handle, the resolution, a wrect_t) (P for the loader and the size). The HL SDK's client
+  calls it for hud.txt once (kept in gHUD) and for every weapon's list at each connection (its WeaponList messages),
+  never freeing those (I): the likeliest source of the growth per rejoin.
+- 0x439C0 (22 blocks, 94 422 bytes): an engine malloc(size + 0x10) (a loaded file's buffer with a header, I).
+- 0x1B136C (108 x 0x130) and 0x1B150A (114 x 0x108): fixed-size client objects made near the VGUI viewport's code
+  (0x1B03B0): its panels or list rows, made per connection (I).
+- 0x4B326 (39 blocks): an engine allocation (models or sprites' data, I).
+Nothing is freed: whether anything still names these blocks is not proved (the pool's dry run of 15.21 is the model
+for a later check). The growth stays counted against the 8 MiB bound (15.23); two departures in one run would give the
+growth by site.
