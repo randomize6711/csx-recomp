@@ -397,6 +397,10 @@ inline P1Exit Player1Exit(const Players& p) {
 // (fail closed: tried again at a later frame's end) while one does
 inline bool AddWaitsForSlot(bool server_active, bool stale_slot) { return server_active && stale_slot; }
 
+// diagnostics (docs 15.23): a timed leave (CSX_NATIVE_SPLIT_LEAVE_AFTER) once `done` have happened: `times` of them
+// (CSX_NATIVE_SPLIT_LEAVE_TIMES, 1 unset), 0 one after every join (a scenario asking for the repetition)
+inline bool DiagLeaveDue(int done, int times) { return times == 0 || done < times; }
+
 // the local player whose leaving ends the server (StartsModuleValidation; the window's): the lowest one playing,
 // player 1 while it plays
 inline int SessionHost(const Players& p) {

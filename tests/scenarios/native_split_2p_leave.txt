@@ -1,8 +1,9 @@
 # Native split-screen M2 lifecycle (docs/native_splitscreen.md 15.12): player 2 joins, then leaves through its own
 # "disconnect" console line run in its own turn (CSX_NATIVE_SPLIT_LEAVE_PLAYER=2, 30 s after joining: the real path,
-# its CL_Disconnect), is removed between frames and joins again, repeatedly (each join leaves after 30 s). Player 1,
-# the built-in server and the world stay throughout. de_dust2 with no bots, the server write guard on.
-#   --env FPS=30 --env CSX_NATIVE_SPLIT=2 --env CSX_CTX_GUARD=1 --env CSX_NATIVE_SPLIT_ROLLBACK=0 --env CSX_NATIVE_SPLIT_LEAVE_AFTER=30 --env CSX_NATIVE_SPLIT_LEAVE_PLAYER=2 --launch tests/launch/de_dust2_nobots
+# its CL_Disconnect), is removed between frames and joins again, repeatedly (each join leaves after 30 s:
+# CSX_NATIVE_SPLIT_LEAVE_TIMES=0, docs 15.23). Player 1, the built-in server and the world stay throughout.
+# de_dust2 with no bots, the server write guard on.
+#   --env FPS=30 --env CSX_NATIVE_SPLIT=2 --env CSX_CTX_GUARD=1 --env CSX_NATIVE_SPLIT_ROLLBACK=0 --env CSX_NATIVE_SPLIT_LEAVE_AFTER=30 --env CSX_NATIVE_SPLIT_LEAVE_PLAYER=2 --env CSX_NATIVE_SPLIT_LEAVE_TIMES=0 --launch tests/launch/de_dust2_nobots
 # timeout: 180
 wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
 wait draws>=150

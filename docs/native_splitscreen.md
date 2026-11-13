@@ -1994,3 +1994,37 @@ removal, a departure, a rejoin and an add each empty the player's port); the des
 (15.16's contracts, unchanged); a partial initialisation (unwound, its context removed, fail closed; its leftovers now
 in the retention history, 15.20); context switching while player 1 is departed (its turn runs disconnected, held).
 No other defect was found.
+
+### 15.23 Run 16; player 1's memory over its rejoins; the timed leave once (2026-11-13; static only, not run)
+
+**Run 16** (`native_split_2p_p1_rejoin` at 2c35a76, permitted once): PASS, 137 s. Player 1 departed and rejoined in
+its kept context 0 **three** times (the timed leave fired again after every rejoin: the scenario said two), each time
+server slot 0 with a new userid (3, 4, 5), client state 5, its delta descriptions in its own slot 0x700D1FF0, its own
+part of R_NewMap only (the world built once), its viewport on the root panel listed once (17 attachments throughout,
+0 permanent detachments; 1 972 temporary cycles all 0x108BB0's). Player 2 stayed active in context 1 (slot 1, userid
+2) and the server never shut down. 0 `[own:]`, 0 errors, guard 3 597+ frames with 0 writes; 0.0742 ms a switch.
+Two findings:
+- **The screen is blank while player 1 is away** (about 330 empty frames each absence; 0 draws): until M3 only
+  player 1's turn runs SCR_UpdateScreen (11.2). M3's concern (section 16).
+- **Player 1 holds more each cycle**: its turns' objects at its departures 425 755, 539 834, 636 210 bytes (about
+  100 KB a cycle). A leave's blocks are handed to the process and bounded (15.20), player 1's context is never
+  removed, so this growth was under no bound.
+
+**Accounting** (native_split_lifecycle.h Player1Retention, LeakBudget::dormant): what player 1's turns hold is
+measured at each departure; the first is the baseline (its first connection, the title's own), the excess at later
+departures is its growth, counted against the same 8 MiB bound as the leaves' outstanding bytes: joins close when the
+sum passes it (MayJoin), and a rejoin is refused (fail closed: it stays departed, the others play on) when one more
+cycle at the last cycle's growth would pass it (MayRejoin). Nothing is freed: the blocks' referrers are not known.
+At 100 KB a cycle that is about 80 rejoins.
+
+**Where it comes from** (not proved; the report decides): each departure logs the blocks its latest connection made
+that it still holds, summed by allocating site (`[watch:p1-retained]`, the eight largest). The candidate read from
+the HL SDK's shape is the client's per-connect sprite lists (each weapon's SPR_GetList, a client_sprite_t array the
+SDK never frees: a few KB a weapon, tens of weapons), which nothing references after the load; to be confirmed by
+the sites before any free is considered.
+
+**The timed leave once**: CSX_NATIVE_SPLIT_LEAVE_TIMES (1 unset; N; 0 after every join, as before) bounds
+CSX_NATIVE_SPLIT_LEAVE_AFTER (nsplit::DiagLeaveDue). native_split_2p_leave asks for 0 (its repetition), native_split_2p_
+p1_rejoin for 2 (its two cycles, and a check that no third departure happens), native_split_2p_p1_leaves the default.
+Tests: native_split_lifecycle_test Player1Memory (18 checks: the baseline, growth never negative, the bound with leaves
+and growth summed, about 80 simulated rejoins then refused within the bound, the leave count, the site summary).

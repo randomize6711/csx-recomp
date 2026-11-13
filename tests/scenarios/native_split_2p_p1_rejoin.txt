@@ -2,9 +2,10 @@
 # through its own "disconnect" console line run in its own turn (CSX_NATIVE_SPLIT_LEAVE_PLAYER=1); it departs (its
 # context 0 kept, dormant), the built-in server and the world stay for player 2. 10 s later it rejoins in that same
 # context (CSX_NATIVE_SPLIT_REJOIN_AFTER=10: its client's own reconnect, CL_CheckForResend), is in the match again,
-# and 30 s after that leaves and rejoins once more. Player 2 plays throughout; nobody is renumbered. de_dust2 with no
-# bots, the server write guard on.
-#   --env FPS=30 --env CSX_NATIVE_SPLIT=2 --env CSX_CTX_GUARD=1 --env CSX_NATIVE_SPLIT_CHANGES=1 --env CSX_NATIVE_SPLIT_ROLLBACK=0 --env CSX_NATIVE_SPLIT_LEAVE_AFTER=30 --env CSX_NATIVE_SPLIT_LEAVE_PLAYER=1 --env CSX_NATIVE_SPLIT_REJOIN_AFTER=10 --launch tests/launch/de_dust2_nobots
+# and 30 s after that leaves and rejoins once more: two cycles (CSX_NATIVE_SPLIT_LEAVE_TIMES=2; docs 15.23: before it the
+# timed leave repeated after every rejoin, and run 16 made three). Player 2 plays throughout; nobody is renumbered.
+# de_dust2 with no bots, the server write guard on.
+#   --env FPS=30 --env CSX_NATIVE_SPLIT=2 --env CSX_CTX_GUARD=1 --env CSX_NATIVE_SPLIT_CHANGES=1 --env CSX_NATIVE_SPLIT_ROLLBACK=0 --env CSX_NATIVE_SPLIT_LEAVE_AFTER=30 --env CSX_NATIVE_SPLIT_LEAVE_PLAYER=1 --env CSX_NATIVE_SPLIT_LEAVE_TIMES=2 --env CSX_NATIVE_SPLIT_REJOIN_AFTER=10 --launch tests/launch/de_dust2_nobots
 # timeout: 180
 wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
 wait draws>=150
@@ -67,3 +68,7 @@ expect nolog \] \[error\] \[[^]]*\] native split:
 expect nolog local server: starting
 expect nolog Host_Error
 expect nolog guest trap
+# docs 15.23: what player 1 holds measured at each departure (the growth counted against the leak bound, nothing freed);
+# exactly two timed departures
+expect log native split: player 1's memory at departure 2: [0-9]+ bytes held by its turns' objects .*\[watch:p1-retained\]
+expect nolog native split: player 1's memory at departure 3

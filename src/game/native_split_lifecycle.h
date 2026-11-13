@@ -4,6 +4,7 @@
 // tests/native_split_lifecycle_test.py; src/game/native_split.cpp drives it from the game.
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <map>
 #include <cstddef>
@@ -371,8 +372,14 @@ struct LeakBudget {
     }
     // the heap's count between leaves (the game freeing what a leave left)
     void Observe(size_t now) { outstanding = now; }
-    // the bound is on what leaving players still hold (docs 15.20); never on less than the heap's own count
-    bool MayJoin() const { return outstanding <= limit; }
+    // docs 15.23: what a dormant player 1 has kept from its earlier connections (Player1Retention::Growth): counted
+    // against the same bound, never freed
+    size_t dormant = 0;
+    // the bound is on what leaving players still hold (docs 15.20), and player 1's growth over its rejoins (15.23);
+    // never on less than the heap's own count
+    bool MayJoin() const { return outstanding + dormant <= limit; }
+    // a departed player 1's rejoin: the bound kept with one more cycle at its last cycle's growth (15.23)
+    bool MayRejoin(size_t next_cycle) const { return outstanding + dormant + next_cycle <= limit; }
     // the outstanding count above the historical sum: the two disagree (an accounting fault): reported
     bool Consistent() const { return outstanding <= left_behind; }
     // released by the game since (the historical sum less what is outstanding)
@@ -386,6 +393,44 @@ struct LeakBudget {
         return avg ? long((limit - outstanding) / avg) : -1;
     }
 };
+
+// ---- player 1's memory over its departures and rejoins (docs 15.23) ------------------------------------------------
+// Player 1's context is never removed (15.19), so its blocks are never handed to the process as a leave's are: what its
+// turns allocated and still hold is measured at each of its departures (its client disconnected, CL_Disconnect run).
+// The first departure is the baseline (its first connection's state, the title's own); what is held above it at a
+// later departure is kept from the connections since: growth, counted against the leak bound (LeakBudget::dormant).
+// Nothing is freed: whose object each is and whether anything still names it are not proved (no speculative frees).
+struct Player1Retention {
+    int departures = 0;
+    size_t baseline = 0;    // held at its first departure
+    size_t held = 0;        // held at its latest departure
+    size_t last_cycle = 0;  // the latest departure's growth over the one before
+    void Departed(size_t bytes) {
+        if (!departures) baseline = bytes;
+        last_cycle = departures && bytes > held ? bytes - held : 0;
+        held = bytes;
+        departures++;
+    }
+    size_t Growth() const { return held > baseline ? held - baseline : 0; }
+    // the next cycle's expected growth: the last one's (0 before a second departure)
+    size_t NextCycle() const { return last_cycle; }
+};
+
+// the allocating sites of what a departing player 1 still holds from its latest connection (blocks numbered after
+// that connection began): summed by site, the largest first (a report: docs 15.23)
+struct SiteSum {
+    uint32_t site = 0;
+    size_t blocks = 0, bytes = 0;
+};
+inline std::vector<SiteSum> TopSites(const std::map<uint32_t, SiteSum>& by_site, size_t n) {
+    std::vector<SiteSum> v;
+    for (const auto& [site, s] : by_site) v.push_back(s);
+    std::sort(v.begin(), v.end(), [](const SiteSum& a, const SiteSum& b) {
+        return a.bytes != b.bytes ? a.bytes > b.bytes : a.site < b.site;
+    });
+    if (v.size() > n) v.resize(n);
+    return v;
+}
 
 // ---- retention, focus and the cleanup's destructors (docs 15.18) ---------------------------------------------------
 

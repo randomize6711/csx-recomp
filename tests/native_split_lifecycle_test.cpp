@@ -1630,7 +1630,66 @@ static void GrowLeftBehind() {
     }
 }
 
+// docs 15.23: player 1's memory over its departures, the rejoin's bound, the timed leave once
+static void Player1Memory() {
+    using namespace nsplit;
+    Player1Retention r;
+    Check(r.Growth() == 0 && r.NextCycle() == 0, "no departure: no growth");
+    r.Departed(425755);
+    Check(r.baseline == 425755 && r.Growth() == 0 && r.NextCycle() == 0, "first departure: the baseline, no growth");
+    r.Departed(539834);
+    Check(r.Growth() == 539834 - 425755 && r.NextCycle() == 539834 - 425755, "run 16's second departure: its growth");
+    r.Departed(636210);
+    Check(r.Growth() == 636210 - 425755 && r.NextCycle() == 636210 - 539834, "third: growth over the first, cycle over the last");
+    r.Departed(600000);
+    Check(r.Growth() == 600000 - 425755 && r.NextCycle() == 0, "the game freed some: growth falls, no cycle growth");
+    r.Departed(100);
+    Check(r.Growth() == 0, "below the baseline: no growth (never negative)");
+
+    LeakBudget b;
+    Check(b.MayJoin() && b.MayRejoin(0), "empty budget: join and rejoin");
+    b.dormant = b.limit;
+    Check(b.MayJoin() && !b.MayRejoin(1), "growth at the bound: a join may, a rejoin adding more may not");
+    b.dormant = b.limit + 1;
+    Check(!b.MayJoin(), "growth above the bound closes joins");
+    b.dormant = 0;
+    b.Left(size_t(5) << 20);
+    Check(b.MayRejoin(size_t(3) << 20) && !b.MayRejoin((size_t(3) << 20) + 1), "leaves and the next cycle summed");
+    b.dormant = size_t(2) << 20;
+    Check(b.MayJoin() && b.MayRejoin(size_t(1) << 20) && !b.MayRejoin((size_t(1) << 20) + 1), "leaves + growth + cycle within the bound");
+    Check(b.limit == size_t(8) << 20, "the bound stays 8 MiB");
+    // simulated cycles at run 16's rate: a rejoin is refused before the bound would be passed, never after
+    Player1Retention c;
+    LeakBudget d;
+    size_t held = 425755;
+    int rejoins = 0;
+    for (int i = 0; i < 1000; i++) {
+        c.Departed(held);
+        d.dormant = c.Growth();
+        if (!d.MayRejoin(c.NextCycle())) break;
+        rejoins++;
+        held += 100000;
+    }
+    Check(d.outstanding + d.dormant <= d.limit && rejoins > 50 && rejoins < 100,
+          "at 100 KB a cycle about 80 rejoins, then refused within the bound");
+
+    Check(DiagLeaveDue(0, 1) && !DiagLeaveDue(1, 1), "a timed leave once by default");
+    Check(DiagLeaveDue(1, 2) && !DiagLeaveDue(2, 2), "twice when asked");
+    Check(DiagLeaveDue(0, 0) && DiagLeaveDue(100, 0), "0: after every join (the repetition asked for)");
+
+    std::map<uint32_t, SiteSum> m;
+    m[0x100] = {0x100, 2, 50};
+    m[0x200] = {0x200, 1, 900};
+    m[0x300] = {0x300, 9, 900};
+    m[0x50] = {0x50, 1, 10};
+    std::vector<SiteSum> top = TopSites(m, 3);
+    Check(top.size() == 3 && top[0].site == 0x200 && top[1].site == 0x300 && top[2].site == 0x100,
+          "sites by bytes, ties by address, the first n");
+    Check(TopSites({}, 8).empty(), "no sites");
+}
+
 int main() {
+    Player1Memory();
     Player1Rejoin();
     LinkCycles();
     LiveRetention();

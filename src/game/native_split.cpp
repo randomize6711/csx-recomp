@@ -173,6 +173,17 @@ double LeaveAfter() {
     return s;
 }
 
+// diagnostics (docs 15.23): how many of the timed leaves happen: 1 (unset) one, N that many, 0 one after every join
+// (the repetition the earlier scenarios used)
+int LeaveTimes() {
+    static const int n = [] {
+        const char* v = std::getenv("CSX_NATIVE_SPLIT_LEAVE_TIMES");
+        int x = v ? std::atoi(v) : 1;
+        return x >= 0 ? x : 1;
+    }();
+    return n;
+}
+
 // a refused player's blocks released (docs 15.8): off unless CSX_NATIVE_SPLIT_ROLLBACK=1. The plan is always made and
 // reported; releasing frees only what nothing the scan sees names, and the scan cannot see a pointer the host or the
 // kernel keeps, so it is not done by default
@@ -326,6 +337,10 @@ uint64_t g_read_outside_turn = 0;
 std::chrono::steady_clock::time_point g_last_report{};
 constexpr uint32_t kClPlayernum = 0x771224;  // cl.playernum: the slot the server gave this client
 std::chrono::steady_clock::time_point g_joined_at{}, g_left_at{};
+// docs 15.23: player 1's memory over its departures, the serial its latest connection began at, the diagnostic leaves
+nsplit::Player1Retention g_p1_ret;
+uint64_t g_p1_conn_serial = 0;
+int g_diag_leaves = 0;
 
 // the player a context belongs to (players' slots and contexts are kept in step: slot k may have context < k after a
 // removal), -1 none
@@ -911,12 +926,12 @@ void Report() {
              (unsigned long long)g_cmd_dropped);
     }
     LOGI("native split: the lifecycle: %llu frames cut short in a player's turn, %llu server shutdowns refused in a "
-         "player's turn, %llu departures of player 1, %d leaves (%zu bytes left behind in all, %zu still allocated, the "
-         "bound %zu on those); the voice channels "
+         "player's turn, %llu departures of player 1, %d leaves (%zu bytes left behind in all, %zu still allocated, player 1's growth "
+         "over its rejoins %zu, the bound %zu on those); the voice channels "
          "run as the process %llu times, withheld in another context's turn %llu; cleanup frees of a named block kept %llu; "
          "IN_Init's stores to the shared pad bridge skipped in another player's initialisation %llu",
          (unsigned long long)g_aborts, (unsigned long long)g_refused_shutdowns, (unsigned long long)g_departures,
-         g_leaks.leaves, g_leaks.left_behind, g_leaks.outstanding, g_leaks.limit, (unsigned long long)g_voice_shared,
+         g_leaks.leaves, g_leaks.left_behind, g_leaks.outstanding, g_leaks.dormant, g_leaks.limit, (unsigned long long)g_voice_shared,
          (unsigned long long)g_voice_withheld, (unsigned long long)g_release_kept,
          (unsigned long long)g_pad_stores_kept);
     LOGI("native split: player 1: %s; departures %llu (its server slot dropped by the cleanup %llu: its own "
@@ -1607,13 +1622,38 @@ void DepartPlayer1(X86Context& ctx) {
     g_p1_stale_packets += stale;
     g_ui.Left(0, g_players);
     g_session.host = nsplit::SessionHost(g_players);
-    size_t n = 0, bytes = 0;
+    size_t n = 0, bytes = 0, since_n = 0, since_bytes = 0;
+    std::map<uint32_t, nsplit::SiteSum> by_site;
     g_blocks.ForEach([&](uint32_t, const heapown::Block& b) {
         if (b.owner == 0) {
             n++;
             bytes += b.size;
+            if (b.serial > g_p1_conn_serial) {
+                since_n++;
+                since_bytes += b.size;
+                nsplit::SiteSum& t = by_site[b.site];
+                t.site = b.site;
+                t.blocks++;
+                t.bytes += b.size;
+            }
         }
     });
+    // docs 15.23: what it holds measured against its first departure; the growth counted against the leak bound
+    g_p1_ret.Departed(bytes);
+    g_leaks.dormant = g_p1_ret.Growth();
+    std::string sites;
+    for (const nsplit::SiteSum& t : nsplit::TopSites(by_site, 8))
+    {
+        char b[96];
+        std::snprintf(b, sizeof b, "%s0x%06X %zu block(s) %zu bytes", sites.empty() ? "" : ", ", t.site, t.blocks,
+                      t.bytes);
+        sites += b;
+    }
+    LOGI("native split: player 1's memory at departure %d: %zu bytes held by its turns' objects (%zu at its first "
+         "departure: %zu more, %zu in the last cycle; counted against the bound %zu with the %zu bytes leaving players "
+         "still hold); from its latest connection %zu block(s), %zu bytes, by site: %s [watch:p1-retained]",
+         g_p1_ret.departures, bytes, g_p1_ret.baseline, g_p1_ret.Growth(), g_p1_ret.last_cycle, g_leaks.limit,
+         g_leaks.outstanding, since_n, since_bytes, sites.empty() ? "none" : sites.c_str());
     LOGI("native split: player 1 left the match (its client disconnected): the built-in server and the world stay for %d "
          "other player(s); the shared front end is driven by player %d, the session's host is player %d; its context "
          "kept, %zu of its turns' objects (%zu bytes) kept with it; its server slot %s; %zu stale packet(s) to it "
@@ -1640,11 +1680,24 @@ bool RejoinPlayer1() {
         last = r;
         return false;
     }
+    // docs 15.23: one more cycle at the last one's growth kept within the leak bound (fail closed: it stays departed)
+    if (!g_leaks.MayRejoin(g_p1_ret.NextCycle())) {
+        static bool told = false;
+        if (!told) {
+            told = true;
+            g_p1_rejoin_refused++;
+            LOGW("native split: player 1 does not rejoin yet: the leak bound %zu would be passed (leaving players hold "
+                 "%zu bytes, its own growth %zu, the next cycle about %zu)", g_leaks.limit, g_leaks.outstanding,
+                 g_leaks.dormant, g_p1_ret.NextCycle());
+        }
+        return false;
+    }
     g_watch[0] = {};
     if (size_t n = g_cmds.Drop(0)) g_cmd_dropped += n;
     size_t stale = g_ch.ClientPending(0);
     g_ch.Forget(0);
     g_p1_stale_packets += stale;
+    g_p1_conn_serial = g_blocks.Serial();
     g_players.Rejoin0();
     g_p1_rejoins++;
     LOGI("native split: player 1 rejoins in its own context 0 (kept, not rebuilt): its client connects again to the "
@@ -1787,7 +1840,8 @@ void NativeSplitFrameEnd(X86Context& ctx) {
                 break;
             }
         if (last > 0 && g_joined_at != std::chrono::steady_clock::time_point{} &&
-            now - g_joined_at > std::chrono::duration<double>(s)) {
+            now - g_joined_at > std::chrono::duration<double>(s) && nsplit::DiagLeaveDue(g_diag_leaves, LeaveTimes())) {
+            g_diag_leaves++;
             if (int who = LeaveWho() - 1; who >= 0) {
                 // its own "disconnect", run in its own turn (the real path)
                 if (g_cmds.Add(who, "disconnect\n"))

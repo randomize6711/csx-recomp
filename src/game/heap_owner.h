@@ -160,6 +160,9 @@ private:
     std::map<uint32_t, Block> blocks_;
     std::set<uint32_t> freed_;  // known blocks' starts freed since and not allocated again
     uint64_t serial_ = 0;
+public:
+    uint64_t Serial() const { return serial_; }  // the latest allocation's number (docs 15.23)
+private:
     size_t left_n_ = 0, left_bytes_ = 0;
 };
 
