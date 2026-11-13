@@ -2135,3 +2135,34 @@ must not turn), player 2 alone after player 1's departure (the whole window), bo
 What it settles that nothing static can: that player 2's own pass draws (every earlier run drew player 2's viewport only
 through player 1's paint, with player 1's state), the placement, one present a frame, no blank screen while player 1
 is away, the frame rate with two passes, and whether anything shared between the passes shows in the other view.
+
+### 16.7 Run 17: the first renderer test (2026-11-13, permitted once): PASS, with two items not shown
+
+`python3 -I tools/run_window_tests.py vk_native_split_2p.txt` at d233a67 (window f8014eb1...), gamescope 1920x1080
+(the window's swapchain 1706x959), 40 steps passed in 67 s; logs and shots kept outside the repository.
+- **Two real views in one window**: ns_two shows player 1 (top: its HUD with health, armour, timer, ammunition,
+  money, radar, its pistol) and player 2 (bottom: another place, its own HUD as a player without a team: money and
+  timer, no view model), split exactly at the middle row (no seam, nothing across it); ns_turned: player 1's view
+  turned 90 degrees by its mouse (the look applied in 1 of 31 passes a second: player 1's only). Player 2's view had
+  also changed, by itself: a player without a team watches the map's intermission cameras.
+- **Player 1 away**: player 2 fills the whole window (ns_alone, the frame's middle at full height, its HUD whole,
+  "Round Draw!"); 265 hidden turns, no blank frame (30 presents a second throughout).
+- **Rejoin**: two views again (ns_again). Both halves show the same intermission camera: player 1 came back without a
+  team ("joined team" logged once, player 1's first), so both were teamless spectators at the server's intermission
+  point; the halves differ only at the resampling level. Not a proof of separate cameras after a rejoin.
+- **Counters**: 1 836 frames, 3 337 views placed, 1 843 window frames presented at their last view (7 more than
+  frames: loading Swaps repeated in one view at the start), 0 finished without it, 0 view-missing; 2 passes a frame,
+  30.0 presented a second at FPS=30, the frame limiter still idle about 13 ms of each 16.7 ms view slot; GPU about
+  0.55 ms a frame, CPU recording about 2 ms; context switches 0.073 ms; player 1's turn 3.5-5.7 ms, player 2's about
+  30 ms (the pacing and the present run at the last view: its turn holds the limiter's wait).
+- **Stability**: 0 `[own:]`, 0 errors, the guard 1 788 server frames (about 29 a second: the world once a frame) with
+  0 writes, R_NewMap built once, player 1's delta descriptions in its own slot, nobody else left.
+- **Player 1's memory at its departure** (`[watch:p1-retained]`, its first connection's 429 643 bytes, by site):
+  0x0439C0 94 422 bytes (22 blocks), 0x01CFD0 80 864 (32), 0x1B136C 32 832 (108), 0x04B326 32 314 (39), 0x1B150A
+  30 096 (114), 0x0B52DA 19 392 (1 176), 0x1994DF 16 920 (1), 0x10DABE 15 696 (218). One departure only: the growth
+  between cycles was not measured in this run.
+- **Not shown**: player 2 as a playing player (a team, its view model and full HUD, its own controller: it cannot
+  choose a team, its menus are the shared front end's, withheld; and gamescope has no second controller); distinct
+  cameras after a rejoin.
+- **Seen**: the 32:9 views are Hor+ to 139 degrees horizontally (pc wide: "view fov 90 -> 138.9"): strong stretching
+  at the sides of each view.
