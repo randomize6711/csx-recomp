@@ -2040,7 +2040,8 @@ void PcMenuFrame(X86Context& ctx) {
         keys.swap(g_bind_keys);
         typed.swap(g_number_keys);
     }
-    std::string name = ScreenName();
+    // native split-screen: another driver's screen takes no key capture, number typing or PC help (docs 17.12)
+    std::string name = csx::PcDrivesScreen() ? ScreenName() : std::string();
     if (g_capture.active && (name != g_capture.screen || csx::ConsoleOpen())) EndCapture("ended (screen left)");
     g_row_selected = PcBindingScreen(name) && !csx::ConsoleOpen();
     if (start && g_row_selected) StartCapture(ctx);

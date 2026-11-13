@@ -160,6 +160,13 @@ inline bool AddedPlayerReadsPad(bool routed, bool in_turn) { return routed && in
 // buttons as its keys), also while the driver has a screen open. player < 0: not a local player's (as the title)
 inline bool FeedsSharedFrontEnd(int player, int driver) { return player < 0 || player == driver; }
 
+// the window's keyboard and mouse are player 1's (port 0, docs 17.12). They act on the shared front end's screen (the
+// menus' pad and pointer: pc_keys' menu mode, the PC screens' typing, key capture, number rows, the browser's and the map
+// lists' keys) only while player 1 drives it; another driver's screen (player 2's buy menu after player 1's departure
+// and rejoin, run 20) leaves them player 1's game's, and that screen to its driver's controller. Not native
+// split-screen (the title alone, the two-process split-screen: each process's own front end): always, as before
+inline bool PcInputDrivesMenus(bool native_split, int driver) { return !native_split || FeedsSharedFrontEnd(0, driver); }
+
 // a model of what the front end reads (tests/native_split_view_test.cpp): one look routine pass of `player` with its
 // bridge mask and its left stick (the title's 0xCA670 also takes the D-pad's up / down / left / right over the stick)
 struct FrontEndInput {

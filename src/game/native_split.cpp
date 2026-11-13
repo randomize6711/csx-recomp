@@ -3178,6 +3178,11 @@ bool NativeSplitCbufForPlayer() {
     return NativeSplitOn() && (g_cmd_running >= 0 || TurnPlayer() >= 0);
 }
 
+// pc_keys.cpp (csx::PcDrivesScreen): the keyboard and mouse (player 1's) drive the shared front end's screen (docs 17.12)
+bool NativeSplitPcDrivesMenus() { return nsplit::PcInputDrivesMenus(NativeSplitOn(), g_ui.driver); }
+// the shared front end's driver (1-based, the PC keys' log)
+int NativeSplitDriverPlayer() { return g_ui.driver + 1; }
+
 // [[hook]] at 0xD7450, the "xbui" console command (its arguments from Cmd_Argv): the shared front end's screens
 // opened, closed, swapped (native_split_core.h SharedUiOwner): outside the turns as the title's (the shared buffer,
 // player 1's context); in the driver's turn (its own lines) in the shared front end's scope, as the process; in

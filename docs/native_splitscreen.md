@@ -2397,3 +2397,34 @@ format strings and runs 17-19's logs), `run_window_tests.py --tag run20 vk_nativ
   list (0x554244..0x554248, 0x60 bytes an entry, the team in +0x48 bits 2-4; not a per-player region; also read by
   0xE5370, 0xE59E0, 0xE5DE0, 0xEF8D0) once, as the screen opens (2.74 s); player 2 joined at 3.83 s. A snapshot of the
   open, as in the title alone when someone joins while the screen shows: not a split-screen state defect.
+
+### 17.12 The keyboard and mouse are player 1's (run 20's finding; 2026-11-13)
+- **The defect.** pc_keys' menu mode (PcKeysFrame: the keys as the pad, the pointer, the mouse let go; window_input's
+  MenuOpen / BuyMenuOpen / MenuMouse / MouseFree follow it) and the PC screens' keyboard input (pc_mouse's typing and
+  pointer, pc_menu's key capture and number rows, pc_browser's and pc_mapsearch's keys) took any screen of the shared
+  front end as the keyboard's. After player 1's departure and rejoin player 2 drives it (SharedUiOwner.Left: the
+  driver stays player 2), so player 2's buy menu at a restart would take player 1's keyboard and mouse, and player 1's
+  keys as the pad (port 0) are withheld from player 2's front end (17.9): player 1 could neither play nor use it.
+- **The correction.** One rule (native_split_view.h PcInputDrivesMenus: no native split-screen, or player 1 the
+  driver; csx::PcDrivesScreen, native_split.cpp NativeSplitPcDrivesMenus) gates all of them: another driver's screen
+  is not the keyboard's or mouse's (pc_mouse treats it as no screen; pc_menu as no name; pc_browser's and
+  pc_mapsearch's keys off), so player 1's keys are engine keys and its mouse its look, and the screen is its driver's
+  controller's (17.9). pc_keys logs "pc keys: playing on: the screen S is player N's ..." and "pc keys: player N's
+  screen closed ..." (on change only). Unchanged: player 1's own menus while it drives; the title alone and the
+  two-process split-screen (no native split-screen: always the keyboard's); the console (the process's).
+- **Why that is enough (static).** Key_Event (0x66510) reads key_dest (0x551DF0) and calls the client's key hook
+  [0x7D6D28] (its only store 0x18F8F0: the VGUI viewport's key input 0x1B4FB0); none of them reads the front end's
+  screen 0x5523D4, so a screen of player 2's does not swallow player 1's play keys. The mouse's degrees are added in
+  the look routine at 0x19E4EB, after the menu check at 0x19E1EA, and a non-driver's look goes past that check to
+  0x19E1F9 (17.9's hook), so player 1 turns with player 2's menu open. window_input reads no screen itself.
+- **Tests.** native_split_view_test PcInputOwnership (117 checks): the rule with and without native split-screen; the
+  driver through player 2's join, player 1's departure and rejoin (player 2's buy menu: no menu mode for player 1),
+  player 2's leaving (player 1's menus its own again); simultaneous input with player 2 driving its menu (player 1's
+  keys and stick reach none of it; player 2's B closes it once). native_split_turns_test pc_input (206 checks):
+  Key_Event's and the hook's code, every gate in the sources, window_input reading no screen.
+- **The scenario** (vk_native_split_2p_play.txt): after the first restart the round's start, the freeze over, both
+  alive on their teams, then player 1's spawn buy menu closed with B and seen closed before its keys. After the rejoin
+  the title opens player 2's spawn buy menu (the driver's; player 1's is withheld): player 1 walks and aims meanwhile,
+  then player 2 closes it with its controller's B (seen closed) and walks. The controller's buy binding lives in the
+  title's compressed UI data (no readable binding: config.cfg binds nothing, +buymenu has no pad action in
+  pc_bindings), so the game's own spawn opening is used instead of a guessed button; no menu state is set directly.

@@ -95,6 +95,9 @@ void MapSearchInput(int c);
 std::string MapSearchSelection();
 // a menu screen of the game is open (keyboard and mouse act as the pad there; otherwise as engine keys)
 bool MenuOpen();
+// the keyboard and mouse may act on the open screen (native split-screen: player 1 drives the shared front end; else
+// always): the PC screens' input (pc_mouse, pc_menu, pc_browser, pc_mapsearch) leaves another driver's screen alone
+bool PcDrivesScreen();
 // one of the buy menu's screens is open (window_input.cpp: the ammunition keys still buy there)
 bool BuyMenuOpen();
 // a server browser screen is open (src/game/pc_browser.cpp): Escape is the pad's B there, F5 its X (refresh),

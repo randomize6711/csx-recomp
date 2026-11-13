@@ -596,6 +596,8 @@ void PcMouseFrame(X86Context& ctx) {
         typed_keys.swap(g_typed_keys);
     }
     uint32_t screen = R32(kCurrentScreen);
+    // native split-screen: another driver's screen is not the pointer's or the keyboard's (no typing into it; docs 17.12)
+    if (!csx::PcDrivesScreen()) screen = 0;
     static std::string shown;  // the screen last logged, cleared in play
     if (!screen || !R32(screen + 0x38C)) {
         SetTyping(false, "the screen closed");

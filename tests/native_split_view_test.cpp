@@ -286,6 +286,58 @@ static void FrontEndFeeds() {
     Check(solo_a == 1, "alone: as the title");
 }
 
+// docs 17.12: the window's keyboard and mouse (player 1's) act on the shared front end's screen only while player 1
+// drives it: pc_keys' menu mode (the keys as the pad, the pointer, no captured mouse), the PC screens' typing and keys
+static bool PcMenuMode(bool native, int driver, bool screen, bool pass_through) {
+    return screen && !pass_through && PcInputDrivesMenus(native, driver);  // pc_keys.cpp PcKeysFrame's "menu"
+}
+static void PcInputOwnership() {
+    // not native split-screen (the title alone, the two-process split-screen): unchanged, whatever the slot says
+    Check(PcInputDrivesMenus(false, 0) && PcInputDrivesMenus(false, 1) && PcInputDrivesMenus(false, 3),
+          "no native split-screen: the keyboard and mouse drive every screen, as before");
+    Check(PcMenuMode(false, 0, true, false) && !PcMenuMode(false, 0, false, false) && !PcMenuMode(false, 0, true, true),
+          "no native split-screen: menu mode for a screen, play without one or on a pass-through screen, as before");
+    Check(PcInputDrivesMenus(true, 0), "player 1 drives: its keyboard and mouse are its team and buy menus'");
+    Check(!PcInputDrivesMenus(true, 1) && !PcInputDrivesMenus(true, 2) && !PcInputDrivesMenus(true, 3),
+          "another driver: its screens are not the keyboard's and mouse's");
+    // the session: player 2 joins, player 1 departs, rejoins, player 2 leaves (SharedUiOwner hands the driver over)
+    Play s;
+    SharedUiOwner ui;
+    auto menu = [&](bool screen) { return PcMenuMode(true, ui.driver, screen, false); };
+    Check(ui.driver == 0 && menu(true), "player 2 in the match, player 1 drives: player 1's buy menu takes its keys");
+    Check(!menu(false), "  and with no screen open its keys play");
+    Check(s.p.Depart0() && ui.Left(0, s.p) == 1, "player 1 departs: player 2 drives the shared front end");
+    Check(!menu(true), "  player 2's screen while player 1 is away: the keyboard and mouse are not its menu's");
+    Check(s.p.Rejoin0() && s.p.Joined(0) && ui.driver == 1, "player 1 rejoins: the driver stays player 2");
+    Check(!menu(true), "run 20's case: player 2's buy menu open, player 1's keyboard and mouse stay player 1's game's");
+    Check(!menu(false), "  and with no screen open they play, as always");
+    Check(s.p.Leave(1) && ui.Left(1, s.p) == 0, "player 2 leaves: player 1 drives again");
+    Check(menu(true), "  player 1's own menus take its keyboard and mouse again");
+    // simultaneous play and menu input while player 2 drives a screen (its buy menu): player 2's controller works its
+    // menu (the front end's snapshot), player 1's keys are engine keys (W walks) and its pad port's presses (the
+    // keyboard's arrows, Enter as the pad) reach no screen of player 2's
+    FrontEndInput fe;
+    int a = 0;
+    bool p1_menu_any = false;
+    for (int f = 0; f < 8; f++) {
+        uint32_t p1 = (f == 3) ? 0x1u : 0u, p2 = (f == 5) ? 0x2u : 0u;  // player 1's Enter-as-A, player 2's B
+        p1_menu_any = p1_menu_any || PcMenuMode(true, 1, true, false);
+        fe.Look(0, 1, p1, 0, 1);  // player 1's turn: its W as the stick too (the keyboard's pad)
+        fe.Look(1, 1, p2, 0, 0);  // player 2's turn
+        if ((fe.now & 1) && !(fe.before & 1)) a++;
+    }
+    Check(!p1_menu_any, "player 2's buy menu open: player 1 never in menu mode (its W and mouse are its game's)");
+    Check(a == 0 && fe.fed_by == 1 && fe.dy == 0, "  player 1's presses and stick reach none of player 2's menu");
+    FrontEndInput fe2;
+    int b = 0;
+    for (int f = 0; f < 8; f++) {
+        fe2.Look(0, 1, 0, 0, 1);
+        fe2.Look(1, 1, f == 5 ? 0x2u : 0u, 0, 0);
+        if ((fe2.now & 2) && !(fe2.before & 2)) b++;
+    }
+    Check(b == 1, "  player 2's B on its own controller closes its menu (its press reaches its front end once)");
+}
+
 // a view's placement (W x H window): inside its viewport, the aspect kept, never over another view
 static void Placement() {
     // 1920x1080, two top and bottom, 32:9 frames (3.556): each exactly fills its half
@@ -438,6 +490,7 @@ int main() {
     SharedAndPanels();
     Pads();
     FrontEndFeeds();
+    PcInputOwnership();
     Placement();
     std::printf("native_split_view_test: %d checks, %d failed\n", checks, failed);
     std::printf("note: simulated frames and placement arithmetic only; no GPU, no game (docs 16)\n");

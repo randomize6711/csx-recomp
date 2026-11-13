@@ -585,6 +585,57 @@ def front_end_input(funcs, cl, regs, hk, text):
           'an added player\'s controller still routed into its own turns')
 
 
+def pc_input(funcs, cl, text):
+    """docs 17.12 (run 20): the window's keyboard and mouse are player 1's. pc_keys' menu mode (keys as the pad, the
+    pointer, the mouse let go) and every PC screen's keyboard input act on the shared front end's screen only while
+    player 1 drives it; player 2's screen (its buy menu after player 1's rejoin) leaves them player 1's game's. The title's
+    Key_Event (0x66510) does not look at the front end's screen (0x5523D4), so play keys reach the game with player 2's
+    menu open"""
+    ke = dict(funcs.get(0x66510, []))
+    check(ke.get(0x66516) == 'mov edx, [0x00551DF0]' and ke.get(0x66543) == 'mov ecx, [0x007D6D28]' and
+          ke.get(0x6655E) == 'call ecx', 'Key_Event 0x66510: key_dest 0x551DF0, the client\'s key hook [0x7D6D28]')
+    hook_writes = [(f, a, i) for f, body in funcs.items() for a, i in body if '[0x007D6D28],' in i and i.startswith('mov')]
+    check([i for _, _, i in hook_writes] == ['mov dword ptr [0x007D6D28], 0x18F8F0'],
+          f'the key hook\'s only store is 0x18F8F0 ({hook_writes})')
+    kh = [i for _, i in funcs.get(0x18F8F0, [])]
+    check('mov eax, [0x00552B7C]' in kh and 'call 0x001B4FB0' in kh, 'the key hook 0x18F8F0: the VGUI viewport 0x1B4FB0')
+    for fn in (0x66510, 0x18F8F0, 0x1B4FB0):
+        body = ' '.join(i for _, i in funcs.get(fn, []))
+        check(bool(body) and '0x5523D4' not in body and '0x005523D4' not in body,
+              f'0x{fn:X} reads no front-end screen (0x5523D4): its open screen does not swallow play keys')
+    src = lambda f: open(os.path.join(ROOT, f), encoding='utf-8').read()
+    keys, mouse, menu = src('src/game/pc_keys.cpp'), src('src/game/pc_mouse.cpp'), src('src/game/pc_menu.cpp')
+    browser, maps, ns = src('src/game/pc_browser.cpp'), src('src/game/pc_mapsearch.cpp'), src('src/game/native_split.cpp')
+    win, view = src('src/linux/window_input.cpp'), src('src/game/native_split_view.h')
+    check('inline bool PcInputDrivesMenus(bool native_split, int driver) { return !native_split || '
+          'FeedsSharedFrontEnd(0, driver); }' in view, 'the rule: no native split-screen, or player 1 the driver')
+    check('bool NativeSplitPcDrivesMenus() { return nsplit::PcInputDrivesMenus(NativeSplitOn(), g_ui.driver); }' in ns,
+          'native_split.cpp asks the rule with the shared front end\'s driver')
+    check('bool PcDrivesScreen() { return NativeSplitPcDrivesMenus(); }' in keys, 'csx::PcDrivesScreen is the rule')
+    i = keys.find('void PcKeysFrame(')
+    body = keys[i:keys.find('\n}\n', i)]
+    check('const bool own = csx::PcDrivesScreen();' in body and
+          'bool menu = screen && !PcScreenPassThrough(name) && own;' in body and
+          'g_buy_menu = menu &&' in body, 'pc_keys: menu mode (and the buy menu\'s keys) only on a screen player 1 drives')
+    check('if (uint32_t now = menu || !own ? 0 : screen; now != through)' in body,
+          'pc_keys: another driver\'s screen is not logged as a pass-through screen')
+    check('pc keys: playing on: the screen %s is player %d\'s' in body and 'pc keys: player %d\'s screen closed' in body,
+          'pc_keys logs another driver\'s screen opening and closing (on change only: no cap)')
+    i = mouse.find('void PcMouseFrame(')
+    mb = mouse[i:]
+    check(mb.find('if (!csx::PcDrivesScreen()) screen = 0;') > mb.find('uint32_t screen = R32(kCurrentScreen);') >= 0 and
+          mb.find('if (!csx::PcDrivesScreen()) screen = 0;') < mb.find('SetTyping(false, "the screen closed")'),
+          'pc_mouse: another driver\'s screen is no screen for the pointer and typing')
+    check('std::string name = csx::PcDrivesScreen() ? ScreenName() : std::string();' in menu,
+          'pc_menu: no key capture or number typing on another driver\'s screen')
+    check('!csx::ConsoleOpen() && !csx::TextEntryOpen() && csx::PcDrivesScreen();' in browser,
+          'pc_browser: its keys only on a screen player 1 drives')
+    check('bool on = l != nullptr && !csx::ConsoleOpen() && csx::PcDrivesScreen();' in maps,
+          'pc_mapsearch: its keys only on a screen player 1 drives')
+    check('kCurrentScreen' not in win and '5523D4' not in win,
+          'window_input reads no screen itself: its menu decisions are pc_keys\' (MenuOpen, BuyMenuOpen) and the PC screens\'')
+
+
 def main():
     if not os.path.isdir(GEN) or not glob.glob(os.path.join(GEN, 'x86_recomp.*.cpp')):
         print('note: build/gen/game missing: the checks are skipped')
@@ -602,6 +653,7 @@ def main():
     player1_rejoin(funcs, cl, text)
     stale_slot(funcs)
     front_end_input(funcs, cl, regs, hk, text)
+    pc_input(funcs, cl, text)
     print(f'native_split_turns_test: {checks} checks, {len(failures)} failed')
     return 1 if failures else 0
 

@@ -11,7 +11,10 @@
 # 80 s after player 2 joined, player 1 leaves once (its own "disconnect"); player 2 plays on alone (it walks) in the
 # whole window; 10 s later player 1 rejoins, chooses its team automatically (it is no longer the driver), a restart
 # spawns both again and player 1 walks. de_dust2 with no bots, 30 fps, the server write guard on.
-# Window shots (RUN/shots): gp_team, gp_spawned, gp_p2_moved, gp_p1_aims, gp_p2_aims, gp_both, gp_alone, gp_rejoined.
+# Window shots (RUN/shots): gp_team, gp_spawned, gp_p2_moved, gp_p1_aims, gp_p2_aims, gp_both, gp_alone, gp_rejoined,
+# gp_p2_menu_p1_plays. After each restart: the round's start, the freeze over, both alive on their teams, then player 1's
+# spawn buy menu closed with B (seen closed) before its keys; after the rejoin player 2 drives, the title opens player
+# 2's spawn buy menu: player 1 walks and aims meanwhile (docs 17.12), then player 2 closes it with its B and walks.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
 #   --launch tests/launch/de_dust2_nobots --env FPS=30 --env CSX_NATIVE_SPLIT=2 --env CSX_CTX_GUARD=1 --env CSX_NATIVE_SPLIT_CHANGES=1 --env CSX_NATIVE_SPLIT_ROLLBACK=0 --env CSX_NATIVE_SPLIT_TEAMS=1,2 --env CSX_NATIVE_SPLIT_CLASSES=5,5 --env CSX_NATIVE_SPLIT_TEST_PAD=1 --env CSX_NATIVE_SPLIT_LEAVE_AFTER=80 --env CSX_NATIVE_SPLIT_LEAVE_PLAYER=1 --env CSX_NATIVE_SPLIT_LEAVE_TIMES=1 --env CSX_NATIVE_SPLIT_REJOIN_AFTER=10
 # timeout: 300
@@ -49,14 +52,16 @@ pckey cmd sv_restartround 1
 # the restart spawns player 1 again and the title opens its buy menu again (run 20: W turned the menu, player 1 stayed)
 wait newlog pc keys: menu T_BuyMenuRoot
 wait newlog game: World triggered "Round_Start"
-press B
-wait newlog pc keys: playing
 sleep 1
 players spawned
 expect freeze spawned 0
 expect alive spawned 0 T
 expect alive spawned 1 CT
 expect apart spawned 0 1 1 100000
+# player 1 closes its buy menu with B (the menu system's own Back) before its keyboard is tested: the menu is gone
+press B
+wait newlog pc keys: playing
+expect nonewlog pc keys: menu
 expect log native split: player 2 in the game: .*team Counter-Terrorist, menu [0-9]+, alive \(
 expect log pc wide: view fov 90 -> 106\.[0-9] .*a split view
 windowshot gp_spawned
@@ -105,6 +110,10 @@ wait log native split: player 1 is in the match
 wait log native split: player 1's automatic team choice \(development\): on its team
 wait newlog native split: the window shows 2 view\(s\)
 pckey cmd sv_restartround 1
+# the restart spawns both; the title opens the spawn's buy menu for the shared front end's driver, player 2 now (its
+# own client's open, in its turn; player 1's is withheld: not the driver). The controller's buy binding is the title's
+# data's (not readable statically), so the game's own spawn opening is used, no menu state is touched
+wait newlog pc keys: playing on: the screen CT_BuyMenu[A-Za-z]* is player 2's
 wait newlog game: World triggered "Round_Start"
 sleep 1
 players rejoined
@@ -112,13 +121,32 @@ expect freeze rejoined 0
 expect alive rejoined 0 T
 expect alive rejoined 1 CT
 expect apart rejoined 0 1 1 100000
+expect nonewlog pc keys: menu
 windowshot gp_rejoined
-# player 1's own keyboard again after its rejoin: player 2 stays
+# player 2's buy menu open: player 1's keyboard and mouse are still its own game's (docs 17.12; run 20's finding)
 key w 1
 sleep 2
 players rejoinwalk
 expect bodymoved rejoined rejoinwalk 0 40 2000
 expect bodystill rejoined rejoinwalk 1 2 2
+look 90 0
+sleep 2
+players rejoinaim
+expect bodyturned rejoinwalk rejoinaim 0 60 120
+expect bodystill rejoinwalk rejoinaim 1 2 2
+expect nolog pc keys: menu CT_BuyMenu
+expect nonewlog native split: player 1's button .* to the shared front end
+windowshot gp_p2_menu_p1_plays
+# player 2 closes its buy menu with its own controller's B, then walks: player 1 stays
+press2 B
+wait newlog pc keys: player 2's screen closed
+sleep 1
+players p2closed
+press2 LS 60
+sleep 3
+players p2walk2
+expect bodymoved p2closed p2walk2 1 20 2000
+expect bodystill p2closed p2walk2 0 2 2
 wait newlog native split: views:
 expect log native split: player 2 active, context 1, client state 5
 expect log native split: player 1 active, context 0, client state 5

@@ -1269,7 +1269,7 @@ void PcBrowserMenuFrame(X86Context& ctx) {
                       now == "SuperLauncher_PCProfiles" || now.rfind("SuperLauncher_PCLobby", 0) == 0 ||
                       now == "SuperLauncher_PCRules" || now == "SuperLauncher_PCProfile" ||
                       now.rfind("SuperLauncher_PCMatch", 0) == 0) &&
-                     !csx::ConsoleOpen() && !csx::TextEntryOpen();
+                     !csx::ConsoleOpen() && !csx::TextEntryOpen() && csx::PcDrivesScreen();
     ContactFrame();
     if (g_message_closing) {
         // released for 150 ms: the title's menus read the pad on their own a frame or more later, and a screen that

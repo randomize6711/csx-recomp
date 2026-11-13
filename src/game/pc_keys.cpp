@@ -67,7 +67,12 @@ void AddText(X86Context& ctx, const std::string& text) {
 
 }  // namespace
 
+bool NativeSplitPcDrivesMenus();  // native_split.cpp: player 1 drives the shared front end (or no native split-screen)
+int NativeSplitDriverPlayer();     // native_split.cpp: the shared front end's driver, 1-based
+
 namespace csx {
+
+bool PcDrivesScreen() { return NativeSplitPcDrivesMenus(); }
 
 void QueueEngineKey(int key, bool down) {
     std::lock_guard<std::mutex> lock(g_lock);
@@ -314,7 +319,10 @@ void PcKeysFrame(X86Context& ctx, uint8_t*) {
     // Scoreboard: ControlPassThrough, the right stick turns the spectator's camera) leaves them the game's, as playing
     uint32_t screen = R32(kCurrentScreen);
     std::string name = screen ? GuestString(R32(screen)) : std::string();
-    bool menu = screen && !PcScreenPassThrough(name);
+    // native split-screen (docs 17.12): another driver's screen (player 2's buy menu) is its controller's; the keyboard
+    // and mouse stay player 1's game's
+    const bool own = csx::PcDrivesScreen();
+    bool menu = screen && !PcScreenPassThrough(name) && own;
     g_buy_menu = menu && name.find("BuyMenu") != std::string::npos;
     if (menu != g_menu) {
         g_menu = menu;
@@ -322,8 +330,17 @@ void PcKeysFrame(X86Context& ctx, uint8_t*) {
         // the client's cvar exists only once a match runs, and a map load may set it back: set on every return to play
         if (!menu) AddText(ctx, "hud_fastswitch 1\n");
     }
+    static uint32_t others = 0;  // another driver's screen last logged
+    if (uint32_t now = own ? 0 : screen; now != others) {
+        if (now)
+            LOGI("pc keys: playing on: the screen %s is player %d's (it drives the shared front end), the keyboard and "
+                 "mouse stay player 1's game's", name.c_str(), NativeSplitDriverPlayer());
+        else
+            LOGI("pc keys: player %d's screen closed (the keyboard and mouse played on)", NativeSplitDriverPlayer());
+        others = now;
+    }
     static uint32_t through = 0;  // the pass-through screen last logged
-    if (uint32_t now = menu ? 0 : screen; now != through) {
+    if (uint32_t now = menu || !own ? 0 : screen; now != through) {
         through = now;
         if (now) LOGI("pc keys: %s passes the controls through", name.c_str());
     }

@@ -363,7 +363,7 @@ bool PcMapSearchList(const std::string& screen) { return ListOf(screen) != nullp
 void PcMapSearchFrame(X86Context& ctx) {
     std::string screen = PcCurrentScreen();
     List* l = ListOf(screen);
-    bool on = l != nullptr && !csx::ConsoleOpen();
+    bool on = l != nullptr && !csx::ConsoleOpen() && csx::PcDrivesScreen();  // docs 17.12: not another driver's screen
     if (on != g_keys_on.exchange(on)) LOGI("pc maps: keys %s", on ? "search the list" : "are the pad's again");
     std::deque<int> keys;
     {
