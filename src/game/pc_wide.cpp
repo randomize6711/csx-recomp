@@ -45,6 +45,8 @@ constexpr uint32_t kGlScreenRect = 0x6F080;  // the GL layer's screen rectangle
 constexpr uint32_t kViewWidth = 0x6E7A28, kViewHeight = 0x6E7A2C;  // r_refdef.vrect width, height
 
 bool fade_widened = false;  // PcWideFade changed the GL width
+float g_window_aspect = 4.0f / 3.0f;  // the display's aspect before native split-screen's view (FrameWidth)
+bool g_narrowed = false;              // this pass's world FOV narrower than Hor+ (native split views: docs 17)
 
 // the frame's width at 480 lines, chosen once (the window rectangle's setup runs before the device's)
 uint32_t FrameWidth() {
@@ -63,6 +65,7 @@ uint32_t FrameWidth() {
     int native = 0;
     if (const char* n = std::getenv("CSX_NATIVE_SPLIT")) native = std::atoi(n);
     const char* render = std::getenv("CSX_NATIVE_SPLIT_RENDER");
+    if (aspect > 0.0f) g_window_aspect = aspect;
     if (native >= 2 && native <= nsplit::kMaxPlayers && !csx::Dedicated() && !(render && render[0] == '0') &&
         aspect > 0.0f)
         aspect = nsplit::ViewAspect(aspect, native, pc::Get("split_layout", "horizontal") == "vertical");
@@ -80,6 +83,34 @@ float HorPlus(float fov, int w, int h) {
     if (w <= 0 || h <= 0 || w * 3 == h * 4 || !(fov > 0.0f && fov < 180.0f)) return fov;
     const double rad = 3.14159265358979323846 / 180.0;
     return float(2.0 * std::atan(std::tan(fov * rad / 2.0) * (double(w) / h) * 0.75) / rad);
+}
+
+}  // namespace
+
+float NativeSplitViewShape();  // native_split.cpp: this turn's view's width over height in window fractions, 0 none
+
+namespace {
+// the split views' FOV policy (docs 17, native_split_view.h SplitFrameFov): "window" (default) or "wide" (Hor+ at the
+// view's aspect, as before), pc_settings split_fov, CSX_NATIVE_SPLIT_FOV over it
+bool WidePolicy() {
+    if (const char* v = std::getenv("CSX_NATIVE_SPLIT_FOV")) return std::string(v) == "wide";
+    static unsigned seen = ~0u;
+    static bool wide = false;
+    if (pc::Version() != seen) {
+        seen = pc::Version();
+        wide = pc::Get("split_fov", "window") == "wide";
+    }
+    return wide;
+}
+// the frame's horizontal FOV for the title's `fov` on a w x h view rectangle: Hor+, or in a native split view the
+// split policy's (g_narrowed set when it is narrower than Hor+)
+float FrameFov(float fov, int w, int h) {
+    float wide = HorPlus(fov, w, h);
+    float shape = NativeSplitViewShape();
+    if (shape <= 0 || w <= 0 || h <= 0 || !(fov > 0.0f && fov < 180.0f)) return wide;
+    double frame = double(w) / h, viewport = double(g_window_aspect) * shape;
+    double f = nsplit::SplitFrameFov(fov, frame, nsplit::ShownAspect(frame, viewport), g_window_aspect, WidePolicy());
+    return float(f);
 }
 
 float AsFloat(uint32_t v) {
@@ -117,13 +148,17 @@ void PcWideRect(X86Context&, uint8_t*) {
 // [[hook]] at 0x4E118 (R_SetupGL, edx = scr_fov_value for CalcFovY on the view rectangle)
 void PcWideFovView(X86Context& ctx, uint8_t*) {
     int w = int(R32(kViewWidth)), h = int(R32(kViewHeight));
+    g_narrowed = false;
     if (FrameWidth() == 640) return;
-    float fov = AsFloat(ctx.edx), wide = HorPlus(fov, w, h);
+    float fov = AsFloat(ctx.edx), hor = HorPlus(fov, w, h), wide = FrameFov(fov, w, h);
+    g_narrowed = wide < hor - 0.01f;
     ctx.edx = Bits(wide);
-    static float shown = 0;
-    if (fov != shown) {
+    static float shown = 0, shown_wide = 0;
+    if (fov != shown || std::fabs(wide - shown_wide) > 0.05f) {
         shown = fov;
-        LOGI("pc wide: view fov %g -> %.1f (%dx%d)", fov, wide, w, h);
+        shown_wide = wide;
+        LOGI("pc wide: view fov %g -> %.1f (%dx%d)%s", fov, wide, w, h,
+             g_narrowed ? " (a split view: the window's horizontal angle, docs 17)" : "");
     }
 }
 
@@ -134,7 +169,7 @@ void PcWideFovView(X86Context& ctx, uint8_t*) {
 void PcWideFovFrustum(X86Context& ctx, uint8_t*) {
     int w = int(R32(kViewWidth)), h = int(R32(kViewHeight));
     if (FrameWidth() == 640 || w <= 0 || h <= 0) return;
-    float fov = AsFloat(ctx.ecx), wide = HorPlus(fov, w, h);
+    float fov = AsFloat(ctx.ecx), wide = FrameFov(fov, w, h);
     ctx.ecx = Bits(wide);
     W32(ctx.esp + 0x10, Bits(wide));
     W32(ctx.esp, Bits(float(w)));
@@ -163,6 +198,9 @@ bool PcWide2D(X86Context& ctx, uint8_t*) {
     kernel::CallGuest(ctx, R32(kQglOrtho), args, 12);
     return true;
 }
+
+// this pass's world drawn narrower than Hor+ (a native split view, docs 17): the weapon keeps its own vertical angle
+bool PcWideNarrowed() { return g_narrowed; }
 
 // whether 2D drawn now lands on the wide frame (the viewport the GL layer last set: x, y, w, h), not a texture
 bool DrawingToFrame() {

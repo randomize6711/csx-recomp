@@ -6,7 +6,9 @@
 // (d3d::SetSplitView): the host places the finished frame in that player's viewport and presents the window once, at
 // the last view. The world is simulated once (the server frame), each player's view drawn once.
 #pragma once
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 
 #include "game/native_split_core.h"
@@ -98,6 +100,42 @@ inline bool DrawsShared(int views, int turn_player, int driver) { return views <
 // it is). Not a viewport, or this player's own: painted
 inline bool PaintsPanel(bool in_turn, bool is_viewport, uint32_t panel, uint32_t own_viewport) {
     return !in_turn || !is_viewport || panel == own_viewport;
+}
+
+// ---- the split views' field of view (docs 17) ----
+// The title's FOV is horizontal degrees for a 4:3 view; pc_wide makes it Hor+ (the 4:3 view's vertical angle kept) for
+// the frame's aspect. A split view's frame is wider than the window (two top and bottom at 16:9: 32:9), where Hor+
+// reaches 139 degrees and stretches the sides. The split policy ("window", the default): the horizontal angle a
+// player has across what the window shows of its view is at most the one the whole window would have (Hor+ at the
+// window's aspect, about 106 degrees at 16:9 for 90): the view is a strip of the full-window view, its vertical angle
+// narrower. "wide" keeps Hor+ at the view's aspect (the earlier behaviour). Alone, a player's frame is cropped to the
+// window's aspect (FrameRect), so its shown part is the window's: the same horizontal angle as one player alone in a
+// window of that aspect. All in degrees; fov the title's (4:3 horizontal), frame / shown / window aspects w:h
+inline double HorPlusDeg(double fov, double aspect) {
+    const double rad = 3.14159265358979323846 / 180.0;
+    if (!(fov > 0 && fov < 180) || !(aspect > 0)) return fov;
+    return 2.0 * std::atan(std::tan(fov * rad / 2.0) * aspect * 0.75) / rad;
+}
+// the horizontal angle across the whole frame; shown: the aspect of the part of the frame the window shows (the frame's
+// own when it is fitted whole, the viewport's when its sides are cut)
+inline double SplitFrameFov(double fov, double frame, double shown, double window, bool wide_policy) {
+    const double rad = 3.14159265358979323846 / 180.0;
+    if (!(frame > 0 && shown > 0 && window > 0)) return HorPlusDeg(fov, frame);
+    double target = wide_policy ? shown : std::min(shown, window);
+    double across_shown = HorPlusDeg(fov, target);  // across what the window shows
+    double t = std::tan(across_shown * rad / 2.0) * frame / shown;
+    return 2.0 * std::atan(t) / rad;
+}
+// what the window shows of a frame of aspect `frame` in a viewport of aspect `viewport` (split::FrameRect: fitted whole,
+// or, wider than a viewport at least 4:3, cut at the sides to the viewport's aspect)
+inline double ShownAspect(double frame, double viewport) {
+    if (frame > viewport && viewport >= 4.0 / 3.0 - 0.001) return viewport;
+    return frame;
+}
+// the vertical angle of a horizontal one at an aspect
+inline double VerticalDeg(double hfov, double aspect) {
+    const double rad = 3.14159265358979323846 / 180.0;
+    return 2.0 * std::atan(std::tan(hfov * rad / 2.0) / aspect) / rad;
 }
 
 // the pad each player reads in its turn (the title's one active pad index, set for that turn): player 1 keeps the

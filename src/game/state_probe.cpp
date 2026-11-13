@@ -177,6 +177,9 @@ void StartStateProbe() {
                     if (uint32_t e = ClientEdict(n)) {
                         LOGI("players %s %u %.3f %.3f %.3f %.0f", name, n, F(e + kEdictOrigin), F(e + kEdictOrigin + 4),
                              F(e + kEdictOrigin + 8), F(e + kEdictHealth));
+                        // the view angles the server has (entvars v_angle: pitch, yaw), "playerview NAME N PITCH YAW":
+                        // native split-screen's camera tests (docs/native_splitscreen.md 17)
+                        LOGI("playerview %s %u %.3f %.3f", name, n, F(e + kEdictViewAngle), F(e + kEdictViewAngle + 4));
                         // the server's measured latency of a network client (client_t +0x25A0, seconds: the
                         // scoreboard's ping), "playerping NAME N MS"
                         uint32_t cl = kernel::R32(kClients) + n * kClientSize;

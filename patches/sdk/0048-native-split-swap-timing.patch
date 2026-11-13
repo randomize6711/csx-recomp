@@ -1,0 +1,46 @@
+diff --git i/runtime/xdk/d3d8.cpp w/runtime/xdk/d3d8.cpp
+index 5144365..8be49e9 100644
+--- i/runtime/xdk/d3d8.cpp
++++ w/runtime/xdk/d3d8.cpp
+@@ -761,6 +761,14 @@ std::atomic<uint32_t> g_presents{0};
+ }  // namespace
+ 
+ HLE_STDCALL(D3DDevice_Swap, 1) {
++    // native split-screen's diagnostics: the time inside the Swap and its pacing (SplitStats)
++    struct SwapTimer {
++        std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
++        ~SwapTimer() {
++            g_split.swap_ns += uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                                            std::chrono::steady_clock::now() - t0).count());
++        }
++    } swap_timer;
+     app::SplashFirstFrame();
+     // handed over from the previous instance: the window opens on the second frame, the first picture with
+     // anything drawn over it right after
+@@ -817,7 +825,12 @@ HLE_STDCALL(D3DDevice_Swap, 1) {
+         PassOverlay();
+         g_backend->Present(SurfaceOf(g_buffers[1]));
+     }
+-    if (pace) app::Pace();
++    if (pace) {
++        auto p0 = std::chrono::steady_clock::now();
++        app::Pace();
++        g_split.pace_ns += uint64_t(
++            std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - p0).count());
++    }
+     // like the XDK, the surfaces stay put and their memory rotates: titles keep back buffer pointers and copy its data.
+     // A multisampled back buffer does not rotate: the console resolves it into the display buffers at Swap and it
+     // keeps what was drawn (a title presenting again without drawing, CS's loading screen, shows the same picture;
+diff --git i/runtime/xdk/d3d8.h w/runtime/xdk/d3d8.h
+index 9a73d7e..d8f00c0 100644
+--- i/runtime/xdk/d3d8.h
++++ w/runtime/xdk/d3d8.h
+@@ -27,6 +27,8 @@ struct SplitCounters {
+     uint64_t finished = 0;       // window frames presented by FinishSplitFrame (a last view missing)
+     uint64_t repeats = 0;        // Swaps after the first in one view (the loading screen's)
+     uint64_t skipped = 0;        // views not presented by a backend that does not compose
++    uint64_t swap_ns = 0;        // time inside the Swaps (the backend's present and its wait for the frame before)
++    uint64_t pace_ns = 0;        // of it, the title's pacing (the frame limiter's wait), once a window frame
+ };
+ SplitCounters SplitStats();
+ 

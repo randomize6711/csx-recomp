@@ -2166,3 +2166,87 @@ is away, the frame rate with two passes, and whether anything shared between the
   cameras after a rejoin.
 - **Seen**: the 32:9 views are Hor+ to 139 degrees horizontally (pc wide: "view fov 90 -> 138.9"): strong stretching
   at the sides of each view.
+
+## 17. M3.2: two players playing (2026-11-13; static only, not run)
+
+Nothing here has run. Unit-tested (native_split_view_test 87 checks, native_split_camera_test 38), compiled, checked
+against the disassembly.
+
+### 17.1 Into the match: the game's own menus, sent by each player's own client (development only)
+
+- **The game's rules (P)**: the game DLL's ClientCommand "menuselect" (0x13FB5E) dispatches on the player's menu
+  (CBasePlayer +0x364; jump table 0x140BE8): 1 the team menu a player is put in when it enters, 2 the in-game one, 3 the
+  class menu. In the team menu (HandleMenu_ChooseTeam 0x13DB30, table 0x13E2F8) 1 Terrorist, 2 Counter-Terrorist, 5
+  auto-assign, 6 spectate; its team then at +0x1E0. In the class menu (HandleMenu_ChooseAppearance 0x13D8E0) 1..4 a
+  model, above 4 a random one (RANDOM_LONG(1, 4) through 0x527C08). The server's own rules decide everything after
+  (a full team refuses, a round under way makes the player wait).
+- **The automatic choice** (native_split_join.h, AutoJoin in native_split.cpp; CSX_NATIVE_SPLIT_TEAMS "T1,T2,...",
+  CSX_NATIVE_SPLIT_CLASSES, unset: nothing): at each frame's end, for a player in the match that is not the shared
+  front end's driver (the driver has the game's own team screen; the others' menus are withheld, so they had no way
+  in): its next line, "menuselect N", queued as **its own console line**, run in its own turn and forwarded by its own
+  client to the server (an unknown command), from the server's state of its player (team, menu): the team in the team
+  menu, the class in the class menu, done once it has a team and no class menu. A line not taken is sent again after
+  60 frames, three times at most, then `[watch:auto-join]`. A new connection (player 2's join, player 1's rejoin)
+  starts over. Nothing of the server's is written.
+- **Diagnostics**: each step logged with the player's context, server slot, userid, team, menu, alive (health,
+  deadflag), weapons mask, origin and view angles (from the server's entvars); the same line in every 10 s report.
+
+### 17.2 Player 2's controller
+
+- The routing of 16.4, audited further: the title's pad poll (0xBDA30) reads every port with a handle into its four
+  pad records (0x384F9C + 0xE0 each) once a frame, so player 2's port is fresh when its turn reads it; the look routine
+  (right stick, in its CL_CreateMove: once per input turn) and the bridge (its buttons as key events) read the active
+  index set for its turn; the key events' bindings (+attack on the right trigger, +jump, +duck, +reload, +use, the
+  weapon slots) are its own console lines, run in its next turn on its own button states (in its regions).
+- **Test controller** (development only; window build): CSX_NATIVE_SPLIT_TEST_PAD=1 gives ports 1..N-1 a virtual
+  controller, connected and at rest, whose presses a test writes to the run folder's cmd2 (player 2; "BUTTONS FRAMES",
+  the cmd file's format): it goes through the title's own controller path (XInputGetState -> the pad poll -> the look
+  routine and the bridge in player 2's turn). tools/drive.py `press2`. Off, nothing of it exists.
+- **Not proved by it**: a physical controller's mapping (window_input.cpp PadOf: SDL's gamepad to the console's pad);
+  the key-down table (the engine's, process-wide) is shared by every pad's keys, so a player 1 that also uses a
+  controller (split_p1_pad 1) shares the pad keys' codes with player 2: keyboard and mouse for player 1 avoid it.
+
+### 17.3 The split views' field of view
+
+- **Where the 139 degrees came from**: pc_wide's Hor+ keeps the 4:3 view's vertical angle (73.7 degrees for 90) for
+  the frame's aspect; a split view's frame is 32:9 (16:9 halves), so its horizontal angle reached 138.9 and the sides
+  stretched. Not the compositor (it places the frame unscaled), not the projection's construction.
+- **The policy** (native_split_view.h SplitFrameFov; pc_settings split_fov "window" default, "wide" the earlier;
+  CSX_NATIVE_SPLIT_FOV over it): across what the window shows of a view, the horizontal angle the whole window would
+  have (Hor+ at the window's aspect: 106.3 for 90 at 16:9), so a split view is a strip of the full-window view (its
+  vertical angle narrower, 41 degrees). Alone, a player's 32:9 frame is cut to the window's 16:9 (FrameRect), so its
+  frame keeps 138.9 and what shows is 106.3, exactly a single player's. Side by side the frame is 4:3, 90 unchanged;
+  one player without split-screen: unchanged. The player's own FOV (zoom, scr_fov, per player) goes through the same
+  rule. Applied where pc_wide already changes the FOV (R_SetupGL's projection 0x4E118 and R_SetFrustum's culling
+  planes 0x4DAD6), per pass, for the view the pass draws.
+- **The weapon** (pc_viewmodel.cpp): the title draws it with the world's projection, so a narrower vertical angle would
+  draw it about twice as large; in a narrowed split view it is drawn at the player's own FOV's 4:3 vertical angle (as
+  full screen), through the existing weapon projection hook (0x4EFC2 / 0x4EFC7). A scope (FOV under 59) draws no
+  weapon: unchanged.
+
+### 17.4 Cameras and visibility (static)
+
+- Every address a player's camera keeps between frames is in its regions (native_split_camera_test): the view angles
+  0x552C10 / 0x552C14 (where the stick and the mouse integrate), the look routine's state, scr_fov, `cl` (punch angle,
+  view entity, the screen fade), the HUD, its VGUI viewport, its particles, cl_entities. Process-wide view state is
+  rebuilt by each pass before it is read (r_refdef, the GL size, the client view's origin and angles 0x56D690.. from
+  V_CalcRefdef 0x1A0F10 -> 0x19EF50). No native split code writes a camera address.
+- **Entity visibility (P)**: r_viewleaf 0x6E7FEC, r_oldviewleaf 0x6E7FF0 and r_visframecount 0x6E7AEC are all
+  process-wide together with the leaf marks they guard (in the shared world model): each pass's R_SetupFrame
+  (0x4DE62..0x4DE81) takes its own leaf and R_MarkLeaves (0x52380) re-marks when it differs from the previous pass's
+  (the other player's), so the efrags each pass stores are its own leaf's. Correct, at the cost of re-marking every
+  pass when the players stand in different leaves. The server's per-client PVS decides what each client receives.
+
+### 17.5 Timing
+
+The per-player turn time is now split (`views:` report): a turn = its own work + its Swaps (the present, the wait for
+the frame before), of which the pacing (the frame limiter's wait, which runs once a window frame at the last view:
+SDK patch 0048's swap and pace counters). Run 17's "player 2 30 ms" was mostly the limiter.
+
+### 17.6 The next test (prepared, not run)
+
+tests/scenarios/vk_native_split_2p_play.txt: player 1 joins with its own menus, player 2 automatically (CT), a round
+restart (sv_restartround) spawns both; each walks and turns through its own input only (player 1 keyboard and mouse,
+player 2 the test controller), the server's positions and view angles checked after each (`players` steps,
+`expect bodymoved / bodyturned / bodystill`: one moved, the other did not); player 1 leaves and rejoins once, chooses
+its team automatically and spawns at a restart; seven window shots.

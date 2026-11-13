@@ -32,6 +32,8 @@ per line, executed in order:
                             there; ended with the scenario (tools/master's csx-fakeservers for the browser's window tests)
     sleep S                 wait S seconds
     press BUTTONS [FRAMES]  press through the harness cmd file (buttons as in the pad script, joined by +)
+    press2 BUTTONS [FRAMES] native split-screen: player 2's test controller (CSX_NATIVE_SPLIT_TEST_PAD=1, window build:
+                            its cmd2 file; press3 / press4 players 3 and 4)
     key NAME [SECONDS]      window build: press an SDL key (SDL key name; NAME#SCANCODE: the key a layout puts at
                             that position, e.g. Å#[ on a Swedish keyboard) through the window's keys file
     point X Y               window build: the mouse pointer to (X, Y) of the menus' 640x480, as SDL motion
@@ -73,6 +75,8 @@ per line, executed in order:
     expect setting NAME VALUE      the run's pc_settings.ini holds NAME = VALUE (what PC Options saved)
     expect apart NAME N M MIN MAX  clients N and M horizontally MIN..MAX apart in players step NAME
     expect bodymoved A B N MIN MAX client N moved MIN..MAX (horizontally) from players step A to B
+    expect bodyturned A B N MIN MAX client N's view yaw (the server's v_angle) turned MIN..MAX degrees from A to B
+    expect bodystill A B N MOVE TURN client N moved at most MOVE units and turned at most TURN degrees from A to B
     expect health NAME N MIN MAX   client N's health in players step NAME
     expect bodyz NAME N MIN MAX    client N's origin height in players step NAME
     expect healthdrop A B N MIN MAX  client N's health fell MIN..MAX from players step A to B
@@ -396,6 +400,7 @@ def main():
     states = {}
     tracks = {}  # track steps: NAME -> rose, moved
     rosters = {}  # players steps: NAME -> {client: (x, y, z, health)}
+    views = {}  # players steps: NAME -> {client: (pitch, yaw)} (the server's v_angle)
     exposures = {}  # exposure steps: NAME -> dark, light, mean, low, high, middle
     fades = {}  # fade steps: NAME -> alpha, hold, length, lasted, real
     snap_lines = {}  # snap steps: NAME -> the log lines its frames wrote
@@ -442,7 +447,8 @@ def main():
                     RUN = os.path.join(run_base, 'split' + st[0][1:])
                 st = st[1:]
             kind = st[0]
-            if kind in ('press', 'key', 'click', 'wheel', 'pckey', 'point', 'pointat', 'type', 'mark', 'pad'):
+            if kind in ('press', 'press2', 'press3', 'press4', 'key', 'click', 'wheel', 'pckey', 'point', 'pointat', 'type',
+                        'mark', 'pad'):
                 input_mark = len(log.lines)
             if kind == 'mark':
                 good = True
@@ -486,6 +492,12 @@ def main():
                 frames = st[2] if len(st) > 2 else '3'
                 send(f'{st[1]} {frames}\n')
                 good = wait_until(lambda: not os.path.exists(os.path.join(RUN, 'cmd')))
+            elif kind in ('press2', 'press3', 'press4'):
+                # native split-screen's test controller of player N (CSX_NATIVE_SPLIT_TEST_PAD=1): its cmdN file
+                frames = st[2] if len(st) > 2 else '3'
+                name = 'cmd' + kind[-1]
+                send_file(name, f'{st[1]} {frames}\n')
+                good = wait_until(lambda: not os.path.exists(os.path.join(RUN, name)))
             elif kind == 'closebuymenu':
                 # closebuymenu [PREFIX]: if the player's last menu state ("PREFIXpc keys: menu ..." / "... playing") is a
                 # buy menu (a spawn's, which opens at a round's start), Escape (Back, N5A) closes it and play is waited for
@@ -659,10 +671,14 @@ def main():
                 good = wait_until(lambda: log.match(r'players ' + re.escape(st[1]) + ' end'))
                 if good:
                     rosters[st[1]] = {}
+                    views[st[1]] = {}
                     for l in log.lines:
                         m = re.search(r'players ' + re.escape(st[1]) + r' (\d+) (\S+) (\S+) (\S+) (\S+)\s*$', l)
                         if m:
                             rosters[st[1]][int(m.group(1))] = tuple(float(v) for v in m.groups()[1:])
+                        m = re.search(r'playerview ' + re.escape(st[1]) + r' (\d+) (\S+) (\S+)\s*$', l)
+                        if m:
+                            views[st[1]][int(m.group(1))] = (float(m.group(2)), float(m.group(3)))
                     print('     ' + '; '.join('%d: %.1f %.1f %.1f health %.0f' % ((n,) + v)
                                               for n, v in sorted(rosters[st[1]].items())))
             elif kind == 'bring':
@@ -1068,6 +1084,26 @@ def main():
                         lo, hi = st[3], 'inf'
                     print('     %.1f (want %s..%s)' % (v, lo, hi))
                     good = float(lo) <= v <= float(hi)
+                except KeyError as e:
+                    print('     no such step or client: %s' % e)
+                    good = False
+            elif kind == 'expect' and st[1] in ('bodyturned', 'bodystill'):
+                # expect bodyturned A B N MIN MAX: client N's view yaw (the server's) changed MIN..MAX degrees (the
+                # shortest way) from players step A to B; expect bodystill A B N MAXMOVE MAXTURN: client N moved at
+                # most MAXMOVE units and turned at most MAXTURN degrees (yaw and pitch) from A to B
+                try:
+                    va, vb = views[st[2]][int(st[4])], views[st[3]][int(st[4])]
+                    dyaw = abs((vb[1] - va[1] + 180.0) % 360.0 - 180.0)
+                    dpitch = abs(vb[0] - va[0])
+                    if st[1] == 'bodyturned':
+                        print('     yaw %.1f -> %.1f: %.1f degrees (want %s..%s)' % (va[1], vb[1], dyaw, st[5], st[6]))
+                        good = float(st[5]) <= dyaw <= float(st[6])
+                    else:
+                        a, b = rosters[st[2]][int(st[4])], rosters[st[3]][int(st[4])]
+                        moved = ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
+                        print('     moved %.1f, turned %.1f yaw %.1f pitch (want at most %s, %s)' %
+                              (moved, dyaw, dpitch, st[5], st[6]))
+                        good = moved <= float(st[5]) and max(dyaw, dpitch) <= float(st[6])
                 except KeyError as e:
                     print('     no such step or client: %s' % e)
                     good = False

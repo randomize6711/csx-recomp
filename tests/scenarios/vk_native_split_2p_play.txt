@@ -1,0 +1,101 @@
+# Native split-screen M3.2 (docs/native_splitscreen.md 17) in the Vulkan window: two local players in one process
+# PLAYING, not watching. Player 1 chooses its team with its own menus (the shared front end's driver), player 2 by the
+# development auto-join (its own "menuselect" lines through its own client; CSX_NATIVE_SPLIT_TEAMS=1,2: player 2 a
+# Counter-Terrorist, player 1 a Terrorist when it chooses automatically after its rejoin; random classes; one a team, so
+# no team balance moves anyone), then a round restart (the server's own sv_restartround) spawns both. Each moves and aims
+# through its own input only: player 1 the mouse (look) and the keyboard (W), player 2 its controller (the test
+# controller on port 1: CSX_NATIVE_SPLIT_TEST_PAD=1, its right stick and left stick); the server's positions and view
+# angles (players steps: origin, health, v_angle) prove that each input moved its own player and not the other.
+# 60 s after player 2 joined, player 1 leaves once and rejoins 10 s later, chooses its team automatically (no
+# longer the driver), and a restart spawns it again. de_dust2 with no bots, 30 fps, the server write guard on.
+# Window shots (RUN/shots): gp_spawned, gp_p1_aims, gp_p2_aims, gp_p2_moved, gp_both, gp_alone, gp_rejoined.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --launch tests/launch/de_dust2_nobots --env FPS=30 --env CSX_NATIVE_SPLIT=2 --env CSX_CTX_GUARD=1 --env CSX_NATIVE_SPLIT_CHANGES=1 --env CSX_NATIVE_SPLIT_ROLLBACK=0 --env CSX_NATIVE_SPLIT_TEAMS=1,2 --env CSX_NATIVE_SPLIT_CLASSES=5,5 --env CSX_NATIVE_SPLIT_TEST_PAD=1 --env CSX_NATIVE_SPLIT_LEAVE_AFTER=60 --env CSX_NATIVE_SPLIT_LEAVE_PLAYER=1 --env CSX_NATIVE_SPLIT_LEAVE_TIMES=1 --env CSX_NATIVE_SPLIT_REJOIN_AFTER=10
+# timeout: 240
+wait log renderer: vulkan
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+expect log native split: 2 local players asked
+expect log pc wide: aspect .*frame [0-9]+x480
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+wait log native split: player 2 is in the match
+wait log native split: player 2 reads its own controller \(port 1\)
+wait log native split: player 2's automatic team choice \(development\): on its team
+expect nolog native split: player 1's automatic team choice
+# both spawned by the server's own round restart
+pckey cmd sv_restartround 1
+sleep 6
+players spawned
+expect health spawned 0 1 100
+expect health spawned 1 1 100
+expect apart spawned 0 1 1 100000
+expect log native split: player 2 in the game: .*team Counter-Terrorist.*alive
+expect log pc wide: view fov 90 -> 106\.[0-9] .*a split view
+windowshot gp_spawned
+# player 2 walks with its left stick (facing out of its spawn): player 1 stays
+press2 LS 90
+sleep 3
+players p2walk
+expect bodymoved spawned p2walk 1 40 2000
+expect bodystill spawned p2walk 0 2 2
+windowshot gp_p2_moved
+# player 1 walks with its keyboard: player 2 stays
+key w 1
+sleep 2
+players p1walk
+expect bodymoved p2walk p1walk 0 40 2000
+expect bodystill p2walk p1walk 1 2 2
+# player 1 aims with its mouse: player 2 neither turns nor moves
+look 90 0
+sleep 2
+players p1aim
+expect bodyturned p1walk p1aim 0 60 120
+expect bodystill p1walk p1aim 1 2 2
+windowshot gp_p1_aims
+# player 2 aims with its controller's right stick: player 1 neither turns nor moves
+press2 RSR 40
+sleep 2
+players p2aim
+expect bodyturned p1aim p2aim 1 10 360
+expect bodystill p1aim p2aim 0 2 2
+windowshot gp_p2_aims
+windowshot gp_both
+# player 1 departs: player 2 plays on in the whole window
+wait log native split: player 1 left the match \(its client disconnected\)
+wait log native split: the window shows 1 view\(s\)
+sleep 2
+press2 RSL 20
+sleep 2
+windowshot gp_alone
+# player 1 rejoins in its kept context, chooses its team itself (not the driver now), and spawns at a restart
+wait log native split: player 1 is in the match
+wait log native split: player 1's automatic team choice \(development\): on its team
+pckey cmd sv_restartround 1
+sleep 6
+players rejoined
+expect health rejoined 0 1 100
+expect health rejoined 1 1 100
+expect apart rejoined 0 1 1 100000
+windowshot gp_rejoined
+wait newlog native split: player 1 in the game: .*team Terrorist.*alive
+wait log native split: views: 
+expect log native split: player 2 active, context 1, client state 5
+expect log native split: player 1 active, context 0, client state 5
+expect log renderer: split views: [1-9][0-9]* placed in the window image
+expect nolog \[watch:view-missing\]
+expect nolog \[watch:auto-join\]
+expect nolog native split: player 1's memory at departure 2
+# ownership and errors (docs 15.16)
+expect nolog \[own:[a-z-]+\]
+expect nolog client context guard: the server frame wrote
+expect nolog \] \[error\] \[[^]]*\] native split:
+expect nolog native split: player 2 left
+expect nolog native split: the server shuts down
+expect nolog Host_Error
+expect nolog guest trap

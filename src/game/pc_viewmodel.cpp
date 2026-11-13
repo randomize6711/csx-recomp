@@ -57,11 +57,16 @@ void Split(double d, uint32_t& lo, uint32_t& hi) {
 // [[hook]] at 0x4E264 (config/game.toml): R_SetupGL about to call MYgluPerspective, its four doubles at esp
 void PcViewmodelWorld(X86Context& ctx, uint8_t*) { std::memcpy(g_world, kernel::HostPtr(ctx.esp), sizeof g_world); }
 
+bool PcWideNarrowed();  // pc_wide.cpp: this pass's world FOV narrowed for a native split view (docs 17)
+
 // [[hook]] at 0x4EFC2: R_RenderView about to draw the first-person weapon
 void PcViewmodelBefore(X86Context& ctx, uint8_t*) {
     g_pushed = false;
     float fov = Wanted(), scr;
     std::memcpy(&scr, kernel::HostPtr(kScrFov), 4);
+    // a native split view's world is narrower than Hor+ (docs 17): "Same as Field of View" draws the weapon at the
+    // player's own FOV's 4:3 vertical angle, as it is drawn full screen, not enlarged by the narrower world
+    if (fov <= 0 && PcWideNarrowed()) fov = scr;
     if (fov <= 0 || !(scr >= 59.0f) || g_world[1] <= 0) return;
     double fovy = 2.0 * std::atan(std::tan(double(fov) * M_PI / 360.0) * 0.75) * 180.0 / M_PI;
     uint32_t a[8];

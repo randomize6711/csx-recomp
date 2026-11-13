@@ -832,13 +832,63 @@ Pad PadOf(SDL_Gamepad* gp) {
 }
 }  // namespace
 
+// development only (docs/native_splitscreen.md 17): CSX_NATIVE_SPLIT_TEST_PAD=1 gives native split-screen's ports
+// 1..N-1 a virtual controller (connected, at rest) whose presses a test scripts through the run folder's cmdK file (K
+// the player: cmd2 for port 1; "BUTTONS FRAMES" as the cmd file's), so a test drives player 2 through the game's own
+// controller path. Off: nothing of it exists
+bool NativeTestPad() {
+    static const bool on = [] {
+        const char* v = std::getenv("CSX_NATIVE_SPLIT_TEST_PAD");
+        return v && v[0] == '1' && !v[1];
+    }();
+    return on && NativePlayers();
+}
+struct PortScript {
+    uint64_t until = 0;
+    std::string buttons;
+    std::chrono::steady_clock::time_point next{};
+};
+PortScript g_port_script[4];
+// the port's scripted press now (g_lock held): its file read at most every 20 ms
+void ScriptPort(int port, Pad& p) {
+    PortScript& sc = g_port_script[port];
+    const auto now = std::chrono::steady_clock::now();
+    if (now >= sc.next) {
+        sc.next = now + std::chrono::milliseconds(20);
+        const std::string path = (app::ExeDir() / ("cmd" + std::to_string(port + 1))).string();
+        if (FILE* f = std::fopen(path.c_str(), "r")) {
+            char b[64] = {};
+            double frames = 3;
+            if (std::fscanf(f, "%63s %lf", b, &frames) >= 1) {
+                sc.until = harness::g_frames.load() + uint64_t(std::max(frames, 1.0));
+                sc.buttons = b;
+                LOGI("input: port %d's test controller presses %s for %.0f frames", port, b, frames);
+            }
+            std::fclose(f);
+            std::remove(path.c_str());
+        }
+    }
+    if (harness::g_frames.load() > sc.until) return;
+    float lx = p.lx, ly = p.ly, rx = p.rx, ry = p.ry;
+    ApplyScripted(sc.buttons, p, lx, ly, rx, ry);
+    auto clamp16 = [](float v) { return int16_t(std::clamp(v, -32768.0f, 32767.0f)); };
+    p.lx = clamp16(lx);
+    p.ly = clamp16(ly);
+    p.rx = clamp16(rx);
+    p.ry = clamp16(ry);
+}
+
 Pad Poll(int port) {
     Pad p;
     p.connected = port == 0;
     if (port != 0) {
-        if (!NativePlayers()) return p;
+        if (!NativePlayers() || port < 0 || port > 3) return p;
         std::lock_guard<std::mutex> lock(g_lock);
-        if (SDL_Gamepad* gp = NativePad(port)) return PadOf(gp);
+        if (SDL_Gamepad* gp = NativePad(port)) p = PadOf(gp);
+        if (NativeTestPad() && port < NativePlayers()) {
+            p.connected = true;
+            ScriptPort(port, p);
+        }
         return p;
     }
     std::lock_guard<std::mutex> lock(g_lock);

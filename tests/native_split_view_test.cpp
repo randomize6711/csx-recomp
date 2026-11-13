@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <vector>
 
+#include "game/native_split_join.h"
 #include "game/native_split_view.h"
 #include "linux/split_ipc.h"
 
@@ -250,7 +251,114 @@ static void Placement() {
     Check(t2.dy1 <= b2.dy0 && b2.dy1 <= 767, "odd window: halves never overlap");
 }
 
+// docs 17: the split views' field of view
+static void Fov() {
+    const double w169 = 16.0 / 9.0, half = 32.0 / 9.0;
+    Check(std::fabs(HorPlusDeg(90, 4.0 / 3.0) - 90) < 1e-6, "Hor+ at 4:3: the title's own");
+    Check(std::fabs(HorPlusDeg(90, w169) - 106.26) < 0.01, "Hor+ at 16:9: 106.3");
+    Check(std::fabs(HorPlusDeg(90, half) - 138.88) < 0.05, "Hor+ at 32:9: 138.9 (run 17's)");
+    // two top and bottom at 16:9: the window's angle across each strip
+    double split = SplitFrameFov(90, half, ShownAspect(half, half), w169, false);
+    Check(std::fabs(split - 106.26) < 0.01, "a 32:9 half: 106.3 across it (the window's), not 139");
+    Check(VerticalDeg(split, half) < VerticalDeg(90, 4.0 / 3.0), "its vertical angle narrower (a strip of the window's view)");
+    Check(std::fabs(SplitFrameFov(90, half, half, w169, true) - 138.88) < 0.05, "\"wide\": Hor+ at the view's, as before");
+    // alone: the 32:9 frame cut to the window's 16:9: the frame wider, what shows exactly the window's Hor+
+    double alone = SplitFrameFov(90, half, ShownAspect(half, w169), w169, false);
+    Check(std::fabs(alone - 138.88) < 0.05, "alone: the frame 138.9, its shown middle 16:9");
+    const double rad = 3.14159265358979323846 / 180.0;
+    double shown_angle = 2 * std::atan(std::tan(alone * rad / 2) * w169 / half) / rad;
+    Check(std::fabs(shown_angle - 106.26) < 0.05, "alone: 106.3 across what shows, as one player in this window");
+    // side by side at 16:9: 8:9 viewports, the 4:3 frame fitted: the title's own 90
+    double side = SplitFrameFov(90, 4.0 / 3.0, ShownAspect(4.0 / 3.0, 8.0 / 9.0), w169, false);
+    Check(std::fabs(side - 90) < 0.01, "side by side: a 4:3 frame letterboxed, 90 as the title's");
+    // not split-screen: a 16:9 frame in a 16:9 window, unchanged
+    Check(std::fabs(SplitFrameFov(90, w169, ShownAspect(w169, w169), w169, false) - HorPlusDeg(90, w169)) < 1e-9,
+          "one player, the window's frame: Hor+ unchanged");
+    // other windows: 21:9 (64:27) halves are 128:27 (4.74), the 4:1 frame cut to the viewport? no: narrower, fitted
+    double w219 = 64.0 / 27.0, f219 = 4.0;
+    double s219 = SplitFrameFov(90, f219, ShownAspect(f219, w219 * 2), w219, false);
+    Check(std::fabs(s219 - HorPlusDeg(90, w219)) < 0.01, "21:9 halves: the window's 21:9 angle (about 121)");
+    double s43 = SplitFrameFov(90, 8.0 / 3.0, ShownAspect(8.0 / 3.0, 8.0 / 3.0), 4.0 / 3.0, false);
+    Check(std::fabs(s43 - 90) < 0.01, "4:3 window halves: 90 across each");
+    // a zoom (the scope's 40, the AUG's 55): the same policy, the player's own FOV
+    double z = SplitFrameFov(40, half, half, w169, false);
+    Check(std::fabs(z - HorPlusDeg(40, w169)) < 0.01 && z < split, "a zoom narrows by the same rule");
+    // monotonic in fov, never above Hor+ at the view's aspect
+    double last = 0;
+    bool mono = true, below = true;
+    for (double f = 10; f <= 170; f += 5) {
+        double v = SplitFrameFov(f, half, half, w169, false);
+        mono = mono && v > last;
+        below = below && v <= HorPlusDeg(f, half) + 1e-9;
+        last = v;
+    }
+    Check(mono && below, "monotonic in the FOV, never wider than Hor+");
+}
+
+// docs 17: the automatic team choice through the game's own menus
+static void AutoJoinRules() {
+    JoinChoice off = ChoiceOf(nullptr, nullptr, 1);
+    Check(!off.On(), "unset: nothing automatic");
+    JoinChoice c2 = ChoiceOf("0,5", nullptr, 1), c1 = ChoiceOf("0,5", nullptr, 0);
+    Check(c2.On() && c2.team == 5 && c2.cls == 5 && !c1.On(), "\"0,5\": player 2 auto-assigned, player 1 its own menus");
+    JoinChoice ct = ChoiceOf("1,2", "3,4", 1);
+    Check(ct.team == 2 && ct.cls == 4, "per player team and class");
+    Check(!ChoiceOf("4,7", nullptr, 0).On() && !ChoiceOf("4,7", nullptr, 1).On(), "slots not in the team menu: off");
+    Check(ChoiceOf("1", "9", 0).cls == 5 && ChoiceOf("2", nullptr, 3).team == 0, "bad class: random; missing: off");
+    Check(!AutoJoinsFor(0, 0) && AutoJoinsFor(1, 0) && AutoJoinsFor(0, 1), "only a player not driving the front end");
+
+    JoinChoice c = ChoiceOf("2,1", "5,5", 1);  // player 2: Terrorist, random class
+    JoinState st;
+    ServerPlayer sp;
+    Check(NextJoin(c, sp, st) == JoinStep::NoServerPlayer, "no server player yet: nothing");
+    sp.known = true;
+    sp.menu = 0;
+    Check(NextJoin(c, sp, st) == JoinStep::Waiting, "not in the team menu yet: wait");
+    sp.menu = kMenuChooseTeam;
+    JoinStep s = NextJoin(c, sp, st);
+    Check(s == JoinStep::Team && JoinLine(s, c) == "menuselect 1\n", "in the team menu: its own \"menuselect 1\"");
+    Check(NextJoin(c, sp, st) == JoinStep::Waiting, "sent: waits for the server");
+    sp.team = 1;
+    sp.menu = kMenuChooseClass;
+    s = NextJoin(c, sp, st);
+    Check(s == JoinStep::Class && JoinLine(s, c) == "menuselect 5\n", "a team, the class menu: \"menuselect 5\"");
+    sp.menu = 0;
+    sp.health = 100;
+    Check(NextJoin(c, sp, st) == JoinStep::Done && NextJoin(c, sp, st) == JoinStep::Done, "on its team: done, nothing more");
+    // the server not taking it (a full team): resent after the retry, then given up
+    JoinState st2;
+    ServerPlayer full;
+    full.known = true;
+    full.menu = kMenuChooseTeam;
+    int lines = 0;
+    JoinStep last = JoinStep::Off;
+    for (int i = 0; i < 400; i++) {
+        last = NextJoin(c, full, st2, 60, 3);
+        lines += last == JoinStep::Team;
+        if (last == JoinStep::GaveUp) break;
+    }
+    Check(lines == 3 && last == JoinStep::GaveUp, "refused: three tries, then given up (no flood)");
+    // a rejoin: a new connection starts over
+    st.Reset();
+    ServerPlayer again;
+    again.known = true;
+    again.menu = kMenuChooseTeam;
+    Check(NextJoin(c, again, st) == JoinStep::Team, "after a reset (a rejoin): the team again");
+    // a spectating choice: done once the server shows spectator
+    JoinChoice spec = ChoiceOf("6,6", nullptr, 1);
+    JoinState st3;
+    ServerPlayer s3;
+    s3.known = true;
+    s3.menu = kMenuChooseTeam;
+    Check(JoinLine(NextJoin(spec, s3, st3), spec) == "menuselect 6\n", "spectate: menuselect 6");
+    s3.team = 3;
+    s3.menu = 0;
+    Check(NextJoin(spec, s3, st3) == JoinStep::Done, "spectator: done");
+}
+
 int main() {
+    Fov();
+    AutoJoinRules();
     Layouts();
     TwoPlayers();
     MissingPresents();

@@ -56,6 +56,7 @@
 #include "kernel/kernel.h"
 #include "common/pc_settings.h"
 #include "core/input.h"
+#include "game/native_split_join.h"
 #include "game/native_split_view.h"
 #include "xdk/d3d8.h"
 
@@ -343,6 +344,9 @@ constexpr uint32_t kClPlayernum = 0x771224;  // cl.playernum: the slot the serve
 std::chrono::steady_clock::time_point g_joined_at{}, g_left_at{};
 // docs 15.23: player 1's memory over its departures, the serial its latest connection began at, the diagnostic leaves
 nsplit::Player1Retention g_p1_ret;
+// docs 17: the automatic team choice's state per player (development only: CSX_NATIVE_SPLIT_TEAMS)
+nsplit::JoinState g_join[nsplit::kMaxPlayers];
+nsplit::JoinStep g_join_last[nsplit::kMaxPlayers] = {};
 uint64_t g_p1_conn_serial = 0;
 int g_diag_leaves = 0;
 
@@ -456,6 +460,7 @@ size_t Rollback(X86Context& ctx, int k) {
 }
 
 uint32_t ServerClientOf(int k);
+bool Readable(uint32_t va);
 int SlotOf(uint32_t cl);
 uint64_t g_add_waits = 0, g_add_stale_packets = 0;
 void AddPlayer(X86Context& ctx, int k) {
@@ -693,6 +698,53 @@ int SlotOf(uint32_t cl) {
     return cl && base ? int((cl - base) / kClientSize) : -1;
 }
 
+// ---- M3.2: the players' server-side state, the automatic team choice (docs 17; native_split_join.h) --------------
+constexpr uint32_t kClientEdict = 0x4B9C;  // client_t::edict (src/game/state_probe.cpp)
+constexpr uint32_t kEdictPrivate = 0x7C;   // edict_t::pvPrivateData: the CBasePlayer
+constexpr uint32_t kEdictOrigin = 0x88, kEdictVAngle = 0xF4, kEdictHealth = 0x1E0, kEdictWeapons = 0x1E8,
+                   kEdictDeadflag = 0x1F0;  // entvars (edict + 0x80): origin, v_angle, health, weapons, deadflag
+constexpr uint32_t kPlayerTeam = 0x1E0, kPlayerMenu = 0x364;  // CBasePlayer m_iTeam, m_iMenu (0x13FB96, 0x13D8F2)
+float FloatAt(uint32_t va) {
+    uint32_t v = R32(va);
+    float f;
+    std::memcpy(&f, &v, 4);
+    return f;
+}
+uint32_t EdictOfPlayer(int k) {
+    uint32_t cl = R32(kSvActive) ? ServerClientOf(k) : 0;
+    uint32_t e = cl ? R32(cl + kClientEdict) : 0;
+    return e && Readable(e) && Readable(e + 0x200) ? e : 0;
+}
+nsplit::ServerPlayer ServerPlayerOf(int k) {
+    nsplit::ServerPlayer s;
+    uint32_t e = EdictOfPlayer(k);
+    uint32_t p = e ? R32(e + kEdictPrivate) : 0;
+    if (!p || !Readable(p) || !Readable(p + kPlayerMenu + 4)) return s;
+    s.known = true;
+    s.team = R32(p + kPlayerTeam);
+    s.menu = R32(p + kPlayerMenu);
+    s.health = FloatAt(e + kEdictHealth);
+    s.deadflag = R32(e + kEdictDeadflag);
+    s.weapons = R32(e + kEdictWeapons);
+    return s;
+}
+// one line of what the server's player is (diagnostics: no names, no addresses of the player's own)
+std::string ServerPlayerLine(int k) {
+    nsplit::ServerPlayer s = ServerPlayerOf(k);
+    uint32_t cl = R32(kSvActive) ? ServerClientOf(k) : 0;
+    if (!s.known) return "no server player";
+    uint32_t e = EdictOfPlayer(k);
+    char b[320];
+    std::snprintf(b, sizeof b,
+                  "context %d, slot %d, userid %u, team %s, menu %u, %s (health %.0f, deadflag %u), weapons 0x%08X, at "
+                  "%.0f %.0f %.0f, looking %.1f %.1f",
+                  g_players.At(k).context, SlotOf(cl), cl ? R32(cl + 0x4BA4) : 0, nsplit::TeamName(s.team), s.menu,
+                  s.deadflag == 0 && s.health > 0 ? "alive" : "not alive", s.health, s.deadflag, s.weapons,
+                  FloatAt(e + kEdictOrigin), FloatAt(e + kEdictOrigin + 4), FloatAt(e + kEdictOrigin + 8),
+                  FloatAt(e + kEdictVAngle), FloatAt(e + kEdictVAngle + 4));
+    return b;
+}
+
 // a dword of player k's client state: live for the active player, else from its saved copy
 uint32_t PlayerDword(int k, uint32_t va) {
     const nsplit::Player& p = g_players.At(k);
@@ -867,6 +919,9 @@ void Report() {
              k + 1, nsplit::Name(p.state), p.context, PlayerDword(k, kClsState), PlayerDword(k, kClPlayernum),
              SlotOf(cl), cl ? R32(cl + 0x4BA4) : 0, (unsigned long long)g_sent[k], (unsigned long long)g_server_read[k],
              (unsigned long long)g_to[k], (unsigned long long)g_read[k]);
+        // docs 17: what the server's player is (team, menu, alive, weapons, place and view): the gameplay camera's
+        // evidence, apart from the client's view
+        LOGI("native split: player %d in the game: %s", k + 1, ServerPlayerLine(k).c_str());
     }
     uint64_t switches = 0;
     double switch_ms = csx::ClientContextSwitchMs(switches);
@@ -1671,6 +1726,39 @@ void DepartPlayer1(X86Context& ctx) {
     ReportPlayer1Ui("at its departure");
 }
 
+// docs 17 (development only): CSX_NATIVE_SPLIT_TEAMS "T1,T2,..." the team menu's slot per player (1 Terrorist, 2
+// Counter-Terrorist, 5 auto-assign, 6 spectate; 0 or missing: the player's own menus), CSX_NATIVE_SPLIT_CLASSES the
+// class menu's (1..4, 5 random, the default). Unset: nothing automatic
+nsplit::JoinChoice JoinChoiceOf(int k) {
+    return nsplit::ChoiceOf(std::getenv("CSX_NATIVE_SPLIT_TEAMS"), std::getenv("CSX_NATIVE_SPLIT_CLASSES"), k);
+}
+// at the frame's end, for each player in the match: the next menu line its own client sends (its own console line,
+// run in its own turn: native_split_join.h NextJoin), from the server's state of its player
+void AutoJoin() {
+    for (int k = 0; k < nsplit::kMaxPlayers; k++) {
+        if (g_players.At(k).state != nsplit::State::Active) continue;
+        nsplit::JoinChoice c = JoinChoiceOf(k);
+        if (!c.On()) continue;
+        // the player driving the shared front end has the game's own menus (its team screen shows); the others' menus
+        // are withheld (docs 15.10), so only they choose automatically (native_split_join.h AutoJoinsFor)
+        if (!nsplit::AutoJoinsFor(k, g_ui.driver)) continue;
+        nsplit::ServerPlayer sp = ServerPlayerOf(k);
+        nsplit::JoinStep step = nsplit::NextJoin(c, sp, g_join[k]);
+        std::string line = nsplit::JoinLine(step, c);
+        if (!line.empty() && !g_cmds.Add(k, line)) LOGW("native split: player %d's menu line could not be queued", k + 1);
+        if (step != g_join_last[k] && step != nsplit::JoinStep::Waiting) {
+            if (step == nsplit::JoinStep::GaveUp)
+                LOGW("native split: player %d's automatic team choice %s: team %s, menu %u [watch:auto-join]", k + 1,
+                     nsplit::Name(step), nsplit::TeamName(sp.team), sp.menu);
+            else
+                LOGI("native split: player %d's automatic team choice (development): %s%s%s; %s", k + 1,
+                     nsplit::Name(step), line.empty() ? "" : ", its own line ", line.empty() ? "" : line.substr(0, line.size() - 1).c_str(),
+                     ServerPlayerLine(k).c_str());
+            g_join_last[k] = step;
+        }
+    }
+}
+
 // a departed player 1 rejoins (docs 15.19; native_split_core.h MayRejoin0), between frames in its own context: held no
 // longer, its client connects again by the title's own CL_CheckForResend in its next turn (state 1 with the server
 // active: "localhost"), in its kept context (nothing rebuilt, no process object made again). Its watch, console
@@ -1816,6 +1904,8 @@ void NativeSplitFrameEnd(X86Context& ctx) {
         if (p.state != nsplit::State::Connecting) continue;
         if (int(PlayerDword(k, kClsState)) == kClsActive) {
             g_players.Joined(k);
+            g_join[k].Reset();  // docs 17: a new connection chooses its team again
+            g_join_last[k] = {};
             g_joined_at = std::chrono::steady_clock::now();
             if (k == 0) {
                 g_p1_rejoined++;
@@ -1828,6 +1918,7 @@ void NativeSplitFrameEnd(X86Context& ctx) {
     }
     // player 1 in its match with the built-in server: the others added, one a frame; the bound on what leaving players
     // still hold (docs 15.20), read from the heap's count now
+    AutoJoin();
     g_leaks.Observe(g_blocks.LeftBehindBytes());
     CheckLeakAccounting();
     if (!g_add_failed && g_leaks.MayJoin() && nsplit::MayAddPlayers(g_timer_once) && R32(kSvActive) &&
@@ -2437,8 +2528,10 @@ struct RenderStats {
     uint64_t frames = 0, views = 0, hidden = 0, finished = 0, skipped_draws = 0, shared_skipped = 0, panels_skipped = 0;
     uint64_t by_views[nsplit::kMaxPlayers + 1] = {};
     double turn_ms[nsplit::kMaxPlayers] = {};
+    double swap_ms[nsplit::kMaxPlayers] = {}, pace_ms[nsplit::kMaxPlayers] = {};  // docs 17: inside its Swaps, pacing
     uint64_t turns[nsplit::kMaxPlayers] = {};
     std::chrono::steady_clock::time_point turn_start{};
+    uint64_t swap_at_start = 0, pace_at_start = 0;
     int last_views = -1;
 } g_render;
 
@@ -2474,6 +2567,9 @@ void NativeSplitClientTurn(X86Context&) {
     }
     d3d::SetSplitView(sv);
     g_render.turn_start = std::chrono::steady_clock::now();
+    d3d::SplitCounters c = d3d::SplitStats();
+    g_render.swap_at_start = c.swap_ns;
+    g_render.pace_at_start = c.pace_ns;
     if (v.views != g_render.last_views) {
         g_render.last_views = v.views;
         LOGI("native split: the window shows %d view(s) (%s)%s", v.views,
@@ -2488,6 +2584,9 @@ void NativeSplitClientTurnEnd() {
     if (!NativeSplitOn() || !RenderViews() || g_view_player < 0) return;
     int k = g_view_player;
     g_render.turn_ms[k] += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - g_render.turn_start).count();
+    d3d::SplitCounters c = d3d::SplitStats();
+    g_render.swap_ms[k] += double(c.swap_ns - g_render.swap_at_start) / 1e6;
+    g_render.pace_ms[k] += double(c.pace_ns - g_render.pace_at_start) / 1e6;
     g_render.turns[k]++;
     g_view_player = -1;
 }
@@ -2510,9 +2609,15 @@ void ReportRender() {
     std::string per;
     for (int k = 0; k < nsplit::kMaxPlayers; k++)
         if (g_render.turns[k]) {
-            char b[96];
-            std::snprintf(b, sizeof b, "%splayer %d %.3f ms a turn (%llu)", per.empty() ? "" : ", ", k + 1,
-                          g_render.turn_ms[k] / double(g_render.turns[k]), (unsigned long long)g_render.turns[k]);
+            // docs 17: a turn is its client half; of it, its Swaps (the present, the wait for the frame before, and
+            // at the window frame's last view the frame limiter's pacing): its own work is the rest
+            char b[200];
+            double n = double(g_render.turns[k]), turn = g_render.turn_ms[k] / n, swap = g_render.swap_ms[k] / n,
+                   pace = g_render.pace_ms[k] / n;
+            std::snprintf(b, sizeof b,
+                          "%splayer %d: a turn %.3f ms (%llu) = its own work %.3f + its Swaps %.3f (of which pacing %.3f)",
+                          per.empty() ? "" : "; ", k + 1, turn, (unsigned long long)g_render.turns[k], turn - swap, swap,
+                          pace);
             per += b;
         }
     nsplit::Rect conf = nsplit::ConfiguredView(Wanted(), VerticalViews());
@@ -2549,6 +2654,13 @@ bool NativeSplitSharedDraw(X86Context&, uint8_t*) {
     if (nsplit::DrawsShared(g_view_now.views, TurnPlayer(), g_ui.driver)) return false;
     g_render.shared_skipped++;
     return true;
+}
+// pc_wide.cpp (docs 17): this turn's view's shape (its width over its height, in fractions of the window: 2 for a half
+// of two top and bottom, 1 alone), 0 when no native split view draws now
+float NativeSplitViewShape() {
+    if (!NativeSplitOn() || !RenderViews() || !csx::ClientContextInTurn() || !g_view_now.draws || g_view_now.rect.h <= 0)
+        return 0;
+    return g_view_now.rect.w / g_view_now.rect.h;
 }
 bool NativeSplitDrawsShared() {
     return !NativeSplitOn() || !RenderViews() || !csx::ClientContextInTurn() ||
