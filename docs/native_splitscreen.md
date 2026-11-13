@@ -2282,7 +2282,7 @@ growth by site.
 - **Player 1 never joined a team**: team none, menu 1, deadflag 2 (watching the intermission cameras: the upper half,
   its "moves" between players steps). Its team screen (TeamSelect_RootSinglePlayer, as in run 17) opened at 2.73 s;
   the presses DOWN, DOWN, A (13.4-15.8 s) produced no front-end command (2 in all, both from B's close at 19.86 s;
-  run 17: 4, "joined team TERRORIST" at 15.66 s). Not settled statically. What differs from run 17 on its path: a
+  run 17: 4, "joined team TERRORIST" at 15.66 s). Settled in 17.9 (player 2's look overwrote the front end's input). What differs from run 17 on its path: a
   second controller exists (the test controller on port 1, from 2.7 s) and player 2's turns now run the look routine
   and the pad bridge on port 1; the team screen opened after player 2 had joined CT. The players steps' health check
   could not see it (a spectator has health 100).
@@ -2291,3 +2291,66 @@ growth by site.
   frame, present 0.1 ms, the limiter 12.3 ms; context switches 0.0736 ms; player 1's turn 4.6 ms (own work 3.3, its
   Swaps 1.3), player 2's 29.6 ms (own work 4.2, its Swaps 25.4 of which pacing 25.0). Player 1 never departed: no
   retained-memory report this run.
+
+### 17.9 Run 18's corrections (2026-11-13; static only, not run)
+
+**Player 1's team screen: the cause (P, from the disassembly; tests/native_split_turns_test.py front_end_input).**
+The title feeds its one front end from the pad it reads, in two places:
+- the pad bridge 0x19DFD0 (in player 1's case the title's prelude at 0x5D3B0; an added player's in its own prelude)
+  hands each new press to the screen on top, 0xCB170 (the screen's button commands: B's "back" among them), and each
+  release to 0xCB540;
+- the look routine 0x19E160 (IN_JoyMove, in every player's input turn), with a screen open, passes the active pad's
+  left stick to 0xCA670 (the menus' direction 0x552DD0 / 0x552DD4, the D-pad of the snapshot over it) and copies the
+  bridge's mask 0x5439B8 into the front end's button snapshot: 0x5523C4 = 0x5523C0, 0x5523C0 = the mask
+  (0x19E1CD..0x19E1E1). These four words are the process's (no player region) and nothing else writes them.
+The team screen is a pie menu, run in the driver's client turn under 0xCD7D0 (the shared draw at 0x55F94): 0xCD470
+points its slice where the direction does, 0xCD680 chooses it on A (or START) in the snapshot 0x5523C0.
+
+Run 17 had no controller on port 1, so player 2's look and bridge were skipped (16.4) and the snapshot was player
+1's. In run 18 the test controller routed player 2's turns: its look ran after player 1's in every frame, with port 1
+and player 2's mask (idle), and left 0x5523C0 = 0 at every frame's end. The pie menu never saw A pressed. (Its D-pad
+still turned the direction: player 2's pass reads 0x5523C0 before replacing it, so DOWN pointed the slice; A, which
+the choice reads from the snapshot itself, was lost.) B worked because the bridge hands it to 0xCB170 in player 1's
+own bridge pass, which player 2 does not overwrite. Delaying player 2's connection would not have fixed it: any
+routed added player's look overwrites the snapshot.
+
+**The fix (native_split_view.h FeedsSharedFrontEnd; native_split.cpp; config/game.toml).** The shared front end's
+input is its driver's only; the acting player is the one whose context runs (its turns, and player 1's in the title's
+prelude):
+- NativeSplitLookMenu at 0x19E1AE (on_true 0x19E1F9): another player's look skips 0xCA670 and the snapshot's copies,
+  and is not stopped by the driver's screen: its look and movement stay its own;
+- NativeSplitPadMenuPress at 0x19E0A7 (on_true 0x19E0CD) and NativeSplitPadMenuRelease at 0x19E101 (on_true
+  0x19E114): another player's presses and releases do not reach the screen and become its own key events, as with no
+  screen open (its bindings, its own console lines: 16.4).
+The routing of 16.4 (an added player's port and mask in its turn) is unchanged, as are the M3 rendering, the FOV
+policy, the guards and the fallbacks. After player 1 departs, player 2 drives the front end and feeds it; a rejoined
+player 1 (no longer the driver) no longer feeds player 2's front end. Not covered: the title's modal input loops
+(0xE9320.. Live dialogs: their bridge passes run outside the turns in player 1's context) while player 2 drives.
+
+**The scripted controller (audit).** CSX_NATIVE_SPLIT_TEST_PAD's port 1 goes through XInputGetState (sdk xapi.cpp, the
+handle's port) -> input::Poll(1) (window_input.cpp: its own cmd2 file, its own PortScript; port 0's keyboard, mouse
+and cmd file untouched) -> the title's pad poll 0xBDA30 (port 1's own record) -> in player 2's turn only, the look
+routine (sticks: movement and view, in its CL_CreateMove: its own usercmd) and the bridge (buttons as key events, its
+own lines). With the fix it reaches neither the front end's snapshot, direction nor screen; the shared state it still
+touches is the engine's key-down table (17.2). The poller thread's UpdatePorts calls Poll for every port every 250 ms
+(reading the cmd files, which only start a press) — unchanged.
+
+**Diagnostics** (each run's evidence of the menu path): "the shared front end: driven by player N, the title's active
+pad P, the screen S, the pie menu's slice K; its button snapshot ..., direction ..." at each change (first 64);
+"player N's button 0xB pressed|released on port P, the screen S: to the shared front end | its own game only" (first
+64, with a screen open); "front-end command "..." (outside the turns | in the driver's turn | in another player's
+turn)" (first 48); the 10 s line "the shared front end's input, driven by player N: player K: looks fed / its own,
+presses fed / its own".
+
+**The scenario (tests/scenarios/vk_native_split_2p_play.txt, revised).**
+- Order kept on purpose: player 2 in the match, routed and on CT before player 1 presses DOWN, DOWN, A (the case of
+  run 18; native_split_view_test FrontEndFeeds reproduces it statically and checks the fix).
+- Player 1's team checked by the game's own "joined team TERRORIST" line for userid 1, its A by the bridge line.
+- After every restart: `wait newlog` for the game's own "Round_Start" (no fixed delay), then the probe's freeze flag
+  (`expect freeze NAME 0`: the rules' m_bFreezePeriod, src/game/pc_modes.cpp PcFreezePeriod) and both players alive
+  on their teams (`expect alive NAME N T|CT`: the server's m_iTeam and deadflag; state_probe's new playerstate line).
+  A spectator's health no longer passes.
+- Player 2 walks alone after player 1's departure; player 1 walks after its rejoin.
+
+**Tests (static)**: native_split_view_test 101 checks (FrontEndFeeds), native_split_turns_test (front_end_input:
+the instructions, the only writers and readers, the hooks), native_split_camera_test 42 (the four words shared).
