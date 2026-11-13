@@ -1,0 +1,256 @@
+diff --git i/harness/null_backend.cpp w/harness/null_backend.cpp
+index 9be2554..a6c3569 100644
+--- i/harness/null_backend.cpp
++++ w/harness/null_backend.cpp
+@@ -51,7 +51,20 @@ public:
+         }
+         if (draws_ == last_draws_) empty_++;
+         last_draws_ = draws_;
+-        if (drawing_ && !snap_) reference::WriteTga(front, File("cap/ref_%05llu.tga", frames_).c_str(), Overlay(), Gamma());
++        // native split-screen: each player's view is its own Present (d3d SetSplitView); captured as such, named by
++        // its player, and the window frames counted at their last view
++        if (view_.on) {
++            views_++;
++            if (view_.last) window_frames_++;
++            if (drawing_ && !snap_)
++                reference::WriteTga(front, File(("cap/ref_%05llu_p" + std::to_string(view_.player + 1) + ".tga").c_str(),
++                                                frames_).c_str(), Overlay(), Gamma());
++            if (snap_)
++                LOGI("renderer: snap_%d.tga is player %d's view (%d of the window frame, viewport %.3f %.3f %.3f %.3f)",
++                     snap_, view_.player + 1, view_.views, view_.x, view_.y, view_.w, view_.h);
++        } else if (drawing_ && !snap_) {
++            reference::WriteTga(front, File("cap/ref_%05llu.tga", frames_).c_str(), Overlay(), Gamma());
++        }
+         // snap asks for the next two frames drawn
+         std::string snap = (app::ExeDir() / "snap").string();
+         if (snap_ == 2) {
+@@ -73,9 +86,19 @@ public:
+         drawing_ = snap_ || (every && (frames_ + 1) % every == 0);
+         if (drawing_) reference::BeginFrame();
+         harness::g_frames = frames_ + 1;
+-        if (++frames_ % 60 == 0) LOGI("renderer: frame %llu, %llu draws, %llu empty frames", frames_, draws_, empty_);
++        if (++frames_ % 60 == 0) {
++            LOGI("renderer: frame %llu, %llu draws, %llu empty frames", frames_, draws_, empty_);
++            if (views_)
++                LOGI("renderer: split views: %llu placed, %llu window frames presented by their last view, %llu "
++                     "finished without it", views_, window_frames_, finished_);
++        }
++        view_.on = false;  // a view is set before each of its Presents
+         if (cap && frames_ % cap == 0) list_ = std::fopen(File("cap/draws_%05llu.txt", frames_).c_str(), "w");
+     }
++    // native split-screen: views are presented one by one (nothing to place headless), so this backend composes
++    void SetSplitView(const SplitView& v) override { view_ = v; }
++    bool ComposesViews() const override { return true; }
++    void FinishViews() override { finished_++; }
+     void Sync(uint32_t, uint32_t) override {}
+     void SyncLate(uint32_t) override {}
+     void Flush() override {}
+@@ -96,6 +119,8 @@ public:
+     const OverlayImage* Overlay() const { return overlay_.enabled ? &overlay_ : nullptr; }
+ 
+ private:
++    SplitView view_;
++    unsigned long long views_ = 0, window_frames_ = 0, finished_ = 0;
+     // an 8 bit linear target (LIN_L8) is one a title reads on the CPU, e.g. a measurement of the frame (Counter-Strike's
+     // dynamic gamma): drawn on every frame, small, so the title never reads a target only cleared since the last drawn
+     // frame (it samples what the last drawn frame left in guest memory)
+diff --git i/runtime/gpu/backend.h w/runtime/gpu/backend.h
+index 8f177db..5d28bc0 100644
+--- i/runtime/gpu/backend.h
++++ w/runtime/gpu/backend.h
+@@ -27,6 +27,19 @@ struct OverlayImage {
+     uint32_t color_key = 0;
+ };
+ 
++// native split-screen (several local players in one process, each drawing its own frame in its turn): where the next
++// Present's frame goes in the window and whether it ends the window's frame. Off (the default): every Present is a
++// whole frame, as before
++struct SplitView {
++    bool on = false;
++    int player = 0;             // whose frame (0..3)
++    int views = 1;              // the views of this window frame
++    bool first = true;          // the window frame's first view: the window cleared (black) before it
++    bool last = true;           // its last: the window frame presented after it
++    float x = 0, y = 0, w = 1, h = 1;  // the viewport in the window, in fractions of its size
++    float frame_w = 1, frame_h = 1;     // the configured layout's view size (fractions): the internal resolution's
++};
++
+ class Backend {
+ public:
+     virtual ~Backend() = default;
+@@ -42,6 +55,12 @@ public:
+     virtual void Present(const Surface& front) = 0;
+     // the overlay shown with the next Present (called before each one; disabled when none)
+     virtual void SetOverlay(const OverlayImage&) {}
++    // the view the next Present is (SplitView; set before each Present while native split-screen draws)
++    virtual void SetSplitView(const SplitView&) {}
++    // composes several views into one window frame; a backend that does not shows only each frame's last view
++    virtual bool ComposesViews() const { return false; }
++    // a window frame whose last view never came (that player's turn presented nothing): presented as it stands
++    virtual void FinishViews() {}
+     // the CPU is about to touch this resource's memory: write GPU results back first
+     virtual void Sync(uint32_t data_va, uint32_t size) = 0;
+     // a lock that does not wait for the GPU (NOOVERWRITE): a result a frame or two old is what the console gives too
+diff --git i/runtime/gpu/render_thread.cpp w/runtime/gpu/render_thread.cpp
+index bcfce17..0835ce8 100644
+--- i/runtime/gpu/render_thread.cpp
++++ w/runtime/gpu/render_thread.cpp
+@@ -41,7 +41,7 @@ constexpr uint32_t kHeaderRing = 1u << 20;  // guest memory for header copies; a
+ 
+ enum class WaitFor : uint8_t { ReadBack, Resource, Fence, Flush, Copy, Frame, Count };
+ 
+-enum class Op : uint8_t { State, Draw, Clear, Copy, Present, Sync, RecordLate, Flush, Gamma, ClearReport, GetReport, Overlay };
++enum class Op : uint8_t { State, Draw, Clear, Copy, Present, Sync, RecordLate, Flush, Gamma, ClearReport, GetReport, Overlay, View, FinishViews };
+ 
+ struct Cmd {
+     Op op;
+@@ -215,6 +215,19 @@ public:
+         cur_->cmds.push_back(c);
+     }
+ 
++    // the next Present's view, in order with the draws (native split-screen)
++    void SetSplitView(const SplitView& v) override {
++        Cmd c{Op::View};
++        c.data = Put(&v, sizeof(v));
++        cur_->cmds.push_back(c);
++    }
++    bool ComposesViews() const override { return inner_->ComposesViews(); }
++    // as a Present: the open window frame shown, the title not waiting for it
++    void FinishViews() override {
++        cur_->cmds.push_back(Cmd{Op::FinishViews});
++        Submit();
++    }
++
+     void SetGamma(const uint8_t* ramp) override {
+         Cmd c{Op::Gamma};
+         c.data = Put(ramp, 768);
+@@ -449,6 +462,13 @@ private:
+             case Op::Gamma: inner_->SetGamma(data); break;
+             case Op::ClearReport: inner_->ClearReport(); break;
+             case Op::GetReport: inner_->GetReport(c.a); break;
++            case Op::View: {
++                SplitView v;
++                std::memcpy(&v, data, sizeof(v));
++                inner_->SetSplitView(v);
++                break;
++            }
++            case Op::FinishViews: inner_->FinishViews(); break;
+             case Op::Overlay: {
+                 OverlayImage o;
+                 std::memcpy(&o, data, sizeof(o));
+diff --git i/runtime/xdk/d3d8.cpp w/runtime/xdk/d3d8.cpp
+index 634472e..5144365 100644
+--- i/runtime/xdk/d3d8.cpp
++++ w/runtime/xdk/d3d8.cpp
+@@ -335,6 +335,34 @@ void ReadLate(uint32_t surface) {
+     g_backend->SyncLate(mem::VirtualFromPhysical(R32(surface + 4)));
+ }
+ 
++namespace {
++gpu::SplitView g_view;          // the view the next Swap is
++bool g_view_swapped = false;    // a Swap of this view happened (a second one repeats it)
++bool g_frame_open = false;      // a window frame's first view was placed, its last not yet presented
++SplitCounters g_split{};
++}  // namespace
++
++void SetSplitView(const gpu::SplitView& v) {
++    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    g_view = v;
++    g_view_swapped = false;
++}
++
++bool FinishSplitFrame() {
++    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    g_view.on = false;
++    if (!g_frame_open) return false;
++    g_frame_open = false;
++    g_split.finished++;
++    if (g_backend && g_backend->ComposesViews()) g_backend->FinishViews();
++    return true;
++}
++
++SplitCounters SplitStats() {
++    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    return g_split;
++}
++
+ }  // namespace d3d
+ 
+ using namespace d3d;
+@@ -756,11 +784,40 @@ HLE_STDCALL(D3DDevice_Swap, 1) {
+         }
+     }
+     Walk(Dev(kDevPush));  // reports asked for at the end of the frame
+-    if (g_backend) {
++    // native split-screen: this Swap is one player's view of the window frame (SetSplitView); a second Swap in the
++    // same view places it again (no new window frame begun: the window is not cleared again)
++    bool split = g_view.on, pace = true;
++    if (split) {
++        gpu::SplitView v = g_view;
++        if (g_view_swapped) {
++            v.first = false;
++            g_split.repeats++;
++        }
++        if (v.first) g_frame_open = true;
++        g_view_swapped = true;
++        g_split.views++;
++        if (v.last) {
++            g_split.frames++;
++            g_frame_open = false;
++        }
++        pace = v.last;
++        if (g_backend) {
++            if (g_backend->ComposesViews()) {
++                PassOverlay();
++                g_backend->SetSplitView(v);
++                g_backend->Present(SurfaceOf(g_buffers[1]));
++            } else if (v.last) {
++                PassOverlay();
++                g_backend->Present(SurfaceOf(g_buffers[1]));
++            } else {
++                g_split.skipped++;
++            }
++        }
++    } else if (g_backend) {
+         PassOverlay();
+         g_backend->Present(SurfaceOf(g_buffers[1]));
+     }
+-    app::Pace();
++    if (pace) app::Pace();
+     // like the XDK, the surfaces stay put and their memory rotates: titles keep back buffer pointers and copy its data.
+     // A multisampled back buffer does not rotate: the console resolves it into the display buffers at Swap and it
+     // keeps what was drawn (a title presenting again without drawing, CS's loading screen, shows the same picture;
+diff --git i/runtime/xdk/d3d8.h w/runtime/xdk/d3d8.h
+index da0ef35..9a73d7e 100644
+--- i/runtime/xdk/d3d8.h
++++ w/runtime/xdk/d3d8.h
+@@ -1,6 +1,7 @@
+ #pragma once
+ #include <mutex>
+ 
++#include "gpu/backend.h"
+ #include "gpu/state.h"
+ 
+ namespace d3d {
+@@ -12,4 +13,21 @@ std::recursive_mutex& Lock();
+ // result a frame or two old without waiting for the GPU
+ void ReadLate(uint32_t surface);
+ 
++// native split-screen (several local players in one process, each drawing its frame in its own turn): the view the
++// next Swaps are (gpu::SplitView: its viewport, whether it starts or ends the window's frame); on = false, a Swap is a
++// whole frame, as before. A backend that composes views places each in its viewport and presents the last; one that
++// does not presents only the last. The title's pacing runs once a window frame (at its last view)
++void SetSplitView(const gpu::SplitView& v);
++// the window frame's end (between frames): a frame whose views began but whose last never swapped is presented as it
++// stands; false when nothing was left open. Counters for the diagnostics
++bool FinishSplitFrame();
++struct SplitCounters {
++    uint64_t views = 0;          // Swaps placed in a viewport
++    uint64_t frames = 0;         // window frames presented by their last view
++    uint64_t finished = 0;       // window frames presented by FinishSplitFrame (a last view missing)
++    uint64_t repeats = 0;        // Swaps after the first in one view (the loading screen's)
++    uint64_t skipped = 0;        // views not presented by a backend that does not compose
++};
++SplitCounters SplitStats();
++
+ }  // namespace d3d

@@ -279,6 +279,11 @@ public:
         overlay_.pixels = overlay_pixels_.data();
     }
     void Present(const Surface& front) override;
+    // native split-screen (docs/native_splitscreen.md 16): each local player's view placed in its viewport of one
+    // window image (compose_), the window frame presented at its last view; never for a multi-process player (split_)
+    void SetSplitView(const SplitView& v) override { view_ = v; }
+    bool ComposesViews() const override { return !split_; }
+    void FinishViews() override;
     // the CPU is about to read a resource: a render target's GPU result written to its guest memory first (the title
     // reads its front buffer for PersistDisplay before a relaunch)
     void Sync(uint32_t va, uint32_t size) override;
@@ -396,6 +401,16 @@ private:
     VkExtent2D swap_extent_{};
     std::vector<VkPresentModeKHR> present_modes_;  // what the surface offers (asked once)
     VkPresentModeKHR present_mode_ = VK_PRESENT_MODE_FIFO_KHR;
+    // native split-screen: the next Present's view, the window image the views are placed in, whether a window frame
+    // is open in it, the configured layout's view size (fractions: the internal resolution's), the last front surface
+    SplitView view_;
+    Image compose_;
+    bool compose_open_ = false;
+    float native_frame_w_ = 0, native_frame_h_ = 0;
+    Surface last_front_{};
+    unsigned long long views_placed_ = 0, views_finished_ = 0;
+    void PlaceView(VkCommandBuffer cb, Image& shown, const SplitView& v);
+    void PresentTail(VkCommandBuffer cb, Image& src, bool whole, Target* t, const Surface& front);
     // split-screen player: three exported images (state 0 free, 1 being drawn: its fence waited by the notifier)
     bool split_ = false;
     struct Export {
@@ -2273,7 +2288,16 @@ void VulkanBackend::UpdateResolution(const Surface& front) {
             fh = H;
             fw = H * aspect;
         }
-        if (split_) {  // as the frame shows in the viewport (split::FrameRect: filling it when the frame is wider)
+        if (native_frame_w_ > 0 && native_frame_h_ > 0 && !split_) {
+            // native split-screen: the configured layout's view in the window (the same for every view, and kept when
+            // a player is away, so no target is made again for a departure), as the frame shows in it
+            W = std::min(W * native_frame_w_, float(max_image_));
+            H = std::min(H * native_frame_h_, float(max_image_));
+            float fx, fy;
+            split::FrameRect(W, H, aspect, fx, fy, fw, fh);
+            fw = std::min(fw, float(max_image_));
+            fh = std::min(fh, float(max_image_));
+        } else if (split_) {  // as the frame shows in the viewport (split::FrameRect: filling it when the frame is wider)
             float fx, fy;
             split::FrameRect(W, H, aspect, fx, fy, fw, fh);
             fw = std::min(fw, float(max_image_));
@@ -2354,14 +2378,35 @@ void VulkanBackend::Present(const Surface& front) {
     EndRendering();
     VkCommandBuffer cb = Cmd();
     Frame& f = frames_[frame_ % kFrames];
-    uint32_t index = 0;
     // the VSync setting changed (PC Options): a swapchain in the other present mode, from the old one (the window
     // itself is not touched: its size, full screen, focus and mouse capture stay)
     if (swapchain_ && pc::Version() != vsync_seen_ && WantedPresentMode() != present_mode_) {
         LOGI("vulkan: VSync %s, the swapchain is made again", vsync_ ? "on" : "off");
         CreateSwapchain();
     }
-    VkResult ar;
+    if (view_.on && !split_) {
+        SplitView v = view_;
+        view_.on = false;  // set again before each view's Present
+        native_frame_w_ = v.frame_w;
+        native_frame_h_ = v.frame_h;
+        PlaceView(cb, *shown, v);
+        if (v.last) {
+            compose_open_ = false;
+            PresentTail(cb, compose_, true, t, front);
+            return;
+        }
+        // not the last view: its work submitted in order (the next player draws into the same back buffer after it)
+        frame_open_ = false;
+        vkEndCommandBuffer(cb);
+        vkResetFences(dev_, 1, &f.fence);
+        VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        si.commandBufferCount = 1;
+        si.pCommandBuffers = &cb;
+        VKCHECK(vkQueueSubmit(queue_, 1, &si, f.fence));
+        recording_ = false;
+        FinishPresent(front);
+        return;
+    }
     if (split_) {
         // a split-screen player: the frame into an exported image; the compositor is told when it is finished
         int b = RecordExport(cb, *shown);
@@ -2392,6 +2437,66 @@ void VulkanBackend::Present(const Surface& front) {
         FinishPresent(front);
         return;
     }
+    PresentTail(cb, *shown, false, t, front);
+}
+
+// native split-screen: one player's view (its finished frame: gamma and overlay applied) into its viewport of the
+// window image. The frame keeps its aspect (split::FrameRect: fitted, or filling the height with the sides cut when it
+// is wider), clipped to the viewport so no view draws over another's; a frame's first view clears the image black
+void VulkanBackend::PlaceView(VkCommandBuffer cb, Image& shown, const SplitView& v) {
+    uint32_t W = swap_extent_.width ? swap_extent_.width : guest_w_, H = swap_extent_.height ? swap_extent_.height : guest_h_;
+    bool fresh = false;
+    if (!compose_.image || compose_.w != W || compose_.h != H) {
+        if (compose_.image) FreeImage(compose_);
+        if (!MakeImage(compose_, W, H, kColorFormat, 1, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                       false)) {
+            LOG_FIRST(4, "vulkan: the split-screen window image %ux%u could not be made", W, H);
+            return;
+        }
+        fresh = true;
+    }
+    if (v.first || !compose_open_ || fresh) {
+        Barrier(compose_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        VkClearColorValue black{};
+        VkImageSubresourceRange r{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCmdClearColorImage(cb, compose_.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &r);
+        TransferWriteBarrier(compose_.image);
+    }
+    compose_open_ = true;
+    split::ViewBlit b = split::PlaceInViewport(float(W), float(H), v.x, v.y, v.w, v.h, float(guest_w_) / float(guest_h_),
+                                               float(shown.w), float(shown.h));
+    if (b.empty) return;
+    Barrier(shown, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    Barrier(compose_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkImageBlit blit{};
+    blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    blit.srcOffsets[0] = {b.sx0, b.sy0, 0};
+    blit.srcOffsets[1] = {b.sx1, b.sy1, 1};
+    blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    blit.dstOffsets[0] = {b.dx0, b.dy0, 0};
+    blit.dstOffsets[1] = {b.dx1, b.dy1, 1};
+    vkCmdBlitImage(cb, shown.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, compose_.image,
+                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+    TransferWriteBarrier(compose_.image);
+    views_placed_++;
+}
+
+// a window frame whose last view never came: the window image presented as it stands (or nothing, when none is open)
+void VulkanBackend::FinishViews() {
+    if (!compose_open_ || !compose_.image || split_) return;
+    compose_open_ = false;
+    views_finished_++;
+    EndRendering();
+    VkCommandBuffer cb = Cmd();
+    PresentTail(cb, compose_, true, nullptr, last_front_);
+}
+
+// the window's present: src blitted into an acquired swapchain image (letterboxed at the title's aspect, or whole: the
+// native split-screen window image, already the window's size), then presented
+void VulkanBackend::PresentTail(VkCommandBuffer cb, Image& src, bool whole, Target* t, const Surface& front) {
+    Frame& f = frames_[frame_ % kFrames];
+    uint32_t index = 0;
+    VkResult ar;
     {
         Span acquire{timing_.acquire_ns};
         ar = swapchain_ ? vkAcquireNextImageKHR(dev_, swapchain_, UINT64_MAX, f.acquired, VK_NULL_HANDLE, &index)
@@ -2422,15 +2527,19 @@ void VulkanBackend::Present(const Surface& front) {
             th = H;
             tw = H * aspect;
         }
+        if (whole) {
+            tw = W;
+            th = H;
+        }
         int dx = int((W - tw) / 2), dy = int((H - th) / 2);
-        Barrier(*shown, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        Barrier(src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         VkImageBlit blit{};
         blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-        blit.srcOffsets[1] = {int(shown->w), int(shown->h), 1};
+        blit.srcOffsets[1] = {int(src.w), int(src.h), 1};
         blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         blit.dstOffsets[0] = {dx, dy, 0};
         blit.dstOffsets[1] = {dx + int(tw), dy + int(th), 1};
-        vkCmdBlitImage(cb, shown->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swap_images_[index],
+        vkCmdBlitImage(cb, src.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swap_images_[index],
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
         b.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
         b.dstAccessMask = 0;
@@ -2446,7 +2555,7 @@ void VulkanBackend::Present(const Surface& front) {
     // CSX_VK_MAGENTA=1: the presented target cleared to magenta afterwards, so what the next frame on it leaves
     // undrawn shows (the title clears colour rarely: CS clears depth and stencil only in game)
     static const bool magenta = std::getenv("CSX_VK_MAGENTA") != nullptr;
-    if (magenta) {
+    if (magenta && t) {
         Barrier(*t, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         VkClearColorValue m{{1, 0, 1, 1}};
         VkImageSubresourceRange r{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
@@ -2496,6 +2605,7 @@ void VulkanBackend::Present(const Surface& front) {
 
 // the end of every present (the window's or a split-screen player's): the internal resolution, counters, the logs
 void VulkanBackend::FinishPresent(const Surface& front) {
+    last_front_ = front;
     UpdateResolution(front);
     frame_++;
     presents_++;
@@ -2509,6 +2619,9 @@ void VulkanBackend::FinishPresent(const Surface& front) {
         LOGI("renderer: frame %llu, %.1f frames/s, %llu draws, dropped: assembly %llu, points %llu, shaders %llu, "
              "pipeline %llu, upload wraps %llu, peak %llu KB", (unsigned long long)presents_, secs > 0 ? 30.0 / secs : 0.0,
              draws_, dropped_[0], dropped_[1], dropped_[2], dropped_[3], wraps_, peak_ >> 10);
+        if (views_placed_)
+            LOGI("renderer: split views: %llu placed in the window image, %llu window frames finished without their "
+                 "last view", views_placed_, views_finished_);
         LOGI("renderer: per frame: GPU %.3f ms, CPU recording %.3f ms, present %.3f ms",
              gpu_frames_ ? gpu_ns_ / gpu_frames_ / 1e6 : 0.0, record_ns_ / 30 / 1e6, present_ns_ / 30 / 1e6);
         peak_ = 0;

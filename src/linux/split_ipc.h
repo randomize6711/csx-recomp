@@ -5,6 +5,7 @@
 // own transport for the same messages).
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -52,6 +53,45 @@ inline void FrameRect(float W, float H, float aspect, float& x, float& y, float&
     }
     x = (W - w) / 2;
     y = (H - h) / 2;
+}
+// native split-screen (docs/native_splitscreen.md 16): a view's frame (sw x sh pixels, display aspect `aspect`) placed
+// in its viewport (fractions vx, vy, vw, vh of a W x H window) as FrameRect places it, clipped to the viewport: the
+// pixel rectangles of the blit, source and destination (x0 < x1, y0 < y1); empty when nothing shows
+struct ViewBlit {
+    bool empty = true;
+    int sx0 = 0, sy0 = 0, sx1 = 0, sy1 = 0;
+    int dx0 = 0, dy0 = 0, dx1 = 0, dy1 = 0;
+};
+inline ViewBlit PlaceInViewport(float W, float H, float vx, float vy, float vw, float vh, float aspect, float sw,
+                                float sh) {
+    ViewBlit b;
+    if (!(W > 0 && H > 0 && vw > 0 && vh > 0 && aspect > 0 && sw > 0 && sh > 0)) return b;
+    // the viewport in whole pixels (adjacent viewports share their edges exactly)
+    int px0 = int(vx * W + 0.5f), py0 = int(vy * H + 0.5f), px1 = int((vx + vw) * W + 0.5f),
+        py1 = int((vy + vh) * H + 0.5f);
+    px0 = std::max(px0, 0);
+    py0 = std::max(py0, 0);
+    px1 = std::min(px1, int(W));
+    py1 = std::min(py1, int(H));
+    if (px1 <= px0 || py1 <= py0) return b;
+    float fx, fy, fw, fh;
+    FrameRect(float(px1 - px0), float(py1 - py0), aspect, fx, fy, fw, fh);
+    // the frame's rectangle in the window, and what of it the viewport shows
+    float x0 = px0 + fx, y0 = py0 + fy, x1 = x0 + fw, y1 = y0 + fh;
+    float cx0 = std::max(x0, float(px0)), cy0 = std::max(y0, float(py0));
+    float cx1 = std::min(x1, float(px1)), cy1 = std::min(y1, float(py1));
+    if (cx1 <= cx0 || cy1 <= cy0) return b;
+    b.dx0 = int(cx0 + 0.5f);
+    b.dy0 = int(cy0 + 0.5f);
+    b.dx1 = int(cx1 + 0.5f);
+    b.dy1 = int(cy1 + 0.5f);
+    // the source's matching part (the cut sides of a wider frame are not drawn)
+    b.sx0 = int((cx0 - x0) / fw * sw + 0.5f);
+    b.sy0 = int((cy0 - y0) / fh * sh + 0.5f);
+    b.sx1 = int((cx1 - x0) / fw * sw + 0.5f);
+    b.sy1 = int((cy1 - y0) / fh * sh + 0.5f);
+    b.empty = b.dx1 <= b.dx0 || b.dy1 <= b.dy0 || b.sx1 <= b.sx0 || b.sy1 <= b.sy0;
+    return b;
 }
 constexpr int kMaxFds = 4;
 
