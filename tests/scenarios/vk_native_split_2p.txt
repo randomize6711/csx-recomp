@@ -1,0 +1,53 @@
+# Native split-screen M3 (docs/native_splitscreen.md 16) in the Vulkan window: one process, the built-in server, two
+# local players, each drawing its own view in its own turn (its SCR_UpdateScreen), placed in its half of one window
+# (player 1 top, player 2 bottom) and presented once a window frame. Player 1's view is turned 90 degrees by its mouse
+# (player 1's own) and player 2's is not (camera isolation). 30 s after player 2 joins player 1 leaves through its own
+# "disconnect" (once: CSX_NATIVE_SPLIT_LEAVE_TIMES=1); player 2 then draws the whole window (no blank screen), and 10 s
+# later player 1 rejoins in its kept context and the two views come back. de_dust2 with no bots, the guard on.
+# Window shots (RUN/shots): ns_two (both views), ns_turned (player 1 turned), ns_alone (player 2 alone), ns_again.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --launch tests/launch/de_dust2_nobots --env FPS=30 --env CSX_NATIVE_SPLIT=2 --env CSX_CTX_GUARD=1 --env CSX_NATIVE_SPLIT_CHANGES=1 --env CSX_NATIVE_SPLIT_ROLLBACK=0 --env CSX_NATIVE_SPLIT_LEAVE_AFTER=30 --env CSX_NATIVE_SPLIT_LEAVE_PLAYER=1 --env CSX_NATIVE_SPLIT_LEAVE_TIMES=1 --env CSX_NATIVE_SPLIT_REJOIN_AFTER=10
+# timeout: 240
+wait log renderer: vulkan
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+expect log native split: 2 local players asked
+expect log pc wide: aspect .*frame [0-9]+x480
+sleep 10
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+sleep 4
+press B
+wait log native split: player 2 is in the match
+wait log native split: the window shows 2 view\(s\) \(top and bottom\)
+sleep 6
+windowshot ns_two
+look 90 0
+sleep 2
+windowshot ns_turned
+# player 1 departs: player 2 alone in the whole window
+wait log native split: player 1 left the match \(its client disconnected\)
+wait log native split: the window shows 1 view\(s\)
+sleep 3
+windowshot ns_alone
+# player 1 rejoins: two views again
+wait log native split: player 1 is in the match
+wait log native split: the window shows 2 view\(s\)
+sleep 6
+windowshot ns_again
+wait log native split: views:
+expect log native split: player 2 active, context 1, client state 5
+expect log native split: player 1 active, context 0, client state 5
+expect log renderer: split views: [1-9][0-9]* placed in the window image
+expect nolog \[watch:view-missing\]
+expect nolog native split: player 1's memory at departure 2
+# ownership and errors (docs 15.16)
+expect nolog \[own:[a-z-]+\]
+expect nolog client context guard: the server frame wrote
+expect nolog \] \[error\] \[[^]]*\] native split:
+expect nolog native split: player 2 left
+expect nolog native split: the server shuts down
+expect nolog Host_Error
+expect nolog guest trap

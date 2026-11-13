@@ -2342,7 +2342,9 @@ void VulkanBackend::Present(const Surface& front) {
     if (!t) return;
     // a shot request (the window's "shot" file): the presented target, as the reference renderer's captures are;
     // "burst:NAME:N" saves the next N presented targets as NAME_0.. (what alternates from frame to frame)
-    std::string shot = window::TakeShotRequest();
+    // native split-screen: a shot is of the window frame (all its views), taken at its last view
+    const bool native_view = view_.on && !split_, native_last = native_view && view_.last;
+    std::string shot = native_view && !native_last ? std::string() : window::TakeShotRequest();
     static std::string burst_name;
     static int burst_left = 0, burst_index = 0;
     if (shot.rfind("burst:", 0) == 0) {
@@ -2352,7 +2354,7 @@ void VulkanBackend::Present(const Surface& front) {
         burst_index = 0;
         shot.clear();
     }
-    if (shot.empty() && burst_left > 0) {
+    if (shot.empty() && burst_left > 0 && !(native_view && !native_last)) {
         burst_left--;
         shot = burst_name + "_" + std::to_string(burst_index++);
     }
@@ -2360,6 +2362,8 @@ void VulkanBackend::Present(const Surface& front) {
     frame_draws_ = 0;
     // the frame buffer through the gamma ramp, then the overlay (the console mixes its video plane after the ramp)
     Image* shown = ComposeOverlay(*ApplyGamma(*t));
+    std::string window_shot;
+    if (native_view) window_shot.swap(shot);  // saved from the window image below
     if (!shot.empty()) {
         SaveShot(*shown, shot);
         step_name_ = shot;
@@ -2392,6 +2396,11 @@ void VulkanBackend::Present(const Surface& front) {
         PlaceView(cb, *shown, v);
         if (v.last) {
             compose_open_ = false;
+            if (!window_shot.empty() && compose_.image) {
+                SaveShot(compose_, window_shot);  // the composed window (submitted and read back)
+                step_name_ = window_shot;
+                cb = Cmd();
+            }
             PresentTail(cb, compose_, true, t, front);
             return;
         }

@@ -2124,3 +2124,14 @@ frame is the player's. With a pass each, every one of them is correct for its pl
   would show in every view.
 - Cost: two full passes a frame (bloom and gamma included) and a blit each: measured only by a run.
 - Three and four players use a 2x2 grid with one back buffer aspect; untested (no four-player run).
+
+### 16.6 The first renderer test (prepared, not run)
+
+tests/scenarios/vk_native_split_2p.txt, in the Vulkan window build inside a headless gamescope (tools/
+run_window_tests.py: a real GPU and swapchain, nothing on the desktop, no host input). A window shot (`windowshot`)
+with views is of the composed window image at the frame's last view (vk_backend.cpp), not of one view; a burst counts
+window frames. The scenario takes four: both views, player 1 turned 90 degrees by its mouse (its own: player 2's view
+must not turn), player 2 alone after player 1's departure (the whole window), both again after its rejoin.
+What it settles that nothing static can: that player 2's own pass draws (every earlier run drew player 2's viewport only
+through player 1's paint, with player 1's state), the placement, one present a frame, no blank screen while player 1
+is away, the frame rate with two passes, and whether anything shared between the passes shows in the other view.
