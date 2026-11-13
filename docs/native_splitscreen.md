@@ -2371,3 +2371,29 @@ reclamation off), `run_window_tests.py --tag run19 vk_native_split_2p_play.txt` 
   but the name the title stores at the screen (what ScreenName reads) is cut short: "TeamSelect_RootSinglePlay" (the
   buy menu "T_BuyMenuRo"). The check now matches `TeamSelect_Root[A-Za-z]*` (it matches run 19's line). The run
   stopped there, so the restart, freeze, movement, aiming, departure and rejoin steps were not reached: still unverified.
+
+### 17.11 Run 20 (2026-11-13, permitted once): FAIL at step 46 of 103 (player 1's walk: its buy menu open again)
+At 143efdc with run 19's binaries (preflight as in 17.10; every log pattern of the scenario matched against the source's
+format strings and runs 17-19's logs), `run_window_tests.py --tag run20 vk_native_split_2p_play.txt`.
+- **Passed (steps 1-45).** Player 2 on CT (3.83 s) before player 1's menu input; player 1's DOWN, DOWN, A on the
+  original team screen ("RowSelect", "joined team TERRORIST" at 9.89 s, 0.07 s after A); no press of player 2 to the
+  shared front end; its buy menu closed with B. `sv_restartround 1`, the game's "Round_Start" (30.23 s), then: the
+  freeze over (m_bFreezePeriod 0), player 1 alive on T and player 2 alive on CT (team and deadflag), 3411 units apart,
+  the split view's FOV 106.3 (138.9 for a whole frame); player 2's left stick moved player 2 394 units while player 1
+  moved 0.0 and turned 0.0. Window shots gp_team, gp_spawned (both spawned, each with its own HUD, weapon and ammo,
+  one round timer), gp_p2_moved (player 2's camera moved, player 1's unchanged): no visual defect. 2295 split views
+  placed, none missing; GPU 0.9 ms, CPU recording 2.9 ms a frame; 60 movement commands/s; no error, ownership tag,
+  guard write, Host_Error or trap.
+- **The failure:** the restart spawned player 1 again and the title opened its buy menu again (18.30 s, "open
+  T_BuyMenuRoot" in the driver's turn; player 2's was withheld), so the keyboard was the menu's: W turned the buy
+  menu's selection (its slice 2) and player 1 stayed. The title's own behaviour at a spawn; the scenario now waits for
+  the menu after the restart and closes it with B (the steps match run 20's log: the menu at 18.30 s, "Round_Start"
+  at 30.23 s).
+- **Found statically for the rejoin phase:** pc_keys (PcKeysFrame) puts the process's keyboard and mouse in menu mode
+  for any screen of the shared front end, whoever drives it. With player 2 the driver (after player 1's departure),
+  player 2's own buy menu at a restart would take player 1's keyboard and mouse (and player 1's presses, port 0, are
+  withheld from player 2's front end: they would do nothing). Not corrected yet.
+- **The team screen's 0 / 0:** "!TeamSelectRootSinglePlayerSimulate" (0xE5770) counts the shared front end's player
+  list (0x554244..0x554248, 0x60 bytes an entry, the team in +0x48 bits 2-4; not a per-player region; also read by
+  0xE5370, 0xE59E0, 0xE5DE0, 0xEF8D0) once, as the screen opens (2.74 s); player 2 joined at 3.83 s. A snapshot of the
+  open, as in the title alone when someone joins while the screen shows: not a split-screen state defect.

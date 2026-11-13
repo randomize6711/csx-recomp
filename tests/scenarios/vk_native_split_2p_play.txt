@@ -46,7 +46,11 @@ wait newlog pc keys: playing
 expect nolog native split: player 1's automatic team choice
 # both spawned by the server's own round restart; nothing moves before the freeze time's end
 pckey cmd sv_restartround 1
+# the restart spawns player 1 again and the title opens its buy menu again (run 20: W turned the menu, player 1 stayed)
+wait newlog pc keys: menu T_BuyMenuRoot
 wait newlog game: World triggered "Round_Start"
+press B
+wait newlog pc keys: playing
 sleep 1
 players spawned
 expect freeze spawned 0
