@@ -147,4 +147,37 @@ inline uint32_t PadPort(int player, uint32_t title_active) { return player <= 0 
 // (CSX_NATIVE_SPLIT_INPUT), and never in another player's initialisation or outside the turns
 inline bool AddedPlayerReadsPad(bool routed, bool in_turn) { return routed && in_turn; }
 
+// ---- the shared front end's input (docs 17.9) ----
+// The title feeds its one front end from the pad it reads: the look routine (0x19E160, in every player's input turn)
+// copies the pad bridge's buttons (0x5439B8) into the front end's button snapshot (0x5523C0 now, 0x5523C4 the frame
+// before) and the active pad's left stick into the menus' direction (0xCA670: 0x552DD0 / 0x552DD4); the pie menus
+// (0xCD470 the slice the direction points at, 0xCD680 A or START to choose it), drawn and run in the driver's turn,
+// read them. The bridge (0x19DFD0) hands each new press and release to the screen on top (0xCB170 / 0xCB540: its
+// button commands, the page and the cheat keys). One front end for the process: only the player driving it feeds it.
+// Run 18: player 2's routed look ran after player 1's and left its idle buttons in the snapshot at every frame's end,
+// so the team screen's choice (A) never saw player 1's press (its D-pad still turned the direction: player 2's pass
+// reads player 1's copy before replacing it). Another player's controller goes to its own game only (its look, its
+// buttons as its keys), also while the driver has a screen open. player < 0: not a local player's (as the title)
+inline bool FeedsSharedFrontEnd(int player, int driver) { return player < 0 || player == driver; }
+
+// a model of what the front end reads (tests/native_split_view_test.cpp): one look routine pass of `player` with its
+// bridge mask and its left stick (the title's 0xCA670 also takes the D-pad's up / down / left / right over the stick)
+struct FrontEndInput {
+    uint32_t now = 0, before = 0;  // 0x5523C0, 0x5523C4
+    float dx = 0, dy = 0;          // 0x552DD0, 0x552DD4
+    int fed_by = -1;               // whose controller the snapshot is (diagnostics)
+    void Look(int player, int driver, uint32_t mask, float stick_x, float stick_y) {
+        if (!FeedsSharedFrontEnd(player, driver)) return;  // NativeSplitLookMenu: 0x19E1AE -> 0x19E1F9
+        dx = stick_x;
+        dy = stick_y;
+        if (now & 0x100) dy = 1;  // 0xCA670 reads the snapshot before this pass's copy: the D-pad of the frame before
+        else if (now & 0x200) dy = -1;
+        else if (now & 0x400) dx = -1;
+        else if (now & 0x800) dx = 1;
+        before = now;
+        now = mask;
+        fed_by = player;
+    }
+};
+
 }  // namespace nsplit

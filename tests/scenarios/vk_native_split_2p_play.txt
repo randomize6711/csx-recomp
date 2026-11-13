@@ -1,44 +1,61 @@
 # Native split-screen M3.2 (docs/native_splitscreen.md 17) in the Vulkan window: two local players in one process
-# PLAYING, not watching. Player 1 chooses its team with its own menus (the shared front end's driver), player 2 by the
-# development auto-join (its own "menuselect" lines through its own client; CSX_NATIVE_SPLIT_TEAMS=1,2: player 2 a
-# Counter-Terrorist, player 1 a Terrorist when it chooses automatically after its rejoin; random classes; one a team, so
-# no team balance moves anyone), then a round restart (the server's own sv_restartround) spawns both. Each moves and aims
-# through its own input only: player 1 the mouse (look) and the keyboard (W), player 2 its controller (the test
-# controller on port 1: CSX_NATIVE_SPLIT_TEST_PAD=1, its right stick and left stick); the server's positions and view
-# angles (players steps: origin, health, v_angle) prove that each input moved its own player and not the other.
-# 60 s after player 2 joined, player 1 leaves once and rejoins 10 s later, chooses its team automatically (no
-# longer the driver), and a restart spawns it again. de_dust2 with no bots, 30 fps, the server write guard on.
-# Window shots (RUN/shots): gp_spawned, gp_p1_aims, gp_p2_aims, gp_p2_moved, gp_both, gp_alone, gp_rejoined.
+# PLAYING, not watching. Revised after run 18 (docs 17.9). Player 2 connects first and its own controller (the test
+# controller on port 1: CSX_NATIVE_SPLIT_TEST_PAD=1) is routed into its turns while player 1 chooses its team with its
+# own menus (the shared front end's driver: DOWN, DOWN, A on the original team screen): the case run 18 broke, kept on
+# purpose. Player 2 joins the Counter-Terrorists by the development auto-join (its own "menuselect" lines through its own
+# client; CSX_NATIVE_SPLIT_TEAMS=1,2, random classes). A round restart (the server's own sv_restartround) spawns both;
+# nothing moves until the game logs the new round's "Round_Start" (the freeze time's end) and the probe shows the
+# freeze over and both players alive on their teams (team and deadflag, not health: a spectator has 100 too). Each
+# then moves and aims through its own input only: player 1 the keyboard (W) and the mouse, player 2 its controller's
+# left and right sticks; the server's positions and view angles prove that each input moved its own player only.
+# 80 s after player 2 joined, player 1 leaves once (its own "disconnect"); player 2 plays on alone (it walks) in the
+# whole window; 10 s later player 1 rejoins, chooses its team automatically (it is no longer the driver), a restart
+# spawns both again and player 1 walks. de_dust2 with no bots, 30 fps, the server write guard on.
+# Window shots (RUN/shots): gp_team, gp_spawned, gp_p2_moved, gp_p1_aims, gp_p2_aims, gp_both, gp_alone, gp_rejoined.
 # Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
-#   --launch tests/launch/de_dust2_nobots --env FPS=30 --env CSX_NATIVE_SPLIT=2 --env CSX_CTX_GUARD=1 --env CSX_NATIVE_SPLIT_CHANGES=1 --env CSX_NATIVE_SPLIT_ROLLBACK=0 --env CSX_NATIVE_SPLIT_TEAMS=1,2 --env CSX_NATIVE_SPLIT_CLASSES=5,5 --env CSX_NATIVE_SPLIT_TEST_PAD=1 --env CSX_NATIVE_SPLIT_LEAVE_AFTER=60 --env CSX_NATIVE_SPLIT_LEAVE_PLAYER=1 --env CSX_NATIVE_SPLIT_LEAVE_TIMES=1 --env CSX_NATIVE_SPLIT_REJOIN_AFTER=10
-# timeout: 240
+#   --launch tests/launch/de_dust2_nobots --env FPS=30 --env CSX_NATIVE_SPLIT=2 --env CSX_CTX_GUARD=1 --env CSX_NATIVE_SPLIT_CHANGES=1 --env CSX_NATIVE_SPLIT_ROLLBACK=0 --env CSX_NATIVE_SPLIT_TEAMS=1,2 --env CSX_NATIVE_SPLIT_CLASSES=5,5 --env CSX_NATIVE_SPLIT_TEST_PAD=1 --env CSX_NATIVE_SPLIT_LEAVE_AFTER=80 --env CSX_NATIVE_SPLIT_LEAVE_PLAYER=1 --env CSX_NATIVE_SPLIT_LEAVE_TIMES=1 --env CSX_NATIVE_SPLIT_REJOIN_AFTER=10
+# timeout: 300
 wait log renderer: vulkan
 wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
 expect log native split: 2 local players asked
 expect log pc wide: aspect .*frame [0-9]+x480
-sleep 10
+# player 2 in the match, its controller routed, on its team, before player 1 touches its menus
+wait log native split: player 2 is in the match
+wait log native split: player 2 reads its own controller \(port 1\)
+wait log native split: player 2's automatic team choice \(development\): on its team
+wait log native split: player 2's look routine leaves the shared front end's input to player 1
+wait log pc keys: menu TeamSelect_RootSinglePlayer
+sleep 3
+windowshot gp_team
+# player 1: the original team screen, its own keys (Terrorist), player 2's controller connected meanwhile
 press DOWN
 sleep 1
 press DOWN
 sleep 1
 press A
-sleep 4
+wait newlog game: "[^"]*<1><[0-9]+><[^>]*>" joined team "TERRORIST"
+expect log native split: player 1's button 0x0001 pressed on port 0, the screen TeamSelect_RootSinglePlayer: to the shared front end
+expect log native split: front-end command ".*" \(in the driver's turn\)
+expect nolog native split: player 2's button .* to the shared front end
+# its buy menu opens at its spawn (run 17): closed with B
+wait log pc keys: menu T_BuyMenuRoot
+sleep 1
 press B
-wait log native split: player 2 is in the match
-wait log native split: player 2 reads its own controller \(port 1\)
-wait log native split: player 2's automatic team choice \(development\): on its team
+wait newlog pc keys: playing
 expect nolog native split: player 1's automatic team choice
-# both spawned by the server's own round restart
+# both spawned by the server's own round restart; nothing moves before the freeze time's end
 pckey cmd sv_restartround 1
-sleep 6
+wait newlog game: World triggered "Round_Start"
+sleep 1
 players spawned
-expect health spawned 0 1 100
-expect health spawned 1 1 100
+expect freeze spawned 0
+expect alive spawned 0 T
+expect alive spawned 1 CT
 expect apart spawned 0 1 1 100000
-expect log native split: player 2 in the game: .*team Counter-Terrorist.*alive
+expect log native split: player 2 in the game: .*team Counter-Terrorist, menu [0-9]+, alive \(
 expect log pc wide: view fov 90 -> 106\.[0-9] .*a split view
 windowshot gp_spawned
-# player 2 walks with its left stick (facing out of its spawn): player 1 stays
+# player 2 walks with its left stick: player 1 stays
 press2 LS 90
 sleep 3
 players p2walk
@@ -64,29 +81,43 @@ sleep 2
 players p2aim
 expect bodyturned p1aim p2aim 1 10 360
 expect bodystill p1aim p2aim 0 2 2
+expect alive p2aim 0 T
+expect alive p2aim 1 CT
 windowshot gp_p2_aims
 windowshot gp_both
-# player 1 departs: player 2 plays on in the whole window
+# player 1 departs: player 2 plays on (it walks) in the whole window
 wait log native split: player 1 left the match \(its client disconnected\)
-wait log native split: the window shows 1 view\(s\)
+wait newlog native split: the window shows 1 view\(s\)
 sleep 2
-press2 RSL 20
-sleep 2
+players alone0
+press2 LS 60
+sleep 3
+players alone1
+expect bodymoved alone0 alone1 1 20 2000
 windowshot gp_alone
 # player 1 rejoins in its kept context, chooses its team itself (not the driver now), and spawns at a restart
 wait log native split: player 1 is in the match
 wait log native split: player 1's automatic team choice \(development\): on its team
+wait newlog native split: the window shows 2 view\(s\)
 pckey cmd sv_restartround 1
-sleep 6
+wait newlog game: World triggered "Round_Start"
+sleep 1
 players rejoined
-expect health rejoined 0 1 100
-expect health rejoined 1 1 100
+expect freeze rejoined 0
+expect alive rejoined 0 T
+expect alive rejoined 1 CT
 expect apart rejoined 0 1 1 100000
 windowshot gp_rejoined
-wait newlog native split: player 1 in the game: .*team Terrorist.*alive
-wait log native split: views: 
+# player 1's own keyboard again after its rejoin: player 2 stays
+key w 1
+sleep 2
+players rejoinwalk
+expect bodymoved rejoined rejoinwalk 0 40 2000
+expect bodystill rejoined rejoinwalk 1 2 2
+wait newlog native split: views:
 expect log native split: player 2 active, context 1, client state 5
 expect log native split: player 1 active, context 0, client state 5
+expect log native split: the shared front end's input, driven by player 2
 expect log renderer: split views: [1-9][0-9]* placed in the window image
 expect nolog \[watch:view-missing\]
 expect nolog \[watch:auto-join\]

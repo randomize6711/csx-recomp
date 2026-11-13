@@ -512,6 +512,79 @@ def player1_rejoin(funcs, cl, text):
           is not None, 'the frame\'s end: a connecting player 1 (its rejoin) joins when its live cls.state is active')
 
 
+def front_end_input(funcs, cl, regs, hk, text):
+    """docs 17.9 (run 18): the shared front end's input, the title's code it rests on and the hooks that keep it the
+    driver's: the look routine 0x19E160 copies the bridge's mask 0x5439B8 into the front end's snapshot 0x5523C0 /
+    0x5523C4 and the active pad's left stick into 0x552DD0 / 0x552DD4 (0xCA670), the pie menu (0xCD470 / 0xCD680,
+    under 0xCD7D0, the shared draw at 0x55F94) reads them; the bridge hands presses to 0xCB170 and releases to
+    0xCB540. Player 2 connected while player 1 navigates: its controller must reach none of it"""
+    look = dict(funcs.get(0x19E160, []))
+    check(look.get(0x19E191) == 'mov esi, [0x003852F8]' and look.get(0x19E19D) == 'mov edx, [0x005523D4]' and
+          look.get(0x19E1AE) == 'test edx, edx' and look.get(0x19E1BA) == 'mov ecx, [eax+0x384F90]' and
+          look.get(0x19E1C0) == 'mov eax, [eax+0x384F8C]' and look.get(0x19E1C8) == 'call 0x000CA670',
+          'the look routine: with a screen open, 0xCA670 gets the active pad\'s left stick (0x384F8C / 0x384F90)')
+    check(look.get(0x19E1CD) == 'mov ecx, [0x005523C0]' and look.get(0x19E1D3) == 'mov eax, [0x005439B8]' and
+          look.get(0x19E1DB) == 'mov [0x005523C4], ecx' and look.get(0x19E1E1) == 'mov [0x005523C0], eax',
+          'the look routine: the front end\'s snapshot from the bridge\'s mask (0x5523C0 now, 0x5523C4 before)')
+    check(look.get(0x19E1EA) == 'movzx eax, byte ptr [edx+0xC0]' and look.get(0x19E1F3) == 'jz 0x0019E642' and
+          look.get(0x19E1F9) == 'test bl, bl' and look.get(0x19E1E8) == 'jz 0x0019E1F9',
+          'the look routine: a screen that takes the controls stops the look; 0x19E1F9 the path without a screen')
+    ca = dict(funcs.get(0xCA670, []))
+    check(ca.get(0xCA678) == 'mov [0x00552DD0], eax' and ca.get(0xCA684) == 'mov [0x00552DD4], ecx' and
+          ca.get(0xCA6AA) == 'mov eax, [0x005523C0]', '0xCA670: the menus\' direction, the D-pad from the snapshot')
+    check({(f, a) for f, a in cl.get(0xCA670, set())} == {(0x19E160, 0x19E1C8)}, '0xCA670 called only by the look routine')
+    # the only writers of the snapshot and the direction
+    w = {}
+    for f, ins in funcs.items():
+        for a, v in abs_writes(ins):
+            if v in (0x5523C0, 0x5523C4, 0x552DD0, 0x552DD4):
+                w.setdefault(v, set()).add((f, a))
+    check(w.get(0x5523C0) == {(0x19E160, 0x19E1E1)} and w.get(0x5523C4) == {(0x19E160, 0x19E1DB)},
+          'the snapshot written only by the look routine (%s)' % {hex(k): sorted(hex(a) for _, a in v) for k, v in w.items()})
+    check({f for f, _ in w.get(0x552DD0, set()) | w.get(0x552DD4, set())} == {0xCA670},
+          'the menus\' direction written only by 0xCA670')
+    for v in (0x5523C0, 0x5523C4, 0x552DD0, 0x552DD4, 0x5439B8, 0x3852F8):
+        check(not in_regions(v, regs), 'the front end\'s input 0x%X is the process\'s (no player region)' % v)
+    # the pie menu reads them, under the game menus' update 0xCD7D0, the shared draw at 0x55F94 (the driver's turn)
+    pie = dict(funcs.get(0xCD470, []))
+    check(pie.get(0xCD4F3) == 'fld [0x00552DD4]' and pie.get(0xCD4F9) == 'fld [0x00552DD0]' and
+          pie.get(0xCD4FF) == 'fpatan', 'the pie menu 0xCD470: its slice from the direction')
+    choose = dict(funcs.get(0xCD680, []))
+    check(choose.get(0xCD689) == 'mov eax, [0x005523C0]' and choose.get(0xCD690) == 'and ecx, 0x01',
+          'the pie menu 0xCD680: its choice on A in the snapshot')
+    check({f for f, _ in cl.get(0xCD470, set())} == {0xCD7D0} and {f for f, _ in cl.get(0xCD680, set())} == {0xCD7D0},
+          'the pie menu\'s parts run only under 0xCD7D0')
+    check(dict(funcs.get(0x55E10, [])).get(0x55F94) == 'call 0x000CD7D0' and
+          hk.get(0x55F94, (None,))[0] == 'NativeSplitSharedDraw', '0xCD7D0 the shared draw at 0x55F94 (the driver\'s turn)')
+    # the bridge: presses to 0xCB170, releases to 0xCB540; the paths without a screen
+    br = dict(funcs.get(0x19DFD0, []))
+    check(br.get(0x19E0A7) == 'mov eax, [0x005523D4]' and br.get(0x19E0B1) == 'call 0x000CB170' and
+          br.get(0x19E0AE) == 'jz 0x0019E0CD' and br.get(0x19E0CD) == 'mov al, [0x005619E4]',
+          'the bridge: a press to the screen 0xCB170; 0x19E0CD the key event\'s path')
+    check(br.get(0x19E101) == 'mov ecx, [0x005523D4]' and br.get(0x19E10C) == 'call 0x000CB540' and
+          br.get(0x19E109) == 'jz 0x0019E114' and br.get(0x19E114) == 'mov eax, [0x00551854]',
+          'the bridge: a release to 0xCB540; 0x19E114 the key event\'s path')
+    check(br.get(0x19E149) == 'mov [0x005439B8], edi', 'the bridge keeps its mask (swapped per routed turn)')
+    # the hooks
+    want = {0x19E1AE: ('NativeSplitLookMenu', '0x19E1F9'), 0x19E0A7: ('NativeSplitPadMenuPress', '0x19E0CD'),
+            0x19E101: ('NativeSplitPadMenuRelease', '0x19E114')}
+    for at, (name, target) in want.items():
+        h = hk.get(at)
+        check(h is not None and h[0] == name and h[1] == target, 'hook %s at 0x%X (on_true %s)' % (name, at, target))
+        check(name in text, 'hook %s in the generated code' % name)
+    # the rule and where the routing stays (src): the hooks ask FeedsSharedFrontEnd for the acting player; the routing of
+    # an added player's controller into its turn is kept (its look and buttons its own)
+    src = open(os.path.join(ROOT, 'src', 'game', 'native_split.cpp')).read()
+    body = src[src.find('bool NativeSplitLookMenu('):src.find('void WatchFrontEndInput() {')]
+    check('FrontEndWithheld(k)' in body and body.count('InputPlayer()') == 3 and 'W32(' not in body,
+          'the three hooks: the acting player against the driver, nothing written')
+    fw = src[src.find('bool FrontEndWithheld('):]
+    check('nsplit::FeedsSharedFrontEnd(k, g_ui.driver)' in fw[:fw.find('\n')], 'FrontEndWithheld is the pure rule')
+    pt = src[src.find('void NativeSplitPadTurnBegin()'):src.find('void NativeSplitPadTurnEnd()')]
+    check('W32(kActivePad, port)' in pt and 'W32(kBridgeMask, g_pad_turn.mask[k])' in pt,
+          'an added player\'s controller still routed into its own turns')
+
+
 def main():
     if not os.path.isdir(GEN) or not glob.glob(os.path.join(GEN, 'x86_recomp.*.cpp')):
         print('note: build/gen/game missing: the checks are skipped')
@@ -528,6 +601,7 @@ def main():
     reconnect(funcs, cl, text)
     player1_rejoin(funcs, cl, text)
     stale_slot(funcs)
+    front_end_input(funcs, cl, regs, hk, text)
     print(f'native_split_turns_test: {checks} checks, {len(failures)} failed')
     return 1 if failures else 0
 

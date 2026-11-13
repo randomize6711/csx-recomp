@@ -37,6 +37,8 @@
 #include "game/net_engine.h"
 #include "kernel/kernel.h"
 
+int PcFreezePeriod();  // pc_modes.cpp: the round's freeze time (1, 0; -1 no rules yet)
+
 namespace csx {
 
 namespace {
@@ -61,6 +63,7 @@ void WF(uint32_t va, float f) { std::memcpy(kernel::HostPtr(va), &f, 4); }
 constexpr uint32_t kClients = 0x636CE4, kClientEdict = 0x4B9C, kEdictOrigin = 0x88, kEdictVelocity = 0xA0;
 constexpr uint32_t kMaxClients = 0x636CE8, kClientSize = 0x5010, kEdictHealth = 0x1E0;
 constexpr uint32_t kEdictViewAngle = 0xF4;  // entvars v_angle (pitch, yaw, roll)
+constexpr uint32_t kEdictPrivate = 0x7C, kEdictDeadflag = 0x1F0, kPlayerTeam = 0x1E0;  // the CBasePlayer, deadflag, m_iTeam
 // the client's last parsed frame (cl.parsecountmod), its player number and maxclients (src/game/player_slots.cpp)
 constexpr uint32_t kParseCountMod = 0x74A064, kPlayerNum = 0x771224, kClMaxClients = 0x778A5C;
 constexpr uint32_t kStateOrigin = 0x44;  // a frame player state's origin (0xFB bytes each)
@@ -180,11 +183,20 @@ void StartStateProbe() {
                         // the view angles the server has (entvars v_angle: pitch, yaw), "playerview NAME N PITCH YAW":
                         // native split-screen's camera tests (docs/native_splitscreen.md 17)
                         LOGI("playerview %s %u %.3f %.3f", name, n, F(e + kEdictViewAngle), F(e + kEdictViewAngle + 4));
+                        // the server's team and life (docs/native_splitscreen.md 17.9: a spectator has health 100 too),
+                        // "playerstate NAME N TEAM DEADFLAG": CBasePlayer m_iTeam (pvPrivateData edict +0x7C, +0x1E0:
+                        // 0 none, 1 Terrorist, 2 Counter-Terrorist, 3 spectator), entvars deadflag (edict +0x1F0, 0 alive)
+                        uint32_t pv = kernel::R32(e + kEdictPrivate);
+                        LOGI("playerstate %s %u %u %u", name, n, pv ? kernel::R32(pv + kPlayerTeam) : 0u,
+                             kernel::R32(e + kEdictDeadflag));
                         // the server's measured latency of a network client (client_t +0x25A0, seconds: the
                         // scoreboard's ping), "playerping NAME N MS"
                         uint32_t cl = kernel::R32(kClients) + n * kClientSize;
                         if (kernel::R32(cl + 0x20 + 4) == 3) LOGI("playerping %s %u %.0f", name, n, F(cl + 0x25A0) * 1000);
                     }
+                // the round's freeze time (the rules' m_bFreezePeriod: 1 nobody may move yet, 0 the round runs, -1
+                // no rules seen), "players NAME freeze F"
+                LOGI("players %s freeze %d", name, PcFreezePeriod());
                 LOGI("players %s end", name);
                 logx::Flush();
             }

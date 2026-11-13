@@ -214,6 +214,78 @@ static void Pads() {
           "routed and in its turn only");
 }
 
+// docs 17.9 (run 18's cause): player 2 connected, with its own controller routed into its turns, while player 1 (the
+// front end's driver) navigates its team screen. Every frame runs the input turns in context order, player 1's look then
+// player 2's; the pie menu reads the snapshot afterwards, in player 1's client turn
+struct Frame18 {
+    uint32_t p1_mask = 0, p2_mask = 0;
+    float p1_y = 0, p2_y = 0;
+};
+static FrontEndInput RunFrames(const Frame18* f, int n, int driver, bool gated, int* a_edges, int* down_edges) {
+    FrontEndInput fe;
+    *a_edges = *down_edges = 0;
+    bool was_down = false;
+    for (int i = 0; i < n; i++) {
+        // gated: the rule; not gated: the title's own (every player's look feeds it, as in run 18)
+        fe.Look(0, gated ? driver : 0, f[i].p1_mask, 0, f[i].p1_y);
+        fe.Look(1, gated ? driver : 1, f[i].p2_mask, 0, f[i].p2_y);
+        // the pie menu after the turns: 0xCD680 chooses at A's press (the snapshot now, against the frame before),
+        // 0xCD470 points its slice where the direction does
+        if ((fe.now & 1) && !(fe.before & 1)) (*a_edges)++;
+        bool down = fe.dy < -0.5f;
+        if (down && !was_down) (*down_edges)++;
+        was_down = down;
+    }
+    return fe;
+}
+static void FrontEndFeeds() {
+    Check(FeedsSharedFrontEnd(0, 0) && FeedsSharedFrontEnd(1, 1), "the driver's controller feeds the front end");
+    Check(!FeedsSharedFrontEnd(1, 0) && !FeedsSharedFrontEnd(0, 1) && !FeedsSharedFrontEnd(3, 2),
+          "another player's never (player 2's while player 1 drives; player 1's after its rejoin while player 2 drives)");
+    Check(FeedsSharedFrontEnd(-1, 0) && FeedsSharedFrontEnd(-1, 1), "no local player's (the title's own): as the title");
+    // run 18's presses: DOWN (0x200) twice, then A (analog bit 0), player 2's controller connected and idle
+    Frame18 f[16] = {};
+    for (int i : {1, 2, 5, 6}) f[i].p1_mask = 0x200;
+    for (int i : {9, 10}) f[i].p1_mask = 0x1;
+    int a = 0, down = 0;
+    FrontEndInput old = RunFrames(f, 16, 0, false, &a, &down);
+    Check(a == 0, "run 18 reproduced: without the rule player 2's idle look hides player 1's A from the pie menu");
+    Check(old.fed_by == 1 && old.now == 0, "  (every frame ends with player 2's idle buttons in the snapshot)");
+    Check(down == 2, "  (the D-pad's direction still came through: player 2's pass reads player 1's copy first)");
+    FrontEndInput fe = RunFrames(f, 16, 0, true, &a, &down);
+    Check(a == 1, "with the rule: the one A press reaches the pie menu");
+    Check(down == 2, "with the rule: each DOWN press turns the menu's direction down once");
+    Check(fe.fed_by == 0, "with the rule: the snapshot is player 1's");
+    // player 2 moving its stick and pressing A and the D-pad meanwhile: nothing of it reaches player 1's front end
+    for (auto& x : f) {
+        x.p2_mask = 0x1 | 0x100;
+        x.p2_y = 1;
+    }
+    RunFrames(f, 16, 0, true, &a, &down);
+    Check(a == 1 && down == 2, "player 2's A, D-pad and stick change nothing on player 1's screen");
+    RunFrames(f, 16, 0, false, &a, &down);
+    Check(a != 1 || down != 2, "  (without the rule they do)");
+    // the other way round: player 2 drives (player 1 rejoined): player 1's keyboard and mouse do not reach it
+    Frame18 g[8] = {};
+    for (int i : {2, 3}) g[i].p1_mask = 0x1;
+    RunFrames(g, 8, 1, true, &a, &down);
+    Check(a == 0, "player 1's press while player 2 drives: not on player 2's front end");
+    for (int i : {2, 3}) {
+        g[i].p1_mask = 0;
+        g[i].p2_mask = 0x1;
+    }
+    RunFrames(g, 8, 1, true, &a, &down);
+    Check(a == 1, "player 2's press while it drives: on its front end");
+    // one player (alone, the title's own): it feeds as before
+    FrontEndInput solo;
+    int solo_a = 0;
+    for (int i = 0; i < 4; i++) {
+        solo.Look(0, 0, i == 1 ? 0x1u : 0u, 0, 0);
+        if ((solo.now & 1) && !(solo.before & 1)) solo_a++;
+    }
+    Check(solo_a == 1, "alone: as the title");
+}
+
 // a view's placement (W x H window): inside its viewport, the aspect kept, never over another view
 static void Placement() {
     // 1920x1080, two top and bottom, 32:9 frames (3.556): each exactly fills its half
@@ -365,6 +437,7 @@ int main() {
     FourPlayers();
     SharedAndPanels();
     Pads();
+    FrontEndFeeds();
     Placement();
     std::printf("native_split_view_test: %d checks, %d failed\n", checks, failed);
     std::printf("note: simulated frames and placement arithmetic only; no GPU, no game (docs 16)\n");

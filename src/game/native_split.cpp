@@ -908,6 +908,8 @@ void WatchSharedParents() {
 
 void ReportRender();  // the views' diagnostics (M3, below)
 void FinishViews();   // the window frame's end (M3, below)
+void WatchFrontEndInput();   // the shared front end's input at each change (docs 17.9, below)
+void ReportFrontEndInput();  // its 10 s line (below)
 
 void Report() {
     for (int k = 0; k < nsplit::kMaxPlayers; k++) {
@@ -928,6 +930,7 @@ void Report() {
     LOGI("native split: context switches %llu, %.4f ms each on average", (unsigned long long)switches,
          switches ? switch_ms / double(switches) : 0.0);
     ReportRender();
+    ReportFrontEndInput();
     LOGI("native split: %llu packets dropped by full channels, %llu read outside their player's turn, %llu foreign frees "
          "(%llu skipped), %llu reallocs moved (%llu of another owner's block), %zu heap blocks tracked",
          (unsigned long long)g_ch.Dropped(), (unsigned long long)g_read_outside_turn,
@@ -1919,6 +1922,7 @@ void NativeSplitFrameEnd(X86Context& ctx) {
     // player 1 in its match with the built-in server: the others added, one a frame; the bound on what leaving players
     // still hold (docs 15.20), read from the heap's count now
     AutoJoin();
+    WatchFrontEndInput();
     g_leaks.Observe(g_blocks.LeftBehindBytes());
     CheckLeakAccounting();
     if (!g_add_failed && g_leaks.MayJoin() && nsplit::MayAddPlayers(g_timer_once) && R32(kSvActive) &&
@@ -2469,9 +2473,19 @@ bool NativeSplitUiCommand(X86Context& ctx, uint8_t*) {
     int k = TurnPlayer();
     nsplit::SharedUi d = g_ui.Decide(csx::ClientContextInTurn(), k);
     if (d == nsplit::SharedUi::AsShared) g_ui_shared[kUiCommand]++;
-    if (d != nsplit::SharedUi::Withheld) return false;
     char text[96] = "";
     if (ctx.edx) std::snprintf(text, sizeof text, "%s", static_cast<const char*>(kernel::HostPtr(ctx.edx)));
+    // docs 17.9: every front-end command with who ran it (the menus' choices are these: a run's evidence of what
+    // reached the team screen); the first 48
+    static int logged = 0;
+    if (logged < 48) {
+        logged++;
+        LOGI("native split: front-end command \"%s\" (%s)", text,
+             d == nsplit::SharedUi::AsTitle ? "outside the turns, as the title's"
+             : d == nsplit::SharedUi::AsShared ? "in the driver's turn"
+                                                : "in another player's turn");
+    }
+    if (d != nsplit::SharedUi::Withheld) return false;
     // its own console line ("!slot1", "!impulse 101", ...): to its own queue, its xbui parts gated where they run
     if (nsplit::FrontEndCommand(text, false) == nsplit::FrontEnd::Run) return false;
     g_ui_withheld[kUiCommand]++;
@@ -2741,6 +2755,122 @@ bool NativeSplitLook(X86Context&, uint8_t*) {
 bool NativeSplitPadKeys(X86Context&, uint8_t*) {
     return AddedPlayersTurn() && csx::ClientContextInTurn() && !g_pad_turn.routed;
 }
+
+// ---- the shared front end's input: its driver's only (docs 17.9; native_split_view.h FeedsSharedFrontEnd) -----------
+// Run 18's cause: the look routine of every player's input turn wrote the front end's button snapshot and menu
+// direction, and player 2's (routed, after player 1's) left its idle buttons there at each frame's end, so the team
+// screen (the pie menu, run in the driver's turn: 0xCD680 chooses on A in the snapshot) never saw player 1's A. The player whose context runs is the
+// acting one: in its turns, and in the title's own prelude (0x5D3B0, player 1's context: its bridge pass)
+namespace {
+constexpr uint32_t kFeButtons = 0x5523C0, kFeButtonsBefore = 0x5523C4, kFeDirX = 0x552DD0, kFeDirY = 0x552DD4;
+constexpr uint32_t kPieSlice = 0x385420;  // the pie menu's slice the direction points at (0xCD470), -1 none
+constexpr uint32_t kCurrentScreenPtr = 0x5523D4;  // the shared screen stack's screen on top (its name at +0)
+struct FrontEndInputStats {
+    uint64_t looks_fed[nsplit::kMaxPlayers] = {}, looks_withheld[nsplit::kMaxPlayers] = {};
+    uint64_t presses_fed[nsplit::kMaxPlayers] = {}, presses_withheld[nsplit::kMaxPlayers] = {};
+    uint64_t releases_withheld[nsplit::kMaxPlayers] = {};
+    int logged_presses = 0, logged_changes = 0;
+    uint32_t active_pad = ~0u, slice = ~0u - 1, screen = ~0u;
+    int driver = -2;
+} g_fe;
+int InputPlayer() { return NativeSplitOn() ? PlayerOfContext(csx::ClientContextActive()) : -1; }
+bool FrontEndWithheld(int k) { return NativeSplitOn() && !nsplit::FeedsSharedFrontEnd(k, g_ui.driver); }
+std::string ScreenName() {
+    uint32_t s = R32(kCurrentScreenPtr);
+    if (!s) return "none";
+    uint32_t name = Readable(s) ? R32(s) : 0;
+    if (!name || !Readable(name)) return "?";
+    std::string out;
+    for (uint32_t i = 0; i < 48 && Readable(name + i); i++) {
+        char c = static_cast<const char*>(kernel::HostPtr(name))[i];
+        if (!c) break;
+        out += c;
+    }
+    return out;
+}
+void LogPress(int k, uint32_t bit, bool fed, bool release) {
+    if (g_fe.logged_presses >= 64) return;
+    g_fe.logged_presses++;
+    LOGI("native split: player %d's button 0x%04X %s on port %u, the screen %s: %s (the shared front end is player %d's)",
+         k + 1, bit, release ? "released" : "pressed", R32(kActivePad), ScreenName().c_str(),
+         fed ? "to the shared front end" : "its own game only", g_ui.driver + 1);
+}
+}  // namespace
+
+// [[hook]] at 0x19E1AE in the look routine (`test edx, edx` on the open screen, 0x5523D4 in edx), on_true 0x19E1F9:
+// another player than the front end's driver neither writes the front end's snapshot (0xCA670 and the copies at
+// 0x19E1DB / 0x19E1E1) nor is stopped by the driver's screen (0x19E1EA: a screen that takes the controls): its look
+// and its movement go on, its own
+bool NativeSplitLookMenu(X86Context&, uint8_t*) {
+    int k = InputPlayer();
+    if (!NativeSplitOn() || k < 0) return false;
+    if (!FrontEndWithheld(k)) {
+        g_fe.looks_fed[k]++;
+        return false;
+    }
+    g_fe.looks_withheld[k]++;
+    LOG_FIRST(2, "native split: player %d's look routine leaves the shared front end's input to player %d (its "
+                 "controller is its own game's)", k + 1, g_ui.driver + 1);
+    return true;
+}
+
+// [[hook]] at 0x19E0A7 in the pad bridge (a new press, its bit in eax and ecx), on_true 0x19E0CD: another player's
+// press does not reach the front end's screen (0xCB170) and becomes its own key as with no screen open
+bool NativeSplitPadMenuPress(X86Context& ctx, uint8_t*) {
+    int k = InputPlayer();
+    if (!NativeSplitOn() || k < 0) return false;
+    bool withheld = FrontEndWithheld(k);
+    (withheld ? g_fe.presses_withheld : g_fe.presses_fed)[k]++;
+    if (R32(kCurrentScreenPtr)) LogPress(k, ctx.eax, !withheld, false);
+    return withheld;
+}
+
+// [[hook]] at 0x19E101 in the pad bridge (a release, its bit in eax), on_true 0x19E114: another player's release does
+// not reach the front end's screen (0xCB540)
+bool NativeSplitPadMenuRelease(X86Context& ctx, uint8_t*) {
+    int k = InputPlayer();
+    if (!NativeSplitOn() || k < 0 || !FrontEndWithheld(k)) return false;
+    g_fe.releases_withheld[k]++;
+    if (R32(kCurrentScreenPtr)) LogPress(k, ctx.eax, false, true);
+    return true;
+}
+
+namespace {  // declared with the report's helpers above
+// at the frame's end (outside the turns): what feeds the front end and what it shows, at each change (diagnostics:
+// the title's active pad, the driver, the screen on top, the pie menu's slice)
+void WatchFrontEndInput() {
+    if (!NativeSplitOn()) return;
+    uint32_t pad = R32(kActivePad), slice = R32(kPieSlice), screen = R32(kCurrentScreenPtr);
+    if (pad == g_fe.active_pad && g_ui.driver == g_fe.driver && screen == g_fe.screen && slice == g_fe.slice) return;
+    if (g_fe.logged_changes < 64) {
+        g_fe.logged_changes++;
+        LOGI("native split: the shared front end: driven by player %d, the title's active pad %u, the screen %s, the pie "
+             "menu's slice %d; its button snapshot 0x%04X (the frame before 0x%04X), direction %.2f %.2f",
+             g_ui.driver + 1, pad, ScreenName().c_str(), int32_t(slice), R32(kFeButtons), R32(kFeButtonsBefore),
+             FloatAt(kFeDirX), FloatAt(kFeDirY));
+    }
+    g_fe.active_pad = pad;
+    g_fe.driver = g_ui.driver;
+    g_fe.screen = screen;
+    g_fe.slice = slice;
+}
+
+// the 10 s report's line
+void ReportFrontEndInput() {
+    std::string per;
+    for (int k = 0; k < nsplit::kMaxPlayers; k++) {
+        if (!g_fe.looks_fed[k] && !g_fe.looks_withheld[k] && !g_fe.presses_fed[k] && !g_fe.presses_withheld[k]) continue;
+        char b[200];
+        std::snprintf(b, sizeof b, "%splayer %d: looks %llu fed, %llu its own; presses %llu fed, %llu its own (%llu releases)",
+                      per.empty() ? "" : "; ", k + 1, (unsigned long long)g_fe.looks_fed[k],
+                      (unsigned long long)g_fe.looks_withheld[k], (unsigned long long)g_fe.presses_fed[k],
+                      (unsigned long long)g_fe.presses_withheld[k], (unsigned long long)g_fe.releases_withheld[k]);
+        per += b;
+    }
+    LOGI("native split: the shared front end's input, driven by player %d: %s", g_ui.driver + 1,
+         per.empty() ? "none yet" : per.c_str());
+}
+}  // namespace
 
 // [[hook]] at 0x100F10, S_StartDynamicSound's entry: on_true "ret" skips it
 bool NativeSplitSound(X86Context&, uint8_t*) { return AddedPlayersTurn() && csx::ClientContextInTurn(); }

@@ -78,6 +78,9 @@ per line, executed in order:
     expect bodyturned A B N MIN MAX client N's view yaw (the server's v_angle) turned MIN..MAX degrees from A to B
     expect bodystill A B N MOVE TURN client N moved at most MOVE units and turned at most TURN degrees from A to B
     expect health NAME N MIN MAX   client N's health in players step NAME
+    expect alive NAME N TEAM       client N alive on TEAM (T or CT: the server's m_iTeam) in players step NAME, its
+                                   health above 0 and deadflag 0 (a spectator's health 100 is not alive)
+    expect freeze NAME 0|1         the round's freeze time in players step NAME (1: nobody may move yet)
     expect bodyz NAME N MIN MAX    client N's origin height in players step NAME
     expect healthdrop A B N MIN MAX  client N's health fell MIN..MAX from players step A to B
     expect spawnapart NAME MIN     every two clients at least MIN apart in players step NAME
@@ -401,6 +404,8 @@ def main():
     tracks = {}  # track steps: NAME -> rose, moved
     rosters = {}  # players steps: NAME -> {client: (x, y, z, health)}
     views = {}  # players steps: NAME -> {client: (pitch, yaw)} (the server's v_angle)
+    pstates = {}  # players steps: NAME -> {client: (team, deadflag)} (the server's m_iTeam and entvars deadflag)
+    freezes = {}  # players steps: NAME -> the round's freeze time (1, 0, -1 no rules)
     exposures = {}  # exposure steps: NAME -> dark, light, mean, low, high, middle
     fades = {}  # fade steps: NAME -> alpha, hold, length, lasted, real
     snap_lines = {}  # snap steps: NAME -> the log lines its frames wrote
@@ -672,6 +677,7 @@ def main():
                 if good:
                     rosters[st[1]] = {}
                     views[st[1]] = {}
+                    pstates[st[1]] = {}
                     for l in log.lines:
                         m = re.search(r'players ' + re.escape(st[1]) + r' (\d+) (\S+) (\S+) (\S+) (\S+)\s*$', l)
                         if m:
@@ -679,6 +685,12 @@ def main():
                         m = re.search(r'playerview ' + re.escape(st[1]) + r' (\d+) (\S+) (\S+)\s*$', l)
                         if m:
                             views[st[1]][int(m.group(1))] = (float(m.group(2)), float(m.group(3)))
+                        m = re.search(r'playerstate ' + re.escape(st[1]) + r' (\d+) (\d+) (\d+)\s*$', l)
+                        if m:
+                            pstates[st[1]][int(m.group(1))] = (int(m.group(2)), int(m.group(3)))
+                        m = re.search(r'players ' + re.escape(st[1]) + r' freeze (-?\d+)\s*$', l)
+                        if m:
+                            freezes[st[1]] = int(m.group(1))
                     print('     ' + '; '.join('%d: %.1f %.1f %.1f health %.0f' % ((n,) + v)
                                               for n, v in sorted(rosters[st[1]].items())))
             elif kind == 'bring':
@@ -1107,6 +1119,25 @@ def main():
                 except KeyError as e:
                     print('     no such step or client: %s' % e)
                     good = False
+            elif kind == 'expect' and st[1] == 'alive':
+                # expect alive NAME N TEAM: client N alive (health above 0, deadflag 0) on TEAM (T 1, CT 2) in players
+                # step NAME (docs/native_splitscreen.md 17.9: a spectator's health is 100 too)
+                want = {'T': 1, 'CT': 2}.get(st[4].upper(), -1)
+                try:
+                    team, dead = pstates[st[2]][int(st[3])]
+                    health = rosters[st[2]][int(st[3])][3]
+                    names = {0: 'none', 1: 'T', 2: 'CT', 3: 'spectator'}
+                    print('     team %s, deadflag %d, health %.0f (want %s, alive)' % (names.get(team, team), dead, health,
+                                                                                    st[4]))
+                    good = team == want and dead == 0 and health > 0
+                except KeyError as e:
+                    print('     no such step or client (or no playerstate line): %s' % e)
+                    good = False
+            elif kind == 'expect' and st[1] == 'freeze':
+                # expect freeze NAME 0|1: the round's freeze time in players step NAME
+                f = freezes.get(st[2])
+                print('     freeze %s (want %s)' % ('unknown' if f is None else f, st[3]))
+                good = f is not None and f == int(st[3])
             elif kind == 'expect' and st[1] == 'teams':
                 # expect teams MAXDIFF [MIN]: the players' teams as the game's log last has them (game: "NAME<..>"
                 # joined team "CT" / "TERRORIST"), the two within MAXDIFF of each other, each at least MIN

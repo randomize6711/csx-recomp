@@ -1288,6 +1288,26 @@ at = 0x19DFD0
 call = "NativeSplitPadKeys"
 on_true = "ret"
 
+# docs/native_splitscreen.md 17.9: the shared front end's input is its driver's only. The look routine's screen branch
+# (0x19E1AE: 0xCA670, the menus' direction from the active pad's left stick, and the button snapshot 0x5523C0 /
+# 0x5523C4 from the bridge's mask; then a screen that takes the controls stops the look), skipped to 0x19E1F9 for
+# another player; the bridge's press (0x19E0A7: 0xCB170, the screen's button) to 0x19E0CD and its release (0x19E101:
+# 0xCB540) to 0x19E114, the key events as with no screen
+[[hook]]
+at = 0x19E1AE
+call = "NativeSplitLookMenu"
+on_true = 0x19E1F9
+
+[[hook]]
+at = 0x19E0A7
+call = "NativeSplitPadMenuPress"
+on_true = 0x19E0CD
+
+[[hook]]
+at = 0x19E101
+call = "NativeSplitPadMenuRelease"
+on_true = 0x19E114
+
 [[hook]]
 at = 0x100F10
 call = "NativeSplitSound"

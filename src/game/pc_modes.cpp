@@ -685,6 +685,10 @@ std::string GameMode() { return g_mode; }
 
 void PcGameplayThink();  // pc_gameplay.cpp
 
+// the round's freeze time (the rules' m_bFreezePeriod, a dword: Think stores 0 at 0x147B2B, where it logs "Round_Start"): 1 nobody may
+// move yet, 0 the round runs, -1 no rules seen (src/game/state_probe.cpp's players step, docs/native_splitscreen.md 17.9)
+int PcFreezePeriod() { return g_rules ? (R32(g_rules + kFreezePeriod) ? 1 : 0) : -1; }
+
 // [[hook]] at 0x147639 (config/game.toml), the rules' Think (0x147620) with the rules object in esi: every server frame
 void PcModesThink(X86Context& ctx, uint8_t*) {
     if (g_rules != ctx.esi) {  // a new map's rules

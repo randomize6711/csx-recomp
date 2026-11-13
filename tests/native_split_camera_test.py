@@ -50,6 +50,11 @@ PER_PASS = [
 SHARED = [
     (0x3852F8, "the title's active pad (set per turn by native split, put back after)"),
     (0x5439B8, "the pad bridge's previous buttons (swapped per player's turn)"),
+    # docs 17.9: the shared front end's input, fed by its driver's controller only (NativeSplitLookMenu)
+    (0x5523C0, "the front end's button snapshot (the look routine's copy of the bridge's mask)"),
+    (0x5523C4, "the front end's button snapshot of the frame before"),
+    (0x552DD0, "the menus' direction x (0xCA670, the driver's left stick)"),
+    (0x552DD4, "the menus' direction y"),
 ]
 
 
