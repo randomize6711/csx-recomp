@@ -2266,3 +2266,28 @@ The sites run 17 logged at player 1's departure (its first connection's blocks; 
 Nothing is freed: whether anything still names these blocks is not proved (the pool's dry run of 15.21 is the model
 for a later check). The growth stays counted against the 8 MiB bound (15.23); two departures in one run would give the
 growth by site.
+
+### 17.8 Run 18: the first gameplay test (2026-11-13, permitted once): FAIL at step 29 of 85
+
+`vk_native_split_2p_play` at 7e6d17a (window 916e977f...): stopped at `expect bodymoved spawned p2walk 1 40 2000`
+(player 2 moved 0.0) after 34 s; one window shot (gp_spawned). No retry.
+- **Player 2 played**: its own "menuselect 2" (3.79 s) put it on the Counter-Terrorists (3.79 s "joined team CT"),
+  alive with knife, USP and suit (weapons 0xA0010000), its own controller routed from 2.70 s. gp_spawned's lower
+  half: its full HUD (health, armour, the round timer, ammunition 12/24, money, radar, buy zone), its crosshair, its
+  USP drawn at normal size; the view at 106.3 degrees ("pc wide: view fov 90 -> 106.3 ... a split view"), no visible
+  stretching; the boundary clean.
+- **Why player 2 did not walk**: freeze time. The restart (21.26 s, "Restart_Round_(1_second)") began a new round whose
+  Round_Start (the freeze's end) had not come by 33.6 s; the shot at 30.4 s shows its timer red at 0:04. The scenario
+  walked inside the freeze: its fault, not the input path's (which this run therefore did not prove).
+- **Player 1 never joined a team**: team none, menu 1, deadflag 2 (watching the intermission cameras: the upper half,
+  its "moves" between players steps). Its team screen (TeamSelect_RootSinglePlayer, as in run 17) opened at 2.73 s;
+  the presses DOWN, DOWN, A (13.4-15.8 s) produced no front-end command (2 in all, both from B's close at 19.86 s;
+  run 17: 4, "joined team TERRORIST" at 15.66 s). Not settled statically. What differs from run 17 on its path: a
+  second controller exists (the test controller on port 1, from 2.7 s) and player 2's turns now run the look routine
+  and the pad bridge on port 1; the team screen opened after player 2 had joined CT. The players steps' health check
+  could not see it (a spectator has health 100).
+- Counters: 30.0 presents a second (60 views), 0 frames finished without their last view, guard 886 server frames
+  0 writes, 0 `[own:]`, errors, Host_Error, traps, view-missing, auto-join; GPU 0.87 ms and CPU recording 2.6 ms a
+  frame, present 0.1 ms, the limiter 12.3 ms; context switches 0.0736 ms; player 1's turn 4.6 ms (own work 3.3, its
+  Swaps 1.3), player 2's 29.6 ms (own work 4.2, its Swaps 25.4 of which pacing 25.0). Player 1 never departed: no
+  retained-memory report this run.
