@@ -34,7 +34,8 @@ press DOWN
 sleep 1
 press A
 wait newlog game: "[^"]*<1><[0-9]+><[^>]*>" joined team "TERRORIST"
-expect log native split: player 1's button 0x0001 pressed on port 0, the screen TeamSelect_RootSinglePlayer: to the shared front end
+# (the screen's name as the title stores it: cut short, "TeamSelect_RootSinglePlay" in run 19)
+expect log native split: player 1's button 0x0001 pressed on port 0, the screen TeamSelect_Root[A-Za-z]*: to the shared front end
 expect log native split: front-end command ".*" \(in the driver's turn\)
 expect nolog native split: player 2's button .* to the shared front end
 # its buy menu opens at its spawn (run 17): closed with B

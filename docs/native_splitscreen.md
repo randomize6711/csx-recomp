@@ -2354,3 +2354,20 @@ presses fed / its own".
 
 **Tests (static)**: native_split_view_test 101 checks (FrontEndFeeds), native_split_turns_test (front_end_input:
 the instructions, the only writers and readers, the hooks), native_split_camera_test 42 (the four words shared).
+
+### 17.10 Run 19: the corrected gameplay test (2026-11-13, permitted once): FAIL at step 18 of 103 (a scenario check)
+At 6d8fb7e (window 184a13d0…, harness 98110968…, server bc3ffeab…; preflight: the 27 suites, check_tables ok on all
+three, the fingerprints 493C482FED9BC3E9 / D860455A35A3CD29 / 52D2AA647E4F6BA6, CSX_CTX_GUARD=1, rollback 0, the pool
+reclamation off), `run_window_tests.py --tag run19 vk_native_split_2p_play.txt` (build/wruns/vk_native_split_2p_play_run19).
+- **17.9's fix held.** Player 2 was in the match on CT, its controller routed (3.6 s: its look routine left the front
+  end to player 1), before player 1's menu input. Player 1's DOWN, DOWN, A on the original team screen: each press
+  logged to the shared front end in player 1's turn ("tableMoveDown" twice, the pie menu's slice 2, the snapshot
+  0x0200), then A (0x0001) "RowSelect" at 10.80 s and `"empty<1>…" joined team "TERRORIST"` at 10.86 s, 0.6 s after
+  the press; its buy menu opened (11.43 s). No press of player 2 reached the shared front end; no error, ownership
+  tag, guard write, Host_Error or trap. 616 split views placed, none missing; 60 movement commands/s; GPU 1.0 ms,
+  CPU recording 3.0 ms a frame. gp_team: player 1's team screen on top, player 2 spawned on CT below (its own HUD,
+  the freeze timer, the split-view FOV); the team screen's counts still read 0 / 0 (cosmetic).
+- **The failure was the scenario's own check**: it expected the screen "TeamSelect_RootSinglePlayer" in the press line,
+  but the name the title stores at the screen (what ScreenName reads) is cut short: "TeamSelect_RootSinglePlay" (the
+  buy menu "T_BuyMenuRo"). The check now matches `TeamSelect_Root[A-Za-z]*` (it matches run 19's line). The run
+  stopped there, so the restart, freeze, movement, aiming, departure and rejoin steps were not reached: still unverified.
