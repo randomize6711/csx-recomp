@@ -2636,3 +2636,14 @@ vk_native_split_2p_menus.txt`.
   Invite Code (the host's): removed.
 - **Known, for M7/M8:** each added player's leave leaves about 0.9 MB behind (its HUD, sprite lists, VGUI); with the 8
   MiB bound a session takes about eight leave-and-rejoin cycles before joining is refused (fail closed).
+
+### 18.11 Three and four players, prepared (M6, static)
+
+Nothing new is needed in the core for three or four players: the regions, the heap fields and the own menus are per
+context (up to four), the seats hand out seats 1..3 in START order, the views lay out in a 2x2 grid. The one static
+risk: the pie menus' bundle cache has two slots, and four players on different pies need more; past two the title
+loads a bundle uncached (0xC44DE: "Ran out of free pie menu caches", then 0xC4E80 into the resource manager directly,
+the path it takes itself when 0x551854 is set), so the menus still work; whether the uncached loads grow memory is
+for the run to show. tests/scenarios/vk_native_split_4p.txt: four players, three test controllers through the seats,
+every team screen and buy menu its own, purchases at the server, movement and aiming isolated four ways, a controller
+unplugged and plugged back (the player kept, its seat given back with no START), player 3's leave and rejoin.

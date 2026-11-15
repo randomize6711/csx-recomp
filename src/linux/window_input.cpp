@@ -469,7 +469,7 @@ void SeatConnected(SDL_JoystickID id) {
     int k = g_seats.Connected(id, key);
     if (k < 0 && NativePlayers() && NativeP1Pad() && !g_seats.DeviceOf(0)) k = g_seats.GiveP1Controller();
     LOGI("input: controller %u (%s, %s) connected%s", unsigned(id), SDL_GetGamepadNameForID(id), key.c_str(),
-         k >= 0 ? (" : player " + std::to_string(k + 1) + "'s again").c_str() : ": press START to play");
+         k >= 0 ? (": player " + std::to_string(k + 1) + "'s again").c_str() : ": press START to play");
     PublishSeats();
 }
 void SeatDisconnected(SDL_JoystickID id) {

@@ -1,0 +1,178 @@
+# Native split-screen M6 (docs/native_splitscreen.md 18.7, 18.11) in the Vulkan window: FOUR local players in one
+# process, players 2-4 on three test controllers (virtual SDL gamepads through the seats, as physical ones). Each
+# controller's START takes the next seat (START order); every player chooses its team on its own team screen (2 T, 2
+# CT); a round restart opens four buy menus at once and each buys its first rifle through its own menu (the server's
+# weapons); player 3 walks alone and player 4 turns alone (the others still, at the server); player 4's controller is
+# unplugged (player 4 stays, still) and plugged back (its seat again, no START); player 3 leaves through its own pause
+# menu (three views, the server kept), then joins again with START and chooses its team. de_dust2 with no bots, 30
+# fps, the server write guard on; the frame timing and the views' counters for M7.
+# Window shots (RUN/shots): q_teams, q_buy, q_bought, q_three, q_four.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --launch tests/launch/de_dust2_nobots --env FPS=30 --env CSX_NATIVE_SPLIT=4 --env CSX_CTX_GUARD=1 --env CSX_NATIVE_SPLIT_CHANGES=1 --env CSX_NATIVE_SPLIT_ROLLBACK=0
+# timeout: 360
+wait log renderer: vulkan
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+expect log native split: 4 local players asked
+expect log native split: in-game menus each player's own
+expect log input: native split-screen's seats \(a match\) from the configured players: 3 waiting
+pad 1 attach
+pad 2 attach
+pad 3 attach
+wait log native split: player 4 is in the match
+wait log native split: player 4's screen: TeamSelect_Root
+wait log native split: player 3's screen: TeamSelect_Root
+wait log native split: player 2's screen: TeamSelect_Root
+wait log native split: the window shows 4 view\(s\)
+sleep 2
+windowshot q_teams
+# the seats in START order: controller 1 player 2, controller 2 player 3, controller 3 player 4
+pad 1 button start 0.2
+wait newlog input: controller [0-9]+'s START: player 2 \(a waiting seat taken back\)
+pad 2 button start 0.2
+wait newlog input: controller [0-9]+'s START: player 3 \(a waiting seat taken back\)
+pad 3 button start 0.2
+wait newlog input: controller [0-9]+'s START: player 4 \(a waiting seat taken back\)
+sleep 1
+expect nolog joined team
+# teams: player 1 T (its keys), player 2 CT, player 3 T, player 4 CT (their controllers, each on its own screen)
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+wait newlog game: "[^"]*<1><[0-9]+><[^>]*>" joined team "TERRORIST"
+pad 1 button dpdown 0.2
+sleep 1
+pad 1 button a 0.2
+wait newlog game: "[^"]*<2><[0-9]+><[^>]*>" joined team "CT"
+pad 2 button dpdown 0.2
+sleep 1
+pad 2 button dpdown 0.2
+sleep 1
+pad 2 button a 0.2
+wait newlog game: "[^"]*<3><[0-9]+><[^>]*>" joined team "TERRORIST"
+pad 3 button dpdown 0.2
+sleep 1
+pad 3 button a 0.2
+wait newlog game: "[^"]*<4><[0-9]+><[^>]*>" joined team "CT"
+sleep 2
+# four spawn buy menus at once, each its own
+pckey cmd sv_restartround 1
+wait newlog game: World triggered "Round_Start"
+wait log native split: player 1's screen: T_BuyMenu
+wait log native split: player 2's screen: CT_BuyMenu
+wait log native split: player 3's screen: T_BuyMenu
+wait log native split: player 4's screen: CT_BuyMenu
+sleep 1
+players buy0
+expect alive buy0 0 T
+expect alive buy0 1 CT
+expect alive buy0 2 T
+expect alive buy0 3 CT
+windowshot q_buy
+# each its first rifle (Rifles to the right, then the first rifle to the right)
+pad 1 axis leftx 32767
+pad 2 axis leftx 32767
+pad 3 axis leftx 32767
+sleep 1
+press LSR+A 8
+pad 1 button a 0.2
+pad 2 button a 0.2
+pad 3 button a 0.2
+sleep 1
+press LSR+A 8
+pad 1 button a 0.2
+pad 2 button a 0.2
+pad 3 button a 0.2
+sleep 2
+pad 1 axis leftx 0
+pad 2 axis leftx 0
+pad 3 axis leftx 0
+players buy1
+expect bought buy0 buy1 0
+expect bought buy0 buy1 1
+expect bought buy0 buy1 2
+expect bought buy0 buy1 3
+windowshot q_bought
+# every menu closed with each player's own B
+press B
+pad 1 button b 0.2
+pad 2 button b 0.2
+pad 3 button b 0.2
+sleep 1
+press B
+pad 1 button b 0.2
+pad 2 button b 0.2
+pad 3 button b 0.2
+sleep 1
+# player 3 walks alone; player 4 turns alone
+players m0
+pad 2 axis lefty -32767
+sleep 3
+pad 2 axis lefty 0
+players m1
+expect bodymoved m0 m1 2 40 2000
+expect bodystill m0 m1 0 2 2
+expect bodystill m0 m1 1 2 2
+expect bodystill m0 m1 3 2 2
+pad 3 axis rightx 32767
+sleep 1
+pad 3 axis rightx 0
+players m2
+expect bodyturned m1 m2 3 10 360
+expect bodystill m1 m2 0 2 2
+expect bodystill m1 m2 1 2 2
+expect bodystill m1 m2 2 2 2
+# player 4's controller unplugged: player 4 stays in the match, still; plugged back: its seat again (no START)
+pad 3 detach
+wait newlog input: player 4's controller [0-9]+ disconnected: player 4 stays in the match
+sleep 2
+players u0
+expect alive u0 3 CT
+pad 3 attach
+wait newlog input: controller [0-9]+ \(.*\) connected: player 4's again
+pad 3 axis lefty -32767
+sleep 2
+pad 3 axis lefty 0
+players u1
+expect bodymoved u0 u1 3 40 2000
+# player 3 leaves through its own pause menu: three views, the server kept
+pad 2 button start 0.2
+wait newlog native split: player 3's screen: InGame_RootNativeGu
+sleep 1
+pad 2 button dpup 0.2
+sleep 1
+pad 2 button a 0.2
+wait newlog native split: player 3's screen: InGame_PCConfirmLeave
+sleep 1
+pad 2 button a 0.2
+wait newlog native split: player 3 leaves split-screen \(its pause menu\)
+wait log native split: player 3's client left the match
+wait log native split: the window shows 3 view\(s\)
+sleep 2
+windowshot q_three
+expect nolog native split: the server shuts down
+# player 3 again: START takes its empty seat, it chooses T
+pad 2 button start 0.2
+wait newlog input: controller [0-9]+'s START: player 3 \(joined a new seat\)
+wait newlog native split: the window shows 4 view\(s\)
+wait newlog native split: player 3's screen: TeamSelect_Root
+sleep 2
+pad 2 button dpdown 0.2
+sleep 1
+pad 2 button dpdown 0.2
+sleep 1
+pad 2 button a 0.2
+wait newlog game: "[^"]*<[0-9]+><[0-9]+><[^>]*>" joined team "TERRORIST"
+sleep 3
+windowshot q_four
+# stability and the timing over the run
+wait newlog native split: views:
+wait newlog frame timing:
+expect nolog \[watch:view-missing\]
+expect nolog \[own:[a-z-]+\]
+expect nolog client context guard: the server frame wrote
+expect nolog \] \[error\] \[[^]]*\] native split:
+expect nolog native split: the server shuts down
+expect nolog Host_Error
+expect nolog guest trap
