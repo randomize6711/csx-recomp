@@ -589,8 +589,13 @@ std::string ExtendLobby(const std::string& text) {
     return out;
 }
 
+bool NativeSplitLeaveActing();  // native_split.cpp
 void PcLobbyCommand(X86Context& ctx, const std::vector<std::string>& a) {
     std::string w1 = a.size() > 1 ? a[1] : "", w2 = a.size() > 2 ? a[2] : "";
+    if (w1 == "nsplit_leave") {  // docs 18.6: Leave Split-Screen, run in the leaving player's own turn
+        if (!NativeSplitLeaveActing()) LOGW("lobby: Leave Split-Screen outside a native split-screen player's turn");
+        return;
+    }
     if (w1 == "dest") {
         if (w2 == "browser") {
             // the whole party into a server: the browser's join checks its free slots (pc_browser.cpp)
@@ -695,6 +700,52 @@ std::string Confirm(const char* name, const char* title, const char* line1, cons
         "\tBackgroundText \"255 255 255 255 100 230 440 30 0.8\"\t" + Q(line2) + "\r\n" + NoTable() + "}\r\n";
 }
 }  // namespace
+
+// docs 18.6: native split-screen's players 2-4 share the one process's screens, so their pause menu is a screen of its
+// own beside the title's, InGame_RootNativeGuest (the open of an InGame_Root screen in their turn goes there:
+// native_split.cpp NativeSplitGuestPause): the title's rows without the match's actions (no Change Map, Restart
+// Match, Friends, Quit: Quit would relaunch the one process for everyone), and Leave Split-Screen (confirmed), which
+// takes only that player out (its own disconnect, its seat freed); the others play on
+std::string PcNativeGuestPauseMenu(const std::string& text) {
+    const char* ns = std::getenv("CSX_NATIVE_SPLIT");
+    if (!ns || std::atoi(ns) < 2) return text;
+    size_t screen = text.find("\nInGame_RootSinglePlayer\r\n");
+    size_t next = screen == std::string::npos ? screen : text.find("\nInGame_", screen + 1);
+    size_t first = screen == std::string::npos ? screen : text.find("\t\tRow\r\n", screen);
+    size_t table_end = next == std::string::npos ? next : text.rfind("\t}\r\n}\r\n", next);
+    if (first == std::string::npos || table_end == std::string::npos || first > table_end) {
+        LOGW("lobby: the pause menu not as expected: no guest pause menu for native split-screen");
+        return text;
+    }
+    std::vector<PauseRow> out;
+    for (size_t at = first; at < table_end;) {
+        size_t r = text.find("\t\tRow\r\n", at);
+        if (r == std::string::npos || r >= table_end) break;
+        size_t c = text.find("CommandSelect", r), close = text.find("\r\n\t\t}\r\n", r);
+        size_t q1 = text.find('"', c), q2 = text.find('"', q1 + 1);
+        size_t l = text.find("CellFixed \"", text.find("CellFixed \"", c) + 1);
+        size_t l1 = text.find('"', l), l2 = text.find('"', l1 + 1);
+        if (c == std::string::npos || close == std::string::npos || l2 > close) break;
+        PauseRow row{text.substr(q1 + 1, q2 - q1 - 1), text.substr(l1 + 1, l2 - l1 - 1)};
+        at = close + 7;
+        const std::string& cmd = row.command;
+        if (cmd.find("ChangeMaps") != std::string::npos || cmd.find("ConfirmRestartMatch") != std::string::npos ||
+            cmd.find("LiveAware") != std::string::npos || cmd.find("ConfirmQuit") != std::string::npos ||
+            cmd.find("PCConfirm") != std::string::npos)
+            continue;
+        out.push_back({cmd, row.label == "Options" ? "Player Settings" : row.label});
+    }
+    out.push_back({"open InGame_PCConfirmLeaveSplit", "Leave Split-Screen"});
+    std::string body;
+    for (const PauseRow& r : out) body += RowText(r);
+    // the copy: the title's screen block with its own name and these rows
+    std::string block = text.substr(screen + 1, first - screen - 1) + body + text.substr(table_end, next == std::string::npos ? std::string::npos : next + 1 - table_end);
+    block.replace(0, std::strlen("InGame_RootSinglePlayer"), "InGame_RootNativeGuest");
+    LOGI("lobby: native split-screen's guest pause menu: %zu rows", out.size());
+    return text + "\r\n" + block +
+           Confirm("InGame_PCConfirmLeaveSplit", "Leave Split-Screen", "You leave the match; the others play on.",
+                   "A leaves, B keeps playing. START on a controller joins again.", "!pc_lobby nsplit_leave");
+}
 
 std::string PcLobbyPauseMenu(const std::string& text) {
     int player = csx::SplitPlayer();

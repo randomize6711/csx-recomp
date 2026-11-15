@@ -2574,6 +2574,47 @@ bool NativeSplitUiSaveProfile(X86Context&, uint8_t*) {
     return true;
 }
 
+namespace {
+std::string GuestString(uint32_t va, size_t max);  // below
+}  // namespace
+
+// pc_lobby.cpp (docs 18.6): Leave Split-Screen, in the leaving player's own turn (its "!pc_lobby nsplit_leave"): its
+// own disconnect queued (the real path; removed at the frame's end) and its seat freed in the window. Player 1 (the
+// match's host) has the title's own Quit instead. False outside an added player's turn
+bool NativeSplitLeaveActing() {
+    if (!NativeSplitOn()) return false;
+    int k = csx::ClientContextInTurn() ? TurnPlayer() : g_cmd_running;
+    if (k <= 0) return false;
+    csx::NativeSeatLeave(k);
+    if (!g_seat_dropped[k] && g_cmds.Add(k, "disconnect\n")) g_seat_dropped[k] = true;
+    LOGI("native split: player %d leaves split-screen (its pause menu): its own \"disconnect\" queued, its seat freed",
+         k + 1);
+    return true;
+}
+
+// [[hook]] at 0xD72A0, a screen opened by name (ecx the name): docs 18.6, an InGame_Root screen (the pause menu) opened
+// in player 2-4's turn is their own InGame_RootNativeGuest (pc_lobby.cpp: no match-wide actions, Leave Split-Screen)
+void NativeSplitGuestPause(X86Context& ctx, uint8_t*) {
+    if (!NativeSplitOn() || !csx::ClientContextInTurn() || TurnPlayer() <= 0 || !ctx.ecx) return;
+    static uint32_t guest = 0;
+    static bool missing = false;
+    if (missing) return;
+    if (GuestString(ctx.ecx, 64).rfind("InGame_Root", 0) != 0) return;
+    if (!guest) {
+        uint32_t found = 0;
+        for (uint32_t sc = R32(kScreenList), i = 0; sc && i < 1024 && !found; sc = R32(sc + 0x378), i++)
+            if (GuestString(R32(sc), 64) == "InGame_RootNativeGuest") found = sc;
+        if (!found) {
+            missing = true;
+            LOGW("native split: no InGame_RootNativeGuest screen: players 2-4 get the title's pause menu");
+            return;
+        }
+        guest = R32(found);  // the screen's own name string
+    }
+    LOG_FIRST(4, "native split: player %d's pause menu: InGame_RootNativeGuest", TurnPlayer() + 1);
+    ctx.ecx = guest;
+}
+
 // docs 18.5 (own menus): a player's menu code run in its own turn as the process (its allocations the process's: a
 // screen object is shared, so what its code keeps there must outlive any one player). The pad bridge's press (0xCB170
 // at 0x19E0B1, its button in [esp]) and release (0xCB540 at 0x19E10C), and the game menus' draw (0xCD7D0 at 0x55F94,

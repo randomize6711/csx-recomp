@@ -717,8 +717,9 @@ std::string ExtendParty(const std::string& text) {
 std::string PcLobbyPauseMenu(const std::string& text);  // pc_lobby.cpp
 void PcLobbyIntent(const std::string& intent);           // pc_lobby.cpp
 
+std::string PcNativeGuestPauseMenu(const std::string& text);  // pc_lobby.cpp
 std::string PcPartyExtendInGame(const std::string& text) {
-    return PcLobbyPauseMenu(CaptureOnAccept(text, kPadGame, "\"!stuffUItoPlayerData;SetCurrentControllerOptions;xbui back\""));
+    return PcNativeGuestPauseMenu(PcLobbyPauseMenu(CaptureOnAccept(text, kPadGame, "\"!stuffUItoPlayerData;SetCurrentControllerOptions;xbui back\"")));
 }
 
 void PcPartyCommand(X86Context& ctx, const std::vector<std::string>& a) {

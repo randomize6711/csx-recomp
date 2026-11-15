@@ -1254,6 +1254,11 @@ at = 0xC9FC0
 call = "NativeSplitUiPause"
 on_true = "ret"
 
+# docs 18.6: player 2-4's pause menu (an InGame_Root screen opened in its turn) is InGame_RootNativeGuest
+[[hook]]
+at = 0xD72A0
+call = "NativeSplitGuestPause"
+
 # docs 18.5: another player's screen open does not save player 1's profile
 [[hook]]
 at = 0xD73B8

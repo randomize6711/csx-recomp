@@ -91,6 +91,37 @@ def key_tables():
           'keybindings[], consolekeys and menubound stay the process\'s')
 
 
+def menu_hooks():
+    """docs 18.5 / 18.6: every hook of the own menus sits on the instruction its handler assumes"""
+    if not glob.glob(os.path.join(GEN, 'x86_recomp.*.cpp')):
+        print('note: build/gen/game missing: the menu hooks\' checks skipped')
+        return
+    funcs = load()
+    ins = {a: t for f in funcs.values() for a, t in f}
+    expect = {
+        0x19E0B1: ('call 0x000CB170', 0x19E0B6, 'NativeSplitMenuPress'),
+        0x19E10C: ('call 0x000CB540', 0x19E111, 'NativeSplitMenuRelease'),
+        0x55F94: ('call 0x000CD7D0', 0x55F99, 'NativeSplitMenuDraw'),
+        0x1462E1: ('mov dword ptr [0x0037CA8C], 0xFA0', 0x1462EB, 'NativeSplitRestartTimer'),
+        0x1462F5: ('mov byte ptr [0x0055234C], 0x00', 0x1462FC, 'NativeSplitRestartBuyOpen'),
+        0xD73B8: ('call 0x000DAD40', 0xD73BD, 'NativeSplitUiSaveProfile'),
+    }
+    toml = open(os.path.join(ROOT, 'config', 'game.toml')).read()
+    for at, (text, after, name) in expect.items():
+        check(ins.get(at) == text, f'0x{at:X} is "{text}" ({ins.get(at)})')
+        nxt = min((a for a in ins if a > at), default=None)
+        check(nxt == after, f'0x{at:X}: the next instruction is 0x{after:X} (0x{nxt or 0:X})')
+        m = re.search(r'\[\[hook\]\]\nat = 0x%X\ncall = "([^"]+)"\non_true = 0x([0-9A-F]+)' % at, toml)
+        check(m is not None and m.group(1) == name and int(m.group(2), 16) == after,
+              f'the hook at 0x{at:X}: {name}, on_true 0x{after:X}')
+    check(ins.get(0xC9FC0) == 'mov eax, [0x0074A27C]' and re.search(r'at = 0xC9FC0\ncall = "NativeSplitUiPause"\non_true = "ret"', toml),
+          'the menus\' pause hooked at its entry (al 0, ret)')
+    check(ins.get(0xD72A0) is not None and re.search(r'at = 0xD72A0\ncall = "NativeSplitGuestPause"\n\n', toml),
+          'the guest pause menu redirect at the screen open\'s entry (ecx its name)')
+    d = dict(funcs.get(0xD9440, []))
+    check(any(t.startswith('call 0x000D72A0') for t in d.values()), 'xbui open reaches 0xD72A0')
+
+
 def window_input():
     src = open(os.path.join(ROOT, 'src', 'linux', 'window_input.cpp')).read()
     check('seats::Table' in src, 'window_input keeps the seats')
@@ -102,6 +133,7 @@ def window_input():
 def main():
     seats()
     key_tables()
+    menu_hooks()
     window_input()
     print(f'native_split_input_test: {checks} checks, {len(failures)} failed')
     sys.exit(1 if failures else 0)
