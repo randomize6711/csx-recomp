@@ -99,6 +99,10 @@ if [ $host = 1 ] || [ -n "$connect" ]; then
 fi
 sandboxed() {
     if [ $offline = 1 ]; then
+        # controllers plugged in or switched on after the start: udev's hot-plug notices (netlink) do not reach a
+        # private network namespace, so SDL watches /dev/input itself (2026-11-15 playtest: a controller turned on
+        # after the launch was never seen)
+        export SDL_JOYSTICK_DISABLE_UDEV=${SDL_JOYSTICK_DISABLE_UDEV:-1}
         exec unshare -rn sh -c 'ip link set lo up 2>/dev/null; exec "$0" "$@"' "$@"
     fi
     exec unshare -r "$@"
