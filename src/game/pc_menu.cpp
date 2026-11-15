@@ -739,6 +739,18 @@ const std::vector<PcScreen>& Screens() {
                             {"Player 1 plays with the keyboard and mouse, and can take", "the first controller too (all players on controllers)."},
                             {{"Keyboard/Mouse", "0"}, {"Also a Controller", "1"}},
                             0},
+                           // docs/native_splitscreen.md 18.6 / 17.3: one process (the default), or the earlier
+                           // separate processes kept as a fallback; the split views' field of view
+                           {"split_engine",
+                            "Split-Screen Engine",
+                            {"One game for every player (the default), or the earlier", "separate game per player (a fallback)."},
+                            {{"Single Process", "native"}, {"Separate Processes", "processes"}},
+                            0},
+                           {"split_fov",
+                            "Split View Field of View",
+                            {"Each view shows the field of view a full screen would", "(less stretching), or the widest for its shape."},
+                            {{"As Full Screen", "window"}, {"Widest", "wide"}},
+                            0},
                        },
                        true,
                        false,

@@ -4,7 +4,7 @@
 # in the game's own menus. --match goes straight into an offline match against bots instead, as the front end's
 # Beginner match would start it. No scenario, no timeout: the game runs until the window is closed.
 #   ./run_game.sh [--build] [--match [MAP]] [--bots N] [--nocollide] [--host [--port P]]
-#                 [--connect HOST[:PORT] [--password P] [--server-key KEY]] [--splitscreen N]
+#                 [--connect HOST[:PORT] [--password P] [--server-key KEY]] [--splitscreen N] [--native N]
 #   MAP       any map in build/gamedata (de_airstrip by default, de_aztec, de_dust2, cs_italy, ...)
 #   --bots N  bot count, 0..64 (default 7, the Beginner match's; the front end's menu stops at 16); implies --match
 #   --nocollide  Player Collision Off (the setting for crowded matches); implies --match
@@ -20,6 +20,9 @@
 #   --splitscreen N  split screen for N (1-4) local players (docs/splitscreen.md): player 1 on the keyboard and mouse
 #             starts from the intro movies; players 2..N on controllers join player 1's match (offline, a hosted or a
 #             joined one). Also from the main menu: Split Screen
+#   --native N  native split-screen (docs/native_splitscreen_guide.md): a match (as --match) with N (2-4) local players
+#             in one game process: player 1 on the keyboard and mouse, players 2..N take their seats with START on
+#             a controller. Without it, Instant Action in the menus starts native split-screen too (START to join)
 #   With --host, --connect or --splitscreen the game uses this PC's network (the other modes run without any).
 #   --build   rebuild first (tools/iterate.sh 1, which also boots the headless harness for a second, then
 #             tools/build_window.sh)
@@ -37,6 +40,7 @@ match=0
 host=0
 connect=
 split=
+native=
 port=
 map=de_airstrip
 bots=7
@@ -53,7 +57,8 @@ while [ $# -gt 0 ]; do
         --password) export CSX_NET_PASSWORD=$2; shift ;;
         --server-key) export CSX_SERVER_KEY=$2; shift ;;
         --splitscreen) split=$2; shift ;;
-        -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
+        --native) native=$2; match=1; shift ;;
+        -h|--help) sed -n '2,33p' "$0"; exit 0 ;;
         *) map=$1; match=1 ;;
     esac
     shift
@@ -140,6 +145,12 @@ extra=$([ $collide = 1 ] || echo "+pc_player_collision 0")
 { tr -d '\0' < "$launch/releasemap.txt" | sed -e "s/+map de_airstrip /+map $map /" -e "s/+bot_quota 7 /+bot_quota $bots /"
   printf '%s\0' "$extra"; } > "$run/hdd/Z/releasemap.txt"
 
+if [ -n "$native" ]; then
+    case "$native" in [2-4]) ;; *) echo "--native wants 2 to 4 local players"; exit 1 ;; esac
+    [ "$bots" -le $((65 - native)) ] || { echo "at most $((65 - native)) bots with $native local players"; exit 1; }
+    export CSX_NATIVE_SPLIT=$native
+    echo "native split-screen: $native local players (players 2..$native: START on a controller takes a seat)"
+fi
 export CSX_RENDERER=${CSX_RENDERER:-vulkan}
 unset CSX_TEST_INPUT_ONLY
 echo "starting $map with $bots bots$([ $collide = 1 ] || echo ", player collision off")$([ $host = 1 ] && echo ", taking network players on UDP port ${port:-27015}") (log: $run/run.out); click the window to capture the mouse, F1 releases it, close the window to quit"

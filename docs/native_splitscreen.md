@@ -2647,3 +2647,30 @@ the path it takes itself when 0x551854 is set), so the menus still work; whether
 for the run to show. tests/scenarios/vk_native_split_4p.txt: four players, three test controllers through the seats,
 every team screen and buy menu its own, purchases at the server, movement and aiming isolated four ways, a controller
 unplugged and plugged back (the player kept, its seat given back with no START), player 3's leave and rejoin.
+
+### 18.12 Settings, launch, guide (M8, static)
+
+- Split Screen Options gains **Split-Screen Engine** (split_engine: Single Process, the default; Separate Processes,
+  the fallback) and **Split View Field of View** (split_fov: As Full Screen, Widest); its Apply no longer starts the
+  compositor with the native engine.
+- `./run_game.sh --native N [MAP] [--bots N]`: a match with N local players in one process (CSX_NATIVE_SPLIT).
+- docs/native_splitscreen_guide.md: how to play it, the limitations, what runs verified and what not, the manual
+  test checklist.
+- **Audio policy (as it stands, documented):** one listener (player 1's): S_StartDynamicSound in players 2-4's turns is
+  skipped (0x100F10), so every world sound is started once, by player 1's client, placed for player 1. Players 2-4's
+  own sounds reach the speakers through player 1's client at their place in the world. A per-player mix (each
+  player's own sounds centred, the others' placed for the nearest listener) needs the XACT voice's placement checked
+  in a run first (R).
+
+### 18.13 Run 25 (2026-11-15, permitted): FAIL at a scenario check (a walk's slide); four players verified
+
+`run_window_tests.py --tag run25 vk_native_split_4p.txt` at 5fbe881 (window 3b2101d2). Passed: four views; every team
+screen open at once; the three controllers' STARTs took seats 2, 3, 4 in order; four teams chosen each on its own
+screen (2 T, 2 CT); four buy menus at once; **all four bought a rifle** (the server's masks changed for clients 0-3);
+player 3 walked 675 units with the three others still; player 4 turned 56.7 degrees, the others still except player
+3, which slid 12.4 units after its stick was let go (sampled 0.2 s later): the check failed there (the scenario now
+waits a second). The pie bundles: TeamSelect held by four, T and CT roots and rifles by two each: never past the two
+slots. No error, no `[own:]`, no guard write. Timing at FPS=30: 120 views a second (four a window frame), each
+player's turn 3.6-4.7 ms (its own work about 3.6-4.0, player 1's also the pacing), GPU 0.8 ms and CPU recording 3.1 ms
+a window frame, the limiter idle 3.4 ms of each 8.3 ms view slot: the frame (four turns, about 16 ms) leaves room for
+about 60 window frames a second with four players. Not reached: the unplug, player 3's leave and rejoin.

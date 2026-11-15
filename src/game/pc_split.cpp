@@ -117,6 +117,9 @@ void PcSplitCommand(X86Context& ctx, const std::vector<std::string>& a) {
         csx::SplitSend(csx::kSplitSetup, "players " + std::to_string(players) + " layout " + layout + " p1pad " + pad);
         return;
     }
+    // the native engine (docs/native_splitscreen.md 18.6): the players are Instant Action's seats (START joins), nothing
+    // to start here
+    if (csx::SplitEngineNative()) return;
     if (players > 1 && !csx::SplitStart(players)) LOGW("split: split screen needs the game's window (not started)");
 }
 

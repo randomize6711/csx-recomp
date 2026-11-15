@@ -1,0 +1,63 @@
+# Native split-screen M5 (docs/native_splitscreen.md 18.6) from the menus, the way a player starts it: the game alone
+# in its window (no CSX_NATIVE_SPLIT, no compositor), Instant Action; controller 1 is player 1's (the menus' first);
+# controller 2's START joins as player 2 on the hub (a seat, no restart); Start Match relaunches the game into a
+# native split-screen match of two (CSX_NATIVE_SPLIT and the seats handed over), in the game's own server (no local
+# server process). The test controllers are the window's (they do not outlive the process): attached again after the
+# relaunch, each is given its own seat back by its key, no START. Both team screens open; each player chooses its
+# team (player 1 with its keys, player 2 with its controller); two views.
+# Window shots (RUN/shots): ia_hub, ia_match.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 720)
+# timeout: 420
+wait log open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+wait log pc mouse: screen Initial_CreateProfile
+sleep 3
+key Space
+wait log pc mouse: screen SuperLauncher_CreateProfile
+sleep 3
+key Space
+wait log pc mouse: screen SuperLauncher_MainScreen
+sleep 3
+key Space
+wait log pc mouse: screen SuperLauncher_PCInstantAction
+sleep 3
+pad 1 attach
+pad 2 attach
+wait log input: controller [0-9]+ \(.*\) connected: press START to play
+sleep 1
+# controller 2's START joins (controller 1 is the menus', player 1's)
+pad 2 button start 0.2
+wait newlog input: controller [0-9]+'s START: player 2 \(joined a new seat\)
+sleep 2
+windowshot ia_hub
+expect nolog split: party
+# Start Match: the relaunch takes both into one process
+key Space
+wait log net: native split-screen: the match takes 2 local players
+wait log native split: 2 local players asked
+wait log input: native split-screen's seats \(a match\) from the launch \(CSX_NATIVE_SPLIT_SEATS\): 2 waiting
+wait log local server: not used: native split-screen runs the match in the game's own server
+pad 1 attach
+pad 2 attach
+wait log input: controller [0-9]+ \(.*\) connected: player 2's again
+wait log native split: player 2 is in the match
+wait log native split: player 1's screen: TeamSelect_Root
+wait log native split: player 2's screen: TeamSelect_Root
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+wait newlog game: "[^"]*<1><[0-9]+><[^>]*>" joined team "TERRORIST"
+pad 2 button dpdown 0.2
+sleep 1
+pad 2 button a 0.2
+wait newlog game: "[^"]*<[0-9]+><[0-9]+><[^>]*>" joined team "CT"
+wait log native split: the window shows 2 view\(s\)
+sleep 3
+windowshot ia_match
+expect nolog \[own:[a-z-]+\]
+expect nolog \] \[error\] \[[^]]*\] native split:
+expect nolog Host_Error
+expect nolog guest trap
