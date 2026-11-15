@@ -110,6 +110,8 @@ players m0
 pad 2 axis lefty -32767
 sleep 3
 pad 2 axis lefty 0
+# (run 25: a walking player slides about 12 units after its stick is let go: settled first)
+sleep 1
 players m1
 expect bodymoved m0 m1 2 40 2000
 expect bodystill m0 m1 0 2 2
