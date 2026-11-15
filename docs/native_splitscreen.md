@@ -2167,7 +2167,7 @@ is away, the frame rate with two passes, and whether anything shared between the
 - **Seen**: the 32:9 views are Hor+ to 139 degrees horizontally (pc wide: "view fov 90 -> 138.9"): strong stretching
   at the sides of each view.
 
-## 17. M3.2: two players playing (2026-11-13; static only, not run)
+## 17. M3.2: two players playing (2026-11-13; verified by run 22, 2026-11-15)
 
 Nothing here has run. Unit-tested (native_split_view_test 87 checks, native_split_camera_test 38), compiled, checked
 against the disassembly.
@@ -2450,3 +2450,22 @@ three, the fingerprints unchanged, CSX_CTX_GUARD=1, rollback 0, the pool reclama
 - **The failure was the scenario's order:** it waited for that line after the restart (newlog), but it came before.
   It now waits for it (any time after the rejoin) before the restart, and checks the menu still open. Not reached:
   player 1's walk and aim with player 2's menu open, player 2's B closing it, player 2's walk after it.
+
+### 17.14 Run 22 (2026-11-15, permitted once): PASS, 127 of 127 steps (M3.2 two-player gameplay verified)
+
+At 367c92a (the binaries of bb54799, unchanged: window 8c2a81b3…, harness 877a63b9…, server 876738a8…; preflight: the
+29 suites, check_tables ok on all three), `run_window_tests.py --tag run22 vk_native_split_2p_play.txt`, 150 s.
+- Everything run 21 passed again (both on their teams, spawned, each walking and aiming through its own input only, from
+  the server's positions and view angles; player 1's departure at 83.9 s, player 2 alone, the rejoin).
+- **Not reached before, now passed:** player 2's buy menu opened by the title in player 2's turn at 95.04 s ("the
+  keyboard and mouse stay player 1's game's"); through the restart it stayed open; player 1 walked 239 units and turned
+  90.0 degrees with it open (player 2 still: 0.0 / 0.0); player 2's own B closed it (121.87 s, "player 2's screen
+  closed (the keyboard and mouse played on)"); player 2 walked 270 units after (player 1 still). Player 1's button
+  never reached the shared front end. Shot gp_p2_menu_p1_plays: the top view player 1's, playing; the bottom player
+  2's with the buy wheel.
+- **Stability:** guard 3 587+ server frames, 0 writes (1.55 MB a check, copy 0.04 ms, compare 0.04 ms); 0 `[own:]`,
+  0 Host_Error, traps, view-missing or auto-join warnings; player 1's memory at departure 429 831 bytes (bound 8 MiB).
+- **Timing** (30 fps pacing): GPU 0.94 ms, CPU recording 2.70 ms, present 0.15 ms a frame; the limiter waits 12.2 ms
+  of each 16.7 ms view slot.
+- Remaining from M3.2's list, carried into M4/M5: the test controller and the automatic team choice are development
+  paths (M4's assignment and M5's START-to-join replace them); the key-down table is still process-wide (17.2).
