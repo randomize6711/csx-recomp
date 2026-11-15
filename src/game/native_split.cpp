@@ -1609,8 +1609,9 @@ void RemovePlayer(X86Context& ctx, int k) {
             std::snprintf(item, sizeof item, " 0x%X x%zu", site, n);
             where += item;
         }
-        LOGE("native split: player %d left %zu objects (%zu bytes) unreleased, allocated at:%s", k + 1, leaked,
-             leaked_bytes, where.substr(0, 400).c_str());
+        // its retention, by design (docs 15.20: nothing is freed on a guess; counted against the leak bound): a report
+        LOGW("native split: player %d left %zu objects (%zu bytes) unreleased, allocated at:%s [watch:left-unreleased]",
+             k + 1, leaked, leaked_bytes, where.substr(0, 400).c_str());
     }
     WatchSharedVectors();  // a process-wide vector left on its buffer (kept: named)
     WatchSharedParents();  // a shared parent still listing its viewport (not detached)
@@ -2594,6 +2595,12 @@ namespace {
 std::string GuestString(uint32_t va, size_t max);  // below
 }  // namespace
 
+// scoreboard.cpp (docs 18.9): host code that edits the shared screens (their texts' heap strings) runs as the process,
+// in the shared front end's scope, whoever's turn it is (run 24: the spectator screen's scores rewritten in player 2's
+// turn freed the process's strings, refused)
+void NativeSplitUiScopeEnter() { g_ui_scope++; }
+void NativeSplitUiScopeLeave() { g_ui_scope--; }
+
 // pc_lobby.cpp (docs 18.6): Leave Split-Screen, in the leaving player's own turn (its "!pc_lobby nsplit_leave"): its
 // own disconnect queued (the real path; removed at the frame's end) and its seat freed in the window. Player 1 (the
 // match's host) has the title's own Quit instead. False outside an added player's turn
@@ -2706,7 +2713,7 @@ bool NativeSplitUiCommand(X86Context& ctx, uint8_t*) {
         logged++;
         LOGI("native split: front-end command \"%s\" (%s)", text,
              d == nsplit::SharedUi::AsTitle ? "outside the turns, as the title's"
-             : d == nsplit::SharedUi::AsShared ? "in the driver's turn"
+             : d == nsplit::SharedUi::AsShared ? (g_ui.own_menus ? "in its own turn (own menus)" : "in the driver's turn")
                                                 : "in another player's turn");
     }
     if (d != nsplit::SharedUi::Withheld) return false;

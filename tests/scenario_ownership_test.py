@@ -72,8 +72,8 @@ PASSING = [
     "native split: player 2's object 0x0211C670 kept: a shared kind",
     "native split: player 2's cleanup keeps block 0x02180330 (16 bytes, site 0x1A6E0F): named by another (return "
     "0x001BADAD)",
-    "[   33.442] [error] [tad74] native split: player 2 left 2708 objects (930443 bytes) unreleased, allocated at: "
-    "0x1CFD0 x32 0xB52DA x1264",
+    "[   33.442] [warn] [tad74] native split: player 2 left 2708 objects (930443 bytes) unreleased, allocated at: "
+    "0x1CFD0 x32 0xB52DA x1264 [watch:left-unreleased]",
     "native split: player 2 left: its server slot dropped, 21 of its objects released, 2708 left (930443 bytes), its "
     "context removed; left behind by leaving players so far 930443 bytes in 1 leave(s)",
     "native split: player 2's cleanup keeps 2600 block(s), 870000 bytes: named by a kept block of its own",

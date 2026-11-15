@@ -2611,3 +2611,28 @@ vk_native_split_2p_menus.txt`.
 - **The fix:** the START that takes a seat is held back from that port until it is released (window_input.cpp
   g_start_swallowed; native_split_input_test checks it). Not reached: the buy menus, the walk, the pause menu, Leave
   Split-Screen, the rejoin.
+
+### 18.10 Run 24 (2026-11-15, permitted once): TIMEOUT at the last steps (a scenario order); own menus verified
+
+At 554492e (window 00aca0de, harness 296be57f, server 421df852), `run_window_tests.py --tag run24
+vk_native_split_2p_menus.txt`.
+- **Passed, every gameplay step:** both team screens at once; player 2's START took its seat and did not reach the game;
+  player 1 Terrorist with its keys, player 2 Counter-Terrorist with its controller on its own screen; at the restart
+  **both spawn buy menus open at once** (shot mn_buy: each its own pie); **each bought a rifle through its own menu**
+  at the server: player 1 0xA0020040 -> 0xB0020040 (the AK-47), player 2 0xA0010000 -> 0xA0410000; each closed its
+  menus with its own B; player 2 walked with its stick through SDL (player 1 still); **player 2's own pause menu**
+  (InGame_RootNativeGuest: Return to Game, Match Statistics, Player Settings, Leave Split-Screen) while player 1 walked
+  228 units (shot mn_pause); the match went on (no pause); Leave Split-Screen's confirmation: player 2 left (its own
+  disconnect), its seat freed, player 1 alone in the whole window, the server kept; player 2's START again took a new
+  seat, a new player 2 connected, chose CT on its own team screen. Pie bundles shared and counted (TeamSelect: "already
+  loaded (2 holders)", "still held by 1: not unloaded"). Guard: no server write; no trap, no Host_Error.
+- **The timeout:** the scenario waited for "the window shows 2 view(s)" after the team choice; it was logged at the
+  rejoin's connection (71.7 s), before. The scenario now waits for it right after the START.
+- **Found in the log, fixed:** (1) two `[own:free-blocked]` at 76.77 s: the round's end opened player 2's spectator
+  screen, and the PC code that writes its score cells (scoreboard.cpp SetCellText) freed the process's string in player
+  2's turn; host code editing a shared screen now runs in the shared front end's scope (NativeSplitUiScopeEnter). (2)
+  the leaving player's retention report ("left N objects unreleased", 929 KB, by design: docs 15.20, the 8 MiB bound)
+  was an error line; it is a warning tagged [watch:left-unreleased]. (3) the guests' pause menu also showed Copy
+  Invite Code (the host's): removed.
+- **Known, for M7/M8:** each added player's leave leaves about 0.9 MB behind (its HUD, sprite lists, VGUI); with the 8
+  MiB bound a session takes about eight leave-and-rejoin cycles before joining is refused (fail closed).

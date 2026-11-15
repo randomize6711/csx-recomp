@@ -40,6 +40,9 @@
 using kernel::R32;
 using kernel::W32;
 
+void NativeSplitUiScopeEnter();  // native_split.cpp
+void NativeSplitUiScopeLeave();
+
 namespace {
 constexpr uint32_t kRowLast = 0x19C;       // ScorePanel: the last row's index (rows - 1)
 constexpr uint32_t kSortedPlayer = 0x294;  // ScorePanel: [row] the player (or team) of each row
@@ -126,6 +129,11 @@ std::string PingOf(uint32_t index) {
 // capacity) set to text: a longer text in a block of the game's heap (its malloc), which the game frees with the
 // string, as it frees one it made; a string already on the heap is freed first (its free)
 void SetCellText(X86Context& ctx, uint32_t str, const std::string& text) {
+    // a shared screen's string: its frees and allocations the process's (native split-screen, docs 18.9)
+    struct Scope {
+        Scope() { NativeSplitUiScopeEnter(); }
+        ~Scope() { NativeSplitUiScopeLeave(); }
+    } scope;
     if (R32(str + 0x18) >= 8) {
         kernel::CallGuest(ctx, kFree, {R32(str + 4)});
         W32(str + 0x18, 7);

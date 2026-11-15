@@ -123,6 +123,7 @@ expect nolog native split: the server shuts down
 # player 2's START again: a new seat, a new player 2, its own team screen: CT
 pad 1 button start 0.2
 wait newlog input: controller [0-9]+'s START: player 2 \(joined a new seat\)
+wait newlog native split: the window shows 2 view\(s\)
 wait newlog native split: player 2 is in the match
 wait newlog native split: player 2's screen: TeamSelect_Root
 sleep 2
@@ -130,7 +131,6 @@ pad 1 button dpdown 0.2
 sleep 1
 pad 1 button a 0.2
 wait newlog game: "[^"]*<[0-9]+><[0-9]+><[^>]*>" joined team "CT"
-wait newlog native split: the window shows 2 view\(s\)
 sleep 2
 windowshot mn_rejoined
 # stability over the run

@@ -731,8 +731,8 @@ std::string PcNativeGuestPauseMenu(const std::string& text) {
         const std::string& cmd = row.command;
         if (cmd.find("ChangeMaps") != std::string::npos || cmd.find("ConfirmRestartMatch") != std::string::npos ||
             cmd.find("LiveAware") != std::string::npos || cmd.find("ConfirmQuit") != std::string::npos ||
-            cmd.find("PCConfirm") != std::string::npos)
-            continue;
+            cmd.find("PCConfirm") != std::string::npos || row.label.find("Invite") != std::string::npos)
+            continue;  // (run 24: Copy Invite Code is the host's, player 1's)
         out.push_back({cmd, row.label == "Options" ? "Player Settings" : row.label});
     }
     out.push_back({"open InGame_PCConfirmLeaveSplit", "Leave Split-Screen"});
