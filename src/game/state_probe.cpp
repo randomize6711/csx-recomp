@@ -189,6 +189,9 @@ void StartStateProbe() {
                         uint32_t pv = kernel::R32(e + kEdictPrivate);
                         LOGI("playerstate %s %u %u %u", name, n, pv ? kernel::R32(pv + kPlayerTeam) : 0u,
                              kernel::R32(e + kEdictDeadflag));
+                        // the weapons the server gave it (entvars weapons, edict +0x1E8: one bit per weapon id),
+                        // "playerweapons NAME N MASK": a purchase seen at the server (docs/native_splitscreen.md 18.8)
+                        LOGI("playerweapons %s %u 0x%08X", name, n, kernel::R32(e + 0x1E8));
                         // the server's measured latency of a network client (client_t +0x25A0, seconds: the
                         // scoreboard's ping), "playerping NAME N MS"
                         uint32_t cl = kernel::R32(kClients) + n * kClientSize;

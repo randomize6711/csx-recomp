@@ -81,6 +81,7 @@ per line, executed in order:
     expect alive NAME N TEAM       client N alive on TEAM (T or CT: the server's m_iTeam) in players step NAME, its
                                    health above 0 and deadflag 0 (a spectator's health 100 is not alive)
     expect freeze NAME 0|1         the round's freeze time in players step NAME (1: nobody may move yet)
+    expect bought A B N            client N's weapons (the server's mask) changed from players step A to B (a purchase)
     expect bodyz NAME N MIN MAX    client N's origin height in players step NAME
     expect healthdrop A B N MIN MAX  client N's health fell MIN..MAX from players step A to B
     expect spawnapart NAME MIN     every two clients at least MIN apart in players step NAME
@@ -406,6 +407,7 @@ def main():
     views = {}  # players steps: NAME -> {client: (pitch, yaw)} (the server's v_angle)
     pstates = {}  # players steps: NAME -> {client: (team, deadflag)} (the server's m_iTeam and entvars deadflag)
     freezes = {}  # players steps: NAME -> the round's freeze time (1, 0, -1 no rules)
+    weapons = {}  # players steps: NAME -> {client: the server's weapons mask (entvars weapons)}
     exposures = {}  # exposure steps: NAME -> dark, light, mean, low, high, middle
     fades = {}  # fade steps: NAME -> alpha, hold, length, lasted, real
     snap_lines = {}  # snap steps: NAME -> the log lines its frames wrote
@@ -688,6 +690,9 @@ def main():
                         m = re.search(r'playerstate ' + re.escape(st[1]) + r' (\d+) (\d+) (\d+)\s*$', l)
                         if m:
                             pstates[st[1]][int(m.group(1))] = (int(m.group(2)), int(m.group(3)))
+                        m = re.search(r'playerweapons ' + re.escape(st[1]) + r' (\d+) 0x([0-9A-F]+)\s*$', l)
+                        if m:
+                            weapons.setdefault(st[1], {})[int(m.group(1))] = int(m.group(2), 16)
                         m = re.search(r'players ' + re.escape(st[1]) + r' freeze (-?\d+)\s*$', l)
                         if m:
                             freezes[st[1]] = int(m.group(1))
@@ -1133,6 +1138,12 @@ def main():
                 except KeyError as e:
                     print('     no such step or client (or no playerstate line): %s' % e)
                     good = False
+            elif kind == 'expect' and st[1] == 'bought':
+                # expect bought A B N: client N's weapons (the server's entvars weapons) changed from players step A to
+                # B (a purchase went through at the server; docs/native_splitscreen.md 18.8)
+                a, b = weapons.get(st[2], {}).get(int(st[4])), weapons.get(st[3], {}).get(int(st[4]))
+                print('     weapons %s -> %s' % ('?' if a is None else '0x%08X' % a, '?' if b is None else '0x%08X' % b))
+                good = a is not None and b is not None and a != b
             elif kind == 'expect' and st[1] == 'freeze':
                 # expect freeze NAME 0|1: the round's freeze time in players step NAME
                 f = freezes.get(st[2])

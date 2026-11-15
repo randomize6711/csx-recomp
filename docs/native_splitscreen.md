@@ -2575,3 +2575,24 @@ driver model) each player has its own menus, in its own turn, drawn in its own p
 - **In the match**: START on a free controller takes a waiting seat, else a new one up to four (18.7: the layout
   follows); a player leaves from its own pause menu's Leave (the title's disconnect in its turn: its seat freed).
 - A solo match stays the title's own (no native machinery): others join from Instant Action.
+
+### 18.7 Layouts and FOV for 2-4 players (M6, static)
+
+Already in place from M3 and checked again for M6: layouts for one (whole window), two (top and bottom, or side by
+side with split_layout vertical), three and four (a 2x2 grid; with three, the fourth quarter stays black, a deliberate
+choice: every view the same size and shape). The frame's shape is chosen once at the match's start (the title makes
+its device once; a relaunch per match), from its players; a view is placed by split::FrameRect: cut at the sides only
+when its viewport is at least 4:3 (the HUD's 640x480 lies in the frame's middle 4:3, so it is never cut), otherwise
+fitted whole. So a player who joins a two-player match (32:9 frames) gets a 2x2 layout whose 16:9 quarters show the
+middle of the 32:9 frames, HUD whole; three or four becoming two shows 16:9 frames whole in 32:9 halves (pillarboxed).
+The FOV (native_split_view.h SplitFrameFov, per pass from the view's own shape and what of its frame is shown): across
+what a view shows, the horizontal angle the whole window would have (16:9: 106.3 for 90), Hor+ when the shown part is
+narrower than the window (a 16:9 quarter of a 16:9 window: the full-screen 106.3); the weapon drawn at the player's
+own FOV's 4:3 vertical angle; zoom and scopes through the same rule. PC setting split_fov "wide" keeps the old Hor+
+at the view's aspect.
+
+### 18.8 Run 23, prepared (not run)
+
+tests/scenarios/vk_native_split_2p_menus.txt (the header lists what it proves). New probe: `playerweapons` in a
+players step and `expect bought A B N` (drive.py): a purchase seen at the server. New log: "native split: player N's
+screen: NAME | none" for each player's own top screen.

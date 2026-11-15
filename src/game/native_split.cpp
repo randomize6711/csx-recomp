@@ -1814,6 +1814,21 @@ void MenuFieldsFollow() {
     csx::ClientContextSetFields(std::move(fields), std::move(fresh));
 }
 
+// docs 18.5: each player's own top screen, logged when it changes ("native split: player N's screen: NAME | none"):
+// a run's evidence of whose menu is open (read from its own copy of 0x5523D4)
+std::string GuestString(uint32_t va, size_t max);
+void WatchPlayerScreens() {
+    if (!g_ui.own_menus) return;
+    static std::array<uint32_t, nsplit::kMaxPlayers> last{};
+    for (int k = 0; k < nsplit::kMaxPlayers; k++) {
+        nsplit::State st = g_players.At(k).state;
+        uint32_t sc = (st == nsplit::State::Active || st == nsplit::State::Connecting) ? PlayerDword(k, 0x5523D4) : 0;
+        if (sc == last[size_t(k)]) continue;
+        last[size_t(k)] = sc;
+        LOGI("native split: player %d's screen: %s", k + 1, sc && Readable(sc) ? GuestString(R32(sc), 64).c_str() : "none");
+    }
+}
+
 // docs 18.3: a seat the window freed (its player left the seats) while its player plays: that player's own
 // "disconnect", run in its own turn (the real path, as a player's own leaving), once
 std::array<bool, nsplit::kMaxPlayers> g_seat_dropped{};
@@ -1996,6 +2011,7 @@ void NativeSplitFrameEnd(X86Context& ctx) {
     AutoJoin();
     SeatsFollow();
     MenuFieldsFollow();
+    WatchPlayerScreens();
     WatchFrontEndInput();
     g_leaks.Observe(g_blocks.LeftBehindBytes());
     CheckLeakAccounting();
@@ -2603,7 +2619,7 @@ void NativeSplitGuestPause(X86Context& ctx, uint8_t*) {
     if (!guest) {
         uint32_t found = 0;
         for (uint32_t sc = R32(kScreenList), i = 0; sc && i < 1024 && !found; sc = R32(sc + 0x378), i++)
-            if (GuestString(R32(sc), 64) == "InGame_RootNativeGuest") found = sc;
+            if (GuestString(R32(sc), 64).rfind("InGame_RootNativeGu", 0) == 0) found = sc;  // (17.10: names seen cut)
         if (!found) {
             missing = true;
             LOGW("native split: no InGame_RootNativeGuest screen: players 2-4 get the title's pause menu");
@@ -2613,6 +2629,37 @@ void NativeSplitGuestPause(X86Context& ctx, uint8_t*) {
     }
     LOG_FIRST(4, "native split: player %d's pause menu: InGame_RootNativeGuest", TurnPlayer() + 1);
     ctx.ecx = guest;
+}
+
+// [[hook]] at 0xC41D0 (a screen's pie bundle loaded: cdecl, the name in [esp+4]) and 0xC4770 (unloaded: the name in
+// edx), each on_true "ret": docs 18.5, with own menus two players can have the same pie open, and the title's cache
+// (two slots, unloaded by name with no count) would unload what the other still draws. Counted by name: a load while
+// another player holds the bundle only counts, an unload runs only for its last holder. A leaving player's holds are
+// kept (its bundle stays loaded: never a load of a bundle already there)
+std::map<std::string, int> g_pie_holds;
+uint64_t g_pie_loads_shared = 0, g_pie_unloads_kept = 0;
+bool NativeSplitPieLoad(X86Context& ctx, uint8_t*) {
+    if (!NativeSplitOn() || !g_ui.own_menus) return false;
+    uint32_t name = R32(ctx.esp + 4);
+    if (!name) return false;
+    int& n = g_pie_holds[GuestString(name, 96)];
+    if (n++ == 0) return false;
+    g_pie_loads_shared++;
+    LOG_FIRST(8, "native split: pie bundle %s already loaded (%d holders): not loaded again",
+              GuestString(name, 96).c_str(), n);
+    return true;
+}
+bool NativeSplitPieUnload(X86Context& ctx, uint8_t*) {
+    if (!NativeSplitOn() || !g_ui.own_menus || !ctx.edx) return false;
+    auto it = g_pie_holds.find(GuestString(ctx.edx, 96));
+    if (it == g_pie_holds.end() || it->second <= 1) {
+        if (it != g_pie_holds.end()) it->second = 0;
+        return false;
+    }
+    it->second--;
+    g_pie_unloads_kept++;
+    LOG_FIRST(8, "native split: pie bundle %s still held by %d: not unloaded", it->first.c_str(), it->second);
+    return true;
 }
 
 // docs 18.5 (own menus): a player's menu code run in its own turn as the process (its allocations the process's: a

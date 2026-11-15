@@ -1,0 +1,144 @@
+# Native split-screen M4/M5 (docs/native_splitscreen.md 18.3-18.6) in the Vulkan window: two local players, each with
+# its OWN in-game menus, player 2 on a real controller path (the window's test controller: a virtual SDL gamepad, so
+# its connection, its START taking the seat, its sticks and buttons go through the seats and SDL as a physical one's).
+# No development auto-join and no scripted port: both team screens are the title's own, one per player, open at once;
+# player 2's controller takes its waiting seat with START (that press is not the game's); player 1 chooses Terrorist
+# with its keys (DOWN, DOWN, A), player 2 Counter-Terrorist with its controller (DOWN, A) on its own screen. A round
+# restart opens both spawn buy menus at once (each its own); each buys its team's first rifle through its own pie
+# (Rifles to the right, then the first rifle to the right), checked at the server (each player's weapons changed).
+# Player 2 walks with its stick (player 1 still). Player 2's START opens ITS pause menu (InGame_RootNativeGuest: no
+# match-wide actions), UP (the table wraps) to Leave Split-Screen, A, then A on the confirmation: player 2 leaves,
+# player 1 plays on alone in the whole window; then player 2's START joins again (a new seat), it chooses CT on its
+# own team screen. de_dust2 with no bots, 30 fps, the server write guard on.
+# Window shots (RUN/shots): mn_teams (both team screens), mn_buy (both buy menus), mn_bought, mn_pause (player 2's
+# pause menu over its view, player 1 playing), mn_alone, mn_rejoined.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --launch tests/launch/de_dust2_nobots --env FPS=30 --env CSX_NATIVE_SPLIT=2 --env CSX_CTX_GUARD=1 --env CSX_NATIVE_SPLIT_CHANGES=1 --env CSX_NATIVE_SPLIT_ROLLBACK=0
+# timeout: 300
+wait log renderer: vulkan
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+expect log native split: 2 local players asked
+expect log native split: in-game menus each player's own
+expect log input: native split-screen's seats \(a match\) from the configured players: 1 waiting
+# player 2's controller connected: it waits for its START
+pad 1 attach
+wait log input: controller [0-9]+ \(.*\) connected: press START to play
+wait log native split: player 2 is in the match
+wait log native split: player 1's screen: TeamSelect_Root
+wait log native split: player 2's screen: TeamSelect_Root
+sleep 2
+windowshot mn_teams
+pad 1 button start 0.2
+wait log input: controller [0-9]+'s START: player 2 \(a waiting seat taken back\)
+sleep 1
+# player 1: Terrorist with its own keys; player 2's team screen stays open meanwhile
+press DOWN
+sleep 1
+press DOWN
+sleep 1
+press A
+wait newlog game: "[^"]*<1><[0-9]+><[^>]*>" joined team "TERRORIST"
+expect nolog game: "[^"]*<2><[0-9]+><[^>]*>" joined team
+expect last native\ssplit:\splayer\s2's\sscreen: TeamSelect_Root
+# player 2: Counter-Terrorist with its own controller on its own screen
+pad 1 button dpdown 0.2
+sleep 1
+pad 1 button a 0.2
+wait newlog game: "[^"]*<2><[0-9]+><[^>]*>" joined team "CT"
+sleep 2
+# both spawn at the server's restart; each player's spawn buy menu opens, its own
+pckey cmd sv_restartround 1
+wait newlog game: World triggered "Round_Start"
+wait log native split: player 1's screen: T_BuyMenu
+wait log native split: player 2's screen: CT_BuyMenu
+sleep 1
+players buy0
+expect freeze buy0 0
+expect alive buy0 0 T
+expect alive buy0 1 CT
+windowshot mn_buy
+# both buy at once: player 2 holds its stick right while player 1 chooses with its keys, then player 2 with its own A
+pad 1 axis leftx 32767
+sleep 1
+press LSR+A 8
+wait newlog native split: player 1's screen: T_BuyMenuRif
+pad 1 button a 0.2
+wait newlog native split: player 2's screen: CT_BuyMenuRif
+sleep 1
+press LSR+A 8
+sleep 1
+pad 1 button a 0.2
+sleep 2
+pad 1 axis leftx 0
+players buy1
+expect bought buy0 buy1 0
+expect bought buy0 buy1 1
+windowshot mn_bought
+# whatever menus are still open, closed with each player's own B
+press B
+sleep 1
+press B
+sleep 1
+pad 1 button b 0.2
+sleep 1
+pad 1 button b 0.2
+sleep 1
+expect last native\ssplit:\splayer\s1's\sscreen: none
+expect last native\ssplit:\splayer\s2's\sscreen: none
+# player 2 walks with its stick through SDL: player 1 still
+players walk0
+pad 1 axis lefty -32767
+sleep 3
+pad 1 axis lefty 0
+players walk1
+expect bodymoved walk0 walk1 1 40 2000
+expect bodystill walk0 walk1 0 2 2
+# player 2's own pause menu: the match goes on, player 1 keeps playing
+pad 1 button start 0.2
+wait newlog native split: player 2's screen: InGame_RootNativeGu
+expect log native split: player 2's pause menu: InGame_RootNativeGuest
+expect log native split: a pause menu in player 2's turn: the match goes on
+expect nolog native split: player 1's screen: InGame
+sleep 1
+windowshot mn_pause
+players pause0
+key w 1
+sleep 2
+players pause1
+expect bodymoved pause0 pause1 0 40 2000
+# Leave Split-Screen: the last row (UP from the first: the table wraps), A, then A on its confirmation
+pad 1 button dpup 0.2
+sleep 1
+pad 1 button a 0.2
+wait newlog native split: player 2's screen: InGame_PCConfirmLeave
+sleep 1
+pad 1 button a 0.2
+wait newlog native split: player 2 leaves split-screen \(its pause menu\)
+wait log input: player 2 left: its seat is free
+wait log native split: player 2's client left the match
+wait newlog native split: the window shows 1 view\(s\)
+sleep 2
+windowshot mn_alone
+expect nolog native split: the server shuts down
+# player 2's START again: a new seat, a new player 2, its own team screen: CT
+pad 1 button start 0.2
+wait newlog input: controller [0-9]+'s START: player 2 \(joined a new seat\)
+wait newlog native split: player 2 is in the match
+wait newlog native split: player 2's screen: TeamSelect_Root
+sleep 2
+pad 1 button dpdown 0.2
+sleep 1
+pad 1 button a 0.2
+wait newlog game: "[^"]*<[0-9]+><[0-9]+><[^>]*>" joined team "CT"
+wait newlog native split: the window shows 2 view\(s\)
+sleep 2
+windowshot mn_rejoined
+# stability over the run
+wait newlog native split: views:
+expect nolog \[watch:view-missing\]
+expect nolog \[own:[a-z-]+\]
+expect nolog client context guard: the server frame wrote
+expect nolog \] \[error\] \[[^]]*\] native split:
+expect nolog native split: the server shuts down
+expect nolog Host_Error
+expect nolog guest trap
