@@ -2674,3 +2674,26 @@ slots. No error, no `[own:]`, no guard write. Timing at FPS=30: 120 views a seco
 player's turn 3.6-4.7 ms (its own work about 3.6-4.0, player 1's also the pacing), GPU 0.8 ms and CPU recording 3.1 ms
 a window frame, the limiter idle 3.4 ms of each 8.3 ms view slot: the frame (four turns, about 16 ms) leaves room for
 about 60 window frames a second with four players. Not reached: the unplug, player 3's leave and rejoin.
+
+### 18.14 Run 26 (2026-11-15, permitted): PASS, four players
+
+`run_window_tests.py --tag run26 vk_native_split_4p.txt` at a35b03d (window 5548a5b3). Every step of 18.11 passed:
+four views, four team screens and four buy menus at once, four purchases at the server, movement and aiming
+isolated four ways; **player 4's controller unplugged** (58.5 s: player 4 kept, still, alive on CT) **and plugged back**
+(61.7 s: "connected: player 4's again", no START; it walked); **player 3's own pause menu, Leave Split-Screen** (69.6 s:
+three views in the 2x2 layout, the server kept), START again: a new seat, four views, its own team screen, Terrorist
+(it joined mid-round, so it watches as a spectator until the next: the title's own rule; shot q_four). No error, no
+`[own:]`, no guard write, no view missing; the pie cache never past its two slots; player 3's leave left 915 KB
+(the known retention, [watch:left-unreleased]). 120 views a second at FPS=30.
+
+### 18.15 Run 27 (2026-11-15, permitted): PASS, Instant Action into a native match
+
+`run_window_tests.py --tag run27 vk_native_split_instant.txt`: the game alone in its window, Instant Action;
+controller 2's START joined as player 2 on the hub (no compositor restart); Start Match: "the match takes 2 local
+players (seats 0=…#1;1=…#2)", the relaunched game started native split-screen of two from the handed-over seats, in
+the game's own server (no local server process); both test controllers attached again were given their own seats by
+their keys (no START); both team screens, each player its team, two views (shot ia_match: two views, each its own buy
+menu). No error.
+
+**M3.2-M8 automated verification is complete** for what a run without physical hardware can show. What is left is the
+hands-on test (docs/native_splitscreen_guide.md "Manual test checklist").

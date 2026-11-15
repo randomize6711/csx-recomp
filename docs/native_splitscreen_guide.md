@@ -55,20 +55,21 @@ per player, docs/splitscreen.md) is kept as a fallback until this one is accepte
   (views are cut at the sides or shown whole, never stretched; the HUD is never cut).
 - A solo match stays the single-player game: others join from Instant Action, or at a later match.
 - The pie menus' bundle cache has two slots: with more different pies open at once the title loads them uncached
-  (seen working with four players, run 25; not yet watched over a long session).
+  (with four players the counted bundles stayed within the two slots, runs 25-26; not watched over a long session).
 - Windows: native split-screen is built and tested on Linux only (the Windows window front end has no seats yet).
 
 ## What has been verified in the game (automated runs) and what has not
 
-Verified by runs 17-25 (docs/native_splitscreen.md 16.7, 17.14, 18.9, 18.10, 18.13):
+Verified by runs 17-27 (docs/native_splitscreen.md 16.7, 17.14, 18.9, 18.10, 18.13-18.15):
 - two and four players in one process: their own views, HUDs, weapons, cameras, FOV; movement and aiming isolated
   (checked at the server for every player); a player's departure and rejoin; the server kept;
 - the seats: START taking a place (and not reaching the game), a controller unplugged and plugged back (four players);
+- Instant Action: a controller's START joining on the hub, Start Match into one process with both players (run 27);
 - own menus: team screens and buy menus of every player open at once, purchases at the server, players 2-4's pause
   menu, Leave Split-Screen, a rejoin by START; no ownership fault, no server write into a player's state;
 - performance at 30 frames a second with four views: each player's turn about 4 ms, GPU under 1 ms a frame.
 
-Not verified by a run: Instant Action's START-to-join and Start Match into a native match (run 27 prepared); physical
+Not verified by a run: physical
 controllers (only SDL virtual ones); keyboard-and-mouse player with a controller of its own; rumble; sound; frame
 rates above 30 with several players; long sessions; a map change with several players; the side-by-side layout.
 
