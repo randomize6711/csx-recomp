@@ -377,6 +377,9 @@ bool NativeTestPad() {
     return on && NativePlayers();
 }
 seats::Table g_seats;  // g_lock held
+// bit k: the START that took seat k is still held: kept from port k until it is let go (run 23: it reached the game
+// and chose the team screen's highlighted row)
+unsigned g_start_swallowed = 0;
 bool g_seats_ready = false;
 // the seats published to the game (csx::SetNativeSeats): the seats in the game, all N with the scripted test
 // controllers (development: they are no SDL devices)
@@ -492,6 +495,7 @@ bool SeatStart(SDL_JoystickID id) {
         LOGI("input: controller %u's START: no seat free (%d players)", unsigned(id), g_seats.Players());
     else
         LOGI("input: controller %u's START: player %d (%s)", unsigned(id), seat + 1, seats::Name(r));
+    if (r != seats::Start::Refused && seat >= 0) g_start_swallowed |= 1u << seat;
     PublishSeats();
     return true;
 }
@@ -1046,6 +1050,11 @@ Pad Poll(int port) {
         std::lock_guard<std::mutex> lock(g_lock);
         InitSeats();
         if (SDL_Gamepad* gp = NativePad(port)) p = PadOf(gp);
+        // the START that took this seat is not the game's (18.3): held back until released
+        if (g_start_swallowed & (1u << port)) {
+            if (p.buttons & 16) p.buttons = uint16_t(p.buttons & ~16);
+            else g_start_swallowed &= ~(1u << port);
+        }
         // a player's seat whose controller is away stays connected at rest (18.3: the title sees no removal)
         if (port < NativePlayers() && g_seats.InGame(port)) p.connected = true;
         if (NativeTestPad() && port < NativePlayers()) {

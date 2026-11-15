@@ -2596,3 +2596,18 @@ at the view's aspect.
 tests/scenarios/vk_native_split_2p_menus.txt (the header lists what it proves). New probe: `playerweapons` in a
 players step and `expect bought A B N` (drive.py): a purchase seen at the server. New log: "native split: player N's
 screen: NAME | none" for each player's own top screen.
+
+### 18.9 Run 23 (2026-11-15, permitted once): FAIL at step 22 (the joining START reached the game)
+
+At 7209fa3 (window 27a67032, harness 296be57f, server 421df852), `run_window_tests.py --tag run23
+vk_native_split_2p_menus.txt`.
+- **Passed (21 steps).** Own menus on (121 screens, 201 of their fields each player's); seat 1 waiting from the
+  configured players; the test controller (a virtual SDL gamepad) connected and waited for START; **both team screens
+  open at once**, each in its own view (shot mn_teams); its START took the waiting seat; player 1 chose Terrorist
+  with its own keys (12.87 s). No `[own:]`, no error, no guard write.
+- **The failure (a defect, not the scenario's):** the START that took the seat (8.40 s) also reached the game: 0.03 s
+  later player 2 joined TERRORIST, its team screen's highlighted row (Auto-Select) chosen by that START. The seat was
+  taken in the window's event, and the next polls of port 1 read the seat's controller with START still held.
+- **The fix:** the START that takes a seat is held back from that port until it is released (window_input.cpp
+  g_start_swallowed; native_split_input_test checks it). Not reached: the buy menus, the walk, the pause menu, Leave
+  Split-Screen, the rejoin.

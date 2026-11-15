@@ -125,6 +125,10 @@ def menu_hooks():
 def window_input():
     src = open(os.path.join(ROOT, 'src', 'linux', 'window_input.cpp')).read()
     check('seats::Table' in src, 'window_input keeps the seats')
+    poll = src[src.find('Pad Poll(int port) {'):]
+    poll = poll[:poll.find('\n}\n')]
+    check('g_start_swallowed |= 1u << seat' in src and 'g_start_swallowed & (1u << port)' in poll and
+          'p.buttons & ~16' in poll, 'the START that took a seat is kept from its port until released (run 23)')
     check('g_other_pads[size_t(port)' not in src, 'no connection-order port mapping left')
     m = re.search(r'void Rumble\(int port.*?\n}\n', src, re.S)
     check(m is not None and 'SeatPad' in m.group(0), 'the rumble goes to the seat\'s controller')
