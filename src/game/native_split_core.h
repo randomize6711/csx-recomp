@@ -64,6 +64,14 @@ public:
             if (p_[size_t(k)].state == State::Empty) return k;
         return -1;
     }
+    // docs 18.3: the slot a new player takes when the window's controller seats decide (bit k: seat k is in the game;
+    // ~0u unknown, the headless harness: any): the lowest empty slot below the match's players whose seat is in the
+    // game, -1 none
+    int SeatSlot(unsigned seats, int wanted) const {
+        for (int k = 1; k < kMaxPlayers && k < wanted; k++)
+            if (p_[size_t(k)].state == State::Empty && (seats & (1u << k))) return k;
+        return -1;
+    }
     // the transitions; false (and nothing changed) when not allowed from the current state
     bool Begin(int k, int context, const std::string& name) {
         if (k <= 0 || k >= kMaxPlayers || p_[size_t(k)].state != State::Empty || context <= 0) return false;

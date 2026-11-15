@@ -129,6 +129,14 @@ void SetMenuJoin(bool on);
 bool MenuJoin();
 void SetPartyJoinGuid(const std::string& guid);
 std::string PartyJoinGuid();
+// native split-screen's controller seats (docs/native_splitscreen.md 18.3, src/common/pad_seats.h): the window's
+// input keeps them and publishes which seats are in the game (bit k: player k+1); the game adds player k+1 only while
+// its bit is set, and tells the window when a player left by its own choice (its seat freed). Unknown (~0u: the
+// headless harness, no window) means every configured player
+void SetNativeSeats(unsigned mask);
+unsigned NativeSeats();
+void NativeSeatLeave(int k);
+unsigned TakeNativeSeatLeaves();
 // a split-screen player is about to relaunch (into a match or back to the menus): its next display aspect set
 void SplitPrepareRelaunch(bool match);
 void SetSplitPrepareRelaunch(void (*prepare)(bool match));

@@ -2469,3 +2469,66 @@ At 367c92a (the binaries of bb54799, unchanged: window 8c2a81b3…, harness 877a
   of each 16.7 ms view slot.
 - Remaining from M3.2's list, carried into M4/M5: the test controller and the automatic team choice are development
   paths (M4's assignment and M5's START-to-join replace them); the key-down table is still process-wide (17.2).
+
+## 18. M4-M8: the plan after run 22 (2026-11-15)
+
+Run 22 verified two-player gameplay (17.14). What stands between it and a playable 2-4 player split-screen, in
+dependency order (each step static first; a game run only with the user's permission for that one run):
+
+1. **M4 input** (18.2-18.4): every key's state per player (the key-down and repeat tables); controllers held by
+   **seats** (player k's seat = port k-1), assigned by START, kept through a disconnect (the port stays connected
+   with neutral input, the player stays in the match), given back on reconnect or to the next START; rumble to the
+   seat's controller; the keyboard and mouse player 1's. Test controllers become SDL virtual gamepads, so a run goes
+   through the same hot-plug path a real controller does.
+2. **M4 menus** (18.5): each player's in-game screens (team, class, buy, pause, scoreboard) its own, not withheld
+   when another player drives the shared front end.
+3. **M5 joining** (18.6): Instant Action's party (START to join, BACK to leave) in one process: Start Match launches
+   the match with the party's seats (CSX_NATIVE_SPLIT and the seats from the party, no environment set by hand);
+   in a match, START on a free controller takes a free seat, a player leaves from its own pause menu; the remaining
+   players' layout follows.
+4. **M6** three and four players (the 2x2 layouts exist since M3): the frame shape chosen at the match's start for
+   its player count; a view whose frame would lose its HUD in a viewport of another shape is fitted, not cropped.
+5. FOV per layout, HUD, audio, rumble; **M7** performance; **M8** regression, cleanup, the manual test plan.
+
+### 18.1 Decisions
+
+- The frame's shape stays chosen once per process (pc_wide FrameWidth, the title makes its device once): the match's
+  start (a relaunch) takes the party's count. Players joining or leaving inside a match change the layout, not the
+  frame; a frame is fitted into a viewport whose shape would cut its HUD (18.7).
+- The keyboard and mouse are player 1's only. Player 1 may also take a controller (Split Screen > Player 1 > Also a
+  Controller, split_p1_pad, kept).
+
+### 18.2 Every key's state per player (M4, static)
+
+Key_Event (0x66510) keeps two per-key tables besides the bindings: keydown[] 0x6CAFE0 (written only) and
+key_repeats[] 0x6CDBE0, which drops a press while its count is above 1 (an auto-repeat) for every key but a few
+(0x6657F..0x665C0). Every controller's buttons are the same key numbers (203..222), so with the tables shared, player
+3's A while player 2 held its own A counted as a repeat and was dropped, and a release ran its "-" line in the
+releasing player's turn only. Both tables are now each player's regions (tools/region_evidence.py REVIEWED_M4: Key_Event
+alone names them; 256 dwords each, between keybindings[] 0x6CABE0 and 0x6CB3E0). The PC keys reach Key_Event only in
+the process's run of the buffer (player 1's context, NativeSplitCbufForPlayer), a controller's in its player's turn.
+
+### 18.3 Controller seats (M4, static)
+
+- **The seats** (src/common/pad_seats.h, tested by tests/native_split_input_test.cpp): seat k is player k+1's and
+  port k; seat 0 is player 1's, always held (the keyboard and mouse), with a controller of its own only through Also
+  a Controller (split_p1_pad: the first connected controller). Another controller takes a seat with its **START**: a
+  seat waiting for its controller first (the lowest), else the next empty seat below the match's players
+  (CSX_NATIVE_SPLIT=N); its own seat's START is the game's (the pause). The order of seats is the order of STARTs,
+  not of connections.
+- **Disconnect**: the seat waits; its port stays connected at rest, so the title sees no removal (no pause screen,
+  no reconnect prompt from the console's rules) and the player stays in the match, standing still. The same
+  controller back (its key) takes the seat again at once; another controller's START takes it too (before any new
+  seat). Player 1 losing its controller plays on with the keyboard and mouse.
+- **Keys** (window_input.cpp PadKey): the device path (evdev node), else the GUID; "#n" keeps identical controllers
+  apart. Across the match's relaunch the seats travel as CSX_NATIVE_SPLIT_SEATS ("k=key;..."): every seat waits for
+  its own controller, which SDL's connection events give back. Without it (a development launch) seats 1..N-1 wait
+  for any controller's START.
+- **The game follows the seats** (csx::SetNativeSeats / NativeSeats, a mask published by the window): a player is
+  added only while its seat is in the game (nsplit::Players::SeatSlot); a seat freed while its player plays queues
+  that player's own "disconnect" in its turn (SeatsFollow); a player that leaves by itself frees its seat
+  (csx::NativeSeatLeave), so it is not added back until a START. Headless (no window) the mask is unknown: every
+  configured player, as before. The scripted test controllers (CSX_NATIVE_SPLIT_TEST_PAD) keep every seat in.
+- **Rumble**: the title's XInputSetState on a port reaches that seat's controller (player 1's own if it has one).
+- Not done here: a notice in a waiting player's view (18.8); the window's own test controllers ("pad N attach"
+  in a scenario) are SDL virtual gamepads, so a run can drive START, a disconnect and a reconnect through this path.

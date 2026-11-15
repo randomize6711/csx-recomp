@@ -35,6 +35,7 @@
 #include <SDL3/SDL.h>
 
 #include "linux/pad_style.h"
+#include "common/pad_seats.h"
 #include "linux/split_player.h"
 #include "linux/split_ipc.h"
 
@@ -344,6 +345,152 @@ void ConsoleEditKey(SDL_Keycode k) {
     }
 }
 
+// native split-screen (docs/native_splitscreen.md 16, 18.3; one process, CSX_NATIVE_SPLIT=N): the controllers are the
+// players' by seats (src/common/pad_seats.h): player 1 has the keyboard and mouse (port 0), and a controller too with
+// Split Screen > Player 1 > Also a Controller (split_p1_pad 1); player k+1 reads port k, the controller whose START
+// took seat k. A seat whose controller disconnected keeps its port connected with neutral input (the player stays in
+// the match) until the same controller, or the next free one's START, takes it back. The seats a match starts with
+// come from its launch (CSX_NATIVE_SPLIT_SEATS, "k=key;..." of pad_seats.h's Save: the party's controllers, given back
+// to their seats as SDL reports them); without it players 2..N wait for any controller's START
+int NativePlayers() {
+    static const int n = [] {
+        const char* v = std::getenv("CSX_NATIVE_SPLIT");
+        int x = v ? std::atoi(v) : 0;
+        return x >= 2 && x <= 4 ? x : 0;
+    }();
+    return n;
+}
+bool NativeP1Pad() { return pc::Get("split_p1_pad", "0") == "1"; }
+// development only (docs/native_splitscreen.md 17): CSX_NATIVE_SPLIT_TEST_PAD=1 gives native split-screen's ports
+// 1..N-1 a virtual controller (connected, at rest) whose presses a test scripts through the run folder's cmdK file (K
+// the player: cmd2 for port 1; "BUTTONS FRAMES" as the cmd file's), so a test drives player 2 through the game's own
+// controller path. Off: nothing of it exists
+bool NativeTestPad() {
+    static const bool on = [] {
+        const char* v = std::getenv("CSX_NATIVE_SPLIT_TEST_PAD");
+        return v && v[0] == '1' && !v[1];
+    }();
+    return on && NativePlayers();
+}
+seats::Table g_seats;  // g_lock held
+bool g_seats_ready = false;
+// the seats published to the game (csx::SetNativeSeats): the seats in the game, all N with the scripted test
+// controllers (development: they are no SDL devices)
+void PublishSeats() {
+    if (!NativePlayers()) return;
+    unsigned mask = g_seats.Mask() & ((1u << NativePlayers()) - 1);
+    if (NativeTestPad()) mask = (1u << NativePlayers()) - 1;
+    static unsigned last = ~0u;
+    if (mask != last) {
+        last = mask;
+        std::string line;
+        for (int k = 0; k < seats::kSeats; k++) {
+            const seats::Seat& st = g_seats.At(k);
+            if (st.state == seats::SeatState::Empty) continue;
+            line += " P" + std::to_string(k + 1) + ":" + seats::Name(st.state) +
+                    (st.device ? " (controller " + std::to_string(st.device) + ")" : std::string(k ? "" : " (keyboard and mouse)"));
+        }
+        LOGI("input: native split-screen's seats now 0x%X:%s", mask, line.c_str());
+    }
+    csx::SetNativeSeats(mask);
+}
+void InitSeats() {
+    if (g_seats_ready || !NativePlayers()) return;
+    g_seats_ready = true;
+    const char* v = std::getenv("CSX_NATIVE_SPLIT_SEATS");
+    std::string text = v ? v : "";
+    if (text.empty())
+        for (int k = 1; k < NativePlayers(); k++) text += (text.empty() ? "" : ";") + std::to_string(k) + "=";
+    int n = g_seats.Load(text);
+    LOGI("input: native split-screen's seats from %s: %d waiting for their controllers (%s)",
+         v ? "the launch (CSX_NATIVE_SPLIT_SEATS)" : "the configured players", n, text.c_str());
+    PublishSeats();
+}
+// a controller's key, stable across its reconnects and this process's relaunch: its device path (Linux's evdev node),
+// else its GUID; "#n" keeps two identical controllers apart (the n-th connected of that key)
+std::string PadKey(SDL_JoystickID id) {
+    std::string base;
+    if (const char* path = SDL_GetGamepadPathForID(id); path && *path) {
+        base = path;
+    } else {
+        char guid[64] = {};
+        SDL_GUIDToString(SDL_GetGamepadGUIDForID(id), guid, sizeof guid);
+        base = guid;
+    }
+    for (char& c : base)
+        if (c == ';' || c == '=') c = '_';
+    int same = 1;
+    for (const auto& f : g_seats.Connected()) {
+        const std::string& k = f.key;
+        if (k.size() > base.size() && k.compare(0, base.size(), base) == 0 && k[base.size()] == '#') same++;
+    }
+    return base + "#" + std::to_string(same);
+}
+// the opened controller with this id (g_lock held)
+SDL_Gamepad* OpenedPad(uint32_t id) {
+    if (!id) return nullptr;
+    if (g_pad && SDL_GetGamepadID(g_pad) == id) return g_pad;
+    for (SDL_Gamepad* gp : g_other_pads)
+        if (SDL_GetGamepadID(gp) == id) return gp;
+    return nullptr;
+}
+// the controller seat k holds (g_lock held): null when none (no seat, or waiting for its controller)
+SDL_Gamepad* SeatPad(int k) { return OpenedPad(g_seats.DeviceOf(k)); }
+// the controller on port `port` (g_lock held): null when none
+SDL_Gamepad* NativePad(int port) {
+    if (port <= 0 || port >= NativePlayers()) return nullptr;
+    return SeatPad(port);
+}
+// the window thread (HandleEvent): native split-screen's controller connected, disconnected, its START
+void SeatConnected(SDL_JoystickID id) {
+    if (!NativePlayers()) return;
+    InitSeats();
+    std::string key = PadKey(id);
+    int k = g_seats.Connected(id, key);
+    if (k < 0 && NativeP1Pad() && !g_seats.DeviceOf(0)) k = g_seats.GiveP1Controller();
+    LOGI("input: controller %u (%s, %s) connected%s", unsigned(id), SDL_GetGamepadNameForID(id), key.c_str(),
+         k >= 0 ? (" : player " + std::to_string(k + 1) + "'s again").c_str() : ": press START to play");
+    PublishSeats();
+}
+void SeatDisconnected(SDL_JoystickID id) {
+    if (!NativePlayers()) return;
+    int k = g_seats.Disconnected(id);
+    if (k > 0)
+        LOGI("input: player %d's controller %u disconnected: player %d stays in the match (no input) until it, or "
+             "another controller's START, takes its seat back", k + 1, unsigned(id), k + 1);
+    else if (k == 0)
+        LOGI("input: player 1's controller %u disconnected: player 1 plays on with the keyboard and mouse", unsigned(id));
+    PublishSeats();
+}
+// START on a controller: its own seat's START is the game's (nothing here); a free controller takes a waiting seat,
+// else the next empty one up to the match's players. True when it took a seat (the press is then not the game's)
+bool SeatStart(SDL_JoystickID id) {
+    if (!NativePlayers()) return false;
+    InitSeats();
+    int seat = -1;
+    seats::Start r = g_seats.Pressed(id, true, NativePlayers(), &seat);
+    if (r == seats::Start::Own) return false;
+    if (r == seats::Start::Refused)
+        LOGI("input: controller %u's START: no seat free (%d players, this match's layout takes %d)", unsigned(id),
+             g_seats.Players(), NativePlayers());
+    else
+        LOGI("input: controller %u's START: player %d (%s)", unsigned(id), seat + 1, seats::Name(r));
+    PublishSeats();
+    return true;
+}
+// the game's leaves (a player chose to leave): its seat freed (the window thread, once a frame)
+void TakeSeatLeaves() {
+    if (!NativePlayers()) return;
+    unsigned m = csx::TakeNativeSeatLeaves();
+    if (!m) return;
+    std::lock_guard<std::mutex> lock(g_lock);
+    for (int k = 0; k < seats::kSeats; k++)
+        if (m & (1u << k)) {
+            g_seats.Leave(k);
+            LOGI("input: player %d left: its seat is free", k + 1);
+        }
+    PublishSeats();
+}
 }  // namespace
 
 namespace window {
@@ -617,8 +764,10 @@ void HandleEvent(const void* p) {
             } else if (!splitp::Active()) {
                 if (SDL_Gamepad* gp = SDL_OpenGamepad(e.gdevice.which)) g_other_pads.push_back(gp);
             }
+            if (OpenedPad(e.gdevice.which)) SeatConnected(e.gdevice.which);  // native split-screen's seats (18.3)
             break;
         case SDL_EVENT_GAMEPAD_REMOVED:
+            SeatDisconnected(e.gdevice.which);
             if (g_pad && SDL_GetGamepadID(g_pad) == e.gdevice.which) {
                 SDL_CloseGamepad(g_pad);
                 g_pad = nullptr;
@@ -631,6 +780,11 @@ void HandleEvent(const void* p) {
                                g_other_pads.end());
             break;
         case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+            // native split-screen (18.3): a free controller's START takes a seat (and is not the game's press)
+            if (NativePlayers()) {
+                if (e.gbutton.button == SDL_GAMEPAD_BUTTON_START) SeatStart(e.gbutton.which);
+                break;
+            }
             // the game alone on a party screen: a controller that is not player 1's asks for split screen
             if (!splitp::Active() && csx::PartyScreenOpen() && !PartyPadIsPlayerOnes(e.gbutton.which) &&
                 (e.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH || e.gbutton.button == SDL_GAMEPAD_BUTTON_START)) {
@@ -688,6 +842,7 @@ void ApplyMouseSettings() {
 // game let go when it opens; the mouse captured while playing and free over the menus and the console (its pointer
 // shown), captured again when play resumes
 void UpdateConsole() {
+    TakeSeatLeaves();  // native split-screen: the players that chose to leave (18.3)
     ApplyMouseSettings();
     bool open = csx::ConsoleOpen();
     std::lock_guard<std::mutex> lock(g_lock);
@@ -780,26 +935,6 @@ namespace input {
 void Init() {}
 
 namespace {
-// native split-screen (docs/native_splitscreen.md 16; one process, CSX_NATIVE_SPLIT=N): the controllers are the
-// players' in connection order, as the multi-process split's (docs/splitscreen.md 7): player 1 has the keyboard and
-// mouse (port 0), and the first controller too with Split Screen > Player 1 > Also a Controller (split_p1_pad 1);
-// player k+1 reads port k, the next controller
-int NativePlayers() {
-    static const int n = [] {
-        const char* v = std::getenv("CSX_NATIVE_SPLIT");
-        int x = v ? std::atoi(v) : 0;
-        return x >= 2 && x <= 4 ? x : 0;
-    }();
-    return n;
-}
-bool NativeP1Pad() { return pc::Get("split_p1_pad", "0") == "1"; }
-// the controller on port `port` (g_lock held): null when none
-SDL_Gamepad* NativePad(int port) {
-    if (port <= 0 || port >= NativePlayers()) return nullptr;
-    if (NativeP1Pad()) return size_t(port) <= g_other_pads.size() ? g_other_pads[size_t(port) - 1] : nullptr;
-    if (port == 1) return g_pad;
-    return size_t(port - 1) <= g_other_pads.size() ? g_other_pads[size_t(port) - 2] : nullptr;
-}
 // one controller's state as the console's pad (SDL's y axes point down, the console's up)
 Pad PadOf(SDL_Gamepad* gp) {
     Pad p;
@@ -832,17 +967,6 @@ Pad PadOf(SDL_Gamepad* gp) {
 }
 }  // namespace
 
-// development only (docs/native_splitscreen.md 17): CSX_NATIVE_SPLIT_TEST_PAD=1 gives native split-screen's ports
-// 1..N-1 a virtual controller (connected, at rest) whose presses a test scripts through the run folder's cmdK file (K
-// the player: cmd2 for port 1; "BUTTONS FRAMES" as the cmd file's), so a test drives player 2 through the game's own
-// controller path. Off: nothing of it exists
-bool NativeTestPad() {
-    static const bool on = [] {
-        const char* v = std::getenv("CSX_NATIVE_SPLIT_TEST_PAD");
-        return v && v[0] == '1' && !v[1];
-    }();
-    return on && NativePlayers();
-}
 struct PortScript {
     uint64_t until = 0;
     std::string buttons;
@@ -884,7 +1008,10 @@ Pad Poll(int port) {
     if (port != 0) {
         if (!NativePlayers() || port < 0 || port > 3) return p;
         std::lock_guard<std::mutex> lock(g_lock);
+        InitSeats();
         if (SDL_Gamepad* gp = NativePad(port)) p = PadOf(gp);
+        // a player's seat whose controller is away stays connected at rest (18.3: the title sees no removal)
+        if (port < NativePlayers() && g_seats.InGame(port)) p.connected = true;
         if (NativeTestPad() && port < NativePlayers()) {
             p.connected = true;
             ScriptPort(port, p);
@@ -938,10 +1065,11 @@ Pad Poll(int port) {
     // the gamepad on top: SDL's y axes point down, the console's up
     // (on a party screen, the game alone, a controller that is not player 1's only asks to join: not player 1's input)
     // native split-screen: the first controller is player 2's unless player 1 also has one (NativePad)
-    if (g_pad && !(NativePlayers() && !NativeP1Pad()) &&
-        !(csx::PartyScreenOpen() && !splitp::Active() && !PartyPadIsPlayerOnes(SDL_GetGamepadID(g_pad)))) {
-        auto axis = [](SDL_GamepadAxis a) { return float(SDL_GetGamepadAxis(g_pad, a)); };
-        auto btn = [](SDL_GamepadButton b) { return SDL_GetGamepadButton(g_pad, b); };
+    // native split-screen: player 1's own controller is its seat's (18.3), none unless Also a Controller gave it one
+    SDL_Gamepad* const p1pad = NativePlayers() ? SeatPad(0) : g_pad;
+    if (p1pad && !(csx::PartyScreenOpen() && !splitp::Active() && !PartyPadIsPlayerOnes(SDL_GetGamepadID(p1pad)))) {
+        auto axis = [p1pad](SDL_GamepadAxis a) { return float(SDL_GetGamepadAxis(p1pad, a)); };
+        auto btn = [p1pad](SDL_GamepadButton b) { return SDL_GetGamepadButton(p1pad, b); };
         lx += axis(SDL_GAMEPAD_AXIS_LEFTX);
         ly -= axis(SDL_GAMEPAD_AXIS_LEFTY);
         rx += axis(SDL_GAMEPAD_AXIS_RIGHTX);
@@ -1001,7 +1129,7 @@ Pad Poll(int port) {
             chosen[1] = pc::Get("pad_spray", "back_down");
         }
         const bool back = (p.buttons & 32) != 0;
-        auto extra = [](SDL_GamepadButton b) { return g_pad && SDL_GetGamepadButton(g_pad, b); };
+        auto extra = [p1pad](SDL_GamepadButton b) { return p1pad && SDL_GetGamepadButton(p1pad, b); };
         uint16_t taken = 0;
         for (int i = 0; i < 2; i++) {
             const std::string& c = chosen[i];
@@ -1082,8 +1210,15 @@ Pad Poll(int port) {
     return p;
 }
 
+// the title's rumble for a port: native split-screen's player k+1 rumbles its seat's controller (18.3; player 1's
+// own controller if it has one), else port 0's controller
 void Rumble(int port, uint16_t left, uint16_t right) {
     std::lock_guard<std::mutex> lock(g_lock);
+    if (NativePlayers()) {
+        if (SDL_Gamepad* gp = port >= 0 && port < NativePlayers() ? SeatPad(port) : nullptr)
+            SDL_RumbleGamepad(gp, left, right, 200);
+        return;
+    }
     if (port == 0 && g_pad) SDL_RumbleGamepad(g_pad, left, right, 200);
 }
 

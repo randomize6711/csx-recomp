@@ -75,6 +75,15 @@ std::string PartyJoinGuid() {
     return g_join_guid;
 }
 
+std::atomic<unsigned> g_native_seats{~0u};
+std::atomic<unsigned> g_native_leaves{0};
+void SetNativeSeats(unsigned mask) { g_native_seats = mask; }
+unsigned NativeSeats() { return g_native_seats; }
+void NativeSeatLeave(int k) {
+    if (k >= 0 && k < 4) g_native_leaves |= 1u << k;
+}
+unsigned TakeNativeSeatLeaves() { return g_native_leaves.exchange(0); }
+
 void SplitPrepareRelaunch(bool match) {
     if (auto f = g_prepare.load()) f(match);
 }

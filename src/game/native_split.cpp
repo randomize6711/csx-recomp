@@ -30,6 +30,7 @@
 //     look routine 0x19E160 and the pad keys 0x19DFD0 skipped in its turn) and starts no sound (0x100F10 skipped):
 //     the window, the controls and the speakers stay player 1's.
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdio>
 #include <map>
@@ -42,6 +43,7 @@
 
 #include "core/log.h"
 #include "cpu/x86_context.h"
+#include "common/csx.h"
 #include "common/guest_tables_layout.h"
 #include "game/client_context.h"
 #include "game/heap_owner.h"
@@ -1767,6 +1769,25 @@ void AutoJoin() {
 // active: "localhost"), in its kept context (nothing rebuilt, no process object made again). Its watch, console
 // lines and loopback packets start empty; the shared front end and the session's host stay where they are (no
 // hand-over while the others play). False (logged once a reason) when not allowed
+// docs 18.3: a seat the window freed (its player left the seats) while its player plays: that player's own
+// "disconnect", run in its own turn (the real path, as a player's own leaving), once
+std::array<bool, nsplit::kMaxPlayers> g_seat_dropped{};
+void SeatsFollow() {
+    const unsigned seats = csx::NativeSeats();
+    for (int k = 1; k < nsplit::kMaxPlayers; k++) {
+        nsplit::State s = g_players.At(k).state;
+        if (s != nsplit::State::Connecting && s != nsplit::State::Active) {
+            g_seat_dropped[k] = false;
+            continue;
+        }
+        if ((seats & (1u << k)) || g_seat_dropped[k]) continue;
+        if (g_cmds.Add(k, "disconnect\n")) {
+            g_seat_dropped[k] = true;
+            LOGI("native split: player %d's seat is free: its own \"disconnect\" queued", k + 1);
+        }
+    }
+}
+
 bool RejoinPlayer1() {
     nsplit::Rejoin r = nsplit::MayRejoin0(g_players, g_departing, R32(kSvActive) != 0, ServerClientOf(0) != 0,
                                           R32(kClsState));
@@ -1894,6 +1915,9 @@ void NativeSplitFrameEnd(X86Context& ctx) {
         LOGI("native split: player %d's client left the match (cls.state %u): removed (%s)", k + 1,
              PlayerDword(k, kClsState), pending ? nsplit::Name(g_departing.Why(k)) : "seen by the watch");
         RemovePlayer(ctx, k);
+        // docs 18.3: its seat freed (it is not added again by itself; its controller's START joins again)
+        if (!g_seat_dropped[k]) csx::NativeSeatLeave(k);
+        g_seat_dropped[k] = false;
     }
     if (g_end_session) EndSession(ctx);
     // player 1 departed: it rejoins after CSX_NATIVE_SPLIT_REJOIN_AFTER seconds (diagnostics; docs 15.19)
@@ -1922,12 +1946,14 @@ void NativeSplitFrameEnd(X86Context& ctx) {
     // player 1 in its match with the built-in server: the others added, one a frame; the bound on what leaving players
     // still hold (docs 15.20), read from the heap's count now
     AutoJoin();
+    SeatsFollow();
     WatchFrontEndInput();
     g_leaks.Observe(g_blocks.LeftBehindBytes());
     CheckLeakAccounting();
     if (!g_add_failed && g_leaks.MayJoin() && nsplit::MayAddPlayers(g_timer_once) && R32(kSvActive) &&
         int(R32(kClsState)) == kClsActive && g_players.Count() < Wanted() && g_players.Initialising() < 0) {
-        if (int k = g_players.FreeSlot(); k > 0) AddPlayer(ctx, k);
+        // docs 18.3: only a player whose controller seat is in the game (a controller's START took it)
+        if (int k = g_players.SeatSlot(csx::NativeSeats(), Wanted()); k > 0) AddPlayer(ctx, k);
     }
     auto now_r = std::chrono::steady_clock::now();
     if (g_players.Count() > 1 && now_r - g_last_report > std::chrono::seconds(10)) {

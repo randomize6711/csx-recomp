@@ -1035,6 +1035,28 @@ for _lo, _n, _own, _why in REVIEWED_RUN10:
     for _a in [a for a in AT if _lo <= a < _lo + _n]:
         del AT[_a]
 
+# M4 (docs/native_splitscreen.md 18.2): the key system's per-key state is each player's. Key_Event 0x66510 is the only
+# code naming either table (tools: every reference to 0x6CAFE0 / 0x6CDBE0 is in it); its callers are the engine's key
+# trap 0xAEEE0 (the pad bridge's keys 203..222 in a player's own turn) and pc_keys' host keys (the process's run of
+# the buffer, player 1's context only: NativeSplitCbufForPlayer). The four tables of 256 dwords lie end to end:
+# keybindings[] 0x6CABE0 (0x400, read [key*4+0x6CABE0] for the same key), keydown[] 0x6CAFE0, consolekeys 0x6CB3E0,
+# menubound 0x6CB7E0, so each is 0x400. Shared, two controllers' identical key numbers (every pad's A is the same key)
+# counted one repeat: key_repeats[k] > 1 makes Key_Event drop the press (0x6657F..0x665C0), so player 3's A while
+# player 2 held its own was lost, and the first release's "-" line ran in the releasing player's turn only
+_KEYS = ('Key_Event 0x66510 alone names it (each key\'s own dword, [ebp*4+...] with the caller\'s key number 0..255: '
+         'the 256-entry tables keybindings[] 0x6CABE0, this, 0x6CB3E0, 0x6CB7E0 lie end to end); its writers are '
+         'the players\' own key events (a player\'s pad keys in its turn; the PC keys in player 1\'s context only) ')
+REVIEWED_M4 = [
+    (0x6CAFE0, 0x400, 'player', _KEYS + '- keydown[]: stored at 0x6653A, never read by the title (only written)'),
+    (0x6CDBE0, 0x400, 'player', _KEYS + '- key_repeats[]: cleared on a release (0x66576), counted on a press '
+     '(0x6657F..0x6658A); a count above 1 drops the press as an auto-repeat (0x665BD..0x665C0) for every key but '
+     '0x7F, 0xFF, 0x95, 0x96, 0xA2, 0xA8. Shared, one player\'s held key swallowed another\'s press of the same key'),
+]
+OBJECTS = [e for e in OBJECTS if not any(lo <= e[0] < lo + n for lo, n, _, _ in REVIEWED_M4)] + REVIEWED_M4
+for _lo, _n, _own, _why in REVIEWED_M4:
+    for _a in [a for a in AT if _lo <= a < _lo + _n]:
+        del AT[_a]
+
 # the shared kinds tools/shared_changes.py reports apart (docs 15.14): objects the evidence proves rewritten before
 # every use (nothing kept between two uses), so a change there is not state another player depends on. Only objects
 # whose evidence says so; any other shared-mutable object is process-wide mutable state
