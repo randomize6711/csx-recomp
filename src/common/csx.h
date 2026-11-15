@@ -137,6 +137,14 @@ void SetNativeSeats(unsigned mask);
 unsigned NativeSeats();
 void NativeSeatLeave(int k);
 unsigned TakeNativeSeatLeaves();
+// docs 18.6: the seats with a controller connected (bit k), and the seats as a match's launch takes them (pad_seats.h
+// SaveCompact: "k=key;...", the players N); published by the window with SetNativeSeats' mask
+void SetNativeSeatsDetail(unsigned held, const std::string& launch, int players);
+unsigned NativeSeatsHeld();
+std::string NativeSeatsLaunch(int* players);
+// split-screen's engine (PC setting split_engine): "native" (one process, docs/native_splitscreen.md; the default) or
+// "processes" (the multi-process compositor, docs/splitscreen.md: the fallback)
+bool SplitEngineNative();
 // a split-screen player is about to relaunch (into a match or back to the menus): its next display aspect set
 void SplitPrepareRelaunch(bool match);
 void SetSplitPrepareRelaunch(void (*prepare)(bool match));

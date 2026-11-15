@@ -862,7 +862,20 @@ void PcPartyMenuFrame(X86Context& ctx) {
 }
 
 // ---- for the lobby (pc_lobby.cpp) -------------------------------------------------------------------------------------
+// docs 18.6: the native engine's local players are the window's controller seats (no compositor): a seat in the game is
+// a member (a guest of its slot, player 1 its profile), its controller connected or not
+bool NativeParty() { return csx::SplitEngineNative() && !csx::SplitPlayer() && csx::NativeSeats() != ~0u; }
 std::vector<PcPartyMember> PcPartyMembers() {
+    if (NativeParty()) {
+        std::vector<PcPartyMember> out(4);
+        const unsigned in = csx::NativeSeats(), held = csx::NativeSeatsHeld();
+        for (int i = 0; i < 4; i++) {
+            out[size_t(i)].in = i == 0 || (in & (1u << i));
+            out[size_t(i)].pad = i == 0 || (held & (1u << i));
+            out[size_t(i)].name = i == 0 ? PcPartyProfileName() : out[size_t(i)].in ? join::GuestName(i + 1) : "";
+        }
+        return out;
+    }
     ReadState();
     std::vector<PcPartyMember> out(4);
     for (int i = 0; i < 4; i++) {
@@ -872,6 +885,11 @@ std::vector<PcPartyMember> PcPartyMembers() {
 }
 
 int PcPartyCount() {
+    if (NativeParty()) {
+        int n = 0;
+        for (const PcPartyMember& m : PcPartyMembers()) n += m.in;
+        return n;
+    }
     ReadState();
     return g_count;
 }

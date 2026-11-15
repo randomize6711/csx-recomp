@@ -144,6 +144,20 @@ static void Relaunch() {
     Check(u.Connected(40, "/dev/input/event3") == 2 && u.Connected(41, "/dev/input/event4") == 1,
           "the new process's connection events give each its own seat back");
     Check(u.Players() == 3, "three players");
+    // a match's launch: numbered without gaps
+    Table c;
+    c.Connected(1, "a");
+    c.Connected(2, "b");
+    c.Connected(3, "c");
+    c.Pressed(1, true, 4);
+    c.Pressed(2, true, 4);
+    c.Pressed(3, true, 4);
+    c.Leave(1);
+    int n = 0;
+    Check(c.SaveCompact(&n) == "1=b;2=c" && n == 3, "player 2 left: players 3 and 4 start as 2 and 3");
+    c.Connected(4, "p1");
+    c.GiveP1Controller();
+    Check(c.SaveCompact(&n) == "0=a;1=b;2=c" && n == 3, "player 1's own controller (the first free: a) kept as seat 0's");
     Table v;
     Check(v.Load("1=;5=x;=y;junk") == 1 && v.InGame(1), "a seat without a key waits for any START; junk ignored");
     v.Connected(70, "z");

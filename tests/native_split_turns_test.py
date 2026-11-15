@@ -554,8 +554,14 @@ def front_end_input(funcs, cl, regs, hk, text):
           'the pie menu 0xCD680: its choice on A in the snapshot')
     check({f for f, _ in cl.get(0xCD470, set())} == {0xCD7D0} and {f for f, _ in cl.get(0xCD680, set())} == {0xCD7D0},
           'the pie menu\'s parts run only under 0xCD7D0')
+    # docs 18.5: the draw's hook decides own menus (every player's pass, run as the process) or the driver's turn
+    nsrc = open(os.path.join(ROOT, 'src', 'game', 'native_split.cpp')).read()
+    md = nsrc[nsrc.find('bool NativeSplitMenuDraw('):nsrc.find('bool NativeSplitDrawsShared() {')]
     check(dict(funcs.get(0x55E10, [])).get(0x55F94) == 'call 0x000CD7D0' and
-          hk.get(0x55F94, (None,))[0] == 'NativeSplitSharedDraw', '0xCD7D0 the shared draw at 0x55F94 (the driver\'s turn)')
+          hk.get(0x55F94, (None,))[0] == 'NativeSplitMenuDraw' and
+          'return NativeSplitSharedDraw(ctx, p);' in md and 'SharedUiGate(ctx, kUiDraw, 0xCD7D0, {})' in md and
+          'nsplit::DrawsMenus(' in md,
+          '0xCD7D0 at 0x55F94: the driver\'s shared draw, or each player\'s own as the process (own menus)')
     # the bridge: presses to 0xCB170, releases to 0xCB540; the paths without a screen
     br = dict(funcs.get(0x19DFD0, []))
     check(br.get(0x19E0A7) == 'mov eax, [0x005523D4]' and br.get(0x19E0B1) == 'call 0x000CB170' and
@@ -579,7 +585,8 @@ def front_end_input(funcs, cl, regs, hk, text):
     check('FrontEndWithheld(k)' in body and body.count('InputPlayer()') == 3 and 'W32(' not in body,
           'the three hooks: the acting player against the driver, nothing written')
     fw = src[src.find('bool FrontEndWithheld('):]
-    check('nsplit::FeedsSharedFrontEnd(k, g_ui.driver)' in fw[:fw.find('\n')], 'FrontEndWithheld is the pure rule')
+    check('nsplit::FeedsSharedFrontEnd(k, g_ui.driver, g_ui.own_menus)' in fw[:fw.find('\n')],
+          'FrontEndWithheld is the pure rule (the driver, or own menus)')
     pt = src[src.find('void NativeSplitPadTurnBegin()'):src.find('void NativeSplitPadTurnEnd()')]
     check('W32(kActivePad, port)' in pt and 'W32(kBridgeMask, g_pad_turn.mask[k])' in pt,
           'an added player\'s controller still routed into its own turns')
@@ -607,10 +614,11 @@ def pc_input(funcs, cl, text):
     keys, mouse, menu = src('src/game/pc_keys.cpp'), src('src/game/pc_mouse.cpp'), src('src/game/pc_menu.cpp')
     browser, maps, ns = src('src/game/pc_browser.cpp'), src('src/game/pc_mapsearch.cpp'), src('src/game/native_split.cpp')
     win, view = src('src/linux/window_input.cpp'), src('src/game/native_split_view.h')
-    check('inline bool PcInputDrivesMenus(bool native_split, int driver) { return !native_split || '
-          'FeedsSharedFrontEnd(0, driver); }' in view, 'the rule: no native split-screen, or player 1 the driver')
-    check('bool NativeSplitPcDrivesMenus() { return nsplit::PcInputDrivesMenus(NativeSplitOn(), g_ui.driver); }' in ns,
-          'native_split.cpp asks the rule with the shared front end\'s driver')
+    check('inline bool PcInputDrivesMenus(bool native_split, int driver, bool own_menus = false) {\n'
+          '    return !native_split || FeedsSharedFrontEnd(0, driver, own_menus);\n}' in view,
+          'the rule: no native split-screen, player 1 the driver, or own menus (player 1\'s own screen)')
+    check('bool NativeSplitPcDrivesMenus() { return nsplit::PcInputDrivesMenus(NativeSplitOn(), g_ui.driver, '
+          'g_ui.own_menus); }' in ns, 'native_split.cpp asks the rule with the driver and own menus')
     check('bool PcDrivesScreen() { return NativeSplitPcDrivesMenus(); }' in keys, 'csx::PcDrivesScreen is the rule')
     i = keys.find('void PcKeysFrame(')
     body = keys[i:keys.find('\n}\n', i)]

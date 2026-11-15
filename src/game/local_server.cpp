@@ -136,7 +136,9 @@ bool LocalServerWanted() {
 #else
     if (Dedicated() || SplitPlayer() > 1) return false;
     // native split-screen (native_split.cpp): every local player is a client of the game's own (listen) server
-    if (NativeSplitOn()) {
+    // (also a relaunch into a native split-screen match: its players set by the handover, net_session.cpp)
+    const char* ns = std::getenv("CSX_NATIVE_SPLIT");
+    if (NativeSplitOn() || (ns && std::atoi(ns) >= 2)) {
         LOG_FIRST(1, "local server: not used: native split-screen runs the match in the game's own server");
         return false;
     }

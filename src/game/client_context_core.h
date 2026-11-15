@@ -43,6 +43,7 @@ public:
     Switcher(std::vector<Region> regions, MapFn map) : regions_(std::move(regions)), map_(map) {
         for (const Region& r : regions_) total_ += r.size;
         saved_.emplace_back();  // context 0: the live memory (its copy is filled when another becomes active)
+        fsaved_.emplace_back();
     }
 
     const std::vector<Region>& Regions() const { return regions_; }
@@ -60,13 +61,29 @@ public:
     // own objects, never freeing the first player's), else a copy of the active one's live memory
     int Add() {
         saved_.push_back(HasInitial() ? initial_ : Copy());
+        fsaved_.push_back(ffresh_);
         return Count() - 1;
     }
+
+    // heap fields (docs/native_splitscreen.md 18.5): 4-byte guest words outside the static regions that are each
+    // player's too (the in-game menus' fields on the shared screen objects: a screen's stack link, a table's
+    // selection). Set whenever their list changes: the active context keeps the live values, every other context and
+    // every later one starts from `fresh` (one value per field). Switched with the regions
+    void SetFields(std::vector<uint32_t> fields, std::vector<uint32_t> fresh) {
+        if (fresh.size() != fields.size()) fresh.assign(fields.size(), 0);
+        fields_ = std::move(fields);
+        ffresh_ = std::move(fresh);
+        for (size_t c = 0; c < fsaved_.size(); c++) fsaved_[c] = ffresh_;
+    }
+    const std::vector<uint32_t>& Fields() const { return fields_; }
+    // context k's saved field values (stale for the active one)
+    std::vector<uint32_t>& SavedFields(int k) { return fsaved_[size_t(k)]; }
 
     // the last context removed (it must not be active)
     bool RemoveLast() {
         if (Count() <= 1 || active_ == Count() - 1) return false;
         saved_.pop_back();
+        fsaved_.pop_back();
         return true;
     }
 
@@ -74,6 +91,7 @@ public:
     bool Remove(int k) {
         if (k <= 0 || k >= Count() || k == active_) return false;
         saved_.erase(saved_.begin() + k);
+        fsaved_.erase(fsaved_.begin() + k);
         if (active_ > k) active_--;
         return true;
     }
@@ -101,6 +119,14 @@ public:
             std::memcpy(out.data() + at, live, r.size);
             std::memcpy(live, in.data() + at, r.size);
             at += r.size;
+        }
+        std::vector<uint32_t>& fout = fsaved_[size_t(active_)];
+        const std::vector<uint32_t>& fin = fsaved_[size_t(k)];
+        fout.resize(fields_.size());
+        for (size_t i = 0; i < fields_.size() && i < fin.size(); i++) {
+            uint8_t* live = map_(fields_[i]);
+            std::memcpy(&fout[i], live, 4);
+            std::memcpy(live, &fin[i], 4);
         }
         active_ = k;
         switches_++;
@@ -136,6 +162,9 @@ private:
     size_t total_ = 0;
     std::vector<std::vector<uint8_t>> saved_;  // per context; the active one's is stale until it is switched out
     std::vector<uint8_t> initial_;             // the state a new context starts from (empty: a copy of the active one)
+    std::vector<uint32_t> fields_;             // heap fields switched with the regions (SetFields)
+    std::vector<uint32_t> ffresh_;             // their values for a context that has none of its own yet
+    std::vector<std::vector<uint32_t>> fsaved_;  // per context, as saved_
     int active_ = 0;
     uint64_t switches_ = 0;
 };

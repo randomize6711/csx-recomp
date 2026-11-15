@@ -1234,8 +1234,20 @@ on_true = 0xB4665
 
 [[hook]]
 at = 0x55F94
-call = "NativeSplitSharedDraw"
+call = "NativeSplitMenuDraw"
 on_true = 0x55F99
+
+# docs 18.5 (own menus): the pad bridge's press 0xCB170 (at its call, the button in [esp]) and release 0xCB540 run as
+# the process in the player's own turn; each skipped to the instruction after its call (the bridge's add esp follows)
+[[hook]]
+at = 0x19E0B1
+call = "NativeSplitMenuPress"
+on_true = 0x19E0B6
+
+[[hook]]
+at = 0x19E10C
+call = "NativeSplitMenuRelease"
+on_true = 0x19E111
 
 [[hook]]
 at = 0x55FA7

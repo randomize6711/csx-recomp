@@ -174,6 +174,21 @@ public:
         }
         return out;
     }
+    // the seats for a match's launch, numbered without gaps (players 1..N in seat order: a party whose player 2 left
+    // before the match starts its player 3 as player 2), and N
+    std::string SaveCompact(int* players = nullptr) const {
+        std::string out;
+        int next = 1;
+        for (int k = 1; k < kSeats; k++) {
+            const Seat& s = seats_[size_t(k)];
+            if (s.state == SeatState::Empty) continue;
+            if (!out.empty()) out += ';';
+            out += std::to_string(next++) + "=" + s.key;
+        }
+        if (!seats_[0].key.empty()) out = "0=" + seats_[0].key + (out.empty() ? "" : ";") + out;
+        if (players) *players = next;
+        return out;
+    }
     // restored at the start: every listed seat waits for its controller (the window's connection events give them
     // back). Seats 1..3 named with an empty key wait for any START. Returns the seats restored
     int Load(const std::string& text) {

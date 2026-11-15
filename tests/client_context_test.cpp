@@ -1,5 +1,6 @@
 // tests/client_context_test.py builds and runs this: src/game/client_context_core.h on a synthetic memory
 #include <cstdio>
+#include <cstring>
 #include <vector>
 
 #include "game/client_context_core.h"
@@ -82,6 +83,30 @@ int main() {
     Check(Holds(0x1000, 0x40, 5) && Holds(0x2000, 0x100, 6) && Holds(0x3001, 0x3, 7), "it starts from the initial state");
     Check(b.Switch(0) && Holds(0x1000, 0x40, 80), "player 1's own state untouched");
 
+    // heap fields (docs 18.5): each context its own value of a few words outside the regions
+    {
+        std::vector<Region> r1 = {{0x1000, 0x10, "r"}};
+        Switcher<uint8_t* (*)(uint32_t)> f(r1, &Map);
+        auto w = [](uint32_t va, uint32_t v) { std::memcpy(g_mem.data() + va, &v, 4); };
+        auto rd = [](uint32_t va) { uint32_t v; std::memcpy(&v, g_mem.data() + va, 4); return v; };
+        w(0x5000, 111);  // player 1's open screen's stack link, say
+        w(0x5010, 7);    // its table's selection
+        Check(f.Add() == 1, "fields: a second context");
+        f.SetFields({0x5000, 0x5010}, {0, 3});
+        Check(rd(0x5000) == 111 && rd(0x5010) == 7, "fields: the active context keeps its live values");
+        Check(f.Switch(1) && rd(0x5000) == 0 && rd(0x5010) == 3, "fields: player 2 starts from the fresh values");
+        w(0x5000, 222);
+        w(0x5010, 9);
+        Check(f.Add() == 2, "fields: a third context, added while player 2 is live");
+        Check(f.Switch(0) && rd(0x5000) == 111 && rd(0x5010) == 7, "fields: player 1's own back");
+        Check(f.Switch(2) && rd(0x5000) == 0 && rd(0x5010) == 3, "fields: player 3 fresh");
+        Check(f.Switch(1) && rd(0x5000) == 222 && rd(0x5010) == 9, "fields: player 2's own kept");
+        Check(f.Switch(0) && f.Remove(1) && f.Count() == 2, "fields: player 2 removed");
+        Check(f.Switch(1) && rd(0x5000) == 0 && rd(0x5010) == 3, "fields: the next context moved down keeps its own");
+        f.SetFields({0x5010}, {5});
+        Check(f.Switch(0) && rd(0x5010) == 5, "fields: a new list: every inactive context fresh");
+        w(0x5000, 0);
+    }
     std::printf("%d checks, %d failed\n", checks, failed);
     return failed ? 1 : 0;
 }

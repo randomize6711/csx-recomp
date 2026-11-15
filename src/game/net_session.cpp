@@ -1,5 +1,6 @@
 // PC sessions in the engine (docs/pc_multiplayer.md, N1): the parts of the Xbox lobby the engine's own connection
 // went through, taken out of its path.
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -266,6 +267,30 @@ void MapChangeNotify(X86Context& ctx, uint8_t*) {
     csx::NetDisconnectServer(int(net::Reason::MapChange), map);
 }
 
+// docs 18.6: native split-screen's local players into the next process (the title's relaunch): the window's seats
+// (Instant Action's party, or the match's players) as CSX_NATIVE_SPLIT_SEATS; into a match with two or more of them
+// also CSX_NATIVE_SPLIT (the match's players: its layout and frame), so it runs them all in its own server; into the
+// menus, or a match alone, no CSX_NATIVE_SPLIT (the title's own single player). The multi-process engine and its
+// players are left alone
+void NativeSplitHandover(bool match) {
+#ifndef _WIN32
+    if (!csx::SplitEngineNative() || csx::SplitPlayer() || csx::NativeSeats() == ~0u) return;
+    if (const char* t = std::getenv("CSX_NATIVE_SPLIT_TEST_PAD"); t && *t == '1') return;  // development: as launched
+    int players = 1;
+    const std::string seats = csx::NativeSeatsLaunch(&players);
+    if (match && players >= 2) {
+        setenv("CSX_NATIVE_SPLIT", std::to_string(std::min(players, 4)).c_str(), 1);
+        LOGI("net: native split-screen: the match takes %d local players (seats %s)", players, seats.c_str());
+    } else {
+        unsetenv("CSX_NATIVE_SPLIT");
+    }
+    if (players >= 2 || !seats.empty()) setenv("CSX_NATIVE_SPLIT_SEATS", seats.c_str(), 1);
+    else unsetenv("CSX_NATIVE_SPLIT_SEATS");
+#else
+    (void)match;
+#endif
+}
+
 // [[hook]] at 0xBF0E0, the title's relaunch: every remaining connection ends. A map change is a relaunch into
 // "+map NAME" (whichever way the match got there: the game DLL's changelevel, the engine's map command at the end of
 // a match), written to Z:\releasemap.txt just before: the clients are told MapChange and rejoin; anything else (a
@@ -327,6 +352,7 @@ void RelaunchNotify(X86Context& ctx, uint8_t*) {
     // in the file: the game is leaving whatever the line says)
     uint32_t launch = kernel::R32(ctx.esp + 4);
     bool to_front_end = launch && kernel::R32(launch) == 1;
+    NativeSplitHandover(!to_front_end && line.rfind("+map ", 0) == 0);
     if (csx::LocalServerRunning() && (to_front_end || line != "+connect " + csx::LocalServerAddress()))
         csx::LocalServerStop(menu_match ? "a new match from the menus" : "the game left its match");
     if (menu_match && line.rfind("+map ", 0) == 0 && csx::LocalServerWanted()) {

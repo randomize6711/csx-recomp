@@ -194,6 +194,12 @@ int LeaveTimes() {
 // a refused player's blocks released (docs 15.8): off unless CSX_NATIVE_SPLIT_ROLLBACK=1. The plan is always made and
 // reported; releasing frees only what nothing the scan sees names, and the scan cannot see a pointer the host or the
 // kernel keeps, so it is not done by default
+// docs 18.5: every player's in-game menus its own (default); CSX_NATIVE_SPLIT_MENUS=0 the earlier shared front end
+// driven by one player (the others' menus withheld)
+bool OwnMenus() {
+    const char* v = std::getenv("CSX_NATIVE_SPLIT_MENUS");
+    return !(v && v[0] == '0' && !v[1]);
+}
 bool RollbackRelease() {
     static const bool on = [] {
         const char* v = std::getenv("CSX_NATIVE_SPLIT_ROLLBACK");
@@ -283,10 +289,12 @@ bool g_add_failed = false;  // a player's initialisation failed its checks: no f
 // player's block refused in the scope, the front end's element code reached in another player's turn
 nsplit::SharedUiOwner g_ui;
 int g_ui_scope = 0;
-enum UiGate { kUiRows, kUiText, kUiMenu, kUiClose, kUiCommand, kUiXbui, kUiGates };
+enum UiGate { kUiRows, kUiText, kUiMenu, kUiClose, kUiCommand, kUiXbui, kUiPress, kUiRelease, kUiDraw, kUiGates };
 constexpr const char* kUiGateName[kUiGates] = {"scoreboard rows (0x1B9820)", "element texts (0xD96A0)",
                                                  "menu opens (0xCAB40)", "screen closes (0xCA0B0)",
-                                                 "front-end commands (0xCA6F0)", "xbui commands (0xD7450)"};
+                                                 "front-end commands (0xCA6F0)", "xbui commands (0xD7450)",
+                                                 "button presses (0xCB170)", "button releases (0xCB540)",
+                                                 "menu draws (0xCD7D0)"};
 uint64_t g_ui_shared[kUiGates] = {}, g_ui_withheld[kUiGates] = {};
 uint64_t g_ui_scope_kept = 0, g_ui_elements_in_turn = 0;
 uint64_t g_preludes[nsplit::kMaxPlayers] = {};  // per player: its activation check run in its own turn
@@ -1769,6 +1777,43 @@ void AutoJoin() {
 // active: "localhost"), in its kept context (nothing rebuilt, no process object made again). Its watch, console
 // lines and loopback packets start empty; the shared front end and the session's host stay where they are (no
 // hand-over while the others play). False (logged once a reason) when not allowed
+// docs 18.5 (own menus): the in-game menus' fields on the shared screen objects, each player's own (switched with its
+// context): every screen's stack link (+0x37C: the screen below it in that player's stack; a new player has none
+// open) and its interactive table's selection (+0x9C) and first row shown (+0x120; a new player starts from the
+// live ones). The list follows the screen list (0x5523D0, next +0x378), rebuilt when it changes (the match's UI is
+// loaded once, before any other player is added). Addresses kept unique (a word switched twice would swap back)
+constexpr uint32_t kScreenList = 0x5523D0;
+uint64_t g_menu_sig = 0;
+size_t g_menu_screens = 0;
+void MenuFieldsFollow() {
+    if (!g_ui.own_menus) return;
+    uint64_t sig = 1469598103934665603ull;
+    size_t n = 0;
+    for (uint32_t sc = R32(kScreenList); sc && n < 1024; sc = R32(sc + 0x378), n++) sig = (sig ^ sc) * 1099511628211ull;
+    if (sig == g_menu_sig) return;
+    std::vector<uint32_t> fields, fresh;
+    std::set<uint32_t> seen;
+    auto add = [&](uint32_t va, uint32_t value) {
+        if (!va || !seen.insert(va).second) return;
+        fields.push_back(va);
+        fresh.push_back(value);
+    };
+    for (uint32_t sc = R32(kScreenList), i = 0; sc && i < 1024; sc = R32(sc + 0x378), i++) {
+        add(sc + 0x37C, 0);
+        if (uint32_t t = R32(sc + 0x380); t && Readable(t)) {
+            add(t + 0x9C, R32(t + 0x9C));
+            add(t + 0x120, R32(t + 0x120));
+        }
+    }
+    if (g_menu_sig && g_players.Count() > 1)
+        LOGW("native split: the screen list changed with %d players (%zu -> %zu screens): every other player's menus "
+             "start again from none open", g_players.Count(), g_menu_screens, n);
+    g_menu_sig = sig;
+    g_menu_screens = n;
+    LOGI("native split: own menus: %zu screens, %zu of their fields each player's (docs 18.5)", n, fields.size());
+    csx::ClientContextSetFields(std::move(fields), std::move(fresh));
+}
+
 // docs 18.3: a seat the window freed (its player left the seats) while its player plays: that player's own
 // "disconnect", run in its own turn (the real path, as a player's own leaving), once
 std::array<bool, nsplit::kMaxPlayers> g_seat_dropped{};
@@ -1874,6 +1919,9 @@ void NativeSplitReference(X86Context& ctx, const std::vector<uint8_t>& state) {
          kProtectedStamp.count, kProtectedStamp.bytes, (unsigned long long)kProtectedStamp.hash, kAddressesStamp.count,
          (unsigned long long)kAddressesStamp.hash);
     g_blocks.OwnAll(heapown::kProcess);
+    g_ui.own_menus = OwnMenus();
+    LOGI("native split: in-game menus %s (docs 18.5)", g_ui.own_menus ? "each player's own (its menu state switched "
+         "with its context)" : "the shared front end's driver's (CSX_NATIVE_SPLIT_MENUS=0)");
     g_reference = state;
     g_reference_objects = heapown::HeapPointers(g_reference, Spans(), g_blocks);
     LOGI("native split: %d local players asked; %zu heap blocks from the process's initialisation; player 1's "
@@ -1947,6 +1995,7 @@ void NativeSplitFrameEnd(X86Context& ctx) {
     // still hold (docs 15.20), read from the heap's count now
     AutoJoin();
     SeatsFollow();
+    MenuFieldsFollow();
     WatchFrontEndInput();
     g_leaks.Observe(g_blocks.LeftBehindBytes());
     CheckLeakAccounting();
@@ -2475,7 +2524,27 @@ static bool SharedUiGate(X86Context& ctx, UiGate gate, uint32_t fn, std::initial
 // players sorted, 0x1B4E30 / 0x1B9370), at `push esi; call 0x1B9820`, on_true 0x1B935F (past both): 0x1B9820 (stdcall,
 // the panel) frees and rebuilds the rows of the shared "Scoreboard" screen's list (the panel's +0xBC, 0x1B91E0)
 bool NativeSplitScoreboardRows(X86Context& ctx, uint8_t*) {
+    // docs 18.5: the rows are the same for everyone (the server's scoreboard): rebuilt in the driver's turn only, also
+    // with own menus (each player's turn rebuilding them would free and remake them every pass)
+    if (g_ui.own_menus && NativeSplitOn() && !g_ui_scope && csx::ClientContextInTurn() && TurnPlayer() != g_ui.driver) {
+        g_ui_withheld[kUiRows]++;
+        return true;
+    }
     return SharedUiGate(ctx, kUiRows, kScoreboardRows, {ctx.esi});
+}
+
+// docs 18.5 (own menus): a player's menu code run in its own turn as the process (its allocations the process's: a
+// screen object is shared, so what its code keeps there must outlive any one player). The pad bridge's press (0xCB170
+// at 0x19E0B1, its button in [esp]) and release (0xCB540 at 0x19E10C), and the game menus' draw (0xCD7D0 at 0x55F94,
+// which also runs the pie menus' choice: 0xCD470, 0xCD680), each skipped to the instruction after its call. Without
+// own menus: the call runs as before (the driver's gates above decide)
+bool NativeSplitMenuPress(X86Context& ctx, uint8_t*) {
+    if (!g_ui.own_menus) return false;
+    return SharedUiGate(ctx, kUiPress, 0xCB170, {R32(ctx.esp)});
+}
+bool NativeSplitMenuRelease(X86Context& ctx, uint8_t*) {
+    if (!g_ui.own_menus) return false;
+    return SharedUiGate(ctx, kUiRelease, 0xCB540, {R32(ctx.esp)});
 }
 
 // [[hook]] at 0xD96A0, a front-end element's text set (stdcall: the text; esi the element; 0x1B4000 writes the shared
@@ -2702,6 +2771,17 @@ float NativeSplitViewShape() {
         return 0;
     return g_view_now.rect.w / g_view_now.rect.h;
 }
+// [[hook]] at 0x55F94 (the game menus 0xCD7D0) and 0x55FA7 (the front end's screens 0xF4400): docs 18.5, with own
+// menus every player's pass draws its own game menus (run as the process); the front end's screens stay the driver's
+bool NativeSplitMenuDraw(X86Context& ctx, uint8_t* p) {
+    if (!NativeSplitOn() || !RenderViews() || !csx::ClientContextInTurn() || !g_ui.own_menus)
+        return NativeSplitSharedDraw(ctx, p);
+    if (!nsplit::DrawsMenus(g_view_now.views, TurnPlayer(), g_ui.driver, true)) {
+        g_render.shared_skipped++;
+        return true;
+    }
+    return SharedUiGate(ctx, kUiDraw, 0xCD7D0, {});
+}
 bool NativeSplitDrawsShared() {
     return !NativeSplitOn() || !RenderViews() || !csx::ClientContextInTurn() ||
            nsplit::DrawsShared(g_view_now.views, TurnPlayer(), g_ui.driver);
@@ -2800,7 +2880,7 @@ struct FrontEndInputStats {
     int driver = -2;
 } g_fe;
 int InputPlayer() { return NativeSplitOn() ? PlayerOfContext(csx::ClientContextActive()) : -1; }
-bool FrontEndWithheld(int k) { return NativeSplitOn() && !nsplit::FeedsSharedFrontEnd(k, g_ui.driver); }
+bool FrontEndWithheld(int k) { return NativeSplitOn() && !nsplit::FeedsSharedFrontEnd(k, g_ui.driver, g_ui.own_menus); }
 std::string ScreenName() {
     uint32_t s = R32(kCurrentScreenPtr);
     if (!s) return "none";
@@ -3143,7 +3223,8 @@ bool RouteLine(X86Context&, uint32_t text, int mode) {
     // a player's initialisation (AddPlayer, in its context, outside the turns) adds its own lines, as its turn would
     bool own = csx::ClientContextInTurn() || g_init_owner > 0;
     int player = csx::ClientContextInTurn() ? TurnPlayer() : g_init_owner > 0 ? g_init_owner : -1;
-    nsplit::Route r = nsplit::RouteText(g_cmd_running, g_ui_scope > 0 || g_voice_scope > 0,
+    // docs 18.5: with own menus a player's front-end scope is its own menus': their lines are that player's
+    nsplit::Route r = nsplit::RouteText(g_cmd_running, (g_ui_scope > 0 && !g_ui.own_menus) || g_voice_scope > 0,
                                         csx::ClientContextInServerFrame(), own, player);
     if (r.origin == nsplit::Origin::Player && nsplit::DropsLines(g_departing, g_players, r.player)) {
         // a held player's line (its own CL_Disconnect's, or anything after its departure): never run
@@ -3205,7 +3286,7 @@ bool NativeSplitCbufForPlayer() {
 }
 
 // pc_keys.cpp (csx::PcDrivesScreen): the keyboard and mouse (player 1's) drive the shared front end's screen (docs 17.12)
-bool NativeSplitPcDrivesMenus() { return nsplit::PcInputDrivesMenus(NativeSplitOn(), g_ui.driver); }
+bool NativeSplitPcDrivesMenus() { return nsplit::PcInputDrivesMenus(NativeSplitOn(), g_ui.driver, g_ui.own_menus); }
 // the shared front end's driver (1-based, the PC keys' log)
 int NativeSplitDriverPlayer() { return g_ui.driver + 1; }
 

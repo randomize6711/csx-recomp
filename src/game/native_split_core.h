@@ -485,8 +485,12 @@ inline const char* Name(SharedUi s) {
 }
 struct SharedUiOwner {
     int driver = 0;  // the local player (slot) whose turns maintain the shared front end
+    // docs 18.5: every player's in-game menus its own (their state switched with its context): each player runs the
+    // front end's code in its own turn, as the process (its allocations the process's), on its own menu state
+    bool own_menus = false;
     SharedUi Decide(bool in_turn, int acting) const {
         if (!in_turn) return SharedUi::AsTitle;  // the process's own frame: the front end's code as before
+        if (own_menus && acting >= 0) return SharedUi::AsShared;
         return acting == driver ? SharedUi::AsShared : SharedUi::Withheld;  // a turn of no known player: withheld too
     }
     // player `k` leaves (before its slot is released): the driver handed to the lowest remaining active player, else

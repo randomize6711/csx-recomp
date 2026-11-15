@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "common/pc_settings.h"
 #include "common/csx.h"
 
 namespace {
@@ -83,6 +84,22 @@ void NativeSeatLeave(int k) {
     if (k >= 0 && k < 4) g_native_leaves |= 1u << k;
 }
 unsigned TakeNativeSeatLeaves() { return g_native_leaves.exchange(0); }
+std::atomic<unsigned> g_native_held{0};
+std::string g_native_launch;  // g_lock
+int g_native_players = 1;     // g_lock
+void SetNativeSeatsDetail(unsigned held, const std::string& launch, int players) {
+    g_native_held = held;
+    std::lock_guard<std::mutex> lock(g_lock);
+    g_native_launch = launch;
+    g_native_players = players;
+}
+unsigned NativeSeatsHeld() { return g_native_held; }
+std::string NativeSeatsLaunch(int* players) {
+    std::lock_guard<std::mutex> lock(g_lock);
+    if (players) *players = g_native_players;
+    return g_native_launch;
+}
+bool SplitEngineNative() { return pc::Get("split_engine", "native") != "processes"; }
 
 void SplitPrepareRelaunch(bool match) {
     if (auto f = g_prepare.load()) f(match);

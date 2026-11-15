@@ -665,6 +665,12 @@ int main(int argc, char** argv) {
                     SDL_DetachVirtualJoystick(id);
                     test_pads.erase(n);
                     LOGI("window: test controller %d detached", n);
+                } else if (!std::strcmp(what, "axis") && std::fscanf(pf, "%31s %31s", name, value) == 2 && test_pads.count(n)) {
+                    // a stick or trigger held at VALUE (-32768..32767) until set again (native split-screen's seats,
+                    // docs 18.3: a test controller's movement through the window's own controller path)
+                    SDL_GamepadAxis ax = SDL_GetGamepadAxisFromString(name);
+                    if (ax != SDL_GAMEPAD_AXIS_INVALID)
+                        SDL_SetJoystickVirtualAxis(test_pads[n], ax, int16_t(std::clamp(std::atoi(value), -32768, 32767)));
                 } else if (!std::strcmp(what, "button") && std::fscanf(pf, "%31s %31s", name, value) == 2 && test_pads.count(n)) {
                     SDL_GamepadButton b = SDL_GetGamepadButtonFromString(name);
                     if (b != SDL_GAMEPAD_BUTTON_INVALID) {

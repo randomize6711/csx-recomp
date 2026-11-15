@@ -14,6 +14,7 @@ int ClientContextActive();
 int ClientContextAdd();             // a new player's context (a copy of the active one's state); its index
 bool ClientContextSwitch(int k);    // player k's state made the live memory
 double ClientContextSwitchMs(uint64_t& switches);  // the time spent switching so far (ms) and how many switches
+void ClientContextSetFields(std::vector<uint32_t> fields, std::vector<uint32_t> fresh);  // heap fields (docs 18.5)
 bool ClientContextRemove(int k);    // context k dropped (not 0, not active); later ones move down an index
 bool ClientContextInTurn();         // inside a player's turn of _Host_Frame (its CL_Move, or its client half)
 bool ClientContextInServerFrame();  // inside _Host_Frame's SV_Frame call (0x5D3CD..0x5D3D2): the built-in server's

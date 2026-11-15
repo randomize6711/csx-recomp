@@ -361,6 +361,10 @@ int NativePlayers() {
     return n;
 }
 bool NativeP1Pad() { return pc::Get("split_p1_pad", "0") == "1"; }
+// docs 18.6: the game alone in its window with the native engine (PC setting split_engine): Instant Action's local
+// players are these seats too (a free controller's START joins, its BACK leaves); Start Match takes them into the match
+bool LobbySeats() { return !NativePlayers() && csx::SplitEngineNative() && !splitp::Active() && !csx::SplitPlayer(); }
+bool SeatsOn() { return NativePlayers() || LobbySeats(); }
 // development only (docs/native_splitscreen.md 17): CSX_NATIVE_SPLIT_TEST_PAD=1 gives native split-screen's ports
 // 1..N-1 a virtual controller (connected, at rest) whose presses a test scripts through the run folder's cmdK file (K
 // the player: cmd2 for port 1; "BUTTONS FRAMES" as the cmd file's), so a test drives player 2 through the game's own
@@ -376,10 +380,22 @@ seats::Table g_seats;  // g_lock held
 bool g_seats_ready = false;
 // the seats published to the game (csx::SetNativeSeats): the seats in the game, all N with the scripted test
 // controllers (development: they are no SDL devices)
+std::string PadKey(SDL_JoystickID id);
 void PublishSeats() {
-    if (!NativePlayers()) return;
-    unsigned mask = g_seats.Mask() & ((1u << NativePlayers()) - 1);
+    if (!SeatsOn()) return;
+    unsigned mask = g_seats.Mask();
     if (NativeTestPad()) mask = (1u << NativePlayers()) - 1;
+    unsigned held = 0;
+    for (int k = 0; k < seats::kSeats; k++)
+        if (g_seats.DeviceOf(k)) held |= 1u << k;
+    // a launch: player 1's controller is the one it has (its seat's), else in the menus the first one (the menus'
+    // own, g_pad) unless another seat holds it
+    seats::Table launch = g_seats;
+    if (!launch.DeviceOf(0) && LobbySeats() && g_pad && launch.SeatOf(SDL_GetGamepadID(g_pad)) < 0)
+        launch.GiveP1Controller();
+    int players = 1;
+    std::string text = launch.SaveCompact(&players);
+    csx::SetNativeSeatsDetail(held, text, players);
     static unsigned last = ~0u;
     if (mask != last) {
         last = mask;
@@ -395,15 +411,16 @@ void PublishSeats() {
     csx::SetNativeSeats(mask);
 }
 void InitSeats() {
-    if (g_seats_ready || !NativePlayers()) return;
+    if (g_seats_ready || !SeatsOn()) return;
     g_seats_ready = true;
     const char* v = std::getenv("CSX_NATIVE_SPLIT_SEATS");
     std::string text = v ? v : "";
-    if (text.empty())
+    if (text.empty() && NativePlayers())
         for (int k = 1; k < NativePlayers(); k++) text += (text.empty() ? "" : ";") + std::to_string(k) + "=";
     int n = g_seats.Load(text);
-    LOGI("input: native split-screen's seats from %s: %d waiting for their controllers (%s)",
-         v ? "the launch (CSX_NATIVE_SPLIT_SEATS)" : "the configured players", n, text.c_str());
+    LOGI("input: native split-screen's seats (%s) from %s: %d waiting for their controllers (%s)",
+         NativePlayers() ? "a match" : "the menus", v ? "the launch (CSX_NATIVE_SPLIT_SEATS)" : "the configured players",
+         n, text.c_str());
     PublishSeats();
 }
 // a controller's key, stable across its reconnects and this process's relaunch: its device path (Linux's evdev node),
@@ -443,17 +460,17 @@ SDL_Gamepad* NativePad(int port) {
 }
 // the window thread (HandleEvent): native split-screen's controller connected, disconnected, its START
 void SeatConnected(SDL_JoystickID id) {
-    if (!NativePlayers()) return;
+    if (!SeatsOn()) return;
     InitSeats();
     std::string key = PadKey(id);
     int k = g_seats.Connected(id, key);
-    if (k < 0 && NativeP1Pad() && !g_seats.DeviceOf(0)) k = g_seats.GiveP1Controller();
+    if (k < 0 && NativePlayers() && NativeP1Pad() && !g_seats.DeviceOf(0)) k = g_seats.GiveP1Controller();
     LOGI("input: controller %u (%s, %s) connected%s", unsigned(id), SDL_GetGamepadNameForID(id), key.c_str(),
          k >= 0 ? (" : player " + std::to_string(k + 1) + "'s again").c_str() : ": press START to play");
     PublishSeats();
 }
 void SeatDisconnected(SDL_JoystickID id) {
-    if (!NativePlayers()) return;
+    if (!SeatsOn()) return;
     int k = g_seats.Disconnected(id);
     if (k > 0)
         LOGI("input: player %d's controller %u disconnected: player %d stays in the match (no input) until it, or "
@@ -465,22 +482,32 @@ void SeatDisconnected(SDL_JoystickID id) {
 // START on a controller: its own seat's START is the game's (nothing here); a free controller takes a waiting seat,
 // else the next empty one up to the match's players. True when it took a seat (the press is then not the game's)
 bool SeatStart(SDL_JoystickID id) {
-    if (!NativePlayers()) return false;
+    if (!SeatsOn()) return false;
     InitSeats();
     int seat = -1;
-    seats::Start r = g_seats.Pressed(id, true, NativePlayers(), &seat);
+    // in a match up to four (the layout follows: docs 18.7); on Instant Action four
+    seats::Start r = g_seats.Pressed(id, true, seats::kSeats, &seat);
     if (r == seats::Start::Own) return false;
     if (r == seats::Start::Refused)
-        LOGI("input: controller %u's START: no seat free (%d players, this match's layout takes %d)", unsigned(id),
-             g_seats.Players(), NativePlayers());
+        LOGI("input: controller %u's START: no seat free (%d players)", unsigned(id), g_seats.Players());
     else
         LOGI("input: controller %u's START: player %d (%s)", unsigned(id), seat + 1, seats::Name(r));
     PublishSeats();
     return true;
 }
+// Instant Action (docs 18.6): BACK on a joined player's controller leaves its seat. True when it did
+bool SeatBack(SDL_JoystickID id) {
+    if (!LobbySeats()) return false;
+    int k = g_seats.SeatOf(id);
+    if (k <= 0) return false;
+    g_seats.Leave(k);
+    LOGI("input: player %d leaves (its controller's BACK on Instant Action)", k + 1);
+    PublishSeats();
+    return true;
+}
 // the game's leaves (a player chose to leave): its seat freed (the window thread, once a frame)
 void TakeSeatLeaves() {
-    if (!NativePlayers()) return;
+    if (!SeatsOn()) return;
     unsigned m = csx::TakeNativeSeatLeaves();
     if (!m) return;
     std::lock_guard<std::mutex> lock(g_lock);
@@ -783,6 +810,15 @@ void HandleEvent(const void* p) {
             // native split-screen (18.3): a free controller's START takes a seat (and is not the game's press)
             if (NativePlayers()) {
                 if (e.gbutton.button == SDL_GAMEPAD_BUTTON_START) SeatStart(e.gbutton.which);
+                break;
+            }
+            // the native engine's Instant Action (docs 18.6): a free controller's START joins (player 1's own, the
+            // first controller, stays the menus'), a joined one's BACK leaves; no restart as the compositor
+            // (Multiplayer's party screen keeps the compositor's party below)
+            if (LobbySeats() && csx::MenuJoin()) {
+                const bool own = g_pad && SDL_GetGamepadID(g_pad) == e.gbutton.which;
+                if (!own && e.gbutton.button == SDL_GAMEPAD_BUTTON_START) SeatStart(e.gbutton.which);
+                else if (!own && e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) SeatBack(e.gbutton.which);
                 break;
             }
             // the game alone on a party screen: a controller that is not player 1's asks for split screen

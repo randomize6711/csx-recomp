@@ -140,6 +140,9 @@ double ClientContextSwitchMs(uint64_t& switches) {
     return g_switch_ms;
 }
 bool ClientContextRemove(int k) { return Contexts().Remove(k); }
+void ClientContextSetFields(std::vector<uint32_t> fields, std::vector<uint32_t> fresh) {
+    Contexts().SetFields(std::move(fields), std::move(fresh));
+}
 bool ClientContextHasInitial() { return Contexts().HasInitial(); }
 std::vector<uint8_t>& ClientContextInitial() { return Contexts().Initial(); }
 std::vector<uint8_t>& ClientContextSaved(int k) { return Contexts().Saved(k); }
