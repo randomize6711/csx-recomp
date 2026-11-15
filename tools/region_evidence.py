@@ -1057,6 +1057,47 @@ for _lo, _n, _own, _why in REVIEWED_M4:
     for _a in [a for a in AT if _lo <= a < _lo + _n]:
         del AT[_a]
 
+# M4 menus (docs/native_splitscreen.md 18.5): the in-game menus' state is each player's (own menus: every player runs
+# its menus in its own turn, drawn in its own pass). From the audit of the menu code (0xCA0B0..0xCD7D0, the pad
+# bridge 0x19DFD0, the look routine 0x19E160); the screens' heap fields (+0x37C, the table's +0x9C / +0x120) are
+# switched by native_split.cpp's MenuFieldsFollow. Two of them are also written by the game DLL's RestartRound (0x1462E1,
+# 0x1462F5, in the server's frame): those stores are made into every player's copy (NativeSplitServerUiStore)
+_MENU = 'the in-game menus\' state (docs 18.5): '
+REVIEWED_M4_MENUS = [
+    (0x37AA94, 0x4, 'player', _MENU + 'the pie\'s slice last frame: written 0xCD56D, read 0xCD61B (a change plays the highlight)'),
+    (0x37ABA0, 0x1, 'player', _MENU + 'a press not yet taken: set by the pad bridge 0x19E084, cleared by the button commands '
+     'in 0xCB170 / 0xCB540, read by the pie\'s choice 0xCD680'),
+    (0x37CA8C, 0x4, 'player', _MENU + 'Restart Match\'s confirmation row held disabled (ms): set by RestartRound 0x1462E1 '
+     '(into every player: NativeSplitServerUiStore), counted down by the menus\' draw 0xCD806 / 0xCD80E, read 0xCAB10'),
+    (0x385410, 0x1C, 'player', _MENU + 'the pie menu\'s state: armed choice flags +0 / +1, active +2, slices +4, start '
+     'angle +8, slice width +0xC, the highlighted slice +0x10 (0x385420, -1 none), the stick\'s angle +0x14 and length '
+     '+0x18; written by 0xCD470, 0xCD69A, 0xCA0B0, 0xCA770, 0xCABB0, 0xD72A0; read by 0xCD680, 0xCC9F0 (its draw)'),
+    (0x552348, 0x4, 'player', _MENU + 'the screen last popped (0xCA585, 0xCAE0E, 0xCAE5A), read at a close 0xCA3D0'),
+    (0x55234C, 0x1, 'player', _MENU + 'open the buy menu in a buy zone (set by the spawn message 0x1D4E6D, taken by the '
+     'menus\' draw 0xCD814 -> 0xCA830; cleared by RestartRound 0x1462F5 into every player: NativeSplitServerUiStore)'),
+    (0x552350, 0x4, 'player', _MENU + 'the money last seen by the menus\' draw (0xCD8EA, read 0xCD8C1)'),
+    (0x552364, 0x10, 'player', _MENU + 'the menus\' clock 0xC9B80 (run at the top of each menu draw): its frame delta '
+     '0x552368 read by the pie and the draw; shared, a second player\'s draw in the same frame got a delta of 0'),
+    (0x5523C0, 0x8, 'player', _MENU + 'the button snapshot and the one before (the look routine 0x19E1DB / 0x19E1E1), '
+     'read by the pie\'s choice 0xCD689'),
+    (0x5523D4, 0xC, 'player', _MENU + 'the top screen 0x5523D4 (the stack: its links +0x37C on the screens), the screen '
+     'whose pie bundle is loaded 0x5523D8 (0xCA0EB, 0xCAE99, 0xD7393), the pie\'s last top screen 0x5523DC (0xCD671)'),
+    (0x5523E4, 0x4, 'player', _MENU + 'the delayed command queue (0xCD714 / 0xCD71E, run one a frame by 0xCD760)'),
+    (0x5523F0, 0x4, 'player', _MENU + 'the top screen is neither a buy menu nor the spectator\'s (0xCA13A, 0xCA285, '
+     '0xCA3B7, 0xCA5BB), read by the loading draw 0xBE128'),
+    (0x5523F7, 0x3, 'player', _MENU + 'the buy menu\'s white / black held (0xCB243, 0xCB1F5, 0xCB56C, 0xCB55E; read '
+     '0xCC90D, 0xCC900) and 0x5523F9, the scoreboard to open once connected (0xEDBD5, 0xCD884; read 0xCD862)'),
+    (0x552C74, 0x4, 'player', _MENU + 'the HUD\'s money (the Money message 0x1AE1BA), read by the buy menu\'s checks '
+     '0xCC260, 0xCC3A4 and its draw 0xCD8BB'),
+    (0x552C94, 0x4, 'player', _MENU + 'the HUD\'s "B may leave team select" (0x1AE6D7), read by back 0xCAD1A'),
+    (0x552DD0, 0x8, 'player', _MENU + 'the menus\' direction (0xCA670 from the active pad\'s stick), read by the pie'),
+    (0x5BD99C, 0x4, 'player', _MENU + 'the pie\'s hover timer (0xCD54D, 0xCD555, 0xCD5A0, 0xCD63B; read 0xCD62A)'),
+]
+OBJECTS = [e for e in OBJECTS if not any(lo <= e[0] < lo + n for lo, n, _, _ in REVIEWED_M4_MENUS)] + REVIEWED_M4_MENUS
+for _lo, _n, _own, _why in REVIEWED_M4_MENUS:
+    for _a in [a for a in AT if _lo <= a < _lo + _n]:
+        del AT[_a]
+
 # the shared kinds tools/shared_changes.py reports apart (docs 15.14): objects the evidence proves rewritten before
 # every use (nothing kept between two uses), so a change there is not state another player depends on. Only objects
 # whose evidence says so; any other shared-mutable object is process-wide mutable state

@@ -50,11 +50,16 @@ PER_PASS = [
 SHARED = [
     (0x3852F8, "the title's active pad (set per turn by native split, put back after)"),
     (0x5439B8, "the pad bridge's previous buttons (swapped per player's turn)"),
-    # docs 17.9: the shared front end's input, fed by its driver's controller only (NativeSplitLookMenu)
-    (0x5523C0, "the front end's button snapshot (the look routine's copy of the bridge's mask)"),
-    (0x5523C4, "the front end's button snapshot of the frame before"),
-    (0x552DD0, "the menus' direction x (0xCA670, the driver's left stick)"),
+]
+# docs 18.5 (own menus): the menus' input and state are each player's (its own screens, in its own turn)
+MENU = [
+    (0x5523C0, "the menus' button snapshot (the look routine's copy of the bridge's mask)"),
+    (0x5523C4, "the menus' button snapshot of the frame before"),
+    (0x552DD0, "the menus' direction x (0xCA670, the player's left stick)"),
     (0x552DD4, "the menus' direction y"),
+    (0x5523D4, "the top screen (its stack)"),
+    (0x385420, "the pie menu's highlighted slice"),
+    (0x552368, "the menus' frame delta"),
 ]
 
 
@@ -91,6 +96,9 @@ def main():
         check(not inside(a, regs), 'per pass, shared: 0x%X %s (%s)' % (a, what, why))
     for a, what in SHARED:
         check(not inside(a, regs), 'shared: 0x%X %s' % (a, what))
+    for a, what in MENU:
+        check(inside(a, regs), 'per player (own menus): 0x%X %s' % (a, what))
+    check(not inside(0x5523D0, regs), 'the screen list 0x5523D0 stays shared (the screens are the process\'s)')
     # the M3 / M3.2 code writes no player's camera address directly (the pad turn writes the shared pad index and mask)
     for name in ('src/game/native_split.cpp', 'src/game/pc_wide.cpp', 'src/game/pc_viewmodel.cpp'):
         text = open(os.path.join(ROOT, name)).read()

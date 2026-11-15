@@ -181,8 +181,10 @@ def shared_ui(funcs, cl, regs, hk, text):
     d = [s for _, s in funcs.get(0xD71E0, [])]
     check(d[:2] == ['push esi', 'mov esi, [0x005523D0]'] and 'mov esi, [esi+0x378]' in d,
           '0xD71E0 walks the screen list 0x5523D0')
-    check(not in_regions(0x5523D0, regs) and not in_regions(0x5523D4, regs) and not in_regions(0x5523D8, regs),
-          'the screen list and stack (0x5523D0..0x5523D8) are in no player\'s region: shared')
+    # docs 18.5: the screen list is the process's; each player's stack (its top screen, the screen whose pie bundle
+    # is loaded) its own
+    check(not in_regions(0x5523D0, regs) and in_regions(0x5523D4, regs) and in_regions(0x5523D8, regs),
+          'the screen list 0x5523D0 shared; the stack 0x5523D4 / 0x5523D8 each player\'s')
     check({a for _, a in cl.get(0x1B9820, ())} == {0x1B935A}, f'0x1B9820\'s only call is 0x1B935A ({cl.get(0x1B9820)})')
     check(funcs.get(0x1B9820, [(0, '')])[-1][1] == 'ret 0x04', '0x1B9820 is stdcall with one argument (the panel)')
     u = dict(funcs.get(0x1B92F0, []))
@@ -543,8 +545,11 @@ def front_end_input(funcs, cl, regs, hk, text):
           'the snapshot written only by the look routine (%s)' % {hex(k): sorted(hex(a) for _, a in v) for k, v in w.items()})
     check({f for f, _ in w.get(0x552DD0, set()) | w.get(0x552DD4, set())} == {0xCA670},
           'the menus\' direction written only by 0xCA670')
-    for v in (0x5523C0, 0x5523C4, 0x552DD0, 0x552DD4, 0x5439B8, 0x3852F8):
-        check(not in_regions(v, regs), 'the front end\'s input 0x%X is the process\'s (no player region)' % v)
+    # docs 18.5: the menus' input each player's (own menus); the bridge's mask and the active pad stay the process's
+    for v in (0x5523C0, 0x5523C4, 0x552DD0, 0x552DD4):
+        check(in_regions(v, regs), 'the menus\' input 0x%X is each player\'s (own menus)' % v)
+    for v in (0x5439B8, 0x3852F8):
+        check(not in_regions(v, regs), 'the pad bridge\'s 0x%X is the process\'s (no player region)' % v)
     # the pie menu reads them, under the game menus' update 0xCD7D0, the shared draw at 0x55F94 (the driver's turn)
     pie = dict(funcs.get(0xCD470, []))
     check(pie.get(0xCD4F3) == 'fld [0x00552DD4]' and pie.get(0xCD4F9) == 'fld [0x00552DD0]' and

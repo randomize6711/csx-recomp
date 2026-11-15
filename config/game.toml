@@ -1237,6 +1237,29 @@ at = 0x55F94
 call = "NativeSplitMenuDraw"
 on_true = 0x55F99
 
+# docs 18.5: RestartRound's stores into the menus' per-player state, made for every local player
+[[hook]]
+at = 0x1462E1
+call = "NativeSplitRestartTimer"
+on_true = 0x1462EB
+
+[[hook]]
+at = 0x1462F5
+call = "NativeSplitRestartBuyOpen"
+on_true = 0x1462FC
+
+# docs 18.5: a player's pause menu with two or more playing pauses nothing (al 0)
+[[hook]]
+at = 0xC9FC0
+call = "NativeSplitUiPause"
+on_true = "ret"
+
+# docs 18.5: another player's screen open does not save player 1's profile
+[[hook]]
+at = 0xD73B8
+call = "NativeSplitUiSaveProfile"
+on_true = 0xD73BD
+
 # docs 18.5 (own menus): the pad bridge's press 0xCB170 (at its call, the button in [esp]) and release 0xCB540 run as
 # the process in the player's own turn; each skipped to the instruction after its call (the bridge's add esp follows)
 [[hook]]

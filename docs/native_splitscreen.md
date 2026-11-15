@@ -2532,3 +2532,46 @@ the process's run of the buffer (player 1's context, NativeSplitCbufForPlayer), 
 - **Rumble**: the title's XInputSetState on a port reaches that seat's controller (player 1's own if it has one).
 - Not done here: a notice in a waiting player's view (18.8); the window's own test controllers ("pad N attach"
   in a scenario) are SDL virtual gamepads, so a run can drive START, a disconnect and a reconnect through this path.
+
+### 18.5 Every player's in-game menus its own (M4, static)
+
+Before: one shared front end, driven by one player; every other player's team screen, buy menu and pause menu were
+withheld (run 22: after the rejoin player 1 could not buy). Now (CSX_NATIVE_SPLIT_MENUS, on by default; =0 the earlier
+driver model) each player has its own menus, in its own turn, drawn in its own pass:
+- **Its state switched with its context.** From an audit of the menu code (tools/region_evidence.py
+  REVIEWED_M4_MENUS, 17 objects, 113 bytes): the top screen and the stack's bookkeeping 0x5523D4..0x5523DF, the
+  last popped screen 0x552348, the pie menu's state 0x385410..0x38542B (the highlighted slice 0x385420), its slice
+  and hover timer 0x37AA94 / 0x5BD99C, the press-not-taken flag 0x37ABA0, the button snapshot 0x5523C0 and the
+  direction 0x552DD0, the menus' clock 0x552364 (shared, a second player's draw got a frame delta of 0), the buy
+  menu's held keys 0x5523F7 / 0x5523F9, the delayed commands 0x5523E4, the money the buy menu checks 0x552C74, the
+  spawn buy menu flag 0x55234C, the Restart Match row timer 0x37CA8C, and others. The screens themselves stay the
+  process's (one list, 0x5523D0); their per-player fields (every screen's stack link +0x37C, its table's selection
+  +0x9C and first row +0x120) are switched as **heap fields** (client_context_core.h SetFields, native_split.cpp
+  MenuFieldsFollow: rebuilt from the screen list when it changes). Two players can have the same screen open.
+- **Run as the process.** A player's menu code (its presses 0xCB170 and releases 0xCB540 from the pad bridge, the
+  menus' draw 0xCD7D0 with the pie's choice, menu opens, closes, xbui and front-end commands) runs in its own turn in
+  the shared front end's scope (its allocations the process's: the screens are shared), its console lines to its own
+  queue (RouteText). The scoreboard's rows stay the driver's to rebuild (the same for everyone).
+- **The server's writes** into two of these (RestartRound 0x1462E1, 0x1462F5) go to every player
+  (ClientContextBroadcast; the guard takes them as expected).
+- **Pause.** With two or more players playing, a player's pause menu is its own: the match goes on (0xC9FC0's pause
+  skipped: no sound paused, nothing of the server; a resume always runs). Alone, the title's own pause.
+- **The profile.** Another player's screen opens do not run stuffUItoPlayerData (0xDAD40 at 0xD73B8), which wrote the
+  front end's tables into player 1's profile and saved it.
+- Known: the pie menus' bundle cache has two slots and unloads by name with no count (0xC41D0 / 0xC4770); two players
+  on the same pie, one closing it, unloads what the other draws (R: to watch in the first run with own menus; a
+  count is the fix if it shows). Three or four players on different pies run past the two slots (the title's
+  fallback loads without a slot, 0xC45F5).
+
+### 18.6 Instant Action's local players in one process (M5, static)
+
+- **Joining** (the native engine: PC setting split_engine, "native" by default, "processes" the compositor): on
+  Instant Action, a free controller's START takes the next seat (no restart as the compositor), its BACK leaves; the
+  first controller stays player 1's (the menus'); the panel shows the seats (P2..P4, a disconnected controller).
+- **Start Match** (net_session.cpp NativeSplitHandover, at the title's relaunch): with two or more seats the next
+  process gets CSX_NATIVE_SPLIT=N and CSX_NATIVE_SPLIT_SEATS (pad_seats.h SaveCompact: players numbered without
+  gaps, player 1's controller with it); the match runs in the game's own server (no local server process). A map
+  change carries the match's seats on; back to the menus the seats stay (the party), CSX_NATIVE_SPLIT not.
+- **In the match**: START on a free controller takes a waiting seat, else a new one up to four (18.7: the layout
+  follows); a player leaves from its own pause menu's Leave (the title's disconnect in its turn: its seat freed).
+- A solo match stays the title's own (no native machinery): others join from Instant Action.

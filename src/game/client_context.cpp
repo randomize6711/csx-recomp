@@ -242,6 +242,24 @@ void ClientContextsGuardAfter(X86Context&, uint8_t*) {
     }
 }
 
+// docs 18.5: a store the title's server code makes into a player region's word meant for every local player (the game
+// DLL's RestartRound clearing the menus' flags): into the live memory and every other context's copy; the guard's copy
+// takes it too (an expected write, not one the server frame should not make)
+namespace csx {
+void ClientContextBroadcast(uint32_t va, const void* data, uint32_t n) {
+    long off = Contexts().OffsetOf(va);
+    std::memcpy(Map(va), data, n);
+    if (off < 0) return;
+    for (int c = 0; c < Contexts().Count(); c++) {
+        if (c == Contexts().Active()) continue;
+        std::vector<uint8_t>& copy = Contexts().Saved(c);
+        if (size_t(off) + n <= copy.size()) std::memcpy(copy.data() + off, data, n);
+    }
+    Guard& g = TheGuard();
+    if (g.on && g_in_server_frame && size_t(off) + n <= g.before.size()) std::memcpy(g.before.data() + off, data, n);
+}
+}  // namespace csx
+
 // [[hook]] at 0x1CB29 in ClientDLL_HudVidInit (0x1CAC0), just before the client game's HUD_VidInit ([0x7D6CA8]): which
 // player's HUD is initialised (log only; M2 checks that every player initialises its own)
 void ClientContextsHudInit(X86Context&, uint8_t*) {

@@ -2533,6 +2533,47 @@ bool NativeSplitScoreboardRows(X86Context& ctx, uint8_t*) {
     return SharedUiGate(ctx, kUiRows, kScoreboardRows, {ctx.esi});
 }
 
+// [[hook]] at 0x1462E1 and 0x1462F5 in the game DLL's RestartRound (0x1462B0, the server's frame): its stores into the
+// menus' per-player state (docs 18.5: Restart Match's confirmation row held 4 s; the buy menu's spawn opening cleared)
+// made for every local player; on_true past each (0x1462EB, 0x1462FC)
+bool NativeSplitServerUiStore(X86Context&, uint8_t*) {
+    if (!NativeSplitOn() || !g_ui.own_menus) return false;
+    return true;
+}
+bool NativeSplitRestartTimer(X86Context& ctx, uint8_t* p) {
+    if (!NativeSplitServerUiStore(ctx, p)) return false;
+    const uint32_t v = 0xFA0;
+    csx::ClientContextBroadcast(0x37CA8C, &v, 4);
+    return true;
+}
+bool NativeSplitRestartBuyOpen(X86Context& ctx, uint8_t* p) {
+    if (!NativeSplitServerUiStore(ctx, p)) return false;
+    const uint8_t v = 0;
+    csx::ClientContextBroadcast(0x55234C, &v, 1);
+    return true;
+}
+
+// [[hook]] at 0xC9FC0, the menus' pause (cdecl: true pauses, false resumes; al the result): docs 18.5, with two or
+// more players playing a player's pause menu is its own (the match goes on: no sound paused, nothing of the server);
+// only the pause is skipped (al 0, "ret"), a resume always runs (a pause from a time alone is undone)
+bool NativeSplitUiPause(X86Context& ctx, uint8_t*) {
+    if (!NativeSplitOn() || !R32(ctx.esp + 4) || (R32(ctx.esp + 4) & 0xFF) == 0 || g_players.Playing() < 2) return false;
+    ctx.eax &= ~0xFFu;
+    LOG_FIRST(4, "native split: a pause menu in player %d's turn: the match goes on (%d players playing)", TurnPlayer() + 1,
+              g_players.Playing());
+    return true;
+}
+
+// [[hook]] at 0xD73B8 in the screen open 0xD72A0, `call 0xDAD40` (stuffUItoPlayerData: the front end's tables into the
+// one profile and its save to U:): docs 18.5, only player 1's turn (or outside the turns) saves: another player's menus
+// would write player 1's profile; on_true 0xD73BD
+bool NativeSplitUiSaveProfile(X86Context&, uint8_t*) {
+    if (!NativeSplitOn() || !csx::ClientContextInTurn()) return false;
+    if (TurnPlayer() <= 0) return false;
+    LOG_FIRST(4, "native split: player %d's screen open: the profile is player 1's, not saved", TurnPlayer() + 1);
+    return true;
+}
+
 // docs 18.5 (own menus): a player's menu code run in its own turn as the process (its allocations the process's: a
 // screen object is shared, so what its code keeps there must outlive any one player). The pad bridge's press (0xCB170
 // at 0x19E0B1, its button in [esp]) and release (0xCB540 at 0x19E10C), and the game menus' draw (0xCD7D0 at 0x55F94,
