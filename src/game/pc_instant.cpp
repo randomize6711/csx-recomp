@@ -23,6 +23,7 @@
 #include <string>
 
 #include "common/csx.h"
+#include "common/pc_settings.h"
 #include "core/log.h"
 #include "cpu/x86_context.h"
 #include "game/pc_join_rules.h"
@@ -193,6 +194,7 @@ std::string PcCurrentScreen();  // pc_browser.cpp
 // title itself now: back from a match, the screen the match was started from) gives way to the hub, Back from which
 // is the main menu as before
 void PcInstantRestoreState(const std::string& state);
+std::string PcInstantSaveState();
 
 void PcInstantFrame(X86Context& ctx) {
     static std::string last;
@@ -202,6 +204,27 @@ void PcInstantFrame(X86Context& ctx) {
         PcInstantRestoreState(kept);
         unsetenv("CSX_INSTANT_STATE");
         if (screen == pcmenu::kInstantScreen) Show(ctx);
+    }
+    // the choices kept in pc_settings.ini (instant_state): the title's screens are made again at every start, the
+    // relaunch after each match too (2026-11-15 playtest: Instant Action's changes did not stay). Restored once a
+    // process, when the hub first shows; saved whenever they change while the hub shows
+    static bool restored = false;
+    if (screen == pcmenu::kInstantScreen && !PcListRows(kOptions).empty()) {
+        if (!restored) {
+            restored = true;
+            if (std::string kept = pc::Get("instant_state", ""); !kept.empty()) {
+                PcInstantRestoreState(kept);
+                Show(ctx);
+            }
+        }
+        static std::string saved;
+        if (std::string now = PcInstantSaveState(); now != saved) {
+            if (!saved.empty() || now != pc::Get("instant_state", "")) {
+                pc::Set("instant_state", now);
+                pc::Save();
+            }
+            saved = now;
+        }
     }
     if (screen == pcmenu::kInstantScreen) ShowPanel(ctx, false);  // a player joined or left, a note passed
     if (screen == last) return;
@@ -236,7 +259,7 @@ void PcInstantRestoreState(const std::string& state) {
         else if (part[0] == 'b') PcSetListRows(kBots, Ints(v));
         else if (part[0] == 'm' && std::atoi(v.c_str()) >= 0) PcSetSelectedRow(kMaps, std::atoi(v.c_str()));
     }
-    LOGI("pc instant: the match's choices kept across the restart as split screen (%s)", state.c_str());
+    LOGI("pc instant: the match's choices restored (%s)", state.c_str());
 }
 
 // "pc_instant show|start|map|mode|bots|rules|back|custom" (the hub's rows and its screens' Accept)

@@ -394,7 +394,7 @@ void PublishSeats() {
     // a launch: player 1's controller is the one it has (its seat's), else in the menus the first one (the menus'
     // own, g_pad) unless another seat holds it
     seats::Table launch = g_seats;
-    if (!launch.DeviceOf(0) && LobbySeats() && g_pad && launch.SeatOf(SDL_GetGamepadID(g_pad)) < 0)
+    if (!launch.DeviceOf(0) && LobbySeats() && NativeP1Pad() && g_pad && launch.SeatOf(SDL_GetGamepadID(g_pad)) < 0)
         launch.GiveP1Controller();
     int players = 1;
     std::string text = launch.SaveCompact(&players);
@@ -820,7 +820,9 @@ void HandleEvent(const void* p) {
             // first controller, stays the menus'), a joined one's BACK leaves; no restart as the compositor
             // (Multiplayer's party screen keeps the compositor's party below)
             if (LobbySeats() && csx::MenuJoin()) {
-                const bool own = g_pad && SDL_GetGamepadID(g_pad) == e.gbutton.which;
+                // player 1's own controller only with Also a Controller; on the keyboard and mouse (the default) every
+                // controller's START joins (2026-11-15 playtest: one controller, taken as player 1's, could not join)
+                const bool own = NativeP1Pad() && g_pad && SDL_GetGamepadID(g_pad) == e.gbutton.which;
                 if (!own && e.gbutton.button == SDL_GAMEPAD_BUTTON_START) SeatStart(e.gbutton.which);
                 else if (!own && e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) SeatBack(e.gbutton.which);
                 break;
@@ -1111,7 +1113,9 @@ Pad Poll(int port) {
     // (on a party screen, the game alone, a controller that is not player 1's only asks to join: not player 1's input)
     // native split-screen: the first controller is player 2's unless player 1 also has one (NativePad)
     // native split-screen: player 1's own controller is its seat's (18.3), none unless Also a Controller gave it one
-    SDL_Gamepad* const p1pad = NativePlayers() ? SeatPad(0) : g_pad;
+    // in the menus a controller that joined as another player (Instant Action's seats) is no longer player 1's
+    SDL_Gamepad* p1pad = NativePlayers() ? SeatPad(0) : g_pad;
+    if (!NativePlayers() && p1pad && LobbySeats() && g_seats.SeatOf(SDL_GetGamepadID(p1pad)) > 0) p1pad = nullptr;
     if (p1pad && !(csx::PartyScreenOpen() && !splitp::Active() && !PartyPadIsPlayerOnes(SDL_GetGamepadID(p1pad)))) {
         auto axis = [p1pad](SDL_GamepadAxis a) { return float(SDL_GetGamepadAxis(p1pad, a)); };
         auto btn = [p1pad](SDL_GamepadButton b) { return SDL_GetGamepadButton(p1pad, b); };
@@ -1128,6 +1132,9 @@ Pad Poll(int port) {
                        {SDL_GAMEPAD_BUTTON_LEFT_STICK, 64},  {SDL_GAMEPAD_BUTTON_RIGHT_STICK, 128}};
         for (const auto& d : digital)
             if (btn(d.b)) p.buttons |= d.bit;
+        // Instant Action with player 1 on the keyboard: a controller's START is a join (window::HandleEvent's seats),
+        // never player 1's menu button (it would be Start Match's A)
+        if (!NativePlayers() && LobbySeats() && csx::MenuJoin() && !NativeP1Pad()) p.buttons = uint16_t(p.buttons & ~16);
         const SDL_GamepadButton analog[6] = {SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST,
                                              SDL_GAMEPAD_BUTTON_WEST, SDL_GAMEPAD_BUTTON_NORTH,
                                              SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER,  // black

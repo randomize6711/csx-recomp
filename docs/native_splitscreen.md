@@ -2697,3 +2697,19 @@ menu). No error.
 
 **M3.2-M8 automated verification is complete** for what a run without physical hardware can show. What is left is the
 hands-on test (docs/native_splitscreen_guide.md "Manual test checklist").
+
+### 18.16 The user's first playtest (2026-11-15): findings fixed
+
+- A controller switched on after the start was never seen: `run_game.sh`'s offline sandbox (a private network
+  namespace) does not get udev's netlink hot-plug notices; SDL now watches /dev/input itself there
+  (SDL_JOYSTICK_DISABLE_UDEV=1).
+- With one controller, Instant Action took it as player 1's (the menus') and its START could not join, so the
+  playtest went through Multiplayer's party screen into the multi-process fallback (two loading screens). Now with
+  Player 1 on the keyboard and mouse (the default) every controller's START joins on Instant Action (and is never
+  player 1's menu A there); a joined controller no longer drives player 1's menus; player 1 keeps a controller only
+  with Also a Controller.
+- Instant Action's choices (mode, bots, rules, map) did not stay: they live in the title's screens, made again at
+  every start (each match's relaunch too). They are kept in pc_settings.ini (instant_state), restored when the hub
+  first shows in a process, saved whenever they change there.
+- Multiplayer's party screen (local players into network servers) still uses the multi-process engine: native
+  split-screen plays in the game's own server only (Instant Action).
