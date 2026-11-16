@@ -2,7 +2,8 @@
 //   - Flashbang Effect (PC Options > Gameplay, pc_settings.ini flashbang_colour white|black): a flashbang blinds with
 //     the server's ScreenFade (CS's: full white, alpha 255, the fade's time by how hard it hit). The engine's
 //     handler (V_ScreenFade 0xB6500: duration, hold time, flags, r g b a into the fade at 0x74A244..0x74A258) is
-//     hooked once it copied the colour (0xB6557): with Black a white fade (255 255 255, alpha over 200) is made black,
+//     hooked once it copied the colour (0xB6557): with Black a white fade (255 255 255, alpha 150 or more: CS's 255 for a
+//     player facing the flash, 200 looking away) is made black,
 //     the time and strength unchanged. It is this player's view only (the server and the other players unchanged).
 //   - Gravity (the match's rules: Custom Game's Match Options, the party's Rules, csx-server's gravity, the console):
 //     "pc_gravity N" sets the server's sv_gravity, which the engine sends every client with the move variables (the
@@ -72,7 +73,13 @@ void PcFlashFade(X86Context&, uint8_t*) {
         black = pc::Get("flashbang_colour", "white") == "black";
     }
     auto* c = static_cast<uint8_t*>(kernel::HostPtr(kFadeColour));
-    if (!black || c[0] != 255 || c[1] != 255 || c[2] != 255 || c[3] <= 200) return;
+    if (!black || c[0] != 255 || c[1] != 255 || c[2] != 255) return;
+    // CS's flashbang fades at 255 when the player faced it and at 200 when it looked away: both black (2026-11-16
+    // playtest: "the screen flashes white even tho it's set to black", only the 255 ones were; the test was > 200)
+    if (c[3] < 150) {
+        LOG_FIRST(8, "pc gameplay: a white fade of alpha %d left white (not a flashbang's)", c[3]);
+        return;
+    }
     c[0] = c[1] = c[2] = 0;
     LOG_FIRST(8, "pc gameplay: a flashbang's white fade drawn black (alpha %d)", c[3]);
 }

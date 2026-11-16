@@ -40,7 +40,7 @@ Code: `src/game/pc_gameplay.cpp`, plus the settings rows in `pc_menu.cpp`, the c
 
 **Flashbang.**
 - The engine's ScreenFade handler (`V_ScreenFade` 0xB6500) is hooked once it has copied the colour (0xB6557).
-- With Black, a white fade (255 255 255 with alpha over 200: the flashbang's) becomes black. Duration and strength
+- With Black, a white fade (255 255 255 with alpha 150 or more: the flashbang's, 255 facing it and 200 looking away) becomes black (2026-11-16: the 200 ones stayed white). Duration and strength
   are unchanged.
 - Only this player's own view changes.
 
