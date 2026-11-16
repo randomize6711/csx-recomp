@@ -1188,6 +1188,15 @@ call = "NativeSplitDestroy552C70"
 on_false = 0x1A7F84
 
 [[hook]]
+at = 0x1A7D8E
+call = "NativeSplitForceFeedbackRead"
+
+[[hook]]
+at = 0x1A7C80
+call = "NativeSplitForceFeedbackStart"
+on_true = 0x1A7D1A
+
+[[hook]]
 at = 0x1B667A
 call = "NativeSplitDestroy552C9C"
 on_false = 0x1B6680

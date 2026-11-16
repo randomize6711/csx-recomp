@@ -1098,6 +1098,28 @@ for _lo, _n, _own, _why in REVIEWED_M4_MENUS:
     for _a in [a for a in AT if _lo <= a < _lo + _n]:
         del AT[_a]
 
+# The client view's smoothing state (docs/native_splitscreen.md 18.18; 2026-11-16 playtest: "camera height and just
+# movement feels really off in split-screen"): V_CalcNormalRefdef 0x19F080 and V_CalcBob 0x19EBA0 keep statics
+# between one frame and the next of THE SAME view. Shared, each player's pass smoothed against the other player's:
+# the stair step (oldz) pulled a player's eye toward the other's height (up to its 18-unit clamp), the bob and the
+# view interpolation advanced with both players' frames. Each is read before it is written in its function (state
+# carried between frames), written only by those two functions, never by the server.
+_VIEW = 'Reviewed (18.18): '
+REVIEWED_VIEW = [
+    (0x5BDA9C, 0x4, 'player', _VIEW + 'oldz, the stair smoothing\'s last eye height (0x19F5D0 fsub, 0x19F60B fadd, '
+     '0x19F611 fst, clamped to the origin 0x19F624 and to 18 units below it 0x19F649; 0x19F64F the eye\'s z)'),
+    (0x5CBB94, 0x10, 'player', _VIEW + 'V_CalcBob 0x19EBA0\'s bobtime 0x5CBB94, bob 0x5CBB98 and lasttime 0x5CBBA0: '
+     'read and advanced by the frame time each call (a shared bob ran with both players\' frames)'),
+    (0x5CBC18, 0x818, 'player', _VIEW + 'the view interpolation history ViewInterp: Origins[64][3] 0x5CBC18 '
+     '(0x19F6C4..0x19F6EE, read 0x19F861..0x19F8BB), OriginTime[64] 0x5CBF18 (0x19F701, read 0x19F7AE..0x19F83B), '
+     'its angles 0x5CC018.., CurrentEntry 0x5CC418 (0x19F708 inc, & 0x3F), lastorg 0x5CC420..0x5CC428 (0x19F711.. '
+     '0x19F722) and the step\'s lasttime 0x5CC42C (0x19F5EA fsub, 0x19FA65)'),
+]
+OBJECTS = [e for e in OBJECTS if not any(lo <= e[0] < lo + n for lo, n, _, _ in REVIEWED_VIEW)] + REVIEWED_VIEW
+for _lo, _n, _own, _why in REVIEWED_VIEW:
+    for _a in [a for a in AT if _lo <= a < _lo + _n]:
+        del AT[_a]
+
 # the shared kinds tools/shared_changes.py reports apart (docs 15.14): objects the evidence proves rewritten before
 # every use (nothing kept between two uses), so a change there is not state another player depends on. Only objects
 # whose evidence says so; any other shared-mutable object is process-wide mutable state

@@ -2,7 +2,7 @@
 // hand-checked structures of client_context.cpp. An object is here only with its extent proven (its exact
 // accesses, a block clear / copy, or an entry of tools/region_evidence.py) and every writer a player's own code;
 // adjacent objects are joined, nothing is extended. Each entry names its proof and some of its writers.
-// 112 regions, 773113 bytes (755.0 KB). Regenerate; do not edit.
+// 115 regions, 775205 bytes (757.0 KB). Regenerate; do not edit.
 {0x371CEC, 0x4, "evidence: written by 2AAB0"},
 {0x371FEC, 0x4, "evidence: written by 32560"},
 {0x377668, 0x4, "evidence: written by 1CC10 1CD40 22449 22940"},
@@ -92,8 +92,11 @@
 {0x5BDA5C, 0x4, "evidence: written by 18CA50"},
 {0x5BDA64, 0x8, "evidence: written by 190400"},
 {0x5BDA90, 0x1, "evidence: written by 19E160"},
+{0x5BDA9C, 0x4, "evidence: written by 19F080"},
 {0x5BDBD0, 0x2C, "evidence: written by 1B3F50"},
 {0x5BDC00, 0x80, "evidence: written by "},
+{0x5CBB94, 0x10, "evidence: written by 19EBA0"},
+{0x5CBC18, 0x818, "evidence: written by 19F080"},
 {0x5D34D4, 0x14, "evidence: written by 18E430 190150"},
 {0x5D8EBC, 0x4, "evidence: written by 18B970 1A3740 1A82C0 1A8740"},
 {0x5E13A0, 0x38, "evidence: written by 272D0 27CE0 2802D 28F20"},

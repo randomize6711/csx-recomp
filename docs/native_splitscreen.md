@@ -2742,3 +2742,29 @@ Prepared scenarios (not run: the user asked for no runs in this round): tests/sc
 pc_settings.ini, still 4 at the next open) and tests/scenarios/vk_native_split_p1_mouse.txt (two players at
 1920x1080: player 1's team screen and pause menu clicked at window points computed by hand, not by the harness's
 mapping; a click in player 2's view does nothing).
+
+### 18.18 The second playtest's match (2026-11-16): a crash on player 2's rumble, the cameras' smoothing shared
+
+Fixed statically, not run (the user tests by hand). The match (Deathmatch, 60 bots: Instant Action's Accept fix of
+18.17 worked: 64 bots chosen, held to 60 with two players) ended in a SIGSEGV after a minute, and the user found
+"camera height and just movement feels really off".
+
+- **The crash**: ForceFeedbackSystem::startEffect 0x1A7C80 -> 0x1A7650 read guest address 0 (the core dump: an
+  effect's definition, [system + 8 + 4 x type], null). Every player's client builds its own force feedback object
+  (0x552C70, a player region: 0x1A7F70) and reads xbox_cs_ForceFeedbackEffects.dat through the engine's file system
+  (0x1A75B0: 0x438C28's open / size / read). The file is in FrontEnd.SXWad only: there at the boot, when player 1
+  reads it, not when player 2 initialises in the match ("NtCreateFile: no mapping for
+  xbox_cs_ForceFeedbackEffects.dat"), so player 2's effects never loaded and its first rumble (shot by a bot) read
+  through null. Runs 22-27 had no bots shooting the players. Now the first read's text is kept and a later empty read
+  gets a copy, in a block of the title's malloc made in that player's own turn (hook 0x1A7D8E,
+  NativeSplitForceFeedbackRead); and startEffect returns at its own `ret 0x0C` for a type without a definition (hook
+  0x1A7C80, NativeSplitForceFeedbackStart): no rumble rather than a crash, whatever the cause.
+- **The cameras**: V_CalcNormalRefdef 0x19F080 and V_CalcBob 0x19EBA0 keep statics from one frame to the next of the
+  same view, and 17.4's audit of the camera missed them: the stair smoothing's oldz 0x5BDA9C (an eye held up to 18
+  units below the origin while it catches up at 150 units a second), the bob's bobtime / bob / lasttime
+  0x5CBB94..0x5CBBA3, and the view interpolation history 0x5CBC18..0x5CC42F (Origins[64][3], OriginTime[64], the
+  angles, CurrentEntry, lastorg, the step's lasttime). Shared, every pass smoothed against the other player's: a
+  player's eye pulled toward the other's height, the bob at both players' frame rate. They are each player's now
+  (tools/region_evidence.py REVIEWED_VIEW: 115 regions, 775205 bytes).
+- The frame rate in that match: 80-105 game frames a second, 40-53 window frames (two views), the slowest 40-49 ms:
+  62 players in Deathmatch is a heavy load for two views; with few bots it was over 200 (18.17's first match).

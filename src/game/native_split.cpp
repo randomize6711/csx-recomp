@@ -2284,6 +2284,52 @@ bool MayDestroyHere(uint32_t va, const char* what) {
 // cleared) when it is not the acting player's
 bool NativeSplitDestroy552C70(X86Context& ctx, uint8_t*) { return MayDestroyHere(ctx.ecx, "the client object 0x552C70"); }
 
+// [[hook]] at 0x1A7D8E in 0x1A7D80 (the force feedback effects' load, after its read 0x1A75B0 returned: eax the text,
+// a malloc'd block, or 0; ebx its size's place): 2026-11-16 playtest, a crash when player 2 was hit. Every player's
+// client builds its own force feedback object (0x552C70, 0x1A7F70) and reads xbox_cs_ForceFeedbackEffects.dat through
+// the engine's file system; the file is in FrontEnd.SXWad, there at the boot (player 1's read) but not when a player
+// 2-4 initialises in a match, so that player's effects stayed empty and its first rumble (0x1A7C80) read through a
+// null definition. The text of the first read is kept; a later read that finds nothing gets a copy, in a block of the
+// title's malloc made in that player's own turn (its own, as the read's would have been)
+void NativeSplitForceFeedbackRead(X86Context& ctx, uint8_t*) {
+    static std::string kept;
+    const uint32_t size_at = ctx.ebx;
+    if (ctx.eax) {
+        if (kept.empty()) {
+            const uint32_t n = R32(size_at);
+            if (n > 0 && n < (1u << 20))
+                kept.assign(static_cast<const char*>(kernel::HostPtr(ctx.eax)), n);
+        }
+        return;
+    }
+    if (kept.empty()) return;
+    const uint32_t n = uint32_t(kept.size());
+    const uint32_t eax = ctx.eax, ecx = ctx.ecx, edx = ctx.edx;
+    const uint32_t block = kernel::CallGuest(ctx, 0x22D86Au, {n + 1});  // the CRT's malloc, cdecl
+    ctx.ecx = ecx, ctx.edx = edx;
+    if (!block) {
+        ctx.eax = eax;
+        return;
+    }
+    std::memcpy(kernel::HostPtr(block), kept.data(), n);
+    static_cast<char*>(kernel::HostPtr(block))[n] = 0;
+    W32(size_at, n);
+    ctx.eax = block;
+    LOGI("native split: player %d's force feedback effects: the file is not reachable now (FrontEnd.SXWad), the "
+         "boot's text given (%u bytes)", PlayerOfContext(csx::ClientContextActive()) + 1, n);
+}
+
+// [[hook]] at 0x1A7C80 (ForceFeedbackSystem::startEffect: eax the effect's type, [esp+4] the system, its definitions
+// at +8): true (on_true 0x1A7D1A, its own "ret 0x0C") when that type has no definition, instead of a null read in
+// 0x1A7650 (a system whose effects never loaded: no rumble, no crash)
+bool NativeSplitForceFeedbackStart(X86Context& ctx, uint8_t*) {
+    const uint32_t sys = R32(ctx.esp + 4);
+    if (!sys || ctx.eax >= 64 || R32(sys + 8 + 4 * ctx.eax)) return false;
+    static int told = 0;
+    if (told++ < 3) LOGW("force feedback: effect %u has no definition (its effects never loaded): not started", ctx.eax);
+    return true;
+}
+
 // [[hook]] at 0x1B667A in 0x1B6670 (`delete [0x552C9C]`, ecx the object): false (on_false 0x1B6680, cleared)
 bool NativeSplitDestroy552C9C(X86Context& ctx, uint8_t*) { return MayDestroyHere(ctx.ecx, "the client object 0x552C9C"); }
 
