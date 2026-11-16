@@ -1,0 +1,46 @@
+# Native split-screen, player 1's menus with the mouse (2026-11-16 playtest: "Player 1's pause menu is not working well
+# with mouse anymore"): its menus are drawn in its own view (the top half), the pointer mapped there (window_input.cpp
+# MenuPoint with csx::NativeP1View), not into a frame centred in the whole window. Two players at 1920x1080: player 1's
+# view 1920x540, its frame of aspect 3.556 filling it: a menu point (mx, my) is window ((mx + 533.3) x 1.125, my x
+# 1.125). Points given in window pixels (pointat), computed here, not by the harness's own mapping:
+#   team screen row 2 (TeamSelect_RootSinglePlayer: rows from 233 184, 26 high): menu 368 223, window 1014 251;
+#   pause menu row 1 (InGame_RootSinglePlayer: rows from 160 128, 26 high), Return to Game: menu 330 141, window 971 159.
+# A click below the top half (window 971 700, player 2's view) is not on player 1's menus.
+# Window shots (RUN/shots): m1_team, m1_pause, m1_back.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1920 -H 1080), with
+#   --launch tests/launch/de_dust2_nobots --env FPS=30 --env CSX_NATIVE_SPLIT=2 --env CSX_CTX_GUARD=1
+# timeout: 240
+wait log renderer: vulkan
+wait log open D:\\(de|cs)_[a-z0-9_]*\.sxwad
+wait log native split: player 2 is in the match
+wait log native split: player 1's screen: TeamSelect_Root
+wait log native split: the window shows 2 view\(s\)
+sleep 2
+windowshot m1_team
+pointat 1014 251
+sleep 0.5
+click 1
+wait newlog game: "[^"]*<1><[0-9]+><[^>]*>" joined team
+wait newlog native split: player 1's screen: none
+sleep 2
+key Escape
+wait newlog native split: player 1's screen: InGame_Root
+sleep 2
+windowshot m1_pause
+# a click in player 2's view: nothing on player 1's menu
+pointat 971 700
+sleep 0.5
+click 1
+sleep 1
+expect last native\ssplit:\splayer\s1's\sscreen: InGame_Root
+pointat 971 159
+sleep 0.5
+click 1
+wait newlog native split: player 1's screen: none
+sleep 2
+windowshot m1_back
+expect log input: click at 971 159 of 1920x1080 \(frame 3\.5[0-9]*\) -> menu 33[0-9] 14[0-9]
+expect nolog \[own:[a-z-]+\]
+expect nolog \] \[error\] \[[^]]*\] native split:
+expect nolog Host_Error
+expect nolog guest trap

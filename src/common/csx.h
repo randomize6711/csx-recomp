@@ -134,6 +134,10 @@ std::string PartyJoinGuid();
 // its bit is set, and tells the window when a player left by its own choice (its seat freed). Unknown (~0u: the
 // headless harness, no window) means every configured player
 void SetNativeSeats(unsigned mask);
+// native split-screen: player 1's view in the window (fractions; w 0: none drawn), set at its turn, so the menus'
+// pointer maps into the view its menus are drawn in (2026-11-16 playtest: the pause menu's clicks were off)
+void SetNativeP1View(float x, float y, float w, float h);
+bool NativeP1View(float& x, float& y, float& w, float& h);  // false: not native split-screen
 unsigned NativeSeats();
 void NativeSeatLeave(int k);
 unsigned TakeNativeSeatLeaves();

@@ -290,6 +290,17 @@ bool MenuPoint(float wx, float wy, float& mx, float& my) {
     }
     float ox = (float(ww) - tw) / 2, oy = (float(wh) - th) / 2;
     if (splitp::Active()) split::FrameRect(float(ww), float(wh), aspect, ox, oy, tw, th);  // as the compositor shows it
+    // native split-screen: player 1's menus are drawn in its own view, its frame placed there as the renderer places
+    // it (split::PlaceInViewport); a point outside that view is not on its menus
+    if (float vx, vy, vw, vh; csx::NativeP1View(vx, vy, vw, vh)) {
+        if (vw <= 0 || vh <= 0) return false;
+        const float px0 = std::round(vx * float(ww)), py0 = std::round(vy * float(wh));
+        const float px1 = std::round((vx + vw) * float(ww)), py1 = std::round((vy + vh) * float(wh));
+        if (wx < px0 || wx >= px1 || wy < py0 || wy >= py1) return false;
+        split::FrameRect(px1 - px0, py1 - py0, aspect, ox, oy, tw, th);
+        ox += px0;
+        oy += py0;
+    }
     float fx = (wx - ox) / tw, fy = (wy - oy) / th;
     if (fx < 0 || fx >= 1 || fy < 0 || fy >= 1) return false;
     const float frame_w = 480.0f * aspect;

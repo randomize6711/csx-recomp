@@ -2713,3 +2713,32 @@ hands-on test (docs/native_splitscreen_guide.md "Manual test checklist").
   first shows in a process, saved whenever they change there.
 - Multiplayer's party screen (local players into network servers) still uses the multi-process engine: native
   split-screen plays in the game's own server only (Instant Action).
+
+### 18.17 The user's second playtest (2026-11-16): findings fixed (static, not run)
+
+The playtest itself confirmed 18.16 (logs cs_001-003): a controller's START joined on Instant Action with player 1 on
+the keyboard and mouse; Start Match took both players into one process (one loading screen, no local server); both
+chose teams, each had its own buy menu and scoreboard; Quit from player 1's pause menu returned to the hub. No error,
+no ownership report. Two findings:
+
+- **Accept on Bot Settings and Settings lost the changes.** The title's `back` reads every screen's list rows back
+  from the profile (0xCACD0 calls 0xDB770, the walk of docs/pc_multiplayer.md 17.6). Its own Match Options Accept
+  (0xE1C70) opened the next screen, and an open saves the rows to the profile first (0xD73B8 stuffUItoPlayerData);
+  Instant Action's Accepts went back instead with a bare `xbui back`, so the profile's older rows came back (the log: 8
+  clicks on Number of Bots' left arrow, then the saved state still the defaults). Their Accept is now
+  `stuffUItoPlayerData; xbui back`, the title's own form for its other Accepts back; the choices restored from
+  pc_settings.ini go into the profile as well (or the next back anywhere read the older ones over them). 18.16's
+  "choices did not stay" was this too, at least in part.
+- **Player 1's menus with the mouse in a match.** The pointer was mapped into a frame centred in the whole window,
+  while player 1's menus are drawn in its own view (two players: the top half): every click a quarter of the window
+  too high (the log: the pause menu click at window y 420 read as menu y 59, above the rows). Player 1's view is now
+  published at its turn (csx::SetNativeP1View, native_split.cpp NativeSplitClientTurn) and the pointer maps into it
+  as the renderer places the frame there (window_input.cpp MenuPoint; split::FrameRect within the view); a point in
+  another player's view is on none of player 1's menus. The harness's `point` (window_main.cpp "menu X Y") maps the
+  same way.
+
+Prepared scenarios (not run: the user asked for no runs in this round): tests/scenarios/vk_instant_bots_mouse.txt
+(Settings and back, Bot Settings, two clicks on the left arrow and the Left key, Accept: 4 bots on the hub and in
+pc_settings.ini, still 4 at the next open) and tests/scenarios/vk_native_split_p1_mouse.txt (two players at
+1920x1080: player 1's team screen and pause menu clicked at window points computed by hand, not by the harness's
+mapping; a click in player 2's view does nothing).

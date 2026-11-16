@@ -621,8 +621,23 @@ int main(int argc, char** argv) {
                     th = float(wh);
                     tw = th * aspect;
                 }
-                pointer_x = (float(ww) - tw) / 2 + (dx + (frame_w - 640.0f) / 2) / frame_w * tw;
-                pointer_y = (float(wh) - th) / 2 + dy / 480.0f * th;
+                float ox = (float(ww) - tw) / 2, oy = (float(wh) - th) / 2;
+                // native split-screen: in player 1's view, as window_input.cpp's MenuPoint maps it
+                if (float vx, vy, vw, vh; csx::NativeP1View(vx, vy, vw, vh) && vw > 0 && vh > 0) {
+                    const float px0 = std::round(vx * float(ww)), py0 = std::round(vy * float(wh));
+                    const float px1 = std::round((vx + vw) * float(ww)), py1 = std::round((vy + vh) * float(wh));
+                    const float W = px1 - px0, H = py1 - py0;  // split::FrameRect
+                    tw = W;
+                    th = W / aspect;
+                    if (th > H || (W / H >= 4.0f / 3.0f - 0.001f && aspect > W / H)) {
+                        th = H;
+                        tw = H * aspect;
+                    }
+                    ox = px0 + (W - tw) / 2;
+                    oy = py0 + (H - th) / 2;
+                }
+                pointer_x = ox + (dx + (frame_w - 640.0f) / 2) / frame_w * tw;
+                pointer_y = oy + dy / 480.0f * th;
                 SDL_Event ev{};
                 ev.type = SDL_EVENT_MOUSE_MOTION;
                 ev.motion.windowID = SDL_GetWindowID(win);

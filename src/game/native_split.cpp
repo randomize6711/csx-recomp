@@ -2811,6 +2811,7 @@ void NativeSplitClientTurn(X86Context&) {
         g_render.hidden++;
     }
     d3d::SetSplitView(sv);
+    if (g_view_player == 0) csx::SetNativeP1View(sv.x, sv.y, sv.w, sv.h);  // the menus' pointer (window_input.cpp)
     g_render.turn_start = std::chrono::steady_clock::now();
     d3d::SplitCounters c = d3d::SplitStats();
     g_render.swap_at_start = c.swap_ns;

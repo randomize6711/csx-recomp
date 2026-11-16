@@ -79,6 +79,21 @@ std::string PartyJoinGuid() {
 std::atomic<unsigned> g_native_seats{~0u};
 std::atomic<unsigned> g_native_leaves{0};
 void SetNativeSeats(unsigned mask) { g_native_seats = mask; }
+namespace {
+std::mutex g_view_lock;
+bool g_p1_view_set = false;
+float g_p1_view[4] = {0, 0, 1, 1};
+}  // namespace
+void SetNativeP1View(float x, float y, float w, float h) {
+    std::lock_guard<std::mutex> lock(g_view_lock);
+    g_p1_view_set = true;
+    g_p1_view[0] = x, g_p1_view[1] = y, g_p1_view[2] = w, g_p1_view[3] = h;
+}
+bool NativeP1View(float& x, float& y, float& w, float& h) {
+    std::lock_guard<std::mutex> lock(g_view_lock);
+    x = g_p1_view[0], y = g_p1_view[1], w = g_p1_view[2], h = g_p1_view[3];
+    return g_p1_view_set;
+}
 unsigned NativeSeats() { return g_native_seats; }
 void NativeSeatLeave(int k) {
     if (k >= 0 && k < 4) g_native_leaves |= 1u << k;

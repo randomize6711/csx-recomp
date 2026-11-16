@@ -1,0 +1,66 @@
+# Instant Action's Bot Settings with the mouse (2026-11-16 playtest: "changing the amount of bots don't save changes
+# when accepting"): as the player did it, Settings first and back (B), then Bot Settings; the Number of Bots row's left
+# arrow clicked twice (menu 354 121: the row's highlight image from 340, its arrows 28 wide) and the Left key once,
+# from the default 7 bots: 4 bots; Accept (A): back on the hub with 4 bots, the choices saved in pc_settings.ini.
+# Then Bot Settings again: the row still 4 (the title's back reads every screen's rows from the profile: the Accept
+# saves them there first, stuffUItoPlayerData), accepted again.
+# Window shots (RUN/shots): bots_before, bots_after, hub_after.
+# Run with tools/run_window_tests.py (gamescope --backend headless -W 1280 -H 720)
+# timeout: 240
+wait log open d:\\Media\\Videos\\ESRB.xmv
+sleep 14
+key Return
+wait log pc mouse: screen Initial_CreateProfile
+sleep 3
+key Space
+wait log pc mouse: screen SuperLauncher_CreateProfile
+sleep 3
+key Space
+wait log pc mouse: screen SuperLauncher_MainScreen
+sleep 3
+key Space
+wait log pc mouse: screen SuperLauncher_PCInstantAction
+sleep 3
+# Settings (the fifth row) and back
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Down
+sleep 0.5
+key Space
+wait newlog pc mouse: screen SuperLauncher_SinglePlayerMatchCustomOptions
+sleep 2
+key Escape
+wait newlog pc mouse: screen SuperLauncher_PCInstantAction
+sleep 2
+# Bot Settings (the fourth row)
+key Up
+sleep 0.5
+key Space
+wait newlog pc mouse: screen SuperLauncher_SinglePlayerMatchOptions
+sleep 2
+windowshot bots_before
+point 354 121
+sleep 0.5
+click 1
+sleep 0.8
+click 1
+sleep 0.8
+key Left
+sleep 1
+windowshot bots_after
+key Space
+wait newlog pc instant: Match Options accepted: back to the hub \(bots 4; o=4,
+wait log pc instant: the match's choices saved \(o=4,
+sleep 2
+windowshot hub_after
+key Space
+wait newlog pc mouse: screen SuperLauncher_SinglePlayerMatchOptions
+sleep 2
+key Space
+wait newlog pc instant: Match Options accepted: back to the hub \(bots 4; o=4,
+expect nolog Host_Error
+expect nolog guest trap

@@ -21,6 +21,7 @@
 #include <cstring>
 #include <initializer_list>
 #include <string>
+#include <vector>
 
 #include "common/csx.h"
 #include "common/pc_settings.h"
@@ -49,6 +50,12 @@ constexpr char kOptions[] = "SuperLauncher_SinglePlayerMatchOptions";      // it
 constexpr char kCustom[] = "SuperLauncher_SinglePlayerMatchCustomOptions";
 constexpr char kMaps[] = "SuperLauncher_SinglePlayerMatchMapList";
 constexpr int kMatchCustom = 4;
+// an Accept back to the hub: the screens' choices into the profile first. The title's back reads every screen's list
+// rows back from the profile (0xDB770's walk, docs/pc_multiplayer.md 17.6), so a plain "xbui back" undid the changes
+// (2026-11-16 playtest: Bot Settings' and Settings' changes lost at Accept). The title's own Accept opened the next
+// screen, whose open saves them (0xD73B8 stuffUItoPlayerData); its other Accepts back are "stuffUItoPlayerData; xbui
+// back" so too
+constexpr char kAcceptBack[] = "stuffUItoPlayerData\nxbui back\n";
 // Match Options' rows: the title's four, then ExtendGameMode's
 constexpr int kRowBots = 0, kRowSkill = 1, kRowTeam = 2, kRowRules = 3, kRowMode = 4;
 constexpr int kRulesCustom = 4;
@@ -222,6 +229,7 @@ void PcInstantFrame(X86Context& ctx) {
             if (!saved.empty() || now != pc::Get("instant_state", "")) {
                 pc::Set("instant_state", now);
                 pc::Save();
+                LOGI("pc instant: the match's choices saved (%s)", now.c_str());
             }
             saved = now;
         }
@@ -259,6 +267,8 @@ void PcInstantRestoreState(const std::string& state) {
         else if (part[0] == 'b') PcSetListRows(kBots, Ints(v));
         else if (part[0] == 'm' && std::atoi(v.c_str()) >= 0) PcSetSelectedRow(kMaps, std::atoi(v.c_str()));
     }
+    // into the profile as well, or the next back anywhere would read the profile's older ones over them
+    csx::QueueEngineCommand("stuffUItoPlayerData\n");
     LOGI("pc instant: the match's choices restored (%s)", state.c_str());
 }
 
@@ -288,10 +298,11 @@ void PcInstantCommand(X86Context& ctx, const std::string& what) {
     if (what == "custom") {  // Custom Options accepted: Match Options' rules are those
         if (uint32_t cell = PcListCell(kOptions, kRowRules)) kernel::W32(cell, uint32_t(kRulesCustom));
         LOGI("pc instant: the match's rules are Custom Options'");
-        return csx::QueueEngineCommand("xbui back\n");
+        return csx::QueueEngineCommand(kAcceptBack);
     }
     if (what == "back") {
-        LOGI("pc instant: Match Options accepted: back to the hub");
-        return csx::QueueEngineCommand("xbui back\n");
+        LOGI("pc instant: Match Options accepted: back to the hub (bots %d; %s)", PcBotCountAt(Choice(kRowBots)),
+             PcInstantSaveState().c_str());
+        return csx::QueueEngineCommand(kAcceptBack);
     }
 }
