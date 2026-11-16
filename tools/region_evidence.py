@@ -1104,6 +1104,38 @@ for _lo, _n, _own, _why in REVIEWED_M4_MENUS:
 # the stair step (oldz) pulled a player's eye toward the other's height (up to its 18-unit clamp), the bob and the
 # view interpolation advanced with both players' frames. Each is read before it is written in its function (state
 # carried between frames), written only by those two functions, never by the server.
+# The HUD elements' methods (docs/native_splitscreen.md 18.19; 2026-11-16 playtest: every kill twice in the kill feed,
+# a weapon change showing in the other player's HUD): CHud's constructor 0x1A6BB0 stores each element's vtable in it
+# (mov dword ptr [esi+off], VTABLE), six methods each (CHudBase: Init, VidInit, Draw, Think, Reset, InitHUDData),
+# and gHUD.Init 0x1A65A0 / VidInit / Redraw call them through those (an indirect call the model does not follow).
+# They run in each player's turn on its own gHUD: a player's code. Their Init registers the elements' message
+# handlers and commands (DeathMsg 0x1D6700, CurWeapon 0x1AB0E0, WeaponList 0x1AB100, slot1.. 0x1AB1D0..), so those
+# are a player's frame roots too (region_model.function_classes: the callbacks a player's code takes). Before,
+# all of them were "not reached statically" and the statics they keep (the death notice list 0x548F50, the weapon
+# HUD's selection and gWR) stayed shared: each client added the same kill to one list, one player's weapon change
+# showed in the other's HUD
+HUD_VTABLES = [0x35E74C, 0x35E764, 0x35E77C, 0x35E794, 0x35E7AC, 0x35E7C4, 0x35E7DC, 0x35E7F4, 0x35E80C, 0x35E838,
+               0x35E850, 0x35E87C, 0x35E894, 0x35E8AC, 0x35E8C4, 0x35E8DC, 0x35E8F4, 0x35E90C, 0x35E924]
+HUD_METHODS = 6
+
+REVIEWED_HUD = [
+    (0x548698, 0x80, 'player', 'Reviewed (18.19): gWR.riAmmo[32], each ammo type\'s count of the player\'s HUD: base '
+     'loaded by CHudAmmo::Init 0x1AB3C0 (0x1AB656), written by the AmmoX / AmmoPickup handlers 0x1AB930 (0x1AB97B, '
+     '0x1AB9A2, index edi < 32), read by its Draw 0x1AC6E0 / 0x1ACC70, the weapon menu 0x1AD800 and the buy menu\'s '
+     'ammo checks 0x1AE2D0 / 0x1AE3D0 (reached statically from the menu code the server also reaches; at run time in '
+     'the player\'s own menu turn, docs 18.5). Shared, one player\'s ammo showed in the other\'s HUD'),
+    (0x549624, 0x4, 'player', 'Reviewed (18.19): gHR.iCurrentHistorySlot, the pickup history\'s next slot (its '
+     'entries rgAmmoHistory[12] x 16 at 0x549560, iHistoryGap 0x549620): reset by CHudAmmo::Init 0x1AB3C0 (0x1AB680) '
+     'and Reset 0x1AB690 (0x1AB6CB), read and advanced (wrapping at 12) by the pickup handlers 0x1AB130 / 0x1AB160 '
+     '(0x1ABA68..0x1ABA97). The weapon events\' lea [esi*4+0x549624] (0x1E136C, 0x1E165C, 0x1E1B00, 0x1E992B, '
+     '0x1ECC63) is g_tracerCount[entindex - 1] from 0x549628 (esi the shooter\'s entity index, 1 or more: '
+     '[esp+0x34] at 0x1E1314), not this word'),
+]
+OBJECTS = [e for e in OBJECTS if not any(lo <= e[0] < lo + n for lo, n, _, _ in REVIEWED_HUD)] + REVIEWED_HUD
+for _lo, _n, _own, _why in REVIEWED_HUD:
+    for _a in [a for a in AT if _lo <= a < _lo + _n]:
+        del AT[_a]
+
 _VIEW = 'Reviewed (18.18): '
 REVIEWED_VIEW = [
     (0x5BDA9C, 0x4, 'player', _VIEW + 'oldz, the stair smoothing\'s last eye height (0x19F5D0 fsub, 0x19F60B fadd, '

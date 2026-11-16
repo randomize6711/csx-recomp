@@ -1164,6 +1164,10 @@ std::string ExtendBotCount(const std::string& text) {
         if (n > 11)
             more += "\t\t\t\tListOption \"" + std::to_string(n) + " bots\"\t\t\"+wait +bot_quota " + std::to_string(n) +
                     "\"\r\n";
+    // the typed count's choice (PcSetBotsTyped): last, hidden by its enable byte until a count is typed; its label and
+    // command long enough to have buffers of their own, a shorter count written in place
+    more += "\t\t\t\tListOption \"" + std::to_string(kMaxBots) + " bots (typed)\"\t\"+wait +bot_quota " +
+            std::to_string(kMaxBots) + "\"\r\n";
     std::string out = text.substr(0, l + last.size()) + more + text.substr(l + last.size());
     out.insert(f, "\t\t\t\tListOption \"0 bots\"\t\t\t\"+wait +bot_quota 0\"\r\n");
     out.insert(h + help.size(), "\t\t\t\tRow\r\n\t\t\t\t{\r\n\t\t\t\t\tCellFixed \"" + std::to_string(kMaxBots) +
@@ -1185,12 +1189,20 @@ bool PcSettingsScreen(const std::string& name) { return FindScreen(name) != null
 // +0x29 + choice). The 65 slots took that team limit away (G8.2B) and Bot Team's one-team choices already turn off
 // auto team balance and mp_limitteams, so every choice of the list ExtendBotCount makes stays enabled with any Bot
 // Team (29 choices, within the cell's 0x27 enable bytes); true leaves the function (0xE1D63) without the original's cap
+int g_bots_typed = -1;  // the count Number of Bots' typed choice holds (PcSetBotsTyped), -1 none
+
 bool PcBotCountLimit(X86Context& ctx, uint8_t*) {
     uint32_t list = R32(R32(ctx.ecx + 0x60) + 0xC) + 0x78;  // row 0's cells: the label, then the list
     for (size_t i = 0; i < BotCounts().size() && i < 0x27; i++)
         static_cast<uint8_t*>(kernel::HostPtr(list + 0x29 + uint32_t(i)))[0] = 1;
+    // the typed choice: there while it holds a count
+    if (BotCounts().size() < 0x27)
+        static_cast<uint8_t*>(kernel::HostPtr(list + 0x29 + uint32_t(BotCounts().size())))[0] = g_bots_typed >= 0;
     return true;
 }
+
+int PcBotCountAt(int index);                 // below: Number of Bots by its choice
+bool PcSetBotsTyped(int n, bool select);     // below: a typed count
 
 namespace {
 
@@ -1893,6 +1905,90 @@ void TypingFrame(X86Context& ctx, const std::string& name, const PcScreen* s, ui
     g_number_typing = g_typing.mode == Typing::On;
 }
 
+// Number of Bots typed on the single player Match Options (PcSetBotsTyped): its row selected, a digit starts typing
+// (or a click on its value: pc_mouse.cpp), Enter keeps a count of 0 to 64, Escape cancels; shown in the row's list as
+// a PC screen's number is
+struct BotsTyping {
+    enum Mode { Off, On, Refused } mode = Off;
+    bool selected = false;
+    std::string text;
+    uint32_t shown = 0;
+    uint8_t saved[0x1C] = {};
+    std::chrono::steady_clock::time_point until{};
+};
+BotsTyping g_bots;
+
+void EndBotsTyping(const char* how) {
+    if (g_bots.mode == BotsTyping::Off) return;
+    std::memcpy(kernel::HostPtr(g_bots.shown), g_bots.saved, sizeof g_bots.saved);
+    g_bots.mode = BotsTyping::Off;
+    if (how) LOGI("pc menu: Number of Bots typing %s", how);
+}
+
+// true while it is the selected row (the window then sends digits, Enter and Escape here)
+bool BotsTypingFrame(X86Context& ctx, const std::string& name, const std::deque<int>& typed) {
+    const uint32_t table = name == "SuperLauncher_SinglePlayerMatchOptions" ? FindTable(name) : 0;
+    const bool row = table && R32(table + 0x9C) == 0 && !csx::ConsoleOpen();
+    if (!row) {
+        EndBotsTyping(g_bots.mode == BotsTyping::On ? "ended (the row or the screen was left)" : nullptr);
+        return false;
+    }
+    if (g_bots.mode == BotsTyping::Refused && std::chrono::steady_clock::now() >= g_bots.until) EndBotsTyping(nullptr);
+    const uint32_t cell = ListCell(table, 0);
+    auto start = [&](bool with_value) {
+        const uint32_t pick = R32(cell);
+        if (!cell || pick >= Choices(cell)) return false;
+        EndBotsTyping(nullptr);
+        g_bots.mode = BotsTyping::On;
+        g_bots.shown = R32(cell + 0xC) + pick * 0x1C;
+        std::memcpy(g_bots.saved, kernel::HostPtr(g_bots.shown), sizeof g_bots.saved);
+        const int now = PcBotCountAt(int(pick));
+        g_bots.text = with_value && now >= 0 ? std::to_string(now) : std::string();
+        g_bots.selected = !g_bots.text.empty();
+        return true;
+    };
+    if (g_number_edit.exchange(false) && g_bots.mode != BotsTyping::On && start(true)) {
+        ShowChoice(ctx, g_bots.shown, ("[" + g_bots.text + "]").c_str());
+        LOGI("pc menu: Number of Bots edited by a click (%s selected)", g_bots.text.c_str());
+    }
+    for (int c : typed) {
+        if (g_bots.mode != BotsTyping::On) {
+            if (c <= 0 || !start(false)) continue;
+            LOGI("pc menu: typing a value for Number of Bots");
+        }
+        if (c == csx::kNumberCancel) {
+            EndBotsTyping("cancelled");
+            continue;
+        }
+        if (c == csx::kNumberEnter) {
+            const bool digits = !g_bots.text.empty() && g_bots.text.find_first_not_of("0123456789") == std::string::npos;
+            const int n = digits && g_bots.text.size() <= 3 ? std::atoi(g_bots.text.c_str()) : -1;
+            if (n < 0 || n > kMaxBots) {
+                LOGI("pc menu: Number of Bots: \"%s\" refused (0 to %d)", g_bots.text.c_str(), kMaxBots);
+                g_bots.mode = BotsTyping::Refused;
+                g_bots.until = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+                ShowChoice(ctx, g_bots.shown, ("Use 0 to " + std::to_string(kMaxBots)).c_str());
+                continue;
+            }
+            EndBotsTyping(nullptr);
+            if (PcSetBotsTyped(n, true)) LOGI("pc menu: Number of Bots typed %d", n);
+            continue;
+        }
+        if (g_bots.selected) {
+            g_bots.selected = false;
+            g_bots.text.clear();
+            if (c == csx::kNumberBackspace) c = 0;
+        }
+        if (c == csx::kNumberBackspace) {
+            if (!g_bots.text.empty()) g_bots.text.pop_back();
+        } else if (c >= '0' && c <= '9' && g_bots.text.size() < 3) {
+            g_bots.text += char(c);
+        }
+        ShowChoice(ctx, g_bots.shown, (g_bots.text + "_").c_str());
+    }
+    return true;
+}
+
 }  // namespace
 
 // a text's width in the menu font's units (pc_prompts.cpp's legends)
@@ -1970,8 +2066,66 @@ uint32_t PcListCell(const std::string& screen, size_t row) {
 // the single player Match Options' Number of Bots, by its choice (ExtendBotCount's list), -1 out of it
 int PcBotCountAt(int index) {
     const std::vector<int> n = BotCounts();
+    if (index == int(n.size())) return g_bots_typed;
     return index >= 0 && index < int(n.size()) ? n[size_t(index)] : -1;
 }
+
+// Number of Bots typed (2026-11-16 playtest: "Changing the amount of bots skips numbers at a higher number count. Make
+// it so that I can click the numbers of bots and put in a custom amount"): the list has 0 to 16 and then fours (the
+// title's lists have 0x27 enable bytes: 65 choices do not fit); a typed count is the list's last choice, its label
+// ("N bots (typed)") and its command ("+wait +bot_quota N", what SinglePlayerStartSession puts on the match's line)
+// written into the strings ExtendBotCount made long enough, its enable byte on. A count the list has is chosen there.
+namespace {
+constexpr char kBotsScreen[] = "SuperLauncher_SinglePlayerMatchOptions";
+uint32_t BotsCell() {
+    uint32_t table = FindTable(kBotsScreen);
+    return table ? ListCell(table, 0) : 0;
+}
+// a guest std::string (narrow or wide: its buffer in place below 16 bytes, through +4 from there) set to text
+bool WriteString(uint32_t str, const std::string& text, bool wide) {
+    const uint32_t cap = R32(str + 0x18), unit = wide ? 2 : 1;
+    if (text.size() > cap) return false;
+    uint32_t data = (cap + 1) * unit > 16 ? R32(str + 4) : str + 4;
+    if (!data) return false;
+    for (size_t i = 0; i <= text.size(); i++) {
+        uint16_t c = i < text.size() ? static_cast<unsigned char>(text[i]) : 0;
+        std::memcpy(static_cast<uint8_t*>(kernel::HostPtr(data)) + i * unit, &c, unit);
+    }
+    kernel::W32(str + 0x14, uint32_t(text.size()));
+    return true;
+}
+}  // namespace
+
+int PcBotsTyped() { return g_bots_typed; }
+
+// the typed choice holding n bots (0..64), chosen when `select`; a count the list has is chosen there instead
+bool PcSetBotsTyped(int n, bool select) {
+    const std::vector<int> counts = BotCounts();
+    const uint32_t cell = BotsCell(), index = uint32_t(counts.size());
+    if (!cell || n < 0 || n > kMaxBots) return false;
+    for (size_t i = 0; i < counts.size(); i++)
+        if (counts[i] == n) {
+            if (select) kernel::W32(cell, uint32_t(i));
+            return true;
+        }
+    if (Choices(cell) != index + 1) {
+        LOGW("pc menu: Number of Bots has no typed choice (%u choices)", Choices(cell));
+        return false;
+    }
+    const uint32_t label = R32(cell + 0xC) + index * 0x1C, command = R32(cell + 0x1C) + index * 0x1C;
+    if (!WriteString(label, std::to_string(n) + " bots (typed)", true) ||
+        !WriteString(command, "+wait +bot_quota " + std::to_string(n), false)) {
+        LOGW("pc menu: Number of Bots: %d not written", n);
+        return false;
+    }
+    EnableChoice(cell, index, true);
+    if (select) kernel::W32(cell, index);
+    if (g_bots_typed != n) LOGI("pc menu: Number of Bots typed: %d", n);
+    g_bots_typed = n;
+    return true;
+}
+
+bool PcBotsRow(const std::string& screen, int row) { return screen == kBotsScreen && row == 0; }
 
 
 // a PC screen's defaults (key -> value) and every value a row may have (the match rules' checks, pc_lobby.cpp)
@@ -2065,7 +2219,13 @@ void PcMenuFrame(X86Context& ctx) {
     uint32_t row = table ? SettingRow(*s, R32(table + 0x9C)) : ~0u;
     DetailsFrame(name);
     if (!(s && s->embed)) HintFrame(ctx, name, table ? s : nullptr, row);  // the title's screen has its own help lines
+    // Number of Bots (the title's screen: before the PC screens' typing, which would take the click's edit)
+    const bool bots_row = BotsTypingFrame(ctx, name, typed);
     TypingFrame(ctx, name, table ? s : nullptr, row, typed);
+    if (bots_row) {
+        g_number_row = true;
+        g_number_typing = g_bots.mode == BotsTyping::On;
+    }
 }
 
 namespace {

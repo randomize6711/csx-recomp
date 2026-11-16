@@ -26,7 +26,6 @@
 namespace {
 using kernel::R32;
 constexpr uint32_t kBoundTexture = 0x45280C, kTextureUnit = 0x45281C, kGlTextures = 0x452DFC, kGlTextureSize = 0x2C;
-constexpr uint32_t kXGCompressRect = 0x2D198E;
 constexpr uint32_t kGlTexture2D = 0x0DE1, kGlRgba = 0x1908, kGlUnsignedByte = 0x1401;
 constexpr uint32_t kFormatDxt1 = 0x0C, kFormatDxt45 = 0x0F, kFormatLinearA8B8G8R8 = 0x3F;  // DXT4/5: a map's lightmaps
 // the engine's lightmaps (GL_BuildLightmaps 0x529xx): the RGBA blocks, bytes a texel, the first lightmap's texture
@@ -39,18 +38,14 @@ constexpr uint32_t kWorldModel = 0x778A68, kJcabRenderBsp = 0x3771EC, kFrameCoun
 
 // a texture's level 0 from RGBA rows (the whole level: XGCompressRect takes power-of-two sizes only), marked changed
 bool Upload(X86Context& ctx, uint32_t res, const gpu::TextureDesc& d, uint32_t pixels) {
+    (void)ctx;
     const uint32_t w = d.width, h = d.height;
     if (d.format == kFormatDxt1 || d.format == kFormatDxt45) {
-        X86Context saved = ctx;
-        ctx.esp -= 0x100;
-        ctx.eax = 2;  // the flags glTexImage2D passes in eax
-        float alpha_ref = 0.01f;
-        uint32_t ref;
-        std::memcpy(&ref, &alpha_ref, 4);
-        // a row of 4x4 blocks: 8 bytes a block in DXT1 (w * 2 a row of blocks), 16 in DXT4/5 (w * 4)
-        const uint32_t pitch = d.format == kFormatDxt1 ? w * 2 : w * 4;
-        kernel::CallGuest(ctx, kXGCompressRect, {d.data, d.format, pitch, w, h, pixels, kFormatLinearA8B8G8R8, w * 4, ref});
-        ctx = saved;
+        // on the host (pcdxt::EncodeDxt): the title's XGCompressRect as guest code took ~20 ms a lightmap, the
+        // flashlight's ~17 at every view's sweep (2026-11-16 playtest: 3 frames a second while a light was on)
+        if ((w | h) & 3) return false;
+        pcdxt::EncodeDxt(static_cast<const uint8_t*>(kernel::HostPtr(pixels)), static_cast<uint8_t*>(kernel::HostPtr(d.data)),
+                         w, h, d.format == kFormatDxt45);
     } else if (d.format == kFormatLinearA8B8G8R8 && d.linear) {
         uint32_t pitch = d.pitch ? d.pitch : w * 4;
         for (uint32_t row = 0; row < h; row++)

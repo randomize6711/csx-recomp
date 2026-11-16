@@ -36,6 +36,8 @@ void PcSetScreenLine(X86Context& ctx, const char* screen, int index, const std::
 void PcSetSelectedRow(const std::string& screen, int row);                                       // pc_menu.cpp
 uint32_t PcListCell(const std::string& screen, size_t row);                                     // pc_menu.cpp
 int PcBotCountAt(int index);                                                                     // pc_menu.cpp
+int PcBotsTyped();                                                                               // pc_menu.cpp
+bool PcSetBotsTyped(int n, bool select);                                                         // pc_menu.cpp
 std::string PcMapListSelected();                                                                 // pc_mapsearch.cpp
 std::vector<int> PcListRows(const std::string& screen);                                          // pc_menu.cpp
 bool PcSetListRows(const std::string& screen, const std::vector<int>& picks);                    // pc_menu.cpp
@@ -252,10 +254,13 @@ void PcInstantNote(const std::string& text) {
 // Instant Action's choices, to keep across the game alone's restart as split screen ("o=..;c=..;b=..;m=N")
 std::string PcInstantSaveState() {
     return "o=" + Rows(PcListRows(kOptions)) + ";c=" + Rows(PcListRows(kCustom)) + ";b=" + Rows(PcListRows(kBots)) +
-           ";m=" + std::to_string(PcSelectedRow(kMaps));
+           ";m=" + std::to_string(PcSelectedRow(kMaps)) + ";n=" + std::to_string(PcBotsTyped());
 }
 
 void PcInstantRestoreState(const std::string& state) {
+    // the typed bot count first (its choice must hold it before the rows choose it)
+    if (size_t n = state.find(";n="); n != std::string::npos && std::atoi(state.c_str() + n + 3) >= 0)
+        PcSetBotsTyped(std::atoi(state.c_str() + n + 3), false);
     for (size_t at = 0; at < state.size();) {
         size_t e = state.find(';', at);
         std::string part = state.substr(at, e == std::string::npos ? std::string::npos : e - at);

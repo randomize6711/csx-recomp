@@ -43,6 +43,7 @@
 #include "game/pc_prompts.h"
 #include "kernel/kernel.h"
 
+bool PcBotsRow(const std::string& screen, int row);  // pc_menu.cpp: Number of Bots' row
 bool PcBindingScreen(const std::string& name);  // pc_menu.cpp
 bool PcBrowserClick(const std::string& screen, float x, float y);  // pc_browser.cpp
 bool PcMapSearchClick(X86Context& ctx, const std::string& screen, float x, float y);  // pc_mapsearch.cpp
@@ -382,6 +383,8 @@ void Click(X86Context& ctx, uint32_t screen, const std::string& name, const Scre
         else if (x >= a1 - arrow && x < a1) Queue({kRight, -1});
         // a binding's key name: waits for the key to bind
         else if (x >= a0 && x < a1 && PcBindingScreen(name)) csx::BindStart();
+        // Number of Bots' value (the title's Match Options): a count typed (pc_menu.cpp PcSetBotsTyped)
+        else if (x >= a0 && x < a1 && PcBotsRow(name, h.row)) csx::NumberEdit();
         // a setting's value: a number's (Mouse Sensitivity...) is typed, the value shown selected (pc_menu.cpp checks
         // that the row takes a number); a double click elsewhere is A (it accepts the whole screen: the in-game
         // screens have no help bar to click), not on a number being typed

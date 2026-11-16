@@ -616,6 +616,21 @@ def engine_api(index):
     return out
 
 
+def hud_methods(index):
+    """the HUD elements' methods (region_evidence.HUD_VTABLES: six a vtable, called by gHUD's Init / VidInit / Redraw
+    through it in a player's turn): a player's frame roots"""
+    raw = boot_words()
+    starts = {int(a, 16) for a in index['funcs']}
+    out = []
+    for vt in EV.HUD_VTABLES:
+        for k in range(EV.HUD_METHODS):
+            b = raw(vt + 4 * k, 4)
+            t = struct.unpack('<I', b)[0] if b else 0
+            if t in starts:
+                out.append(t)
+    return out
+
+
 def function_classes():
     """each function's classes (CLASS_NAMES): S, P, I, F, X, B may combine; H and U stand alone"""
     index = SA.load()
@@ -632,6 +647,7 @@ def function_classes():
                                                if int(a, 16) not in SA.NOT_CLIENT_STEPS]
     frame_roots += [e for e in exports if e not in PLAYER_INIT and e not in NOT_FRAME_EXPORTS]
     frame_roots += engine_api(index)
+    frame_roots += hud_methods(index)
     players = set(PLAYER_INIT) | set(exports) | set(frame_roots)
     # the process's start-up: direct calls only (a callback it registers runs later, in a frame or a command), not
     # into a player's steps, the frame or the hubs

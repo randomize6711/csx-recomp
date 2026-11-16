@@ -2768,3 +2768,29 @@ Fixed statically, not run (the user tests by hand). The match (Deathmatch, 60 bo
   (tools/region_evidence.py REVIEWED_VIEW: 115 regions, 775205 bytes).
 - The frame rate in that match: 80-105 game frames a second, 40-53 window frames (two views), the slowest 40-49 ms:
   62 players in Deathmatch is a heavy load for two views; with few bots it was over 200 (18.17's first match).
+
+### 18.19 The third playtest (2026-11-16): the HUD's shared statics, typed bot counts, the lights' cost
+
+Fixed statically, not run. The match (Dust, Deathmatch, no bots, 4.5 minutes, the two players fighting) ran clean:
+player 2's rumble effects came from the boot's text (18.18), no crash when it was hit, 80-98 window frames a second.
+The user's findings:
+
+- **Every kill twice in the kill feed; a weapon change showing in the other player's HUD.** gHUD's Init calls each
+  HUD element's Init through its vtable, which the region model did not follow: the elements' methods and every
+  callback they register (the message handlers DeathMsg 0x1D6700, CurWeapon 0x1AB0E0, WeaponList 0x1AB100, the
+  pickups, the slot commands 0x1AB1D0..) were "not reached statically", and the statics only they write stayed
+  shared. Both clients added the same kill to one death notice list (0x548F50, five entries of 0x64); the weapon
+  menu's selection and buckets (0x548718..0x548734), the pickup history gHR (0x549550..0x549627) and the ammo counts
+  gWR.riAmmo (0x548698) were one for both. The 19 vtables gHUD's constructor 0x1A6BB0 stores are now a player's
+  frame roots (region_evidence.HUD_VTABLES, six methods each; region_model.hud_methods), so those callbacks are a
+  player's code: 25 objects became a player's (riAmmo and the history's slot by reviewed evidence, the rest from the
+  model). 116 regions, 776113 bytes.
+- **Number of Bots skips counts above 16; a count to be typed.** The list stays 0-16 then fours to 64 (the title's
+  lists have 0x27 enable bytes). A typed count (a click on the value, or a digit with the row selected; Enter keeps
+  0-64, Escape cancels, anything else refused with "Use 0 to 64") is the list's last choice, hidden until used, its
+  label "N bots (typed)" and its command "+wait +bot_quota N" written in place (pc_menu.cpp PcSetBotsTyped); a count
+  the list has is chosen there. Kept with Instant Action's choices ("n=" in instant_state).
+- **The flashlight and explosions slowed the game to 3 frames a second** (338 ms a frame in the log, the GPU at 1 ms):
+  every view's sweep recompressed each lightmap a dynamic light touched with the title's XGCompressRect run as guest
+  code, about 20 ms for a 128x128 lightmap, ~17 lightmaps for the flashlight. They are compressed on the host now
+  (pcdxt::EncodeDxt: range fit, four colours; tests/pc_dxt_test round trips within 12 a channel).

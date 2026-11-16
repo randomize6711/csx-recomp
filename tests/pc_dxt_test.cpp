@@ -39,6 +39,44 @@ int main() {
     uint8_t big[8 * 8 * 4] = {};
     pcdxt::DecodeDxt(two, big, 8, 4, false);
     Check(big[0] == 0 && big[4 * 4] == 255 && big[(8 + 4) * 4] == 255, "blocks laid out left to right");
+    // the encoder (EncodeDxt): a smooth 128x128 lightmap-like level comes back close (each channel within 12 of the
+    // original: 565 and four colours a block), a flat block exactly as its 565 colour, DXT4/5's alpha kept
+    {
+        static uint8_t img[128 * 128 * 4], enc[128 * 128], dec[128 * 128 * 4];
+        for (int y = 0; y < 128; y++)
+            for (int x = 0; x < 128; x++) {
+                uint8_t* p = img + (y * 128 + x) * 4;
+                p[0] = uint8_t(40 + x), p[1] = uint8_t(30 + y), p[2] = uint8_t((x + y) / 2), p[3] = 255;
+            }
+        for (int pass = 0; pass < 2; pass++) {
+            const bool five = pass == 1;
+            pcdxt::EncodeDxt(img, enc, 128, 128, five);
+            pcdxt::DecodeDxt(enc, dec, 128, 128, five);
+            int worst = 0;
+            for (int i = 0; i < 128 * 128 * 4; i++) {
+                int e = int(img[i]) - int(dec[i]);
+                e = e < 0 ? -e : e;
+                worst = e > worst ? e : worst;
+            }
+            Check(worst <= 12, five ? "DXT5 encode: a gradient back within 12" : "DXT1 encode: a gradient back within 12");
+        }
+        uint8_t flat[16 * 4], fenc[8], fdec[16 * 4];
+        for (int i = 0; i < 16; i++) flat[i * 4] = 255, flat[i * 4 + 1] = 0, flat[i * 4 + 2] = 255, flat[i * 4 + 3] = 255;
+        pcdxt::EncodeDxt(flat, fenc, 4, 4, false);
+        pcdxt::DecodeDxt(fenc, fdec, 4, 4, false);
+        Check(fdec[0] == 255 && fdec[1] == 0 && fdec[2] == 255 && fdec[3] == 255 && fdec[60] == 255, "DXT1 encode: a flat block");
+        uint8_t al[16 * 4], aenc[16], adec[16 * 4];
+        for (int i = 0; i < 16; i++) al[i * 4] = al[i * 4 + 1] = al[i * 4 + 2] = 100, al[i * 4 + 3] = uint8_t(i * 17);
+        pcdxt::EncodeDxt(al, aenc, 4, 4, true);
+        pcdxt::DecodeDxt(aenc, adec, 4, 4, true);
+        int worst = 0;
+        for (int i = 0; i < 16; i++) {
+            int e = int(al[i * 4 + 3]) - int(adec[i * 4 + 3]);
+            e = e < 0 ? -e : e;
+            worst = e > worst ? e : worst;
+        }
+        Check(worst <= 19, "DXT5 encode: alpha 0..255 within half a step");
+    }
     std::printf("%d checks, %d failed\n", checks, failed);
     return failed ? 1 : 0;
 }
