@@ -2794,3 +2794,10 @@ The user's findings:
   every view's sweep recompressed each lightmap a dynamic light touched with the title's XGCompressRect run as guest
   code, about 20 ms for a 128x128 lightmap, ~17 lightmaps for the flashlight. They are compressed on the host now
   (pcdxt::EncodeDxt: range fit, four colours; tests/pc_dxt_test round trips within 12 a channel).
+
+### 18.20 The fourth playtest (2026-11-16): 18.19 confirmed
+
+Dust2, Deathmatch, 60 bots, 10.5 minutes, no error. Confirmed by the user: each kill once in each view's kill feed,
+each player's weapon HUD its own. The flashlight held 60-80 window frames a second (3 before 18.19); a typed bot
+count chosen by a click. Found: with Flashbang Effect Black, a flash seen looking away (CS's alpha 200) stayed white
+(only the alpha 255 ones were made black): fixed in pc_gameplay.cpp (alpha 150 or more), not run yet.
